@@ -1,6 +1,6 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import { getPostHogClient } from '@/lib/analytics'
-import { ErrorCode, MissingProjectContextError, wrapError } from '@/lib/errors'
+import { ErrorCode, MissingOrganizationContextError, MissingProjectContextError, wrapError } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
@@ -170,15 +170,41 @@ export class StateManager {
         return { organizationId, projectId }
     }
 
-    async getOrgID(): Promise<string | undefined> {
-        const orgId = await this._cache.get('orgId')
+    /**
+     * Resolve an organization id without throwing. Reads the cache, then falls
+     * back to the API key's default-org resolution, then derives the org from
+     * the cached project (matches the team-scoped key path in
+     * `_getDefaultOrganizationAndProject` which intentionally omits the org).
+     *
+     * The derived org id is written back to the cache so subsequent calls
+     * short-circuit on the first read — without this, every team-scoped tool
+     * invocation would re-hit `setDefaultOrganizationAndProject` plus a project
+     * fetch.
+     */
+    private async _resolveOrganizationId(): Promise<string | undefined> {
+        const cached = await this._cache.get('orgId')
+        if (cached) {
+            return cached
+        }
 
-        if (!orgId) {
-            const { organizationId } = await this.setDefaultOrganizationAndProject()
-
+        const { organizationId } = await this.setDefaultOrganizationAndProject()
+        if (organizationId) {
             return organizationId
         }
 
+        const project = await this.getCachedOrFetchProject().catch(() => undefined)
+        const derived = project?.organization
+        if (derived) {
+            await this._cache.set('orgId', derived)
+        }
+        return derived
+    }
+
+    async getOrgID(): Promise<string> {
+        const orgId = await this._resolveOrganizationId()
+        if (!orgId) {
+            throw new MissingOrganizationContextError()
+        }
         return orgId
     }
 
@@ -245,7 +271,9 @@ export class StateManager {
     }
 
     async getCachedOrFetchOrg(): Promise<CachedOrg | undefined> {
-        const orgId = await this.getOrgID()
+        // Use the non-throwing resolver: callers like `getEnvironmentPrompt` and
+        // consent checks treat "no org" as "skip", not as a hard error.
+        const orgId = await this._resolveOrganizationId()
         if (!orgId) {
             return undefined
         }

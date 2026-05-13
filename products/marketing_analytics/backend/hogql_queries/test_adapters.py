@@ -1,5 +1,6 @@
+import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import ClassVar, Union
@@ -11,7 +12,7 @@ from unittest.mock import Mock, patch
 import structlog
 from parameterized import parameterized
 
-from posthog.schema import DateRange, SourceMap
+from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel, SourceMap
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -28,6 +29,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     ExternalConfig,
     GoogleAdsConfig,
     LinkedinAdsConfig,
+    MarketingSourceAdapter,
     MetaAdsConfig,
     PinterestAdsConfig,
     QueryContext,
@@ -1115,6 +1117,149 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert result.is_valid, "MetaAdsAdapter validation should succeed"
         assert isinstance(result.errors, list), "MetaAdsAdapter should return list of errors"
 
+    @parameterized.expand(
+        [
+            # (level, has_adset_tables, has_ad_tables, expected_supports)
+            ("CHANNEL_no_extra", MarketingAnalyticsDrillDownLevel.CHANNEL, False, False, True),
+            ("CHANNEL_with_adset", MarketingAnalyticsDrillDownLevel.CHANNEL, True, False, True),
+            ("CAMPAIGN_no_extra", MarketingAnalyticsDrillDownLevel.CAMPAIGN, False, False, True),
+            ("MEDIUM_no_extra", MarketingAnalyticsDrillDownLevel.MEDIUM, False, False, True),
+            ("AD_GROUP_no_adset", MarketingAnalyticsDrillDownLevel.AD_GROUP, False, False, False),
+            ("AD_GROUP_with_adset", MarketingAnalyticsDrillDownLevel.AD_GROUP, True, False, True),
+            ("AD_GROUP_with_adset_and_ad", MarketingAnalyticsDrillDownLevel.AD_GROUP, True, True, True),
+            ("AD_no_ad_tables", MarketingAnalyticsDrillDownLevel.AD, False, False, False),
+            ("AD_with_only_adset", MarketingAnalyticsDrillDownLevel.AD, True, False, False),
+            ("AD_with_ad_tables", MarketingAnalyticsDrillDownLevel.AD, False, True, True),
+            ("AD_full_hierarchy", MarketingAnalyticsDrillDownLevel.AD, True, True, True),
+        ]
+    )
+    def test_meta_ads_supports_level(self, _name, level, has_adset_tables, has_ad_tables, expected):
+        """`supports_level` gates whether the adapter emits a query at the given level.
+        Without the adset/ad warehouse tables, AD_GROUP/AD must return False so the
+        factory skips this adapter and the union falls back to other sources or empty.
+        """
+        campaign_table = self._create_mock_table("metaads_campaigns", "MetaAds")
+        stats_table = self._create_mock_table("metaads_campaign_stats", "MetaAds")
+        adset_table = self._create_mock_table("metaads_adsets", "MetaAds") if has_adset_tables else None
+        adset_stats_table = self._create_mock_table("metaads_adset_stats", "MetaAds") if has_adset_tables else None
+        ad_table = self._create_mock_table("metaads_ads", "MetaAds") if has_ad_tables else None
+        ad_stats_table = self._create_mock_table("metaads_ad_stats", "MetaAds") if has_ad_tables else None
+
+        config = MetaAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            adset_table=adset_table,
+            adset_stats_table=adset_stats_table,
+            ad_table=ad_table,
+            ad_stats_table=ad_stats_table,
+            source_type="MetaAds",
+            source_id="test_supports_level",
+        )
+
+        adapter = MetaAdsAdapter(config=config, context=self.context)
+        assert adapter.supports_level(level) == expected
+
+    def _build_meta_adapter_at_level(self, level: MarketingAnalyticsDrillDownLevel) -> MetaAdsAdapter:
+        """Helper for hierarchy field tests — wires up a Meta adapter with all six tables
+        and a context locked to `level`."""
+        config = MetaAdsConfig(
+            campaign_table=self._create_mock_table("metaads_campaigns", "MetaAds"),
+            stats_table=self._create_mock_table("metaads_campaign_stats", "MetaAds"),
+            adset_table=self._create_mock_table("metaads_adsets", "MetaAds"),
+            adset_stats_table=self._create_mock_table("metaads_adset_stats", "MetaAds"),
+            ad_table=self._create_mock_table("metaads_ads", "MetaAds"),
+            ad_stats_table=self._create_mock_table("metaads_ad_stats", "MetaAds"),
+            source_type="MetaAds",
+            source_id="orphan_test",
+        )
+        context = replace(self.context, drill_down_level=level)
+        return MetaAdsAdapter(config=config, context=context)
+
+    @parameterized.expand(
+        [
+            ("ad_group", MarketingAnalyticsDrillDownLevel.AD_GROUP),
+            ("ad", MarketingAnalyticsDrillDownLevel.AD),
+        ]
+    )
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_meta_ads_query_at_hierarchy_levels(self, _name, level):
+        """Snapshot of the Meta query AST at AD_GROUP / AD. Captures the FROM chain
+        (entity → stats → adsets → campaigns), 13-column SELECT with hierarchy fields,
+        GROUP BY covering every non-aggregate column, and the orphan-fallback coalesce
+        on LEFT JOINed parents. Any regression in any of these surfaces as a snapshot diff.
+        """
+        adapter = self._build_meta_adapter_at_level(level)
+        query = adapter.build_query()
+        assert query is not None
+        assert pretty_print_in_tests(query.to_hogql(), self.team.pk) == self.snapshot
+
+    @parameterized.expand(
+        [
+            # (level, getter_name, expected_to_use_coalesce)
+            # At AD_GROUP, adsets is the FROM table — never NULL → no coalesce needed.
+            ("AD_GROUP_ad_group_name", MarketingAnalyticsDrillDownLevel.AD_GROUP, "_get_ad_group_name_field", False),
+            ("AD_GROUP_ad_group_id", MarketingAnalyticsDrillDownLevel.AD_GROUP, "_get_ad_group_id_field", False),
+            # At AD_GROUP, campaigns is LEFT JOINed → coalesce to surface orphans.
+            ("AD_GROUP_campaign_name", MarketingAnalyticsDrillDownLevel.AD_GROUP, "_get_campaign_name_field", True),
+            ("AD_GROUP_campaign_id", MarketingAnalyticsDrillDownLevel.AD_GROUP, "_get_campaign_id_field", True),
+            # At AD, adsets and campaigns are both LEFT JOINed → coalesce both.
+            ("AD_ad_group_name", MarketingAnalyticsDrillDownLevel.AD, "_get_ad_group_name_field", True),
+            ("AD_ad_group_id", MarketingAnalyticsDrillDownLevel.AD, "_get_ad_group_id_field", True),
+            ("AD_campaign_name", MarketingAnalyticsDrillDownLevel.AD, "_get_campaign_name_field", True),
+            ("AD_campaign_id", MarketingAnalyticsDrillDownLevel.AD, "_get_campaign_id_field", True),
+            # ads at AD level is the FROM table — never NULL → no coalesce.
+            ("AD_ad_name", MarketingAnalyticsDrillDownLevel.AD, "_get_ad_name_field", False),
+            ("AD_ad_id", MarketingAnalyticsDrillDownLevel.AD, "_get_ad_id_field", False),
+        ]
+    )
+    def test_meta_ads_orphan_fallback_for_left_joined_tables(self, _name, level, getter_name, expected_coalesce):
+        """Hierarchy fields read from LEFT JOINed parent tables can produce NULL when
+        the parent entity has been deleted (orphan ad pointing to a removed adset, or
+        ad-group pointing to a removed campaign). Without a coalesce, all orphans
+        collapse into a single unlabelled NULL row in the GROUP BY. We wrap those
+        fields with `coalesce(toString(...), 'Unknown ...')` so orphans surface as
+        one explicit row instead of silently disappearing.
+
+        Fields read from the FROM table at the level (adsets at AD_GROUP, ads at AD)
+        can never be NULL and must NOT have the coalesce wrapper.
+        """
+        adapter = self._build_meta_adapter_at_level(level)
+        expr = getattr(adapter, getter_name)()
+
+        is_coalesce = isinstance(expr, ast.Call) and expr.name == "coalesce"
+        assert is_coalesce == expected_coalesce, (
+            f"At {level}, {getter_name}() {'should' if expected_coalesce else 'should NOT'} "
+            f"be wrapped with coalesce — got {ast.dump(expr) if hasattr(ast, 'dump') else expr}"
+        )
+
+    @parameterized.expand(
+        [
+            # (level, expected_match_key_is_empty)
+            # Levels with excludes_conversion_goals=True: AD_GROUP / AD only.
+            ("CHANNEL", MarketingAnalyticsDrillDownLevel.CHANNEL, False),
+            ("SOURCE", MarketingAnalyticsDrillDownLevel.SOURCE, False),
+            ("CAMPAIGN", MarketingAnalyticsDrillDownLevel.CAMPAIGN, False),
+            ("MEDIUM", MarketingAnalyticsDrillDownLevel.MEDIUM, False),
+            ("CONTENT", MarketingAnalyticsDrillDownLevel.CONTENT, False),
+            ("TERM", MarketingAnalyticsDrillDownLevel.TERM, False),
+            ("AD_GROUP", MarketingAnalyticsDrillDownLevel.AD_GROUP, True),
+            ("AD", MarketingAnalyticsDrillDownLevel.AD, True),
+        ]
+    )
+    def test_match_key_empty_at_excludes_conversion_goals_levels(self, _name, level, expected_empty):
+        """match_key is the join key against unified_conversion_goals. At drill-down levels
+        where that join is skipped (excludes_conversion_goals=True), the match key is unused
+        — emitting it as `''` rather than the campaign name avoids a confusing duplicate
+        column and saves wire bytes. The check lives in MarketingSourceAdapter base, so this
+        test covers the cross-cutting behavior without binding it to a specific adapter."""
+        adapter = self._build_meta_adapter_at_level(level)
+        match_key = adapter._get_match_key_expr()
+        is_empty_constant = isinstance(match_key, ast.Constant) and match_key.value == ""
+        assert is_empty_constant == expected_empty, (
+            f"At {level}, _get_match_key_expr() expected to be {'empty Constant' if expected_empty else 'a real expression'}, "
+            f"got {match_key!r}"
+        )
+
     def test_tiktok_ads_adapter_validation_consistency(self):
         campaign_table = self._create_mock_table("tiktokads_campaigns", "TikTokAds")
         stats_table = self._create_mock_table("tiktokads_campaign_report", "TikTokAds")
@@ -1874,8 +2019,6 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         adapter = BigQueryAdapter(config=config, context=self.context)
 
-        import time
-
         start_time = time.time()
         query = adapter.build_query()
         generation_time = time.time() - start_time
@@ -2093,8 +2236,6 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_is_simple_column_name(self, _name: str, value: str, expected: bool) -> None:
-        from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
-
         assert MarketingSourceAdapter._is_simple_column_name(value) == expected
 
     def test_bigquery_build_query_with_nested_expressions(self):

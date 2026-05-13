@@ -84,6 +84,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="api_key",
@@ -91,6 +92,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="email_address",
@@ -98,6 +100,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
                         type=SourceFieldInputConfigType.EMAIL,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                 ],
             ),

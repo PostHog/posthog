@@ -88,6 +88,7 @@ from .taxonomy import (
     EVENT_SIGNED_UP,
     EVENT_UPGRADED_PLAN,
     EVENT_UPLOADED_FILE,
+    FLAG_BIAS_WARNING_DEMO_EXPERIMENT,
     FLAG_FILE_ENGAGEMENT_EXPERIMENT,
     FLAG_FILE_PREVIEWS,
     FLAG_ONBOARDING_EXPERIMENT,
@@ -195,6 +196,8 @@ class HedgeboxMatrix(Matrix):
     upgrade_prompt_experiment_start: dt.datetime
     team_collab_experiment_start: dt.datetime
     team_collab_experiment_end: dt.datetime
+    bias_warning_experiment_start: dt.datetime
+    bias_warning_experiment_flip_time: dt.datetime
     extended_end: dt.datetime
 
     def __init__(self, *args, **kwargs):
@@ -222,6 +225,10 @@ class HedgeboxMatrix(Matrix):
         # Team collaboration boost (stopped early) - 50% to 70%
         self.team_collab_experiment_start = self.start + elapsed * 0.5
         self.team_collab_experiment_end = self.start + elapsed * 0.7
+
+        # Bias warning demo (running) - 60% onward, ~2% of users flip variants halfway through
+        self.bias_warning_experiment_start = self.start + elapsed * 0.6
+        self.bias_warning_experiment_flip_time = self.start + elapsed * 0.8
 
         # Extended simulation for running experiment
         self.extended_end = self.now + dt.timedelta(days=30)
@@ -999,6 +1006,12 @@ class HedgeboxMatrix(Matrix):
                 [("control", 50), ("test", 50)],
                 self.team_collab_experiment_start - dt.timedelta(hours=1),
             )
+            bias_warning_flag = create_experiment_flag(
+                FLAG_BIAS_WARNING_DEMO_EXPERIMENT,
+                "Bias warning demo: uneven split with multi-variant",
+                [("control", 90), ("test", 10)],
+                self.bias_warning_experiment_start - dt.timedelta(hours=1),
+            )
         except IntegrityError:
             # Flags already exist, fetch them
             onboarding_flag = FeatureFlag.objects.get(team=team, key=FLAG_ONBOARDING_EXPERIMENT)
@@ -1008,6 +1021,7 @@ class HedgeboxMatrix(Matrix):
             upgrade_prompt_flag = FeatureFlag.objects.get(team=team, key=FLAG_UPGRADE_PROMPT_EXPERIMENT)
             retention_nudge_flag = FeatureFlag.objects.get(team=team, key=FLAG_RETENTION_NUDGE_EXPERIMENT)
             team_collab_flag = FeatureFlag.objects.get(team=team, key=FLAG_TEAM_COLLAB_EXPERIMENT)
+            bias_warning_flag = FeatureFlag.objects.get(team=team, key=FLAG_BIAS_WARNING_DEMO_EXPERIMENT)
 
         # Experiments and shared metrics
 
@@ -1322,6 +1336,7 @@ class HedgeboxMatrix(Matrix):
         # --- Additional experiments for coverage of various states ---
 
         # Pricing page redesign (inconclusive) — uses high-volume pageview→signup funnel
+        pricing_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
         Experiment.objects.create(
             team=team,
             name="Pricing page redesign",
@@ -1332,7 +1347,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "funnel",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": pricing_metric_uuids[0],
                     "name": "Pricing page to signup",
                     "series": [
                         {"kind": "EventsNode", "event": "$pageview"},
@@ -1345,13 +1360,14 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": pricing_metric_uuids[1],
                     "name": "Pageviews per user",
                     "source": {"kind": "EventsNode", "event": "$pageview"},
                     "goal": "increase",
                 },
             ],
             metrics_secondary=[],
+            primary_metrics_ordered_uuids=pricing_metric_uuids,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
@@ -1368,6 +1384,7 @@ class HedgeboxMatrix(Matrix):
         )
 
         # File sharing incentive (lost) — uses upload→download funnel and upload mean
+        sharing_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
         Experiment.objects.create(
             team=team,
             name="File sharing incentive",
@@ -1378,7 +1395,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": sharing_metric_uuids[0],
                     "name": "Uploads per user",
                     "source": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
                     "goal": "increase",
@@ -1386,7 +1403,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "funnel",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": sharing_metric_uuids[1],
                     "name": "Upload to download",
                     "series": [
                         {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
@@ -1398,6 +1415,7 @@ class HedgeboxMatrix(Matrix):
                 },
             ],
             metrics_secondary=[],
+            primary_metrics_ordered_uuids=sharing_metric_uuids,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
@@ -1414,6 +1432,7 @@ class HedgeboxMatrix(Matrix):
         )
 
         # Upgrade prompt experiment (running, recently started) — uses high-volume events
+        upgrade_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
         Experiment.objects.create(
             team=team,
             name="Upgrade prompt experiment",
@@ -1424,7 +1443,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "funnel",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": upgrade_metric_uuids[0],
                     "name": "Login to upload",
                     "series": [
                         {"kind": "EventsNode", "event": EVENT_LOGGED_IN},
@@ -1437,13 +1456,14 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": upgrade_metric_uuids[1],
                     "name": "Downloads per user",
                     "source": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
                     "goal": "increase",
                 },
             ],
             metrics_secondary=[],
+            primary_metrics_ordered_uuids=upgrade_metric_uuids,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 34},
@@ -1459,6 +1479,7 @@ class HedgeboxMatrix(Matrix):
         )
 
         # Retention nudge (draft - not yet started)
+        retention_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
         Experiment.objects.create(
             team=team,
             name="Retention nudge",
@@ -1469,7 +1490,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "retention",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": retention_metric_uuids[0],
                     "name": "7-day login retention",
                     "goal": "increase",
                     "start_event": {"kind": "EventsNode", "event": EVENT_LOGGED_IN},
@@ -1482,13 +1503,14 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": retention_metric_uuids[1],
                     "name": "Downloads per user",
                     "source": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
                     "goal": "increase",
                 },
             ],
             metrics_secondary=[],
+            primary_metrics_ordered_uuids=retention_metric_uuids,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
@@ -1503,6 +1525,7 @@ class HedgeboxMatrix(Matrix):
         )
 
         # Team collaboration boost (stopped early) — uses high-volume events
+        team_collab_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
         Experiment.objects.create(
             team=team,
             name="Team collaboration boost",
@@ -1513,7 +1536,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": team_collab_metric_uuids[0],
                     "name": "Files uploaded per user",
                     "source": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
                     "goal": "increase",
@@ -1521,7 +1544,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "funnel",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": team_collab_metric_uuids[1],
                     "name": "Signup to upload",
                     "series": [
                         {"kind": "EventsNode", "event": EVENT_SIGNED_UP},
@@ -1533,6 +1556,7 @@ class HedgeboxMatrix(Matrix):
                 },
             ],
             metrics_secondary=[],
+            primary_metrics_ordered_uuids=team_collab_metric_uuids,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
@@ -1546,6 +1570,54 @@ class HedgeboxMatrix(Matrix):
             conclusion="stopped_early",
             conclusion_comment="Stopped early due to a bug in the activity feed causing excessive notifications. Need to fix the notification throttling before re-running.",
             created_at=team_collab_flag.created_at,
+        )
+
+        # Bias warning demo (running) — intentionally configured to trigger the
+        # multi-variant exclusion bias warning: 90/10 uneven split, default EXCLUDE
+        # handling, and ~2% of users exposed to multiple variants over time.
+        bias_warning_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
+        Experiment.objects.create(
+            team=team,
+            name="Bias warning demo: uneven split with multi-variant",
+            description="Demo experiment intentionally configured to trigger the multi-variant exclusion bias warning (90/10 split, ~2% of users exposed to multiple variants).",
+            feature_flag=bias_warning_flag,
+            created_by=user,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "uuid": bias_warning_metric_uuids[0],
+                    "name": "Pageview to upload",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview"},
+                        {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                    ],
+                    "goal": "increase",
+                    "conversion_window": 7,
+                    "conversion_window_unit": "day",
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": bias_warning_metric_uuids[1],
+                    "name": "Pageviews per user",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                    "goal": "increase",
+                },
+            ],
+            metrics_secondary=[],
+            primary_metrics_ordered_uuids=bias_warning_metric_uuids,
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 90},
+                    {"key": "test", "rollout_percentage": 10},
+                ],
+                "recommended_sample_size": int(len(self.clusters) * 0.30),
+                "minimum_detectable_effect": 10,
+            },
+            start_date=self.bias_warning_experiment_start,
+            end_date=None,
+            created_at=bias_warning_flag.created_at,
         )
 
         self._set_up_demo_data_warehouse_tables(team, user)

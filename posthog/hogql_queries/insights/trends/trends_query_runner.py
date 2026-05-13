@@ -10,6 +10,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models.functions import Coalesce
 
+import posthoganalytics
 from natsort import natsorted, ns
 
 from posthog.schema import (
@@ -631,11 +632,19 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                             continue
                         remapped_label = "none"
 
+                    # Multi-breakdowns return a list — mirror the frontend's "::"-join when rendering the label,
+                    # but keep `breakdown_value` as the raw list for consistency with the non-boolean path.
+                    label_value = (
+                        "::".join(str(item) for item in remapped_label)
+                        if isinstance(remapped_label, list)
+                        else remapped_label
+                    )
+
                     # if count of series == 1, then we don't need to include the object label in the series label
                     if real_series_count > 1:
-                        series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
+                        series_object["label"] = "{} - {}".format(series_object["label"], label_value)
                     else:
-                        series_object["label"] = remapped_label
+                        series_object["label"] = label_value
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdownFilter.breakdown_type == "cohort":
                     cohort_id = get_value("breakdown_value", val)
@@ -835,6 +844,34 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 )
 
         self.modifiers.dataWarehouseEventsModifiers = datawarehouse_modifiers
+
+        self.modifiers.sessionPropertyPreAggregation = (
+            self._has_session_breakdown() and self._team_flag_session_property_pre_aggregation()
+        )
+
+    def _has_session_breakdown(self) -> bool:
+        filter = self.query.breakdownFilter
+        if filter is None:
+            return False
+        if filter.breakdown_type == "session":
+            return True
+        return any(breakdown.type == "session" for breakdown in (filter.breakdowns or []))
+
+    def _team_flag_session_property_pre_aggregation(self) -> bool:
+        return posthoganalytics.feature_enabled(
+            "trends-session-property-pre-aggregation",
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {"id": str(self.team.organization_id)},
+                "project": {"id": str(self.team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
 
     def setup_series(self) -> list[SeriesWithExtras]:
         series_with_extras = [
@@ -1059,17 +1096,28 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return base_result
 
     def _is_breakdown_filter_field_boolean(self):
-        if (
-            not self.query.breakdownFilter
-            or not self.query.breakdownFilter.breakdown_type
-            or not self.query.breakdownFilter.breakdown
-        ):
+        if not self.query.breakdownFilter:
             return False
 
-        if (
-            isinstance(self.query.series[0], DataWarehouseNode)
-            and self.query.breakdownFilter.breakdown_type == "data_warehouse"
-        ):
+        breakdown_filter = self.query.breakdownFilter
+        breakdown_value: str | int | list[str | int] | None
+        breakdown_type: BreakdownType | MultipleBreakdownType | None
+        breakdown_group_type_index: int | None
+
+        # `breakdowns` of length 1 is treated as the equivalent single-breakdown.
+        if breakdown_filter.breakdowns is not None and len(breakdown_filter.breakdowns) == 1:
+            single = breakdown_filter.breakdowns[0]
+            breakdown_value = single.property
+            breakdown_type = single.type
+            breakdown_group_type_index = single.group_type_index
+        elif breakdown_filter.breakdown_type and breakdown_filter.breakdown:
+            breakdown_value = breakdown_filter.breakdown
+            breakdown_type = breakdown_filter.breakdown_type
+            breakdown_group_type_index = breakdown_filter.breakdown_group_type_index
+        else:
+            return False
+
+        if isinstance(self.query.series[0], DataWarehouseNode) and breakdown_type == "data_warehouse":
             series = self.query.series[0]  # only one series when data warehouse is active
 
             table_or_view = get_view_or_table_by_name(self.team, series.table_name)
@@ -1079,17 +1127,18 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             if table_or_view.columns is None:
                 return False
 
-            breakdown_key = (
-                self.query.breakdownFilter.breakdown[0]
-                if isinstance(self.query.breakdownFilter.breakdown, list)
-                else self.query.breakdownFilter.breakdown
-            )
+            breakdown_key = breakdown_value[0] if isinstance(breakdown_value, list) else breakdown_value
 
-            columns = dict(table_or_view.columns)
+            columns = table_or_view.columns
+            if not isinstance(columns, dict):
+                return False
+
             if breakdown_key not in columns:
                 return False
 
-            field_type = columns[breakdown_key]["clickhouse"]
+            field_type = self._data_warehouse_column_clickhouse_type(columns[breakdown_key])
+            if field_type is None:
+                return False
 
             if field_type.startswith("Nullable("):
                 field_type = field_type.replace("Nullable(", "")[:-1]
@@ -1098,10 +1147,21 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 return True
 
         return self._is_breakdown_field_boolean(
-            self.query.breakdownFilter.breakdown,
-            self.query.breakdownFilter.breakdown_type,
-            self.query.breakdownFilter.breakdown_group_type_index,
+            breakdown_value,
+            breakdown_type,
+            breakdown_group_type_index,
         )
+
+    def _data_warehouse_column_clickhouse_type(self, column: object) -> str | None:
+        if isinstance(column, str):
+            return column
+
+        if isinstance(column, dict):
+            clickhouse_type = column.get("clickhouse")
+            if isinstance(clickhouse_type, str):
+                return clickhouse_type
+
+        return None
 
     def _is_breakdown_field_boolean(
         self,
@@ -1128,6 +1188,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return field_type == "Boolean"
 
     def _convert_boolean(self, value: Any):
+        if isinstance(value, list):
+            return [self._convert_boolean(item) for item in value]
         bool_map = {1: "true", 0: "false", "": "", "1": "true", "0": "false"}
         return bool_map.get(value) or value
 

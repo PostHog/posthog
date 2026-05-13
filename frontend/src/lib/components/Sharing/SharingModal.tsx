@@ -54,7 +54,8 @@ import { sharingLogic } from './sharingLogic'
 function getResourceType(
     dashboardId?: number,
     insightShortId?: InsightShortId,
-    recordingId?: string
+    recordingId?: string,
+    notebookShortId?: string
 ): AccessControlResourceType {
     if (dashboardId) {
         return AccessControlResourceType.Dashboard
@@ -64,6 +65,9 @@ function getResourceType(
     }
     if (recordingId) {
         return AccessControlResourceType.SessionRecording
+    }
+    if (notebookShortId) {
+        return AccessControlResourceType.Notebook
     }
     return AccessControlResourceType.Project
 }
@@ -76,6 +80,7 @@ export interface SharingModalBaseProps {
     insight?: Partial<QueryBasedInsightModel>
     cachedResults?: AnyResponseType
     recordingId?: string
+    notebookShortId?: string
 
     title?: string
     previewIframe?: boolean
@@ -85,6 +90,7 @@ export interface SharingModalBaseProps {
      */
     recordingLinkTimeForm?: ReactNode
     userAccessLevel?: AccessControlLevel
+    onSharingEnabledChange?: (enabled: boolean) => void
 }
 
 export interface SharingModalProps extends SharingModalBaseProps {
@@ -100,16 +106,20 @@ export function SharingModalContent({
     insight,
     cachedResults,
     recordingId,
+    notebookShortId,
     additionalParams,
     previewIframe = false,
     recordingLinkTimeForm = undefined,
     userAccessLevel,
+    onSharingEnabledChange,
 }: SharingModalBaseProps): JSX.Element {
     const logicProps = {
         dashboardId,
         insightShortId,
         recordingId,
+        notebookShortId,
         additionalParams,
+        onSharingEnabledChange,
     }
     const {
         whitelabelAvailable,
@@ -163,7 +173,15 @@ export function SharingModalContent({
           })
         : null
 
-    const resource = dashboardId ? 'dashboard' : insightShortId ? 'insight' : recordingId ? 'recording' : 'this'
+    const resource = dashboardId
+        ? 'dashboard'
+        : insightShortId
+          ? 'insight'
+          : recordingId
+            ? 'recording'
+            : notebookShortId
+              ? 'notebook'
+              : 'this'
     const hasEditAccess = userAccessLevel
         ? accessLevelSatisfied(resource as AccessControlResourceType, userAccessLevel, AccessControlLevel.Editor)
         : true
@@ -210,7 +228,12 @@ export function SharingModalContent({
                             <LemonBanner type="warning">Public sharing is disabled for this organization.</LemonBanner>
                         ) : (
                             <AccessControlAction
-                                resourceType={getResourceType(dashboardId, insightShortId, recordingId)}
+                                resourceType={getResourceType(
+                                    dashboardId,
+                                    insightShortId,
+                                    recordingId,
+                                    notebookShortId
+                                )}
                                 minAccessLevel={AccessControlLevel.Editor}
                                 userAccessLevel={userAccessLevel}
                             >
@@ -263,6 +286,7 @@ export function SharingModalContent({
                                                         dashboardId={dashboardId}
                                                         insightId={insight?.id}
                                                         recordingId={recordingId}
+                                                        notebookShortId={notebookShortId}
                                                     />
                                                 </div>
                                             )}

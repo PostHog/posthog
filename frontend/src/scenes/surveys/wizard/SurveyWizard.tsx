@@ -8,14 +8,16 @@ import { IconArrowLeft, IconChevronLeft, IconChevronRight } from '@posthog/icons
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { SurveyQuestionBranchingType } from '~/types'
+import { SurveyMatchType, SurveyQuestionBranchingType } from '~/types'
 
 import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
 import { NewSurvey } from '../constants'
@@ -23,6 +25,7 @@ import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
 import { surveyLogic } from '../surveyLogic'
 import { surveysLogic } from '../surveysLogic'
+import { getSurveyWithTranslatedContent } from '../surveyTranslationUtils'
 import { canUseSurveyWizard, doesSurveyHaveDisplayConditions, getSurveyAudienceSummaryValue } from '../utils'
 import { MaxTip } from './MaxTip'
 import { AppearanceStep } from './steps/AppearanceStep'
@@ -69,6 +72,8 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const { setSurveyValue, loadSurvey } = useActions(surveyLogic)
 
     const { setPreferredEditor } = useActions(surveysLogic)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
+    const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
 
     // Redirect existing surveys that use wizard-unsupported fields to the full
     // editor. Brand-new surveys should always start on template selection,
@@ -100,6 +105,8 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
     const [previewPageIndex, setPreviewPageIndex] = useState(0)
+    const [guidedEditingLanguage, setGuidedEditingLanguage] = useState<string | null>(null)
+    const activeEditingLanguage = surveyTranslationsEnabled ? guidedEditingLanguage : null
 
     const maxPreviewIndex = survey.appearance?.displayThankYouMessage
         ? survey.questions.length
@@ -108,6 +115,12 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     useEffect(() => {
         setPreviewPageIndex((current) => (current > maxPreviewIndex ? Math.max(0, maxPreviewIndex) : current))
     }, [maxPreviewIndex])
+
+    useEffect(() => {
+        if (!surveyTranslationsEnabled && guidedEditingLanguage !== null) {
+            setGuidedEditingLanguage(null)
+        }
+    }, [guidedEditingLanguage, surveyTranslationsEnabled])
 
     const handleCustomizeMore = (): void => {
         setPreferredEditor('full')
@@ -146,7 +159,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     }
 
     const previewSurvey: NewSurvey = {
-        ...survey,
+        ...getSurveyWithTranslatedContent(survey, activeEditingLanguage),
         id,
     } as NewSurvey
 
@@ -155,7 +168,14 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         const summary: string[] = []
 
         if (conditions?.url) {
-            summary.push(`URL ${conditions.urlMatchType === 'exact' ? 'is exactly' : 'contains'} "${conditions.url}"`)
+            const urlMatchLabel =
+                conditions.urlMatchType === SurveyMatchType.Exact
+                    ? 'is exactly'
+                    : conditions.urlMatchType === SurveyMatchType.Regex
+                      ? 'matches regex'
+                      : 'contains'
+
+            summary.push(`URL ${urlMatchLabel} "${conditions.url}"`)
         }
 
         if (conditions?.selector) {
@@ -370,7 +390,12 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                     {/* Left: Form */}
                     <div className="space-y-5 lg:col-span-3">
                         <div>
-                            {currentStep === 'questions' && <QuestionsStep />}
+                            {currentStep === 'questions' && (
+                                <QuestionsStep
+                                    editingLanguage={guidedEditingLanguage}
+                                    setEditingLanguage={setGuidedEditingLanguage}
+                                />
+                            )}
                             {currentStep === 'where' && <WhereStep onOpenFullEditor={handleCustomizeMore} />}
                             {currentStep === 'when' && <WhenStep />}
                         </div>

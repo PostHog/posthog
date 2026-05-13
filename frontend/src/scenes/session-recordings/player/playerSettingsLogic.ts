@@ -35,6 +35,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
         setPlaylistCollapsed: (collapsed: boolean) => ({ collapsed }),
         setShowMetadataFooter: (showMetadataFooter: boolean) => ({ showMetadataFooter }),
+        setPlayerControlsOverlay: (playerControlsOverlay: boolean) => ({ playerControlsOverlay }),
     }),
     reducers(() => ({
         showFilters: [true, { persist: true }, { setShowFilters: (_, { showFilters }) => showFilters }],
@@ -108,6 +109,14 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setShowMetadataFooter: (_, { showMetadataFooter }) => showMetadataFooter,
             },
         ],
+        // Whether the seekbar + transport controls float on top of the recording or sit pinned below it in normal flow.
+        playerControlsOverlay: [
+            true,
+            { persist: true },
+            {
+                setPlayerControlsOverlay: (_, { playerControlsOverlay }) => playerControlsOverlay,
+            },
+        ],
     })),
 
     selectors({
@@ -147,6 +156,11 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
             posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivitySetting })
+        },
+        setPlayerControlsOverlay: ({ playerControlsOverlay }) => {
+            posthog.capture('recording player controls overlay toggled', {
+                player_controls_overlay: playerControlsOverlay,
+            })
         },
     }),
 

@@ -22,6 +22,7 @@ import { LogsAlertNotifications } from 'products/logs/frontend/components/LogsAl
 import { LogsAlertSimulation } from 'products/logs/frontend/components/LogsAlerting/LogsAlertSimulation'
 import { LogsAlertStateIndicator } from 'products/logs/frontend/components/LogsAlerting/LogsAlertStateIndicator'
 import { LogsAlertStateTimeline } from 'products/logs/frontend/components/LogsAlerting/LogsAlertStateTimeline'
+import { hasAnyFilter } from 'products/logs/frontend/components/LogsAlerting/logsAlertUtils'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
 import {
     LogsAlertConfigurationApi,
@@ -110,13 +111,37 @@ export function LogsAlertDetailScene(): JSX.Element {
     )
 }
 
+function primaryDisabledReason({
+    isDraft,
+    alertForm,
+    alertFormChanged,
+    nameError,
+    hasPendingNotifications,
+}: {
+    isDraft: boolean
+    alertForm: { name: string; severityLevels: string[]; serviceNames: string[]; filterGroup: UniversalFiltersGroup }
+    alertFormChanged: boolean
+    nameError: string | undefined
+    hasPendingNotifications: boolean
+}): string | undefined {
+    if (nameError) {
+        return nameError
+    }
+    if (isDraft) {
+        return !hasAnyFilter(alertForm.severityLevels, alertForm.serviceNames, alertForm.filterGroup)
+            ? 'Add at least one filter to enable'
+            : undefined
+    }
+    return !alertFormChanged && !hasPendingNotifications ? 'No changes to save' : undefined
+}
+
 function AlertHeader(): JSX.Element {
-    const { alert, alertLoading } = useValues(logsAlertDetailSceneLogic)
-    const { toggleEnabled, snoozeAlert, unsnoozeAlert, resetAlert, deleteAlert, renameAlert } =
+    const { alert, alertLoading, isDraft } = useValues(logsAlertDetailSceneLogic)
+    const { toggleEnabled, snoozeAlert, unsnoozeAlert, resetAlert, deleteAlert, enableAlert } =
         useActions(logsAlertDetailSceneLogic)
 
-    const { isAlertFormSubmitting, alertFormChanged } = useValues(logsAlertFormLogic)
-    const { submitAlertForm } = useActions(logsAlertFormLogic)
+    const { isAlertFormSubmitting, alertFormChanged, alertForm, alertFormErrors } = useValues(logsAlertFormLogic)
+    const { submitAlertForm, setAlertFormValue } = useActions(logsAlertFormLogic)
     const { pendingNotifications } = useValues(logsAlertNotificationLogic)
 
     const isEnabled = alert?.enabled ?? true
@@ -125,12 +150,13 @@ function AlertHeader(): JSX.Element {
 
     return (
         <SceneTitleSection
-            name={alert?.name}
+            name={alert ? alertForm.name : undefined}
             resourceType={{ type: 'logs' }}
             isLoading={alertLoading && !alert}
             canEdit={!!alert}
-            onNameChange={renameAlert}
-            renameDebounceMs={300}
+            forceEdit={isDraft}
+            onNameChange={(name) => setAlertFormValue('name', name)}
+            renameDebounceMs={0}
             actions={
                 alert ? (
                     <div className="flex items-center gap-2">
@@ -138,19 +164,23 @@ function AlertHeader(): JSX.Element {
                             <LogsAlertStateIndicator
                                 state={alert.state}
                                 enabled={isEnabled}
+                                firstEnabledAt={alert.first_enabled_at}
                                 lastErrorMessage={alert.last_error_message}
                                 snoozeUntil={alert.snooze_until}
                             />
                         )}
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            status={isEnabled ? 'danger' : undefined}
-                            onClick={toggleEnabled}
-                            disabledReason={isBroken ? 'Reset this alert to re-enable checks' : undefined}
-                        >
-                            {isEnabled ? 'Disable' : 'Enable'}
-                        </LemonButton>
+                        {!isDraft && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                status={isEnabled ? 'danger' : undefined}
+                                onClick={toggleEnabled}
+                                disabledReason={isBroken ? 'Reset this alert to re-enable checks' : undefined}
+                                data-attr="logs-alert-toggle-enabled"
+                            >
+                                {isEnabled ? 'Disable' : 'Enable'}
+                            </LemonButton>
+                        )}
                         {isSnoozed ? (
                             <LemonButton size="small" type="secondary" onClick={unsnoozeAlert}>
                                 Unsnooze
@@ -171,15 +201,18 @@ function AlertHeader(): JSX.Element {
                         <LemonButton
                             size="small"
                             type="primary"
-                            onClick={submitAlertForm}
+                            onClick={isDraft ? enableAlert : submitAlertForm}
                             loading={isAlertFormSubmitting}
-                            disabledReason={
-                                !alertFormChanged && pendingNotifications.length === 0
-                                    ? 'No changes to save'
-                                    : undefined
-                            }
+                            disabledReason={primaryDisabledReason({
+                                isDraft,
+                                alertForm,
+                                alertFormChanged,
+                                nameError: typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
+                                hasPendingNotifications: pendingNotifications.length > 0,
+                            })}
+                            data-attr={isDraft ? 'logs-alert-enable-primary' : 'logs-alert-save-primary'}
                         >
-                            Save
+                            {isDraft ? 'Enable alert' : 'Save'}
                         </LemonButton>
                         <More
                             overlay={
@@ -187,6 +220,7 @@ function AlertHeader(): JSX.Element {
                                     items={[
                                         ...(isBroken ? [{ label: 'Reset alert', onClick: resetAlert }] : []),
                                         {
+                                            'data-attr': 'logs-alert-detail-delete',
                                             label: 'Delete',
                                             status: 'danger' as const,
                                             onClick: () => {
@@ -199,6 +233,7 @@ function AlertHeader(): JSX.Element {
                                                         type: 'primary',
                                                         status: 'danger',
                                                         onClick: deleteAlert,
+                                                        'data-attr': 'logs-alert-delete-confirm',
                                                     },
                                                     secondaryButton: { children: 'Cancel' },
                                                 })
@@ -217,7 +252,7 @@ function AlertHeader(): JSX.Element {
 
 function AlertStatusBand(): JSX.Element | null {
     const { alert } = useValues(logsAlertDetailSceneLogic)
-    const { resetAlert, unsnoozeAlert, toggleEnabled, setActiveTab } = useActions(logsAlertDetailSceneLogic)
+    const { resetAlert, unsnoozeAlert, enableAlert, setActiveTab } = useActions(logsAlertDetailSceneLogic)
     const { destinationGroups, existingHogFunctionsLoading } = useValues(logsAlertNotificationLogic)
 
     if (!alert) {
@@ -228,7 +263,11 @@ function AlertStatusBand(): JSX.Element | null {
 
     if (!alert.enabled && alert.state !== LogsAlertConfigurationStateEnumApi.Broken) {
         banners.push(
-            <LemonBanner key="disabled" type="warning" action={{ children: 'Enable', onClick: toggleEnabled }}>
+            <LemonBanner
+                key="disabled"
+                type="warning"
+                action={{ children: 'Enable', onClick: enableAlert, 'data-attr': 'logs-alert-banner-enable' }}
+            >
                 This alert is disabled — no checks are running.
             </LemonBanner>
         )
@@ -275,7 +314,11 @@ function AlertStatusBand(): JSX.Element | null {
             <LemonBanner
                 key="no-destinations"
                 type="warning"
-                action={{ children: 'Add notification', onClick: () => setActiveTab('notifications') }}
+                action={{
+                    children: 'Add notification',
+                    onClick: () => setActiveTab('notifications'),
+                    'data-attr': 'logs-alert-banner-add-notification',
+                }}
             >
                 No notifications configured — this alert will fire silently.
             </LemonBanner>

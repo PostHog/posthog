@@ -10,7 +10,7 @@ from posthog.session_recordings.constants import COLUMNS_TO_REMOVE_FROM_LLM_CONT
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
-from ee.hogai.session_summaries.constants import SESSION_EVENTS_REPLAY_CUTOFF_MS
+from ee.hogai.session_summaries.constants import SESSION_EVENTS_REPLAY_CUTOFF_MS, SESSION_SUMMARY_EVENT_BLOCKLIST
 from ee.hogai.session_summaries.local.input_data import (
     _get_production_session_events_locally,
     _get_production_session_metadata_locally,
@@ -53,7 +53,7 @@ def get_session_events(
     Get session events with pagination to handle large sessions.
     Returns combined results from all pages up to max_pages.
     """
-    events_to_ignore = ["$feature_flag_called"]
+    events_to_ignore = list(SESSION_SUMMARY_EVENT_BLOCKLIST)
     extra_fields = EXTRA_SUMMARY_EVENT_FIELDS
     # Collect all events and columns from all pages
     all_events = []

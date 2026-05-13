@@ -804,6 +804,18 @@ mod tests {
             kafka_retry_backoff_max_ms: 1000,
             kafka_socket_send_buffer_bytes: 0,
             kafka_socket_receive_buffer_bytes: 0,
+            kafka_traces_hosts: None,
+            kafka_traces_tls: None,
+            kafka_traces_client_id: None,
+            kafka_traces_compression_codec: None,
+            kafka_traces_producer_acks: None,
+            kafka_traces_producer_linger_ms: None,
+            kafka_traces_producer_queue_mib: None,
+            kafka_traces_message_timeout_ms: None,
+            kafka_traces_producer_message_max_bytes: None,
+            kafka_traces_producer_max_retries: None,
+            kafka_traces_topic_metadata_refresh_interval_ms: None,
+            kafka_traces_metadata_max_age_ms: None,
         };
         let sink = KafkaSink::new(config, handle)
             .await

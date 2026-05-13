@@ -97,6 +97,7 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                 ],
             ),

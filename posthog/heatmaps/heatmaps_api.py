@@ -560,12 +560,17 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
 
 
+_URL_PATTERN_CHARS = set("*+?^${}()|[]\\")
+
+
 class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
     widths = serializers.ListField(
         child=serializers.IntegerField(min_value=100, max_value=3000), required=False, allow_empty=False
     )
 
     def validate_url(self, value: str) -> str:
+        if any(c in _URL_PATTERN_CHARS for c in value):
+            raise serializers.ValidationError("Wildcards are not allowed in the page URL.")
         ok, err = is_url_allowed(value)
         if not ok:
             raise serializers.ValidationError(err or "URL not allowed")
@@ -713,9 +718,13 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
     def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
+        old_url = obj.url
         serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         updated = serializer.save()
+
+        if updated.type == SavedHeatmap.Type.SCREENSHOT and updated.url != old_url:
+            self._regenerate(updated)
 
         log_activity(
             organization_id=cast(User, request.user).current_organization_id

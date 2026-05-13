@@ -1,10 +1,13 @@
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
+from ee.api.agentic_provisioning.views import _create_provisioned_pat
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
@@ -118,7 +121,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         assert PersonalAPIKey.objects.filter(user=self.user).count() == initial_count + 1
 
-    def test_create_resource_pat_label_contains_provisioning_prefix(self):
+    def test_create_resource_pat_label_defaults_to_team_name(self):
         token = self._get_bearer_token()
         self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
@@ -127,7 +130,20 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
-        assert pat.label.startswith("Stripe Projects")
+        assert pat.label == self.team.name[:40]
+
+    def test_create_resource_pat_is_scoped_to_authorized_team(self):
+        token = self._get_bearer_token()
+        self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert pat is not None
+        assert pat.scopes == ["*"]
+        assert pat.scoped_teams == [self.team.id]
+        assert pat.scoped_organizations == [str(self.team.organization_id)]
 
     def test_create_resource_does_not_delete_existing_pats(self):
         token = self._get_bearer_token()
@@ -136,7 +152,7 @@ class TestProvisioningResources(ProvisioningTestBase):
             data={"service_id": "analytics"},
             token=token,
         )
-        first_pat = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects").first()
+        first_pat = PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40]).first()
         assert first_pat is not None
 
         self._post_signed_with_bearer(
@@ -144,9 +160,66 @@ class TestProvisioningResources(ProvisioningTestBase):
             data={"service_id": "analytics"},
             token=token,
         )
-        provisioning_pats = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects")
+        provisioning_pats = PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40])
         assert provisioning_pats.count() == 2
         assert PersonalAPIKey.objects.filter(id=first_pat.id).exists()
+
+    @parameterized.expand(
+        [
+            ("partner_label", "Acme Co", "Acme Co - "),
+            ("empty_uses_team_name", "", "{team_name}"),
+            ("whitespace_uses_team_name", "   ", "{team_name}"),
+        ]
+    )
+    def test_create_resource_label_prefix_accepted(self, _name, label_prefix, expected_label_start_template):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics", "label_prefix": label_prefix},
+            token=token,
+        )
+        assert res.status_code == 200
+        pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert pat is not None
+        expected_label_start = expected_label_start_template.format(team_name=self.team.name)
+        assert pat.label.startswith(expected_label_start)
+
+    @parameterized.expand(
+        [
+            ("too_long", "a" * 26),
+            ("control_char_newline", "Bad\nLabel"),
+            ("control_char_tab", "Bad\tLabel"),
+            ("bidi_override", "Bad‮Label"),
+            ("zero_width_space", "Bad​Label"),
+            ("non_string", 123),
+        ]
+    )
+    def test_create_resource_label_prefix_rejected(self, _name, label_prefix):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics", "label_prefix": label_prefix},
+            token=token,
+        )
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "invalid_label_prefix"
+
+    def test_create_resource_label_combined_with_team_name_is_truncated_to_40_chars(self):
+        token = self._get_bearer_token()
+        long_team_name = "A" * 60
+        self.team.name = long_team_name
+        self.team.save()
+
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics", "label_prefix": "PartnerX"},
+            token=token,
+        )
+        assert res.status_code == 200
+        pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert pat is not None
+        assert len(pat.label) == 40
+        assert pat.label.startswith("PartnerX - ")
 
     def test_create_resource_with_project_id_creates_new_team(self):
         token = self._get_bearer_token()
@@ -449,3 +522,29 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         assert res.status_code == 200
         assert "personal_api_key" not in res.json()["complete"]["access_configuration"]
+
+
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
+class TestCreateProvisionedPat(ProvisioningTestBase):
+    @parameterized.expand(
+        [
+            ("default_when_none", None, "{team_name}"),
+            ("custom_adds_prefix", "My Partner", "My Partner - {team_name}"),
+            ("empty_uses_team_name", "", "{team_name}"),
+        ]
+    )
+    def test_label_prefix_resolution(self, _name, label_prefix, expected_label_template):
+        api_key = _create_provisioned_pat(self.user, self.team, label_prefix=label_prefix)
+        assert api_key is not None
+        pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert pat is not None
+        assert pat.label == expected_label_template.format(team_name=self.team.name)[:40]
+
+    def test_label_is_truncated_to_40_chars(self):
+        self.team.name = "A" * 60
+        self.team.save()
+        _create_provisioned_pat(self.user, self.team, label_prefix="LongPartnerName")
+        pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert pat is not None
+        assert len(pat.label) == 40
+        assert pat.label.startswith("LongPartnerName - ")

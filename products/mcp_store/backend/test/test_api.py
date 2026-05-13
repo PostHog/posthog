@@ -32,6 +32,29 @@ class TestIsValidPosthogCodeCallbackUrl(TestCase):
         assert _is_valid_posthog_code_callback_url(url) == expected
 
 
+class TestMCPServerTemplateIconKeyNormalization(TestCase):
+    @parameterized.expand(
+        [
+            ("simple_lowercase", "notion", "notion"),
+            ("titlecase", "Notion", "notion"),
+            ("multi_word", "PostHog MCP", "posthog_mcp"),
+            ("multi_space", "Cisco   ThousandEyes", "cisco_thousandeyes"),
+            ("leading_trailing_whitespace", "  Linear  ", "linear"),
+            ("empty", "", ""),
+            ("whitespace_only", "   ", ""),
+        ]
+    )
+    def test_save_normalizes_icon_key(self, _name, raw, expected):
+        template = MCPServerTemplate.objects.create(
+            name=f"Test-{_name}",
+            url=f"https://mcp.example.com/{_name}",
+            auth_type="api_key",
+            icon_key=raw,
+        )
+        template.refresh_from_db()
+        assert template.icon_key == expected
+
+
 class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _create_active_template(self, **overrides) -> MCPServerTemplate:
         import uuid as _uuid
@@ -41,7 +64,7 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "url": f"https://mcp.test-{_uuid.uuid4().hex[:8]}.example.com/mcp",
             "description": "Test integration",
             "auth_type": "oauth",
-            "icon_key": "Test",
+            "icon_key": "test",
             "is_active": True,
             "oauth_metadata": {
                 "authorization_endpoint": "https://auth.test.example.com/authorize",
@@ -111,6 +134,30 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         assert len(results) == 1
         assert results[0]["id"] == str(installation.id)
         assert results[0]["name"] == "Test Server"
+        assert results[0]["icon_key"] == ""
+
+    def test_list_installation_icon_key_from_template(self):
+        # Pass a non-normalized icon_key to confirm the model's save() normalizes it
+        # and the value flows through the serializer unchanged.
+        template = MCPServerTemplate.objects.create(
+            name="PostHog MCP",
+            url="https://mcp.notion.example/mcp",
+            description="d",
+            auth_type="api_key",
+            is_active=True,
+            icon_key="PostHog MCP",
+        )
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            display_name="",
+            url=template.url,
+            auth_type="api_key",
+        )
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_server_installations/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["icon_key"] == "posthog_mcp"
 
     def test_uninstall_server(self):
         installation = MCPServerInstallation.objects.create(
@@ -1038,8 +1085,10 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_install_template_without_oauth_credentials_returns_400(self):
-        template = self._template(oauth_credentials={})
+    def test_install_template_shared_creds_without_oauth_metadata_returns_400(self):
+        # Shared-creds templates require admin-seeded metadata. (DCR templates
+        # don't — they discover at install time; see below.)
+        template = self._template(oauth_metadata={})
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
@@ -1047,6 +1096,87 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch(
+        "products.mcp_store.backend.presentation.views.register_dcr_client",
+        return_value="minted-per-user-client",
+    )
+    @patch(
+        "products.mcp_store.backend.presentation.views.discover_oauth_metadata",
+        return_value={
+            "authorization_endpoint": "https://auth.discovered.example.com/authorize",
+            "token_endpoint": "https://auth.discovered.example.com/token",
+            "registration_endpoint": "https://auth.discovered.example.com/register",
+        },
+    )
+    def test_install_template_dcr_discovers_metadata_and_mints_per_user_client(self, mock_discover, mock_register):
+        # DCR template with NO admin-seeded metadata: the install flow discovers
+        # OAuth endpoints at install time (same as the custom-install flow).
+        # The discovered metadata is cached on the installation, never on the
+        # template — a first-installer can't poison template state for other users.
+        template = self._template(oauth_credentials={}, oauth_metadata={})
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert mock_discover.called
+        assert mock_register.called
+
+        redirect_url = response.json()["redirect_url"]
+        assert urlparse(redirect_url).netloc == "auth.discovered.example.com"
+        params = parse_qs(urlparse(redirect_url).query)
+        assert params["client_id"][0] == "minted-per-user-client"
+
+        installation = MCPServerInstallation.objects.get(url=template.url, user=self.user)
+        sensitive = installation.sensitive_configuration or {}
+        assert sensitive["dcr_client_id"] == "minted-per-user-client"
+        # Discovered metadata is cached on the installation, not written back to the template.
+        assert installation.oauth_metadata["token_endpoint"] == "https://auth.discovered.example.com/token"
+        template.refresh_from_db()
+        assert template.oauth_metadata == {}
+
+    @patch(
+        "products.mcp_store.backend.presentation.views.discover_oauth_metadata",
+        side_effect=RuntimeError("discovery network error"),
+    )
+    def test_install_template_dcr_discovery_failure_returns_400_and_cleans_up(self, _mock):
+        template = self._template(oauth_credentials={}, oauth_metadata={})
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id)},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
+
+    @patch(
+        "products.mcp_store.backend.presentation.views.register_dcr_client",
+        side_effect=ValueError("dcr not supported"),
+    )
+    @patch(
+        "products.mcp_store.backend.presentation.views.discover_oauth_metadata",
+        return_value={
+            "authorization_endpoint": "https://auth.discovered.example.com/authorize",
+            "token_endpoint": "https://auth.discovered.example.com/token",
+            "registration_endpoint": "https://auth.discovered.example.com/register",
+        },
+    )
+    def test_install_template_dcr_not_supported_returns_400_and_cleans_up(self, _discover, _register):
+        template = self._template(oauth_credentials={}, oauth_metadata={})
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id)},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # A half-created installation should not linger after DCR failure.
+        assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
 
 
 class TestInstallationToolsAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

@@ -1,0 +1,197 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "boto3",
+#     "cryptography",
+#     "temporalio",
+# ]
+# ///
+"""Temporal Codec Server for decrypting PostHog Fernet-encrypted payloads.
+
+Runs a local HTTP server implementing the Temporal Remote Codec protocol,
+allowing the Temporal Web UI to decode encrypted payloads in-browser.
+
+Fetches the Django SECRET_KEY from AWS Secrets Manager (via SSO), derives
+the Fernet key, and keeps it in memory for the lifetime of the process.
+
+Usage:
+    bin/temporal-codec-server us  # Use US region key
+    bin/temporal-codec-server eu  # Use EU region key
+
+Then in the Temporal UI, set the codec server endpoint to http://localhost:8089
+"""
+
+import base64
+import json
+import subprocess
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any
+
+from cryptography.fernet import Fernet
+from temporalio.api.common.v1 import Payload
+
+REGIONS = {
+    "us": {"aws_profile": "prod-us", "aws_region": "us-east-1"},
+    "eu": {"aws_profile": "prod-eu", "aws_region": "eu-central-1"},
+}
+
+AWS_SECRET_NAME = "temporal-worker-shared-secrets"
+
+LISTEN_PORT = 8089
+
+ENCRYPTED_ENCODING = base64.b64encode(b"binary/encrypted").decode()  # YmluYXJ5L2VuY3J5cHRlZA==
+ALLOWED_ORIGINS = {
+    "https://cloud.temporal.io",
+    "http://localhost:8233",
+}
+
+
+def get_fernet(region: str) -> Fernet:
+    import boto3
+    from botocore.exceptions import ClientError, NoCredentialsError, TokenRetrievalError
+
+    cfg = REGIONS[region]
+    profile, aws_region = cfg["aws_profile"], cfg["aws_region"]
+
+    try:
+        session = boto3.Session(profile_name=profile)
+        client = session.client("secretsmanager", region_name=aws_region)
+        response = client.get_secret_value(SecretId=AWS_SECRET_NAME)
+    except (TokenRetrievalError, NoCredentialsError, ClientError) as e:
+        if isinstance(e, ClientError) and e.response["Error"]["Code"] not in (
+            "ExpiredToken",
+            "ExpiredTokenException",
+        ):
+            raise
+        print(f"AWS SSO session expired for profile '{profile}', logging in...")
+        subprocess.run(["aws", "sso", "login", "--profile", profile], check=True)
+        session = boto3.Session(profile_name=profile)
+        client = session.client("secretsmanager", region_name=aws_region)
+        response = client.get_secret_value(SecretId=AWS_SECRET_NAME)
+
+    secret_data = json.loads(response["SecretString"])
+    if "SECRET_KEY" not in secret_data:
+        print(f"SECRET_KEY not found in {AWS_SECRET_NAME}. Available keys: {sorted(secret_data.keys())}", file=sys.stderr)
+        sys.exit(1)
+    secret_key = secret_data["SECRET_KEY"]
+    padded = b"\0" * max(32 - len(secret_key), 0) + secret_key.encode()
+    return Fernet(base64.urlsafe_b64encode(padded[:32]))
+
+
+def decode_payload(payload: dict, fernet: Fernet) -> dict:
+    """Decode a single Temporal payload if it's Fernet-encrypted."""
+    metadata = payload.get("metadata", {})
+    if metadata.get("encoding") != ENCRYPTED_ENCODING:
+        return payload
+
+    try:
+        encrypted_data = base64.b64decode(payload["data"])
+        decrypted = fernet.decrypt(encrypted_data)
+        inner = Payload.FromString(decrypted)
+
+        decoded_metadata = {key: base64.b64encode(value).decode() for key, value in inner.metadata.items()}
+        return {
+            "metadata": decoded_metadata,
+            "data": base64.b64encode(inner.data).decode(),
+        }
+    except Exception as e:
+        print(f"[codec-server] Decryption failed ({type(e).__name__}): {e}", file=sys.stderr)
+        return payload
+
+
+class CodecHandler(BaseHTTPRequestHandler):
+    fernet: Fernet
+
+    def do_OPTIONS(self) -> None:
+        if not self._is_origin_allowed():
+            self.send_error(403, "Origin not allowed")
+            return
+        self.send_response(200)
+        self._send_cors_headers()
+        self.end_headers()
+
+    def do_POST(self) -> None:
+        if not self._is_origin_allowed():
+            self.send_error(403, "Origin not allowed")
+            return
+        if self.path == "/decode":
+            self._handle_decode()
+        elif self.path == "/encode":
+            self._handle_passthrough()
+        else:
+            self.send_error(404)
+
+    def _handle_decode(self) -> None:
+        try:
+            body = self._read_json_body()
+        except ValueError as err:
+            self.send_error(400, str(err))
+            return
+        decoded_payloads = [decode_payload(p, self.fernet) for p in body.get("payloads", [])]
+        self._send_json_response({"payloads": decoded_payloads})
+
+    def _handle_passthrough(self) -> None:
+        try:
+            body = self._read_json_body()
+        except ValueError as err:
+            self.send_error(400, str(err))
+            return
+        self._send_json_response(body)
+
+    def _read_json_body(self) -> dict[str, Any]:
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length == 0:
+            return {}
+        try:
+            return json.loads(self.rfile.read(content_length))
+        except json.JSONDecodeError as err:
+            raise ValueError("Request body must be valid JSON") from err
+
+    def _send_json_response(self, data: dict[str, Any]) -> None:
+        response = json.dumps(data).encode()
+        self.send_response(200)
+        self._send_cors_headers()
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(response)
+
+    def _is_origin_allowed(self) -> bool:
+        origin = self.headers.get("Origin")
+        return origin is None or origin in ALLOWED_ORIGINS
+
+    def _send_cors_headers(self) -> None:
+        origin = self.headers.get("Origin")
+        if origin in ALLOWED_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, x-namespace")
+
+    def log_message(self, format: str, *args: object) -> None:
+        sys.stderr.write(f"[codec-server] {args[0]}\n")
+
+
+def main() -> None:
+    if len(sys.argv) < 2 or sys.argv[1] not in REGIONS:
+        print(f"Usage: temporal-codec-server <{'|'.join(REGIONS)}>", file=sys.stderr)
+        sys.exit(1)
+
+    region = sys.argv[1]
+    print(f"Fetching SECRET_KEY from AWS Secrets Manager ({region})...")
+    fernet = get_fernet(region)
+    CodecHandler.fernet = fernet
+
+    server = HTTPServer(("localhost", LISTEN_PORT), CodecHandler)
+    print(f"Temporal Codec Server listening on http://localhost:{LISTEN_PORT} (region: {region})")
+    print("Set this as the codec endpoint in the Temporal UI.")
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nShutting down.")
+        server.shutdown()
+
+
+if __name__ == "__main__":
+    main()

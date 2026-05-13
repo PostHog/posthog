@@ -9,6 +9,48 @@ feature: conversations
 url_prefix: /conversations/tickets
 ui_apps: {}
 tools:
+    conversations-append-message-create:
+        operation: conversations_append_message_create
+        enabled: false
+    conversations-cancel-partial-update:
+        operation: conversations_cancel_partial_update
+        enabled: false
+    conversations-create:
+        operation: conversations_create
+        enabled: false
+    conversations-list:
+        operation: conversations_list
+        enabled: false
+    conversations-queue-clear-create:
+        operation: conversations_queue_clear_create
+        enabled: false
+    conversations-queue-create:
+        operation: conversations_queue_create
+        enabled: false
+    conversations-queue-destroy:
+        operation: conversations_queue_destroy
+        enabled: false
+    conversations-queue-partial-update:
+        operation: conversations_queue_partial_update
+        enabled: false
+    conversations-queue-retrieve:
+        operation: conversations_queue_retrieve
+        enabled: false
+    conversations-retrieve:
+        operation: conversations_retrieve
+        enabled: false
+    conversations-tickets-bulk-update-tags-create:
+        operation: conversations_tickets_bulk_update_tags_create
+        enabled: false
+    conversations-tickets-create:
+        operation: conversations_tickets_create
+        enabled: false
+    conversations-tickets-destroy:
+        operation: conversations_tickets_destroy
+        enabled: false
+    conversations-tickets-full-update:
+        operation: conversations_tickets_update
+        enabled: false
     conversations-tickets-list:
         operation: conversations_tickets_list
         enabled: true
@@ -76,6 +118,12 @@ tools:
                 - distinct_id
                 - created_at
                 - updated_at
+    conversations-tickets-suggest-reply-create:
+        operation: conversations_tickets_suggest_reply_create
+        enabled: false
+    conversations-tickets-unread-count-retrieve:
+        operation: conversations_tickets_unread_count_retrieve
+        enabled: false
     conversations-tickets-update:
         operation: conversations_tickets_partial_update
         enabled: true
@@ -95,63 +143,15 @@ tools:
             - anonymous_traits
             - ai_resolved
             - escalation_reason
-    conversations-tickets-suggest-reply-create:
-        operation: conversations_tickets_suggest_reply_create
-        enabled: false
-    conversations-tickets-create:
-        operation: conversations_tickets_create
-        enabled: false
-    conversations-tickets-unread-count-retrieve:
-        operation: conversations_tickets_unread_count_retrieve
-        enabled: false
-    conversations-tickets-full-update:
-        operation: conversations_tickets_update
-        enabled: false
-    conversations-tickets-destroy:
-        operation: conversations_tickets_destroy
-        enabled: false
-    conversations-list:
-        operation: conversations_list
-        enabled: false
-    conversations-create:
-        operation: conversations_create
-        enabled: false
-    conversations-retrieve:
-        operation: conversations_retrieve
-        enabled: false
-    conversations-append-message-create:
-        operation: conversations_append_message_create
-        enabled: false
-    conversations-cancel-partial-update:
-        operation: conversations_cancel_partial_update
-        enabled: false
-    conversations-queue-retrieve:
-        operation: conversations_queue_retrieve
-        enabled: false
-    conversations-queue-create:
-        operation: conversations_queue_create
-        enabled: false
-    conversations-queue-partial-update:
-        operation: conversations_queue_partial_update
-        enabled: false
-    conversations-queue-destroy:
-        operation: conversations_queue_destroy
-        enabled: false
-    conversations-queue-clear-create:
-        operation: conversations_queue_clear_create
-        enabled: false
-    conversations-views-list:
-        operation: conversations_views_list
-        enabled: false
     conversations-views-create:
         operation: conversations_views_create
-        enabled: false
-    conversations-views-retrieve:
-        operation: conversations_views_retrieve
         enabled: false
     conversations-views-destroy:
         operation: conversations_views_destroy
         enabled: false
-    conversations-tickets-bulk-update-tags-create:
-        operation: conversations_tickets_bulk_update_tags_create
+    conversations-views-list:
+        operation: conversations_views_list
+        enabled: false
+    conversations-views-retrieve:
+        operation: conversations_views_retrieve
         enabled: false

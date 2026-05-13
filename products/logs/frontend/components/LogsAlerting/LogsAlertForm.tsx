@@ -151,6 +151,7 @@ export function LogsAlertForm(): JSX.Element {
                         onChange={(val) => setAlertFormValue('thresholdCount', val ?? 1)}
                         className="w-24"
                         size="small"
+                        data-attr="logs-alert-threshold-count"
                     />
                     <span className="text-sm">in the last</span>
                     <LemonSelect

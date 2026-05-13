@@ -71,6 +71,7 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     )
                 ],
             ),

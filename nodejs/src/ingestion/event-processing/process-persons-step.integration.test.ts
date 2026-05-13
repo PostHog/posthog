@@ -1,3 +1,5 @@
+import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
+
 import { DateTime } from 'luxon'
 
 import { ASYNC_OUTPUT } from '~/ingestion/analytics/outputs'
@@ -55,17 +57,17 @@ describe('createProcessPersonsStep', () => {
 
         personRepository = new PostgresPersonRepository(hub.postgres)
         personOutputs = new IngestionOutputs({
-            [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+            [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
             [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
                 INGESTION_WARNINGS_OUTPUT,
                 KAFKA_PERSON_DISTINCT_ID,
-                hub.kafkaProducer,
+                mockProducer,
                 'test'
             ),
             [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
                 INGESTION_WARNINGS_OUTPUT,
                 KAFKA_INGESTION_WARNINGS,
-                hub.kafkaProducer,
+                mockProducer,
                 'test'
             ),
         })
@@ -73,7 +75,7 @@ describe('createProcessPersonsStep', () => {
             [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
                 INGESTION_WARNINGS_OUTPUT,
                 KAFKA_INGESTION_WARNINGS,
-                hub.kafkaProducer,
+                mockProducer,
                 'test'
             ),
         })

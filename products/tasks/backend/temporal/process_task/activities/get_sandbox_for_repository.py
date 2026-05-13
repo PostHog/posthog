@@ -8,7 +8,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.models import SandboxEnvironment, SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 from products.tasks.backend.services.sandbox import (
     Sandbox,
@@ -128,7 +128,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             emit_agent_log(ctx.run_id, "debug", "Creating environment without repository")
 
         try:
-            task = Task.objects.select_related("created_by").get(id=ctx.task_id)
+            task = Task.objects.select_related("created_by", "github_integration", "github_user_integration").get(
+                id=ctx.task_id
+            )
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
@@ -137,13 +139,19 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         shallow = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
 
         github_token = ""
-        if has_repo and github_integration_id is not None:
+        should_inject_github_token = ctx.has_github_credentials and (
+            has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
+        )
+        if should_inject_github_token:
             try:
                 github_token = (
                     get_sandbox_github_token(
                         github_integration_id,
                         run_id=ctx.run_id,
                         state=ctx.state,
+                        task=task,
+                        github_user_integration_id=ctx.github_user_integration_id,
+                        repository=repository,
                     )
                     or ""
                 )
@@ -172,9 +180,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         sandbox_environment = None
         if ctx.sandbox_environment_id:
-            sandbox_environment = SandboxEnvironment.objects.filter(
-                id=ctx.sandbox_environment_id, team=task.team
-            ).first()
+            sandbox_environment = ctx.get_sandbox_environment()
             if sandbox_environment and sandbox_environment.environment_variables:
                 skipped_keys: list[str] = []
                 added_keys = 0

@@ -11,13 +11,17 @@ use std::sync::Arc;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, CohortMembershipResponse,
-    CountCohortMembersRequest, CountCohortMembersResponse, DeleteCohortMemberRequest,
-    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    CountCohortMembersRequest, CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse,
+    DeleteCohortMemberRequest, DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest,
+    DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
     DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
     DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
     DeletePersonsResponse, DistinctIdWithVersion, GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
     GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
+    GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
     GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
     GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
     GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
@@ -28,14 +32,20 @@ use personhog_proto::personhog::types::v1::{
     GroupTypeMappingsByKey, GroupTypeMappingsResponse, GroupWithKey, GroupsResponse,
     HashKeyOverride, HashKeyOverrideContext as ProtoHashKeyOverrideContext,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
-    ListCohortMemberIdsResponse, PersonDistinctIds, PersonWithDistinctIds,
-    PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, TeamDistinctId, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, PersonDistinctIds,
+    PersonWithDistinctIds, PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse,
+    PersonsByDistinctIdsResponse, PersonsResponse, TeamDistinctId, UpdateGroupRequest,
+    UpdateGroupResponse, UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::storage::{self, FullStorage};
+
+const MAX_BATCH_DELETE_SIZE: i64 = 50_000;
+const MAX_LIST_COHORT_MEMBER_IDS_LIMIT: i32 = 10_000;
+const MAX_LIST_GROUPS_LIMIT: i32 = 1_000;
 
 use consistency::{reject_strong_consistency, to_storage_consistency};
 use error::log_and_convert_error;
@@ -284,7 +294,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .or_default()
                 .push(DistinctIdWithVersion {
                     distinct_id: mapping.distinct_id,
-                    version: None, // This endpoint doesn't return version per distinct_id
+                    version: mapping.version,
                 });
         }
 
@@ -339,10 +349,10 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
         let req = request.into_inner();
 
-        if req.batch_size <= 0 || req.batch_size > 50000 {
-            return Err(Status::invalid_argument(
-                "batch_size must be between 1 and 50000",
-            ));
+        if req.batch_size <= 0 || req.batch_size > MAX_BATCH_DELETE_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "batch_size must be between 1 and {MAX_BATCH_DELETE_SIZE}"
+            )));
         }
 
         let deleted_count = self
@@ -579,8 +589,8 @@ impl PersonHogReplica for PersonHogReplicaService {
         let req = request.into_inner();
         let consistency = to_storage_consistency(&req.read_options);
 
-        let limit = if req.limit <= 0 || req.limit > 10000 {
-            10000
+        let limit = if req.limit <= 0 || req.limit > MAX_LIST_COHORT_MEMBER_IDS_LIMIT {
+            MAX_LIST_COHORT_MEMBER_IDS_LIMIT
         } else {
             req.limit
         };
@@ -713,6 +723,46 @@ impl PersonHogReplica for PersonHogReplicaService {
         Ok(Response::new(GetGroupsBatchResponse { results }))
     }
 
+    async fn list_groups(
+        &self,
+        request: Request<ListGroupsRequest>,
+    ) -> Result<Response<ListGroupsResponse>, Status> {
+        let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
+
+        let limit = if req.limit <= 0 || req.limit > MAX_LIST_GROUPS_LIMIT {
+            MAX_LIST_GROUPS_LIMIT
+        } else {
+            req.limit
+        };
+
+        let cursor_created_at = if req.cursor_created_at_ms > 0 {
+            chrono::DateTime::from_timestamp_millis(req.cursor_created_at_ms)
+        } else {
+            None
+        };
+
+        let (groups, has_more) = self
+            .storage
+            .list_groups(
+                req.team_id,
+                req.group_type_index,
+                &req.group_key_contains,
+                &req.search,
+                cursor_created_at,
+                req.cursor_id,
+                limit,
+                consistency,
+            )
+            .await
+            .map_err(|e| log_and_convert_error(e, "list_groups"))?;
+
+        Ok(Response::new(ListGroupsResponse {
+            groups: groups.into_iter().map(Into::into).collect(),
+            has_more,
+        }))
+    }
+
     // ============================================================
     // Group Type Mappings
     // ============================================================
@@ -819,5 +869,245 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect();
 
         Ok(Response::new(GroupTypeMappingsBatchResponse { results }))
+    }
+
+    async fn get_group_type_mapping_by_dashboard_id(
+        &self,
+        request: Request<GetGroupTypeMappingByDashboardIdRequest>,
+    ) -> Result<Response<GetGroupTypeMappingByDashboardIdResponse>, Status> {
+        let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
+
+        let mapping = self
+            .storage
+            .get_group_type_mapping_by_dashboard_id(req.team_id, req.dashboard_id, consistency)
+            .await
+            .map_err(|e| log_and_convert_error(e, "get_group_type_mapping_by_dashboard_id"))?;
+
+        Ok(Response::new(GetGroupTypeMappingByDashboardIdResponse {
+            mapping: mapping.map(Into::into),
+        }))
+    }
+
+    // ============================================================
+    // Group writes
+    // ============================================================
+
+    async fn create_group(
+        &self,
+        request: Request<CreateGroupRequest>,
+    ) -> Result<Response<CreateGroupResponse>, Status> {
+        let req = request.into_inner();
+
+        let created_at = match req.created_at {
+            Some(ts) => chrono::DateTime::from_timestamp_millis(ts).ok_or_else(|| {
+                Status::invalid_argument(format!("Invalid created_at timestamp: {ts}"))
+            })?,
+            None => chrono::Utc::now(),
+        };
+
+        let group_properties: serde_json::Value = serde_json::from_slice(&req.group_properties)
+            .map_err(|e| Status::invalid_argument(format!("Invalid group_properties JSON: {e}")))?;
+
+        let group = self
+            .storage
+            .create_group(
+                req.team_id,
+                req.group_type_index,
+                &req.group_key,
+                &group_properties,
+                created_at,
+            )
+            .await
+            .map_err(|e| log_and_convert_error(e, "create_group"))?;
+
+        Ok(Response::new(CreateGroupResponse {
+            group: Some(group.into()),
+        }))
+    }
+
+    async fn update_group(
+        &self,
+        request: Request<UpdateGroupRequest>,
+    ) -> Result<Response<UpdateGroupResponse>, Status> {
+        let req = request.into_inner();
+
+        let valid_fields = [
+            "group_properties",
+            "properties_last_updated_at",
+            "properties_last_operation",
+            "created_at",
+        ];
+        for field in &req.update_mask {
+            if !valid_fields.contains(&field.as_str()) {
+                return Err(Status::invalid_argument(format!(
+                    "Invalid update_mask field: {field}"
+                )));
+            }
+        }
+
+        let group_properties: Option<serde_json::Value> = req
+            .group_properties
+            .as_ref()
+            .map(|b| serde_json::from_slice(b))
+            .transpose()
+            .map_err(|e| Status::invalid_argument(format!("Invalid group_properties JSON: {e}")))?;
+
+        let properties_last_updated_at: Option<serde_json::Value> = req
+            .properties_last_updated_at
+            .as_ref()
+            .map(|b| serde_json::from_slice(b))
+            .transpose()
+            .map_err(|e| {
+                Status::invalid_argument(format!("Invalid properties_last_updated_at JSON: {e}"))
+            })?;
+
+        let properties_last_operation: Option<serde_json::Value> = req
+            .properties_last_operation
+            .as_ref()
+            .map(|b| serde_json::from_slice(b))
+            .transpose()
+            .map_err(|e| {
+                Status::invalid_argument(format!("Invalid properties_last_operation JSON: {e}"))
+            })?;
+
+        let created_at = req
+            .created_at
+            .map(|ts| chrono::DateTime::from_timestamp_micros(ts).unwrap_or_default());
+
+        let group = self
+            .storage
+            .update_group(
+                req.team_id,
+                req.group_type_index,
+                &req.group_key,
+                &req.update_mask,
+                group_properties.as_ref(),
+                properties_last_updated_at.as_ref(),
+                properties_last_operation.as_ref(),
+                created_at,
+            )
+            .await
+            .map_err(|e| log_and_convert_error(e, "update_group"))?;
+
+        Ok(Response::new(UpdateGroupResponse {
+            group: group.as_ref().map(|g| g.clone().into()),
+            updated: group.is_some(),
+        }))
+    }
+
+    async fn delete_groups_batch_for_team(
+        &self,
+        request: Request<DeleteGroupsBatchForTeamRequest>,
+    ) -> Result<Response<DeleteGroupsBatchForTeamResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.batch_size <= 0 || req.batch_size > MAX_BATCH_DELETE_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "batch_size must be between 1 and {MAX_BATCH_DELETE_SIZE}"
+            )));
+        }
+
+        let deleted_count = self
+            .storage
+            .delete_groups_batch_for_team(req.team_id, req.batch_size)
+            .await
+            .map_err(|e| log_and_convert_error(e, "delete_groups_batch_for_team"))?;
+
+        Ok(Response::new(DeleteGroupsBatchForTeamResponse {
+            deleted_count,
+        }))
+    }
+
+    // ============================================================
+    // Group type mapping writes
+    // ============================================================
+
+    async fn update_group_type_mapping(
+        &self,
+        request: Request<UpdateGroupTypeMappingRequest>,
+    ) -> Result<Response<UpdateGroupTypeMappingResponse>, Status> {
+        let req = request.into_inner();
+
+        let valid_fields = [
+            "name_singular",
+            "name_plural",
+            "detail_dashboard_id",
+            "default_columns",
+        ];
+        for field in &req.update_mask {
+            if !valid_fields.contains(&field.as_str()) {
+                return Err(Status::invalid_argument(format!(
+                    "Invalid update_mask field: {field}"
+                )));
+            }
+        }
+
+        let default_columns: Option<Vec<String>> = if let Some(ref bytes) = req.default_columns {
+            Some(serde_json::from_slice(bytes).map_err(|e| {
+                Status::invalid_argument(format!("Invalid default_columns JSON: {e}"))
+            })?)
+        } else {
+            None
+        };
+
+        let mapping = self
+            .storage
+            .update_group_type_mapping(
+                req.project_id,
+                req.group_type_index,
+                &req.update_mask,
+                req.name_singular.as_deref(),
+                req.name_plural.as_deref(),
+                req.detail_dashboard_id,
+                default_columns.as_deref(),
+            )
+            .await
+            .map_err(|e| log_and_convert_error(e, "update_group_type_mapping"))?;
+
+        match mapping {
+            Some(m) => Ok(Response::new(UpdateGroupTypeMappingResponse {
+                mapping: Some(m.into()),
+            })),
+            None => Err(Status::not_found("GroupTypeMapping not found")),
+        }
+    }
+
+    async fn delete_group_type_mapping(
+        &self,
+        request: Request<DeleteGroupTypeMappingRequest>,
+    ) -> Result<Response<DeleteGroupTypeMappingResponse>, Status> {
+        let req = request.into_inner();
+
+        let deleted = self
+            .storage
+            .delete_group_type_mapping(req.project_id, req.group_type_index)
+            .await
+            .map_err(|e| log_and_convert_error(e, "delete_group_type_mapping"))?;
+
+        Ok(Response::new(DeleteGroupTypeMappingResponse { deleted }))
+    }
+
+    async fn delete_group_type_mappings_batch_for_team(
+        &self,
+        request: Request<DeleteGroupTypeMappingsBatchForTeamRequest>,
+    ) -> Result<Response<DeleteGroupTypeMappingsBatchForTeamResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.batch_size <= 0 || req.batch_size > MAX_BATCH_DELETE_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "batch_size must be between 1 and {MAX_BATCH_DELETE_SIZE}"
+            )));
+        }
+
+        let deleted_count = self
+            .storage
+            .delete_group_type_mappings_batch_for_team(req.team_id, req.batch_size)
+            .await
+            .map_err(|e| log_and_convert_error(e, "delete_group_type_mappings_batch_for_team"))?;
+
+        Ok(Response::new(DeleteGroupTypeMappingsBatchForTeamResponse {
+            deleted_count,
+        }))
     }
 }

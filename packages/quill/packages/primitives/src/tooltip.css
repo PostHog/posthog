@@ -1,6 +1,6 @@
 @layer components {
     .quill-tooltip__content {
-        z-index: 50;
+        z-index: var(--quill-z-tooltip, 50);
         width: fit-content;
         max-width: 20rem;
         padding-block: 0.375rem;

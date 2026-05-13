@@ -9,9 +9,12 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -19,11 +22,12 @@ import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopy
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SurveyNotifications } from 'scenes/surveys/components/SurveyNotifications'
 import { SurveyNotificationsCallout } from 'scenes/surveys/components/SurveyNotificationsCallout'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
 import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
 import { SurveyHeadline } from 'scenes/surveys/SurveyHeadline'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { SurveyTab, surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { getSurveyStatus, isSurveyDraft, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { SurveySQLHelper } from 'scenes/surveys/SurveySQLHelper'
@@ -33,6 +37,12 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import {
+    SceneMenuBar,
+    SceneMenuBarItem,
+    SceneMenuBarMenu,
+    SceneMenuBarSeparator,
+} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
@@ -57,14 +67,14 @@ import { SurveyResultsRefreshStatus } from '../components/SurveyResultsRefreshSt
 import { NEW_SURVEY } from '../constants'
 import { SurveyDraftContent } from './SurveyDraftContent'
 import { SurveyResultsFiltersBar } from './SurveyFilters'
-import { SurveyDetailsPanel, SurveyExportPanel, SurveyNotificationsPanel } from './SurveySidebar'
+import { SurveyDetailsPanel, SurveyExportPanel } from './SurveySidebar'
 
 const RESOURCE_TYPE = 'survey'
 
 export function SurveyViewRedesign(): JSX.Element {
-    const { survey, surveyLoading } = useValues(surveyLogic)
+    const { survey, surveyLoading, activeTab } = useValues(surveyLogic)
     const { preferredEditor } = useValues(surveysLogic)
-    const { editingSurvey, updateSurvey, archiveSurvey } = useActions(surveyLogic)
+    const { editingSurvey, updateSurvey, archiveSurvey, setActiveTab } = useActions(surveyLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
@@ -73,15 +83,16 @@ export function SurveyViewRedesign(): JSX.Element {
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { push } = useActions(router)
     const { location, searchParams, hashParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
     const surveyIdForTransfer = survey?.id && survey.id !== 'new' ? survey.id : null
-    const [tabKey, setTabKey] = useState(() => (searchParams.activity ? 'history' : 'summary'))
+    const isDraft = isSurveyDraft(survey)
     const [panelTabKey, setPanelTabKey] = useState('details')
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
     const autoOpenedDraftPanelForSurveyIdRef = useRef<string | null>(null)
-    const isDraft = isSurveyDraft(survey)
     const isRemovingSidePanel = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const panelTabSearchParam = 'survey_panel_tab'
 
@@ -91,11 +102,6 @@ export function SurveyViewRedesign(): JSX.Element {
                 key: 'details',
                 label: 'Details',
                 content: <SurveyDetailsPanel />,
-            },
-            {
-                key: 'notifications',
-                label: 'Notifications',
-                content: <SurveyNotificationsPanel />,
             },
             ...(!isDraft
                 ? [
@@ -210,6 +216,89 @@ export function SurveyViewRedesign(): JSX.Element {
 
     return (
         <SceneContent className="gap-y-4 flex-1 min-h-full">
+            {sceneMenuBarEnabled && (
+                <SceneMenuBar>
+                    <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
+                        <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
+                        {canCopyToProject && surveyIdForTransfer && (
+                            <SceneMenuBarItem
+                                onClick={() => push(urls.resourceTransfer('Survey', surveyIdForTransfer))}
+                                data-attr={`${RESOURCE_TYPE}-menubar-copy-to-project`}
+                            >
+                                <IconCopy />
+                                Copy to another project
+                            </SceneMenuBarItem>
+                        )}
+                        {(!survey.archived || canDeleteSurvey(survey)) && <SceneMenuBarSeparator />}
+                        {!survey.archived && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Survey}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={survey.user_access_level}
+                            >
+                                {({ disabledReason }) => (
+                                    <SceneMenuBarItem
+                                        variant="destructive"
+                                        opensFloatingUi
+                                        disabled={!!disabledReason}
+                                        onClick={() => openArchiveSurveyDialog(survey, archiveSurvey)}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-archive`}
+                                    >
+                                        <IconArchive />
+                                        Archive
+                                    </SceneMenuBarItem>
+                                )}
+                            </AccessControlAction>
+                        )}
+                        {canDeleteSurvey(survey) && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Survey}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={survey.user_access_level}
+                            >
+                                {({ disabledReason }) => (
+                                    <SceneMenuBarItem
+                                        variant="destructive"
+                                        opensFloatingUi
+                                        disabled={!!disabledReason}
+                                        onClick={() => openDeleteSurveyDialog(survey, () => deleteSurvey(survey.id))}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-delete`}
+                                    >
+                                        <IconTrash />
+                                        Delete permanently
+                                    </SceneMenuBarItem>
+                                )}
+                            </AccessControlAction>
+                        )}
+                    </SceneMenuBarMenu>
+                    <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
+                        <SceneMenuBarItem
+                            onClick={() => {
+                                const existingSurvey = survey as Survey
+                                if (hasMultipleProjects) {
+                                    setSurveyToDuplicate(existingSurvey)
+                                } else {
+                                    duplicateSurvey(existingSurvey)
+                                }
+                            }}
+                            data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
+                        >
+                            <IconCopy />
+                            Duplicate
+                        </SceneMenuBarItem>
+                        {!isDraft && (
+                            <SceneMenuBarItem
+                                opensFloatingUi
+                                onClick={() => setSqlHelperOpen(true)}
+                                data-attr={`${RESOURCE_TYPE}-menubar-sql-query`}
+                            >
+                                <IconCode />
+                                SQL query
+                            </SceneMenuBarItem>
+                        )}
+                    </SceneMenuBarMenu>
+                </SceneMenuBar>
+            )}
             <ScenePanel>
                 <ScenePanelInfoSection>
                     <SceneFile dataAttrKey={RESOURCE_TYPE} />
@@ -332,8 +421,8 @@ export function SurveyViewRedesign(): JSX.Element {
             {/* Main content */}
             <div className="-m-4 flex-1 min-h-0">
                 <LemonTabs
-                    activeKey={tabKey}
-                    onChange={(key) => setTabKey(key)}
+                    activeKey={activeTab}
+                    onChange={(key) => setActiveTab(key as SurveyTab)}
                     barClassName="pl-4 [&::before]:!bg-transparent border-b"
                     tabs={[
                         {
@@ -342,7 +431,7 @@ export function SurveyViewRedesign(): JSX.Element {
                             content: isDraft ? (
                                 <SurveyDraftContent onSeeSurveyDetails={openDraftDetails} />
                             ) : (
-                                <SurveySummaryContent onViewResponses={() => setTabKey('responses')} />
+                                <SurveySummaryContent onViewResponses={() => setActiveTab(SurveyTab.RESPONSES)} />
                             ),
                         },
                         ...(!isDraft
@@ -354,6 +443,11 @@ export function SurveyViewRedesign(): JSX.Element {
                                   },
                               ]
                             : []),
+                        {
+                            key: SurveyTab.NOTIFICATIONS,
+                            label: 'Notifications',
+                            content: <SurveyNotificationsContent />,
+                        },
                         {
                             key: 'history',
                             label: 'History',
@@ -370,6 +464,21 @@ export function SurveyViewRedesign(): JSX.Element {
             <DuplicateToProjectModal />
             <SurveySQLHelper isOpen={sqlHelperOpen} onClose={() => setSqlHelperOpen(false)} />
         </SceneContent>
+    )
+}
+
+function SurveyNotificationsContent(): JSX.Element {
+    const { survey } = useValues(surveyLogic)
+
+    return (
+        <div className="px-4 pb-4">
+            <div className="mx-auto w-full max-w-[1200px]">
+                <SurveyNotifications
+                    surveyId={survey.id}
+                    description="Get notified whenever a survey result is submitted."
+                />
+            </div>
+        </div>
     )
 }
 

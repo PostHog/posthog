@@ -52,6 +52,7 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="abc123def456-us6",
+                        secret=True,
                     ),
                 ],
             ),

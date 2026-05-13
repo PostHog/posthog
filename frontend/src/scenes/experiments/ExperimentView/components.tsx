@@ -26,7 +26,6 @@ import {
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
-    LemonTagType,
     LemonTextArea,
     Link,
     Tooltip,
@@ -66,9 +65,10 @@ import { CopyExperimentToProjectModal } from '../CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
-import { getExperimentStatusColor, getExperimentStatusLabel } from '../experimentsLogic'
+import { getExperimentStatusColor, getExperimentStatusLabel, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getVariantColor, isLegacyExperiment } from '../utils'
+import { ExperimentSceneMenuBar } from './ExperimentSceneMenuBar'
 
 export function VariantTag({
     variantKey,
@@ -79,7 +79,7 @@ export function VariantTag({
     fontSize?: number
     className?: string
 }): JSX.Element {
-    const { experiment, legacyPrimaryMetricsResults, usesNewQueryRunner } = useValues(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
@@ -87,10 +87,6 @@ export function VariantTag({
                 <LemonTag type="danger">{variantKey}</LemonTag>
             </Tooltip>
         )
-    }
-
-    if (!legacyPrimaryMetricsResults) {
-        return <></>
     }
 
     const variantColor = experiment.feature_flag?.filters.multivariate?.variants
@@ -116,14 +112,11 @@ export function VariantTag({
 
     return (
         <span className={clsx('flex items-center min-w-0', className)}>
-            {/* Only show color if using new query runner - legacy experiments are using the old funnel component */}
-            {usesNewQueryRunner && (
-                <div
-                    className="w-2 h-2 rounded-full shrink-0"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ backgroundColor: variantColor }}
-                />
-            )}
+            <div
+                className="w-2 h-2 rounded-full shrink-0"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ backgroundColor: variantColor }}
+            />
             <span
                 className="ml-2 text-xs font-semibold truncate text-secondary"
                 // eslint-disable-next-line react/forbid-dom-props
@@ -132,40 +125,6 @@ export function VariantTag({
                 {variantKey}
             </span>
         </span>
-    )
-}
-
-export function ResultsTag({ metricUuid }: { metricUuid?: string }): JSX.Element {
-    const { isPrimaryMetricSignificant, significanceDetails, experiment } = useValues(experimentLogic)
-
-    // Use first primary metric UUID if not provided
-    const uuid = metricUuid || experiment.metrics?.[0]?.uuid || ''
-    if (!uuid) {
-        return (
-            <LemonTag type="primary">
-                <b className="uppercase">Not significant</b>
-            </LemonTag>
-        )
-    }
-
-    const result: { color: LemonTagType; label: string } = isPrimaryMetricSignificant(uuid)
-        ? { color: 'success', label: 'Significant' }
-        : { color: 'primary', label: 'Not significant' }
-
-    if (significanceDetails(uuid)) {
-        return (
-            <Tooltip title={significanceDetails(uuid)}>
-                <LemonTag className="cursor-pointer" type={result.color}>
-                    <b className="uppercase">{result.label}</b>
-                </LemonTag>
-            </Tooltip>
-        )
-    }
-
-    return (
-        <LemonTag type={result.color}>
-            <b className="uppercase">{result.label}</b>
-        </LemonTag>
     )
 }
 
@@ -210,6 +169,7 @@ export function PageHeaderCustom(): JSX.Element {
     const {
         launchExperiment,
         archiveExperiment,
+        unarchiveExperiment,
         createExposureCohort,
         createExperimentDashboard,
         updateExperiment,
@@ -249,6 +209,7 @@ export function PageHeaderCustom(): JSX.Element {
 
     return (
         <>
+            <ExperimentSceneMenuBar />
             <SceneTitleSection
                 name={experiment?.name}
                 description={null}
@@ -390,7 +351,15 @@ export function PageHeaderCustom(): JSX.Element {
 
                                 {isExperimentRunning &&
                                     experiment.feature_flag &&
-                                    (experiment.feature_flag.active ? (
+                                    (isExperimentPaused(experiment) ? (
+                                        <ButtonPrimitive
+                                            menuItem
+                                            data-attr="resume-experiment"
+                                            onClick={() => openResumeExperimentModal()}
+                                        >
+                                            <IconPlay /> Resume experiment
+                                        </ButtonPrimitive>
+                                    ) : (
                                         <ButtonPrimitive
                                             variant="danger"
                                             menuItem
@@ -398,14 +367,6 @@ export function PageHeaderCustom(): JSX.Element {
                                             onClick={() => openPauseExperimentModal()}
                                         >
                                             <IconPause /> Pause experiment
-                                        </ButtonPrimitive>
-                                    ) : (
-                                        <ButtonPrimitive
-                                            menuItem
-                                            data-attr="resume-experiment"
-                                            onClick={() => openResumeExperimentModal()}
-                                        >
-                                            <IconPlay /> Resume experiment
                                         </ButtonPrimitive>
                                     ))}
 
@@ -418,6 +379,15 @@ export function PageHeaderCustom(): JSX.Element {
                         {canArchive && (
                             <ButtonPrimitive menuItem data-attr="archive-experiment" onClick={handleArchive}>
                                 <IconArchive /> Archive experiment
+                            </ButtonPrimitive>
+                        )}
+                        {canEdit && experiment.archived && (
+                            <ButtonPrimitive
+                                menuItem
+                                data-attr="unarchive-experiment"
+                                onClick={() => unarchiveExperiment()}
+                            >
+                                <IconArchive /> Unarchive experiment
                             </ButtonPrimitive>
                         )}
 
@@ -823,10 +793,10 @@ export const ResetButton = (): JSX.Element => {
     )
 }
 
-export function StatusTag({ status, isPaused = false }: { status: ExperimentStatus; isPaused?: boolean }): JSX.Element {
+export function StatusTag({ status }: { status: ExperimentStatus }): JSX.Element {
     return (
-        <LemonTag type={getExperimentStatusColor(status, isPaused)} className="cursor-default">
-            <b className="uppercase">{getExperimentStatusLabel(status, isPaused)}</b>
+        <LemonTag type={getExperimentStatusColor(status)} className="cursor-default">
+            <b className="uppercase">{getExperimentStatusLabel(status)}</b>
         </LemonTag>
     )
 }

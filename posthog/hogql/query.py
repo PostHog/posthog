@@ -25,6 +25,11 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.schema.duckdb_table_functions import (
+    GenerateSeriesTable,
+    OpaqueFunctionCallTable,
+    RangeTable,
+)
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
 from posthog.hogql.direct_connection import (
     get_direct_connection_source_none_or_raise,
@@ -32,6 +37,7 @@ from posthog.hogql.direct_connection import (
 )
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_postgres_identifier
+from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -458,7 +464,14 @@ class HogQLQueryExecutor:
         if query_type is None:
             return None
 
-        base_table_types = extract_base_table_types(query_type)
+        # Dialect-level table functions (range, generate_series, introspected opaque calls)
+        # aren't bound to any source — they're standalone SQL any direct connection can run,
+        # so they shouldn't influence source dispatching or block table-less execution.
+        base_table_types = [
+            table_type
+            for table_type in extract_base_table_types(query_type)
+            if not isinstance(table_type.table, (RangeTable, GenerateSeriesTable, OpaqueFunctionCallTable))
+        ]
         direct_source_ids = {
             table_type.table.external_data_source_id
             for table_type in base_table_types
@@ -784,11 +797,14 @@ class HogQLQueryExecutor:
         assert clickhouse_context is not None
         timings_dict = self.timings.to_dict()
         with self.timings.measure("clickhouse_execute"):
+            with self.timings.measure("extract_hogql_features"):
+                hogql_features = extract_hogql_features(self.select_query)
             tag_queries(
                 team_id=self.team.pk,
                 query_type=self.query_type,
                 has_joins="JOIN" in self.clickhouse_sql,
                 has_json_operations="JSONExtract" in self.clickhouse_sql or "JSONHas" in self.clickhouse_sql,
+                hogql_features=hogql_features,
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}

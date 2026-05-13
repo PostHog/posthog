@@ -1,5 +1,6 @@
 @layer components {
     .quill-toggle-group {
+        height: fit-content;
         border-radius: var(--radius-sm);
     }
 
@@ -7,14 +8,30 @@
         border-radius: min(var(--radius-sm), 6px);
     }
 
-    /* Items — shared */
+    /* Items — shared. Position relative for the z-index lifts below. */
     .quill-toggle-group__item {
+        position: relative;
         flex-shrink: 0;
     }
 
-    .quill-toggle-group__item:focus,
+    /*
+     * Each item keeps its full border. To avoid double-thick lines between
+     * adjacent items (data-spacing=0), the second-onwards items pull back
+     * by -1px on the leading edge so neighboring borders perfectly overlap.
+     * Interactive states raise z-index so the active item's border draws
+     * over its neighbors instead of being painted under them.
+     */
+    .quill-toggle-group__item:is(:hover, :active, [aria-pressed='true'], [data-state='on'], [data-pressed]) {
+        z-index: 1;
+    }
+
+    /*
+     * Only keyboard focus lifts above neighbors. Click focus would keep the
+     * item at z-index 10 even after mouse-up; combined with the toggle's
+     * translate snap-back, that left a frame where the item's border didn't
+     * paint over its neighbor cleanly until you blurred.
+     */
     .quill-toggle-group__item:focus-visible {
-        position: relative;
         z-index: 10;
     }
 
@@ -35,16 +52,20 @@
     }
 
     .quill-toggle-group[data-orientation='horizontal'][data-spacing='0']
-        .quill-toggle-group__item[data-variant='outline'] {
-        border-inline-start: 0;
-    }
-
-    .quill-toggle-group[data-orientation='horizontal'][data-spacing='0']
-        .quill-toggle-group__item[data-variant='outline']:first-child {
-        border-inline-start: 1px solid var(--input);
+        .quill-toggle-group__item[data-variant='outline']:not(:first-child) {
+        margin-inline-start: -1px;
     }
 
     /* Vertical, spacing=0 */
+    .quill-toggle-group[data-orientation='vertical'][data-spacing='0'] {
+        box-shadow: var(--shadow-sm);
+    }
+
+    .quill-toggle-group[data-orientation='vertical'][data-spacing='0'] .quill-toggle-group__item {
+        box-shadow: none;
+        translate: 0 0;
+    }
+
     .quill-toggle-group[data-orientation='vertical'][data-spacing='0'] .quill-toggle-group__item:first-child {
         border-start-start-radius: var(--radius-sm);
         border-start-end-radius: var(--radius-sm);
@@ -56,12 +77,7 @@
     }
 
     .quill-toggle-group[data-orientation='vertical'][data-spacing='0']
-        .quill-toggle-group__item[data-variant='outline'] {
-        border-block-start: 0;
-    }
-
-    .quill-toggle-group[data-orientation='vertical'][data-spacing='0']
-        .quill-toggle-group__item[data-variant='outline']:first-child {
-        border-block-start: 1px solid var(--input);
+        .quill-toggle-group__item[data-variant='outline']:not(:first-child) {
+        margin-block-start: -1px;
     }
 }

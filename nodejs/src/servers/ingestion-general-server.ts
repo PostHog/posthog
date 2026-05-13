@@ -1,5 +1,4 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { InternalCaptureService } from '~/common/services/internal-capture'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -182,7 +181,6 @@ export class IngestionGeneralServer implements NodeServer {
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
-        const internalCaptureService = new InternalCaptureService(this.config)
 
         // 3. Ingestion-specific services
         logger.info('🤔', 'Connecting to cookieless Redis...')
@@ -233,7 +231,6 @@ export class IngestionGeneralServer implements NodeServer {
                 integrationManager,
                 monitoringOutputs: ingestionOutputs,
                 teamManager,
-                internalCaptureService,
             }
 
             const ingestionDeps: IngestionConsumerDeps = {

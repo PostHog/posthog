@@ -34,6 +34,7 @@ export type VolumeSparklineRenderArgs = {
     eventLabelPaddingY?: number
     eventMinSpace?: number
     onRangeSelect?: (startDate: Date, endDate: Date) => void
+    onSpikeClick?: (datum: SparklineDatum, clientX: number, clientY: number) => void
     /** Used to namespace window-level d3 drag listeners so multiple sparklines do not clobber each other */
     sparklineKey: string
 }
@@ -122,6 +123,7 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
         eventLabelPaddingY = 3,
         eventMinSpace = 2,
         onRangeSelect,
+        onSpikeClick,
         sparklineKey,
     } = args
 
@@ -201,7 +203,12 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
         .data(occurrences)
         .join('g')
         .attr('class', 'volume-bar')
-        .style('cursor', onRangeSelect ? 'crosshair' : 'default')
+        .style('cursor', (d) => {
+            if (onSpikeClick && d.animated) {
+                return 'pointer'
+            }
+            return onRangeSelect ? 'crosshair' : 'default'
+        })
 
     barGroups.each(function (d, i) {
         const g = d3.select(this)
@@ -283,6 +290,13 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
             g.select('.bar-hover-overlay').style('opacity', 0).style('fill', 'black')
             g.select('.bar-main').style('fill', spikeBarFill(d, backgroundColor, patternIdFor))
         })
+
+        if (onSpikeClick && d.animated && !onRangeSelect) {
+            g.on('click', (event: MouseEvent) => {
+                event.stopPropagation()
+                onSpikeClick(d, event.clientX, event.clientY)
+            })
+        }
     })
 
     if (xAxis === 'full') {
@@ -467,6 +481,17 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
             resetBarStyles()
 
             if (dragDist < DRAG_MIN_DISTANCE_PX) {
+                if (onSpikeClick) {
+                    for (let i = 0; i < occurrences.length; i++) {
+                        const binLeft = xScale(occurrences[i].date)
+                        if (clampedX >= binLeft && clampedX < binLeft + bandwidth) {
+                            if (occurrences[i].animated) {
+                                onSpikeClick(occurrences[i], event.clientX, event.clientY)
+                            }
+                            break
+                        }
+                    }
+                }
                 return
             }
 

@@ -140,7 +140,8 @@ export function BatchExportsEditFields({
                                     { value: 'me-central-1', label: 'Middle East (Riyadh)' },
                                     { value: 'sa-east-1', label: 'South America (São Paulo)' },
                                     // GCP
-                                    { value: 'us-central1', label: 'US Central (Iowa)' },
+                                    { value: 'us-central1', label: 'GCP — US Central (Iowa)' },
+                                    { value: 'europe-west4', label: 'GCP — Europe (Netherlands)' },
                                     // Cloudflare R2
                                     { value: 'auto', label: 'Automatic (AUTO)' },
                                     { value: 'apac', label: 'Asia Pacific (APAC)' },
@@ -729,6 +730,7 @@ export function BatchExportsEditFields({
                                         <span className="flex gap-2 items-center">
                                             Use VARIANT type for storing JSON data
                                             <Tooltip
+                                                interactive
                                                 title={
                                                     <>
                                                         Using VARIANT for storing JSON data is{' '}

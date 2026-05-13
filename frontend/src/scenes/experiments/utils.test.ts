@@ -13,6 +13,7 @@ import {
     ExperimentMetricType,
     ExperimentTrendsQuery,
     NodeKind,
+    ProductKey,
 } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -31,6 +32,7 @@ import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
+    getEventCountQuery,
     getOrderedMetricsWithResults,
     getViewRecordingFilters,
     getViewRecordingFiltersLegacy,
@@ -1347,5 +1349,37 @@ describe('getOrderedMetricsWithResults', () => {
 
             expect(ordered[0].metricIndex).toBe(0)
         })
+    })
+})
+
+describe('getEventCountQuery', () => {
+    it('includes product analytics tags in the query', () => {
+        const metric: ExperimentMetric = {
+            uuid: 'test-metric',
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: 'Pageview',
+            },
+        }
+
+        const query = getEventCountQuery(metric, true)
+
+        expect(query).not.toBeNull()
+        expect(query?.tags).toEqual({ productKey: ProductKey.PRODUCT_ANALYTICS })
+    })
+
+    it('returns null when series is empty', () => {
+        const metric: ExperimentMetric = {
+            uuid: 'test-metric',
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+        } as ExperimentMetric
+
+        const query = getEventCountQuery(metric, true)
+
+        expect(query).toBeNull()
     })
 })

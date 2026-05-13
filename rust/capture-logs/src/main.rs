@@ -81,13 +81,20 @@ async fn main() {
 
     let health_registry = HealthRegistry::new("liveness");
 
-    let sink_liveness = health_registry
+    let logs_sink_liveness = health_registry
         .register("rdkafka".to_string(), Duration::from_secs(30))
         .await;
+    let traces_sink_liveness = health_registry
+        .register("rdkafka_traces".to_string(), Duration::from_secs(30))
+        .await;
 
-    let kafka_sink = KafkaSink::new(config.kafka.clone(), sink_liveness)
-        .await
-        .expect("failed to start Kafka sink");
+    let kafka_sink = KafkaSink::new(
+        config.kafka.clone(),
+        logs_sink_liveness,
+        traces_sink_liveness,
+    )
+    .await
+    .expect("failed to start Kafka sink");
 
     let management_router = Router::new()
         .route("/", get(index))
