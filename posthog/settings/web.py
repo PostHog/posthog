@@ -75,6 +75,7 @@ PRODUCTS_APPS = [
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
     "products.founder_mode.backend.apps.FounderModeConfig",
+    "products.mindmap.backend.apps.MindmapConfig",
 ]
 
 INSTALLED_APPS = [
