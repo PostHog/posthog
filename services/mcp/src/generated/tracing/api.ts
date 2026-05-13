@@ -22,10 +22,10 @@ export const tracingSpansAttributesRetrieveQueryOffsetMin = 0
 
 export const TracingSpansAttributesRetrieveQueryParams = /* @__PURE__ */ zod.object({
     attribute_type: zod
-        .enum(['span', 'resource'])
+        .enum(['span_attribute', 'span_resource_attribute'])
         .optional()
         .describe(
-            'Type of attributes: "span" for span attributes, "resource" for resource attributes.\n\n* `span` - span\n* `resource` - resource'
+            'Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.\n\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute'
         ),
     limit: zod
         .number()
@@ -196,9 +196,11 @@ export const tracingSpansValuesRetrieveQueryOffsetMin = 0
 
 export const TracingSpansValuesRetrieveQueryParams = /* @__PURE__ */ zod.object({
     attribute_type: zod
-        .enum(['span', 'resource'])
+        .enum(['span', 'span_attribute', 'span_resource_attribute'])
         .optional()
-        .describe('Type of attribute: "span" or "resource".\n\n* `span` - span\n* `resource` - resource'),
+        .describe(
+            'Type of attribute: "span" for built-in span fields (e.g. name), "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute'
+        ),
     key: zod.string().min(1).describe('The attribute key to get values for.'),
     limit: zod
         .number()
