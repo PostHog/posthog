@@ -67,6 +67,18 @@ class AgenticTestViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         test.save(update_fields=["status", "updated_at"])
         return Response(self.get_serializer(test).data)
 
+    @extend_schema(
+        request=None,
+        responses=AgenticTestSerializer,
+        description="Reject a proposed test. The test is kept (status=rejected) so users can restore it later.",
+    )
+    @action(detail=True, methods=["post"])
+    def reject(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        test: AgenticTest = self.get_object()
+        test.status = AgenticTest.Status.REJECTED
+        test.save(update_fields=["status", "updated_at"])
+        return Response(self.get_serializer(test).data)
+
 
 class AgenticTestRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "INTERNAL"

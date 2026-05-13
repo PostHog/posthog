@@ -7,7 +7,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { AgenticTest, AgenticTestStatus } from '../../types'
 import type { agenticTestsSceneLogicType } from './agenticTestsSceneLogicType'
 
-export type StatusFilter = 'all' | 'active' | 'paused'
+export type StatusFilter = 'all' | 'active' | 'paused' | 'rejected'
 
 const baseUrl = (): string => `api/projects/${getCurrentTeamId()}/agentic_tests/`
 
@@ -18,6 +18,7 @@ export const agenticTestsSceneLogic = kea<agenticTestsSceneLogicType>([
         runNow: (id: string) => ({ id }),
         activateTest: (id: string) => ({ id }),
         pauseTest: (id: string) => ({ id }),
+        rejectTest: (id: string) => ({ id }),
         setSearchTerm: (search: string) => ({ search }),
         setStatusFilter: (status: StatusFilter) => ({ status }),
     }),
@@ -53,6 +54,10 @@ export const agenticTestsSceneLogic = kea<agenticTestsSceneLogicType>([
             await api.create(`${baseUrl()}${id}/pause/`, {})
             actions.loadTests()
         },
+        rejectTest: async ({ id }) => {
+            await api.create(`${baseUrl()}${id}/reject/`, {})
+            actions.loadTests()
+        },
     })),
     selectors({
         passingCount: [(s) => [s.tests], (tests) => tests.filter((t) => t.last_run?.status === 'passed').length],
@@ -67,7 +72,12 @@ export const agenticTestsSceneLogic = kea<agenticTestsSceneLogicType>([
                     if (t.status === 'proposed') {
                         return false
                     }
-                    if (statusFilter !== 'all' && t.status !== (statusFilter as AgenticTestStatus)) {
+                    if (statusFilter === 'all') {
+                        // Default 'all' hides rejected — match the workflows archived pattern.
+                        if (t.status === 'rejected') {
+                            return false
+                        }
+                    } else if (t.status !== (statusFilter as AgenticTestStatus)) {
                         return false
                     }
                     if (search && !t.name.toLowerCase().includes(search)) {

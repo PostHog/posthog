@@ -19,6 +19,7 @@ class AgenticTest(UUIDModel):
         ACTIVE = "active", "Active"
         PAUSED = "paused", "Paused"
         PROPOSED = "proposed", "Proposed"
+        REJECTED = "rejected", "Rejected"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="agentic_tests")
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, related_name="+")
@@ -34,6 +35,16 @@ class AgenticTest(UUIDModel):
 
     source_replay_id = models.CharField(max_length=255, null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
+
+    assertions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "List of post-run checks the test must satisfy in addition to the agent's own "
+            "self-evaluation. Each item: {type, ...config}. Supported types: url_contains, "
+            "event_captured."
+        ),
+    )
 
     class Meta:
         db_table = "posthog_agentictest"

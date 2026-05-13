@@ -1001,25 +1001,11 @@ environments_router.register(
     ["team_id"],
 )
 
-environments_router.register(
-    r"agentic_tests",
-    AgenticTestViewSet,
-    "environment_agentic_tests",
-    ["team_id"],
-)
-
 projects_router.register(
     r"agentic_tests",
     AgenticTestViewSet,
     "project_agentic_tests",
     ["project_id"],
-)
-
-environments_router.register(
-    r"agentic_test_runs",
-    AgenticTestRunViewSet,
-    "environment_agentic_test_runs",
-    ["team_id"],
 )
 
 projects_router.register(

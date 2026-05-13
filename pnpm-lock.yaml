@@ -601,6 +601,9 @@ importers:
       '@posthog/products-actions':
         specifier: workspace:*
         version: link:../products/actions
+      '@posthog/products-agentic-tests':
+        specifier: workspace:*
+        version: link:../products/agentic_tests
       '@posthog/products-business-knowledge':
         specifier: workspace:*
         version: link:../products/business_knowledge
@@ -697,9 +700,6 @@ importers:
       '@posthog/products-surveys':
         specifier: workspace:*
         version: link:../products/surveys
-      '@posthog/products-synthetic-tests':
-        specifier: workspace:*
-        version: link:../products/synthetic_tests
       '@posthog/products-tasks':
         specifier: workspace:*
         version: link:../products/tasks
@@ -2065,6 +2065,8 @@ importers:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
 
+  products/agentic_tests: {}
+
   products/alerts: {}
 
   products/analytics_platform: {}
@@ -3195,8 +3197,6 @@ importers:
       '@storybook/react':
         specifier: 'catalog:'
         version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
-
-  products/synthetic_tests: {}
 
   products/tasks:
     dependencies:

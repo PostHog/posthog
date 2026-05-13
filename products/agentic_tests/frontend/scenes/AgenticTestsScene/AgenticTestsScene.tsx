@@ -32,6 +32,9 @@ const RUN_STATUS_TAG: Record<string, { type: LemonTagType; label: string }> = {
 }
 
 function runStatusFor(test: AgenticTest): { type: LemonTagType; label: string } {
+    if (test.status === 'rejected') {
+        return { type: 'muted', label: 'Rejected' }
+    }
     if (test.status === 'paused') {
         return { type: 'muted', label: 'Paused' }
     }
@@ -42,28 +45,19 @@ function runStatusFor(test: AgenticTest): { type: LemonTagType; label: string } 
 }
 
 export function AgenticTestsScene(): JSX.Element {
-    const {
-        tests,
-        testsLoading,
-        passingCount,
-        failingCount,
-        proposedCount,
-        proposedTests,
-        filteredTests,
-        searchTerm,
-        statusFilter,
-    } = useValues(agenticTestsSceneLogic)
-    const { deleteTest, runNow, pauseTest, activateTest, setSearchTerm, setStatusFilter } =
+    const { testsLoading, proposedTests, filteredTests, searchTerm, statusFilter } = useValues(agenticTestsSceneLogic)
+    const { deleteTest, runNow, pauseTest, activateTest, rejectTest, setSearchTerm, setStatusFilter } =
         useActions(agenticTestsSceneLogic)
 
     const confirmReject = (test: AgenticTest): void => {
         LemonDialog.open({
             title: `Reject "${test.name}"?`,
-            description: 'The proposed test and its prompt will be permanently deleted.',
+            description:
+                'The test will be kept in a rejected state — you can restore it later from the Rejected filter.',
             primaryButton: {
                 children: 'Reject',
                 status: 'danger',
-                onClick: () => deleteTest(test.id),
+                onClick: () => rejectTest(test.id),
             },
             secondaryButton: { children: 'Cancel' },
         })
@@ -89,25 +83,11 @@ export function AgenticTestsScene(): JSX.Element {
                 description="LLM-driven browser checks against your product, seeded by session replays."
                 resourceType={{ type: 'agentic_tests' }}
                 actions={
-                    <LemonButton type="primary" to="/agentic_tests/new" data-attr="agentic-tests-new">
+                    <LemonButton type="primary" size="small" to="/agentic_tests/new" data-attr="agentic-tests-new">
                         New test
                     </LemonButton>
                 }
             />
-            <div className="flex gap-4 mb-4 text-sm">
-                <span>
-                    <strong>{proposedCount}</strong> proposed
-                </span>
-                <span>
-                    <strong>{passingCount}</strong> passing
-                </span>
-                <span>
-                    <strong>{failingCount}</strong> failing
-                </span>
-                <span>
-                    <strong>{tests.length}</strong> total
-                </span>
-            </div>
 
             {proposedTests.length > 0 && (
                 <section className="mb-8">
@@ -209,6 +189,7 @@ export function AgenticTestsScene(): JSX.Element {
                                 { label: 'All', value: 'all' },
                                 { label: 'Active', value: 'active' },
                                 { label: 'Paused', value: 'paused' },
+                                { label: 'Rejected', value: 'rejected' },
                             ]}
                             value={statusFilter}
                         />
@@ -261,21 +242,29 @@ export function AgenticTestsScene(): JSX.Element {
                                 <More
                                     overlay={
                                         <>
-                                            <LemonButton
-                                                fullWidth
-                                                onClick={() => runNow(test.id)}
-                                                data-attr="agentic-test-run-now"
-                                            >
-                                                Run now
-                                            </LemonButton>
-                                            {test.status === 'active' ? (
-                                                <LemonButton fullWidth onClick={() => pauseTest(test.id)}>
-                                                    Pause
+                                            {test.status === 'rejected' ? (
+                                                <LemonButton fullWidth onClick={() => activateTest(test.id)}>
+                                                    Restore
                                                 </LemonButton>
                                             ) : (
-                                                <LemonButton fullWidth onClick={() => activateTest(test.id)}>
-                                                    Resume
-                                                </LemonButton>
+                                                <>
+                                                    <LemonButton
+                                                        fullWidth
+                                                        onClick={() => runNow(test.id)}
+                                                        data-attr="agentic-test-run-now"
+                                                    >
+                                                        Run now
+                                                    </LemonButton>
+                                                    {test.status === 'active' ? (
+                                                        <LemonButton fullWidth onClick={() => pauseTest(test.id)}>
+                                                            Pause
+                                                        </LemonButton>
+                                                    ) : (
+                                                        <LemonButton fullWidth onClick={() => activateTest(test.id)}>
+                                                            Resume
+                                                        </LemonButton>
+                                                    )}
+                                                </>
                                             )}
                                             <LemonDivider />
                                             <LemonButton

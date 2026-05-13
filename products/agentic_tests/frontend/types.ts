@@ -3,7 +3,7 @@
  * Regenerate via `hogli build:openapi` once the branch is merged.
  */
 
-export type AgenticTestStatus = 'active' | 'paused' | 'proposed'
+export type AgenticTestStatus = 'active' | 'paused' | 'proposed' | 'rejected'
 
 export type AgenticTestRunStatus = 'running' | 'passed' | 'failed' | 'timeout' | 'error'
 
