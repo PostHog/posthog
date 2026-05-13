@@ -237,7 +237,7 @@ class TestRenderingCanvasGenerate(TestCase):
         return f"/api/projects/{self.team.id}/rendering_canvases/generate/"
 
     @patch("products.tasks.backend.api.generate_canvas_tsx")
-    def test_generate_happy_path(self, mock_generate: MagicMock) -> None:
+    def test_generate_returns_source_without_persisting(self, mock_generate: MagicMock) -> None:
         mock_generate.return_value = (VALID_CONTENT, "Generated UI")
 
         response = self.client.post(
@@ -245,14 +245,12 @@ class TestRenderingCanvasGenerate(TestCase):
             {"prompt": "a card with the project name"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         body = response.json()
-        self.assertEqual(body["name"], "Generated UI")
-        self.assertEqual(body["content"], VALID_CONTENT)
+        self.assertEqual(body, {"name": "Generated UI", "content": VALID_CONTENT})
 
-        canvas = RenderingCanvas.objects.get(id=body["id"])
-        self.assertEqual(canvas.team_id, self.team.id)
-        self.assertEqual(canvas.created_by_id, self.user.id)
+        # Pure generation — no row should land in the database.
+        self.assertEqual(RenderingCanvas.objects.count(), 0)
 
         mock_generate.assert_called_once()
         kwargs = mock_generate.call_args.kwargs
@@ -261,20 +259,7 @@ class TestRenderingCanvasGenerate(TestCase):
         self.assertEqual(kwargs["prompt"], "a card with the project name")
 
     @patch("products.tasks.backend.api.generate_canvas_tsx")
-    def test_generate_persists_path(self, mock_generate: MagicMock) -> None:
-        mock_generate.return_value = (VALID_CONTENT, "Generated UI")
-        response = self.client.post(
-            self._generate_url(),
-            {"prompt": "anything", "path": "src/pages/Home.tsx"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
-        self.assertEqual(response.json()["path"], "src/pages/Home.tsx")
-        canvas = RenderingCanvas.objects.get(id=response.json()["id"])
-        self.assertEqual(canvas.path, "src/pages/Home.tsx")
-
-    @patch("products.tasks.backend.api.generate_canvas_tsx")
-    def test_generate_uses_name_hint_when_provided(self, mock_generate: MagicMock) -> None:
+    def test_generate_passes_name_hint_through(self, mock_generate: MagicMock) -> None:
         mock_generate.return_value = (VALID_CONTENT, "Derived From Prompt")
 
         response = self.client.post(
@@ -282,9 +267,7 @@ class TestRenderingCanvasGenerate(TestCase):
             {"prompt": "anything", "name": "Explicit Name"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
-        # The action passes the hint through to generate_canvas_tsx; the function decides.
-        # We assert the hint reached the function — derivation behavior is unit-tested separately.
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(mock_generate.call_args.kwargs["name_hint"], "Explicit Name")
 
     @patch("products.tasks.backend.api.generate_canvas_tsx")
@@ -297,24 +280,6 @@ class TestRenderingCanvasGenerate(TestCase):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(RenderingCanvas.objects.count(), 0)
-
-    @patch("products.tasks.backend.api.generate_canvas_tsx")
-    def test_generate_rejects_cross_team_task(self, mock_generate: MagicMock) -> None:
-        other_task = Task.objects.create(
-            team=self.other_team,
-            title="t",
-            description="d",
-            origin_product=Task.OriginProduct.USER_CREATED,
-        )
-
-        response = self.client.post(
-            self._generate_url(),
-            {"prompt": "x", "task": str(other_task.id)},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        mock_generate.assert_not_called()
         self.assertEqual(RenderingCanvas.objects.count(), 0)
 
     def test_generate_requires_prompt(self) -> None:

@@ -106,20 +106,35 @@
             "readOnlyHint": true
         }
     },
-    "generate-canvas": {
-        "description": "Generate a React/TSX rendering canvas from a natural-language prompt. The server runs the LLM call, validates that the generated TSX is safe to render, and persists it as a RenderingCanvas record scoped to the current project. Returns the canvas id, name, and content. Pass `task` whenever the agent has a current task UUID so the canvas surfaces in the right place in PostHog Code. The generated module must default-export a single React component, must not perform network or DOM side effects, and may only read PostHog data through `{{ @api.<dotted.path>(args) }}` template expressions — the server rejects anything else.",
+    "create-canvas": {
+        "description": "Persist a React/TSX rendering canvas. Use this when you have already produced the canvas source — either by writing it yourself in conversation (recommended when you have rich context the model behind `generate-canvas` would lack) or by piping the output of `generate-canvas`. The server validates `content` against the canvas safety rules: the module must default-export a single React component, must not perform network or DOM side effects (no fetch/eval/script/etc), and may only read PostHog data through `{{ @api.<dotted.path>(args) }}` template expressions — anything else is rejected with a 400. Optional `path` (slash-separated, e.g. 'src/components/Button.tsx') places the canvas inside the file tree shown in PostHog Code. Pass `task` when you have a current task UUID so the canvas surfaces in the right place.",
         "category": "Canvases",
-        "summary": "Generate a React/TSX rendering canvas from a prompt.",
+        "summary": "Persist a rendering canvas from a TSX source string.",
         "feature": "canvases",
-        "title": "Generate canvas",
+        "title": "Create canvas",
         "required_scopes": ["task:write"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": false,
+            "readOnlyHint": false
+        }
+    },
+    "generate-canvas": {
+        "description": "Generate React/TSX source for a rendering canvas from a natural-language prompt. The server runs an LLM call scoped to canvas conventions and validates the output against the canvas safety rules. This tool does NOT persist — it returns `{ name, content }`. Pass the returned `content` to `create-canvas` when you want to keep it. Prefer writing the canvas source yourself and calling `create-canvas` directly when you have rich conversation context that would be lost by delegating to this tool.",
+        "category": "Canvases",
+        "summary": "Generate React/TSX canvas source from a prompt (does not persist).",
+        "feature": "canvases",
+        "title": "Generate canvas source",
+        "required_scopes": ["task:read"],
         "new_mcp": false,
         "requires_ai_consent": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
             "openWorldHint": false,
-            "readOnlyHint": false
+            "readOnlyHint": true
         }
     },
     "query-generate-hogql-from-question": {

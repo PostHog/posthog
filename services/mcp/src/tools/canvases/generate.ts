@@ -7,14 +7,7 @@ const schema = GenerateCanvasSchema
 
 type Params = z.infer<typeof schema>
 
-type Result = {
-    id: string
-    name: string
-    content: string
-    task: string | null
-    created_at: string
-    updated_at: string
-}
+type Result = { name: string; content: string }
 
 export const generateCanvasHandler: ToolBase<typeof schema, Result>['handler'] = async (
     context: Context,
@@ -25,7 +18,6 @@ export const generateCanvasHandler: ToolBase<typeof schema, Result>['handler'] =
     const result = await context.api.canvases({ projectId }).generate({
         prompt: params.prompt,
         name: params.name,
-        task: params.task,
     })
 
     if (!result.success) {

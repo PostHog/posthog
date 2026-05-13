@@ -21,7 +21,7 @@ import jsonschema
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import serializers, status, viewsets
+from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -55,6 +55,7 @@ from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
+    RenderingCanvasGenerateResponseSerializer,
     RenderingCanvasGenerateSerializer,
     RenderingCanvasSerializer,
     RepositoryReadinessQuerySerializer,
@@ -2578,26 +2579,26 @@ class RenderingCanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @validated_request(
         request_serializer=RenderingCanvasGenerateSerializer,
         responses={
-            201: OpenApiResponse(response=RenderingCanvasSerializer, description="Generated canvas"),
+            200: OpenApiResponse(
+                response=RenderingCanvasGenerateResponseSerializer,
+                description="Generated canvas source — not yet persisted.",
+            ),
         },
-        summary="Generate a rendering canvas from a prompt",
+        summary="Generate React/TSX source from a prompt",
         description=(
-            "Generate a React/TSX module from a natural-language prompt, validate it, "
-            "and persist it as a new RenderingCanvas. Returns the created canvas."
+            "Generate a React/TSX module from a natural-language prompt and validate it. "
+            "Does NOT persist — the caller follows up with POST /rendering_canvases/ "
+            "(or the create-canvas MCP tool) when they want to keep the result."
         ),
     )
     @action(
         detail=False,
         methods=["post"],
         url_path="generate",
-        required_scopes=["task:write"],
+        required_scopes=["task:read"],
     )
     def generate(self, request, *args, **kwargs):
         data = request.validated_data
-        task: Task | None = data.get("task")
-        if task is not None and task.team_id != self.team.id:
-            raise serializers.ValidationError({"task": "Task does not belong to this team."})
-
         tsx, name = generate_canvas_tsx(
             team=self.team,
             user=request.user,
@@ -2605,15 +2606,4 @@ class RenderingCanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             name_hint=data.get("name"),
         )
         validate_canvas_content(tsx)
-        canvas = RenderingCanvas.objects.create(
-            team=self.team,
-            created_by=request.user,
-            name=name,
-            path=data.get("path", ""),
-            content=tsx,
-            task=task,
-        )
-        return Response(
-            RenderingCanvasSerializer(canvas).data,
-            status=status.HTTP_201_CREATED,
-        )
+        return Response({"name": name, "content": tsx}, status=status.HTTP_200_OK)

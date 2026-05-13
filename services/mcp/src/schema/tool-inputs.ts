@@ -458,14 +458,30 @@ export const GenerateCanvasSchema = z.object({
         .min(1)
         .max(4000)
         .describe(
-            'Natural-language description of the UI to generate as a React/TSX module. The server runs the LLM call, validates the output, and persists the canvas.'
+            'Natural-language description of the UI to generate as a React/TSX module. The server runs the LLM call and validates the output against the canvas safety rules. The result is NOT persisted — pass the returned `content` to the `create-canvas` tool when you want to keep it.'
         ),
     name: z
         .string()
         .min(1)
         .max(200)
         .optional()
-        .describe('Optional human-readable name for the canvas. If omitted, derived from the prompt.'),
+        .describe('Optional human-readable name. If omitted, the server derives one from the prompt.'),
+})
+
+export const CreateCanvasSchema = z.object({
+    name: z.string().min(1).max(200).describe('Human-readable name for the canvas.'),
+    content: z
+        .string()
+        .min(1)
+        .describe(
+            'React/TSX module source for the canvas. Must default-export a single React component. Must not perform network or DOM side effects. May only read PostHog data through `{{ @api.<dotted.path>(args) }}` template expressions — anything else is rejected.'
+        ),
+    path: z
+        .string()
+        .optional()
+        .describe(
+            "Optional slash-separated virtual file path placing the canvas inside a file tree (e.g. 'src/components/Button.tsx'). Empty string or omitted means root."
+        ),
     task: z
         .string()
         .uuid()

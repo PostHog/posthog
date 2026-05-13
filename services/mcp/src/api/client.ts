@@ -1214,40 +1214,63 @@ export class ApiClient {
     }
 
     /**
-     * Rendering canvases — LLM-generated React/TSX persisted for rendering in PostHog Code.
+     * Rendering canvases — React/TSX modules rendered in PostHog Code.
      */
     canvases({ projectId }: { projectId: string }): Endpoint {
         return {
             /**
-             * Generate a new rendering canvas from a natural-language prompt.
-             * The Django endpoint runs the LLM call, validates the output, and persists.
+             * Generate React/TSX source from a natural-language prompt.
+             * Validates the output but does NOT persist — pair with `create` to save.
              */
             generate: async ({
                 prompt,
                 name,
-                task,
             }: {
                 prompt: string
                 name?: string
+            }): Promise<Result<{ name: string; content: string }>> => {
+                const body: Record<string, unknown> = { prompt }
+                if (name !== undefined) {
+                    body.name = name
+                }
+                return this.fetchJson(`${this.baseUrl}/api/projects/${projectId}/rendering_canvases/generate/`, {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                })
+            },
+            /**
+             * Persist a rendering canvas. The Django serializer re-runs the content
+             * safety validation on the way in.
+             */
+            create: async ({
+                name,
+                content,
+                path,
+                task,
+            }: {
+                name: string
+                content: string
+                path?: string
                 task?: string
             }): Promise<
                 Result<{
                     id: string
                     name: string
                     content: string
+                    path: string
                     task: string | null
                     created_at: string
                     updated_at: string
                 }>
             > => {
-                const body: Record<string, unknown> = { prompt }
-                if (name !== undefined) {
-                    body.name = name
+                const body: Record<string, unknown> = { name, content }
+                if (path !== undefined) {
+                    body.path = path
                 }
                 if (task !== undefined) {
                     body.task = task
                 }
-                return this.fetchJson(`${this.baseUrl}/api/projects/${projectId}/rendering_canvases/generate/`, {
+                return this.fetchJson(`${this.baseUrl}/api/projects/${projectId}/rendering_canvases/`, {
                     method: 'POST',
                     body: JSON.stringify(body),
                 })

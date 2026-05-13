@@ -1733,7 +1733,12 @@ class RenderingCanvasSerializer(serializers.ModelSerializer):
 
 
 class RenderingCanvasGenerateSerializer(serializers.Serializer):
-    """Input for the `rendering_canvases/generate/` action."""
+    """Input for the `rendering_canvases/generate/` action.
+
+    Pure generation — does not persist. The caller is expected to follow up with a
+    POST to `/rendering_canvases/` (the standard CRUD create) to persist whatever
+    they want to keep.
+    """
 
     prompt = serializers.CharField(
         max_length=4000,
@@ -1744,31 +1749,15 @@ class RenderingCanvasGenerateSerializer(serializers.Serializer):
         max_length=200,
         required=False,
         allow_blank=True,
-        help_text="Optional name for the canvas. If omitted, derived from the prompt.",
-    )
-    path = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text=(
-            "Optional slash-separated virtual file path placing the canvas inside a file tree "
-            "(e.g. 'src/components/Button.tsx'). Empty string means root."
-        ),
-    )
-    task = serializers.PrimaryKeyRelatedField(
-        queryset=Task.objects.all(),
-        required=False,
-        allow_null=True,
-        help_text="Optional task this canvas was generated from.",
+        help_text="Optional human-readable name. If omitted, derived from the prompt.",
     )
 
-    def validate_path(self, value: str) -> str:
-        return _normalize_canvas_path(value)
 
-    def validate_task(self, value: Task | None) -> Task | None:
-        if value is None:
-            return None
-        get_team = self.context.get("get_team")
-        team = get_team() if get_team else None
-        if team is not None and value.team_id != team.id:
-            raise serializers.ValidationError("Task does not belong to this team.")
-        return value
+class RenderingCanvasGenerateResponseSerializer(serializers.Serializer):
+    """Response for the `rendering_canvases/generate/` action."""
+
+    name = serializers.CharField(help_text="Suggested human-readable name for the canvas.")
+    content = serializers.CharField(
+        trim_whitespace=False,
+        help_text="Generated React/TSX module source. Validated against the canvas safety rules before being returned.",
+    )
