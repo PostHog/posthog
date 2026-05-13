@@ -7,39 +7,22 @@
 category: AutoML
 feature: automl
 url_prefix: /automl
+ui_apps: {}
 tools:
-    automl-list:
-        operation: automl_pipelines_list
+    automl-archive:
+        operation: automl_pipelines_archive_create
         enabled: true
         scopes:
-            - automl:read
+            - automl:write
         annotations:
-            readOnly: true
-            destructive: false
+            readOnly: false
+            destructive: true
             idempotent: true
-        title: List AutoML pipelines
-        description: >
-            List all non-archived AutoML pipelines for the current team, newest first. Each pipeline captures
-            a configured ML task (clustering, classification, regression, or forecasting) along with its
-            populations, cadence, autonomy, and lifecycle status. Use this to discover what pipelines exist
-            before fetching one by id.
-        list: true
         enrich_url: '{id}'
-    automl-get:
-        operation: automl_pipelines_retrieve
-        enabled: true
-        scopes:
-            - automl:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Retrieve AutoML pipeline
+        title: Archive AutoML pipeline
         description: >
-            Fetch one AutoML pipeline by id. Returns the full pipeline including task type, status, autonomy
-            level, configured populations, cadences, and timestamps. Use this after automl-list to inspect a
-            specific pipeline in detail.
-        enrich_url: '{id}'
+            Soft-archive a pipeline. Inference stops permanently and the pipeline disappears from the default list view.
+            History (predictions, model versions, audit log) is preserved. Idempotent.
     automl-create:
         operation: automl_pipelines_create
         enabled: true
@@ -51,78 +34,79 @@ tools:
             idempotent: false
         title: Create AutoML pipeline
         description: >
-            Create a new AutoML pipeline in draft state. Picks one of four task types (clustering,
-            classification, regression, forecasting), describes the training and inference populations, and
-            sets cadences and autonomy. The pipeline does not start training until automl-start is called.
+            Create a new AutoML pipeline in draft state. Picks one of four task types (clustering, classification,
+            regression, forecasting), describes the training and inference populations, and sets cadences and autonomy.
+            The pipeline does not start training until automl-start is called.
         param_overrides:
             name:
                 description: >
-                    Human-readable label for the pipeline. Shows up in the UI and in property names. Keep it
-                    short and unique within the team.
+                    Human-readable label for the pipeline. Shows up in the UI and in property names. Keep it short and
+                    unique within the team.
             task_type:
                 description: >
-                    One of "clustering", "classification", "regression", or "forecasting". Determines what
-                    kind of model is trained and how predictions are surfaced.
+                    One of "clustering", "classification", "regression", or "forecasting". Determines what kind of model
+                    is trained and how predictions are surfaced.
             config:
                 description: >
-                    Task-type-specific configuration (target event, horizon, cluster count, forecasting
-                    window, etc.). Shape depends on task_type. See the AutoML design doc for per-task fields.
+                    Task-type-specific configuration (target event, horizon, cluster count, forecasting window, etc.).
+                    Shape depends on task_type. See the AutoML design doc for per-task fields.
             training_population:
                 description: >
-                    Population definition (HogQL or filter spec) describing which persons, groups, or events
-                    are eligible to be drawn into the training set.
+                    Population definition (HogQL or filter spec) describing which persons, groups, or events are
+                    eligible to be drawn into the training set.
             inference_population:
                 description: >
-                    Population definition describing who the model is scored against on each scheduled run.
-                    Usually broader than training_population.
+                    Population definition describing who the model is scored against on each scheduled run. Usually
+                    broader than training_population.
             inference_cadence:
                 description: >
-                    How often inference runs after the pipeline is active. One of "hourly", "daily",
-                    "weekly", "monthly", or "never" (manual only).
+                    How often inference runs after the pipeline is active. One of "hourly", "daily", "weekly",
+                    "monthly", or "never" (manual only).
             retraining_cadence:
                 description: >
-                    How often the model is refit on a rolling window. One of "hourly", "daily", "weekly",
-                    "monthly", or "never".
+                    How often the model is refit on a rolling window. One of "hourly", "daily", "weekly", "monthly", or
+                    "never".
             autonomy:
                 description: >
-                    Output gate. "shadow_only" surfaces predictions internally but never writes person/group
-                    properties or emits events. "champion_only" writes from the active champion model.
-                    "promote_eligible" lets challenger models graduate to champion automatically when metrics
-                    pass thresholds.
+                    Output gate. "shadow_only" surfaces predictions internally but never writes person/group properties
+                    or emits events. "champion_only" writes from the active champion model. "promote_eligible" lets
+                    challenger models graduate to champion automatically when metrics pass thresholds.
             output_property_name:
                 description: >
-                    Name of the person or group property where predictions are written. Optional; if blank
-                    the pipeline emits events only.
-    automl-update:
-        operation: automl_pipelines_partial_update
+                    Name of the person or group property where predictions are written. Optional; if blank the pipeline
+                    emits events only.
+    automl-get:
+        operation: automl_pipelines_retrieve
         enabled: true
         scopes:
-            - automl:write
+            - automl:read
         annotations:
-            readOnly: false
+            readOnly: true
             destructive: false
             idempotent: true
-        title: Update AutoML pipeline
-        description: >
-            Apply partial config updates to an existing pipeline. All body fields are optional; only fields
-            you pass are changed. Status transitions are NOT done here — use automl-start, automl-pause,
-            automl-resume, or automl-archive instead, so the lifecycle stays explicit.
         enrich_url: '{id}'
-    automl-start:
-        operation: automl_pipelines_start_create
+        title: Retrieve AutoML pipeline
+        description: >
+            Fetch one AutoML pipeline by id. Returns the full pipeline including task type, status, autonomy level,
+            configured populations, cadences, and timestamps. Use this after automl-list to inspect a specific pipeline
+            in detail.
+    automl-list:
+        operation: automl_pipelines_list
         enabled: true
         scopes:
-            - automl:write
+            - automl:read
         annotations:
-            readOnly: false
+            readOnly: true
             destructive: false
-            idempotent: false
-        title: Start AutoML pipeline
-        description: >
-            Transition a draft pipeline into bootstrap-pending state, which queues the initial training run.
-            Only valid from the "draft" state. Returns the updated pipeline. The actual Temporal training
-            workflow is wired separately.
+            idempotent: true
         enrich_url: '{id}'
+        list: true
+        title: List AutoML pipelines
+        description: >
+            List all non-archived AutoML pipelines for the current team, newest first. Each pipeline captures a
+            configured ML task (clustering, classification, regression, or forecasting) along with its populations,
+            cadence, autonomy, and lifecycle status. Use this to discover what pipelines exist before fetching one by
+            id.
     automl-pause:
         operation: automl_pipelines_pause_create
         enabled: true
@@ -132,12 +116,12 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         title: Pause AutoML pipeline
         description: >
-            Pause scheduled inference and retraining for an active pipeline. The model and history are kept;
-            no new predictions are produced until automl-resume is called. Idempotent — pausing an already
-            paused pipeline is a no-op.
-        enrich_url: '{id}'
+            Pause scheduled inference and retraining for an active pipeline. The model and history are kept; no new
+            predictions are produced until automl-resume is called. Idempotent — pausing an already paused pipeline is a
+            no-op.
     automl-resume:
         operation: automl_pipelines_resume_create
         enabled: true
@@ -147,11 +131,41 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         title: Resume AutoML pipeline
         description: >
-            Resume a paused pipeline. Scheduled inference and retraining restart on the configured cadence.
-            Idempotent — resuming an already active pipeline is a no-op.
+            Resume a paused pipeline. Scheduled inference and retraining restart on the configured cadence. Idempotent —
+            resuming an already active pipeline is a no-op.
+    automl-start:
+        operation: automl_pipelines_start_create
+        enabled: true
+        scopes:
+            - automl:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
         enrich_url: '{id}'
+        title: Start AutoML pipeline
+        description: >
+            Transition a draft pipeline into bootstrap-pending state, which queues the initial training run. Only valid
+            from the "draft" state. Returns the updated pipeline. The actual Temporal training workflow is wired
+            separately.
+    automl-update:
+        operation: automl_pipelines_partial_update
+        enabled: true
+        scopes:
+            - automl:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update AutoML pipeline
+        description: >
+            Apply partial config updates to an existing pipeline. All body fields are optional; only fields you pass are
+            changed. Status transitions are NOT done here — use automl-start, automl-pause, automl-resume, or
+            automl-archive instead, so the lifecycle stays explicit.
     automl-validate:
         operation: automl_pipelines_validate_create
         enabled: true
@@ -163,61 +177,46 @@ tools:
             idempotent: true
         title: Validate AutoML pipeline config
         description: >
-            Run preflight validation against a proposed pipeline config. Side-effect-free — no pipeline is
-            created. Same body shape as automl-create; returns a structured report with findings tagged
-            info / warn / block plus a summary of estimated training rows, inference rows, predicted
-            events-per-day, and (for classification) positive base rate. Call this before automl-create
-            so the user can see and acknowledge any warnings first.
+            Run preflight validation against a proposed pipeline config. Side-effect-free — no pipeline is created. Same
+            body shape as automl-create; returns a structured report with findings tagged info / warn / block plus a
+            summary of estimated training rows, inference rows, predicted events-per-day, and (for classification)
+            positive base rate. Call this before automl-create so the user can see and acknowledge any warnings first.
         param_overrides:
             name:
                 description: >
-                    Human-readable label for the pipeline (only used by structural checks like
-                    output property name conventions). Use the same value you intend to pass to automl-create.
+                    Human-readable label for the pipeline (only used by structural checks like output property name
+                    conventions). Use the same value you intend to pass to automl-create.
             task_type:
                 description: >
-                    Task type the pipeline targets. Validation rules dispatch on this — classification
-                    runs the positive base-rate check, forecasting counts distinct series, clustering
-                    sanity-checks cluster_count against training-set size.
+                    Task type the pipeline targets. Validation rules dispatch on this — classification runs the positive
+                    base-rate check, forecasting counts distinct series, clustering sanity-checks cluster_count against
+                    training-set size.
             config:
                 description: >
-                    Task-type-specific configuration to validate. Classification expects target_event +
-                    horizon_days. Regression expects target_expression + horizon_days. Forecasting
-                    expects series_expression + grain + horizon_steps. Clustering accepts cluster_count.
+                    Task-type-specific configuration to validate. Classification expects target_event + horizon_days.
+                    Regression expects target_expression + horizon_days. Forecasting expects series_expression + grain +
+                    horizon_steps. Clustering accepts cluster_count.
             training_population:
                 description: >
-                    Population definition to size for training. Only kind="hogql" populations are sized
-                    by data-touching checks; other shapes are accepted but flagged as not-counted.
+                    Population definition to size for training. Only kind="hogql" populations are sized by data-touching
+                    checks; other shapes are accepted but flagged as not-counted.
             inference_population:
                 description: >
-                    Population definition used to estimate events-per-day output. Same kind="hogql"
-                    constraint as training_population.
+                    Population definition used to estimate events-per-day output. Same kind="hogql" constraint as
+                    training_population.
             inference_cadence:
                 description: >
-                    How often inference runs. Used to project daily prediction event volume against
-                    the inference population size.
+                    How often inference runs. Used to project daily prediction event volume against the inference
+                    population size.
             retraining_cadence:
                 description: >
-                    How often the model is refit. Compared against inference_cadence — info finding
-                    when retraining is more frequent than inference.
+                    How often the model is refit. Compared against inference_cadence — info finding when retraining is
+                    more frequent than inference.
             autonomy:
                 description: >
-                    Output gate. Validation doesn't gate on autonomy itself; it's accepted as part
-                    of the request body so the same payload works for automl-create.
+                    Output gate. Validation doesn't gate on autonomy itself; it's accepted as part of the request body
+                    so the same payload works for automl-create.
             output_property_name:
                 description: >
-                    Property name predictions are written to. Validation checks the naming convention
-                    (recommended "automl_" prefix; reserved "$" prefix is blocked).
-    automl-archive:
-        operation: automl_pipelines_archive_create
-        enabled: true
-        scopes:
-            - automl:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Archive AutoML pipeline
-        description: >
-            Soft-archive a pipeline. Inference stops permanently and the pipeline disappears from the
-            default list view. History (predictions, model versions, audit log) is preserved. Idempotent.
-        enrich_url: '{id}'
+                    Property name predictions are written to. Validation checks the naming convention (recommended
+                    "automl_" prefix; reserved "$" prefix is blocked).
