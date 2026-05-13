@@ -13,21 +13,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import type { CatalogNodeDTOApi } from 'products/catalog/frontend/generated/api.schemas'
 
+import { STATUS_COLOR, STATUS_LABEL } from './catalogConstants'
 import { catalogListSceneLogic } from './catalogListSceneLogic'
-
-const STATUS_COLOR: Record<string, 'default' | 'primary' | 'success' | 'warning' | 'danger'> = {
-    proposed: 'default',
-    approved: 'primary',
-    official: 'success',
-    drift: 'warning',
-}
-
-const STATUS_LABEL: Record<string, string> = {
-    proposed: 'AI-proposed',
-    approved: 'Approved',
-    official: 'Official',
-    drift: 'Drift detected',
-}
 
 export const scene: SceneExport = {
     component: CatalogListScene,

@@ -22,8 +22,19 @@ export const catalogListSceneLogic = kea<catalogListSceneLogicType>([
             [] as CatalogNodeDTOApi[],
             {
                 loadNodes: async () => {
-                    const response = await catalogNodesList(String(values.currentProjectId))
-                    return response.results
+                    // The DRF list endpoint is paginated; walk every page so the
+                    // table never silently drops rows on larger catalogs.
+                    const projectId = String(values.currentProjectId)
+                    const limit = 200
+                    const all: CatalogNodeDTOApi[] = []
+                    for (let offset = 0; ; offset += limit) {
+                        const page = await catalogNodesList(projectId, { limit, offset })
+                        all.push(...page.results)
+                        if (!page.next || page.results.length < limit) {
+                            break
+                        }
+                    }
+                    return all
                 },
             },
         ],

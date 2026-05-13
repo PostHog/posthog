@@ -1,6 +1,14 @@
 import '@xyflow/react/dist/style.css'
 
-import { Background, BackgroundVariant, Controls, NodeTypes, ReactFlow, ReactFlowProvider } from '@xyflow/react'
+import {
+    Background,
+    BackgroundVariant,
+    Controls,
+    NodeTypes,
+    ReactFlow,
+    ReactFlowProvider,
+    applyNodeChanges,
+} from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -76,18 +84,7 @@ function CatalogGraphSceneContent(): JSX.Element {
                     nodes={reactFlowNodes}
                     edges={reactFlowEdges}
                     nodeTypes={NODE_TYPES}
-                    onNodesChange={(changes) => {
-                        const next = [...reactFlowNodes]
-                        for (const change of changes) {
-                            if (change.type === 'position' && change.position) {
-                                const idx = next.findIndex((n) => n.id === change.id)
-                                if (idx >= 0) {
-                                    next[idx] = { ...next[idx], position: change.position }
-                                }
-                            }
-                        }
-                        setNodes(next)
-                    }}
+                    onNodesChange={(changes) => setNodes(applyNodeChanges(changes, reactFlowNodes))}
                     onNodeClick={(_, node) => {
                         router.actions.push(urls.catalogDefinition(node.id))
                     }}
