@@ -43,6 +43,7 @@
             "type": null,
             "intents": ["data_warehouse", "data_warehouse_saved_queries"]
         },
+        { "path": "Deployments", "category": "Tools", "iconType": null, "type": "live", "intents": ["deployments"] },
         {
             "path": "Early access features",
             "category": "Features",
