@@ -170,54 +170,63 @@ export function SurveyContainerAppearance({
             </div>
 
             {/* Position selector — own row since it's visually different */}
-            <LemonField.Pure
-                label="Position"
-                info={
-                    surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector
-                        ? 'The "next to feedback button" option requires posthog.js version 1.235.2 or higher.'
-                        : undefined
-                }
-                className="gap-1"
-            >
-                <div className="flex items-center gap-2">
-                    <SurveyPositionSelector
-                        currentPosition={appearance.position}
-                        onAppearanceChange={onAppearanceChange}
-                        disabled={disabled}
-                    />
-                    <LemonSelect
-                        value={appearance.position}
-                        onChange={(position) => onAppearanceChange({ position })}
-                        options={gridPositions.map((position) => ({
-                            label: positionDisplayNames[position],
-                            value: position,
-                        }))}
-                        disabled={disabled}
-                        disabledReason={disabledReason || undefined}
-                    />
-                </div>
-                {surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector && (
-                    <div className="flex flex-col gap-1 items-start w-60">
-                        <LemonButton
-                            key={SurveyPosition.NextToTrigger}
-                            type="tertiary"
-                            size="small"
-                            fullWidth
-                            onClick={() =>
-                                onAppearanceChange({ ...appearance, position: SurveyPosition.NextToTrigger })
-                            }
-                            active={appearance.position === SurveyPosition.NextToTrigger}
+            {surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Tab ? (
+                <LemonField.Pure label="Position" className="gap-1">
+                    <p className="text-muted text-sm m-0">
+                        The survey popup always appears next to the tab button. Use the button position setting above to
+                        control where the tab sits on the screen.
+                    </p>
+                </LemonField.Pure>
+            ) : (
+                <LemonField.Pure
+                    label="Position"
+                    info={
+                        surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector
+                            ? 'The "next to feedback button" option requires posthog.js version 1.235.2 or higher.'
+                            : undefined
+                    }
+                    className="gap-1"
+                >
+                    <div className="flex items-center gap-2">
+                        <SurveyPositionSelector
+                            currentPosition={appearance.position}
+                            onAppearanceChange={onAppearanceChange}
+                            disabled={disabled}
+                        />
+                        <LemonSelect
+                            value={appearance.position}
+                            onChange={(position) => onAppearanceChange({ position })}
+                            options={gridPositions.map((position) => ({
+                                label: positionDisplayNames[position],
+                                value: position,
+                            }))}
                             disabled={disabled}
                             disabledReason={disabledReason || undefined}
-                        >
-                            {positionDisplayNames[SurveyPosition.NextToTrigger]}
-                            {appearance.position === SurveyPosition.NextToTrigger && (
-                                <IconCheck className="ml-2 size-4" />
-                            )}
-                        </LemonButton>
+                        />
                     </div>
-                )}
-            </LemonField.Pure>
+                    {surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector && (
+                        <div className="flex flex-col gap-1 items-start w-60">
+                            <LemonButton
+                                key={SurveyPosition.NextToTrigger}
+                                type="tertiary"
+                                size="small"
+                                fullWidth
+                                onClick={() =>
+                                    onAppearanceChange({ ...appearance, position: SurveyPosition.NextToTrigger })
+                                }
+                                active={appearance.position === SurveyPosition.NextToTrigger}
+                                disabled={disabled}
+                                disabledReason={disabledReason || undefined}
+                            >
+                                {positionDisplayNames[SurveyPosition.NextToTrigger]}
+                                {appearance.position === SurveyPosition.NextToTrigger && (
+                                    <IconCheck className="ml-2 size-4" />
+                                )}
+                            </LemonButton>
+                        </div>
+                    )}
+                </LemonField.Pure>
+            )}
         </div>
     )
 }
