@@ -1,0 +1,28 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+    <p>Send an in-app notification to the following user(s):</p>
+    <ul>
+        {% for user in users %}
+            <li>{{ user.email }}{% if not user.current_team_id %} <em>(no current team — will be skipped)</em>{% endif %}</li>
+        {% endfor %}
+    </ul>
+
+    <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="send_notification" />
+        <input type="hidden" name="apply" value="1" />
+        {% for user in users %}
+            <input type="hidden" name="{{ action_checkbox_name }}" value="{{ user.pk }}" />
+        {% endfor %}
+
+        <table>
+            {{ form.as_table }}
+        </table>
+
+        <p>
+            <input type="submit" value="Send" class="default" />
+            <a href="../" class="button cancel-link">Cancel</a>
+        </p>
+    </form>
+{% endblock %}

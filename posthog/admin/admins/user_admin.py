@@ -1,11 +1,15 @@
+import json
 import datetime
 
+from django import forms
 from django.contrib import admin, messages
+from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
 from django.contrib.sessions.models import Session
 from django.core.exceptions import ValidationError
 from django.http import HttpResponseRedirect
+from django.shortcuts import render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html
@@ -24,6 +28,38 @@ from posthog.api.two_factor_reset import TwoFactorResetVerifier
 from posthog.models import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.tasks.email import send_two_factor_reset_email
+
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    TargetType,
+    create_notification,
+)
+
+NOTIFICATION_STYLE_CHOICES = [
+    ("pirate", "Pirate"),
+    ("star_wars", "Star Wars"),
+    ("royal", "Royal"),
+]
+
+
+class SendNotificationForm(forms.Form):
+    title = forms.CharField(max_length=255, widget=forms.TextInput(attrs={"size": "60"}))
+    body = forms.CharField(widget=forms.Textarea(attrs={"rows": 4, "cols": 60}), required=False)
+    priority = forms.ChoiceField(
+        choices=[(Priority.NORMAL.value, "Normal"), (Priority.CRITICAL.value, "Critical")],
+        initial=Priority.NORMAL.value,
+    )
+    notification_style = forms.ChoiceField(
+        choices=NOTIFICATION_STYLE_CHOICES,
+        initial="pirate",
+    )
+    call_to_action = forms.CharField(
+        max_length=255,
+        required=False,
+        widget=forms.TextInput(attrs={"size": "60"}),
+    )
 
 
 class UserChangeForm(DjangoUserChangeForm):
@@ -118,6 +154,64 @@ class UserAdmin(DjangoUserAdmin):
         "date_joined",
     ]
     ordering = ("email",)
+    actions = ["send_notification"]
+
+    @admin.action(description="Send in-app notification to selected user(s)")
+    def send_notification(self, request, queryset):
+        if request.POST.get("apply") == "1":
+            form = SendNotificationForm(request.POST)
+            if form.is_valid():
+                title = form.cleaned_data["title"]
+                priority = Priority(form.cleaned_data["priority"])
+                payload = json.dumps(
+                    {
+                        "body": form.cleaned_data["body"],
+                        "call_to_action": form.cleaned_data["call_to_action"],
+                    }
+                )
+
+                sent = 0
+                skipped: list[str] = []
+                for user in queryset:
+                    if not user.current_team_id:
+                        skipped.append(f"{user.email} (no current team)")
+                        continue
+
+                    event = create_notification(
+                        NotificationData(
+                            team_id=user.current_team_id,
+                            notification_type=NotificationType.CONCIERGE,
+                            title=title,
+                            body=payload,
+                            target_type=TargetType.USER,
+                            target_id=str(user.id),
+                            priority=priority,
+                        )
+                    )
+                    if event is None:
+                        skipped.append(f"{user.email} (delivery suppressed — flag off or prefs)")
+                    else:
+                        sent += 1
+                        self.log_change(request, user, f"Sent concierge notification: {title!r}")
+
+                if sent:
+                    self.message_user(request, f"Sent notification to {sent} user(s).", messages.SUCCESS)
+                for note in skipped:
+                    self.message_user(request, f"Skipped: {note}", messages.WARNING)
+                return None
+        else:
+            form = SendNotificationForm()
+
+        return render(
+            request,
+            "admin/posthog/user/send_notification.html",
+            {
+                "title": "Send notification",
+                "users": queryset,
+                "form": form,
+                "action_checkbox_name": ACTION_CHECKBOX_NAME,
+            },
+        )
 
     @admin.display(description="Current Team")
     def current_team_link(self, user: User):
