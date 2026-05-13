@@ -285,10 +285,7 @@ constraint-dependencies = [
 ]
 
 [tool.uv.workspace]
-members = [
-    "tools/hogli",
-    "products/automl",
-]
+members = ["tools/hogli"]
 
 [tool.uv.sources]
 hogli = { workspace = true }
