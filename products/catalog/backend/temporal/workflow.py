@@ -17,6 +17,11 @@ from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.catalog.backend.temporal.activities.agent import (
+    count_descriptions_for_run,
+    spawn_catalog_agent_task,
+    wait_for_task_run_completion,
+)
 from products.catalog.backend.temporal.activities.enumerate import (
     CatalogNodeRef,
     enumerate_posthog_tables,
@@ -40,6 +45,10 @@ from products.catalog.backend.temporal.activities.run import (
 )
 from products.catalog.backend.temporal.activities.upsert import UpsertNodeBatchArgs, upsert_node_batch
 from products.catalog.backend.temporal.constants import (
+    AGENT_RETRY_POLICY,
+    AGENT_SPAWN_ACTIVITY_TIMEOUT,
+    AGENT_WAIT_ACTIVITY_TIMEOUT,
+    AGENT_WAIT_HEARTBEAT_TIMEOUT,
     BATCH_SIZE,
     DEFAULT_RETRY_POLICY,
     ENUMERATE_ACTIVITY_TIMEOUT,
@@ -150,7 +159,34 @@ class CatalogTraversalWorkflow(PostHogWorkflow):
                     retry_policy=DEFAULT_RETRY_POLICY,
                 )
 
-            # --- Agentic phase activities follow in a later iteration ---
+            # --- Agentic phase: description pass ---
+            # Spawn a cloud agent task in a sandbox. The agent reads the
+            # catalog via HogQL (system.tables / system.columns /
+            # system.relationships) and writes synthetic_description back via
+            # the catalog-*-create MCP tools. We wait for it to finish so the
+            # whole catalog pass is one logical workflow run.
+            traversal_started_at = workflow.now().isoformat()
+            task_run_id = await workflow.execute_activity(
+                spawn_catalog_agent_task,
+                inputs.team_id,
+                start_to_close_timeout=AGENT_SPAWN_ACTIVITY_TIMEOUT,
+                retry_policy=DEFAULT_RETRY_POLICY,
+            )
+            agent_status = await workflow.execute_activity(
+                wait_for_task_run_completion,
+                task_run_id,
+                start_to_close_timeout=AGENT_WAIT_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=AGENT_WAIT_HEARTBEAT_TIMEOUT,
+                retry_policy=AGENT_RETRY_POLICY,
+            )
+            if agent_status != "completed":
+                raise RuntimeError(f"Catalog agent task ended in non-COMPLETED status: {agent_status}")
+            counts.descriptions = await workflow.execute_activity(
+                count_descriptions_for_run,
+                args=[inputs.team_id, traversal_started_at],
+                start_to_close_timeout=RUN_LIFECYCLE_ACTIVITY_TIMEOUT,
+                retry_policy=DEFAULT_RETRY_POLICY,
+            )
 
             await workflow.execute_activity(
                 complete_traversal_run,

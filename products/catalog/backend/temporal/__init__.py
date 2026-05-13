@@ -8,6 +8,7 @@ import WORKFLOWS, ACTIVITIES` without reaching into submodules.
 
 from products.catalog.backend.temporal.activities import (
     complete_traversal_run,
+    count_descriptions_for_run,
     create_traversal_run,
     enumerate_posthog_tables,
     enumerate_saved_queries,
@@ -17,7 +18,9 @@ from products.catalog.backend.temporal.activities import (
     propose_native_fks,
     propose_saved_query_lineage,
     propose_warehouse_joins,
+    spawn_catalog_agent_task,
     upsert_node_batch,
+    wait_for_task_run_completion,
 )
 from products.catalog.backend.temporal.workflow import CatalogTraversalWorkflow
 
@@ -35,6 +38,9 @@ ACTIVITIES = [
     propose_native_fks,
     propose_warehouse_joins,
     propose_saved_query_lineage,
+    spawn_catalog_agent_task,
+    wait_for_task_run_completion,
+    count_descriptions_for_run,
 ]
 
 __all__ = [
@@ -42,6 +48,7 @@ __all__ = [
     "WORKFLOWS",
     "CatalogTraversalWorkflow",
     "complete_traversal_run",
+    "count_descriptions_for_run",
     "create_traversal_run",
     "enumerate_posthog_tables",
     "enumerate_saved_queries",
@@ -51,5 +58,7 @@ __all__ = [
     "propose_native_fks",
     "propose_saved_query_lineage",
     "propose_warehouse_joins",
+    "spawn_catalog_agent_task",
     "upsert_node_batch",
+    "wait_for_task_run_completion",
 ]

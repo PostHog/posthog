@@ -49,3 +49,15 @@ BATCH_SIZE = 25
 PROPOSE_ACTIVITY_TIMEOUT = timedelta(seconds=120)
 PROPOSE_HEARTBEAT_TIMEOUT = timedelta(seconds=60)
 PROPOSE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=300)
+
+# Agent description-pass activities.
+# `spawn` is cheap (Postgres write + workflow start) so a tight timeout is fine.
+AGENT_SPAWN_ACTIVITY_TIMEOUT = timedelta(seconds=60)
+# `wait` is the hard wall-clock cap on the agent's runtime. If the agent doesn't
+# reach a terminal status within this window, the activity times out and the
+# workflow's except clause runs fail_traversal_run.
+AGENT_WAIT_ACTIVITY_TIMEOUT = timedelta(minutes=30)
+AGENT_WAIT_HEARTBEAT_TIMEOUT = timedelta(minutes=2)
+# Agent runs are expensive (LLM tokens, sandbox boot). Don't retry — one shot,
+# fail loudly.
+AGENT_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
