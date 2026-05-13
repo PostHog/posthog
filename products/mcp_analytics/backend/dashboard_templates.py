@@ -10,7 +10,7 @@ def get_mcp_analytics_default_template() -> DashboardTemplate:
         tiles=[
             {
                 "type": "INSIGHT",
-                "name": "MCP initializations by OAuth client",
+                "name": "MCP clients",
                 "description": "",
                 "query": {
                     "kind": "InsightVizNode",
@@ -18,24 +18,24 @@ def get_mcp_analytics_default_template() -> DashboardTemplate:
                         "kind": "TrendsQuery",
                         "series": [
                             {
-                                "event": "mcp_initialized",
-                                "name": "mcp_initialized",
+                                "event": "mcp_initialize",
+                                "name": "mcp_initialize",
                                 "kind": "EventsNode",
                             }
                         ],
                         "breakdownFilter": {
                             "breakdown_type": "event",
-                            "breakdown": "mcp_oauth_client_name",
+                            "breakdown": "$mcp_client_name",
                         },
                         "trendsFilter": {
                             "display": "ActionsPie",
+                            "showLegend": True,
+                            "showPercentStackView": True,
+                            "showValuesOnSeries": True,
                         },
                         "dateRange": {
                             "date_from": "-7d",
-                            "explicitDate": True,
                         },
-                        "properties": [],
-                        "filterTestAccounts": False,
                     },
                 },
                 "layouts": {
