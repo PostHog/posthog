@@ -7,6 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
 import { AccountActivity, loadActivity } from '../queries/activity'
+import { loadNrr, NrrSnapshot } from '../queries/nrr'
 import { loadProjection } from '../queries/projection'
 import { detectMissingSources, MissingSourceKind } from '../utils/missingSources'
 import type { ProjectionRow } from '../utils/projection'
@@ -181,6 +182,19 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
                 },
             },
         ],
+        nrr: [
+            null as NrrSnapshot | null,
+            {
+                loadNrr: async () => {
+                    const trimmed = values.csmFilter.trim()
+                    const { snapshot, missingSources } = await loadNrr(trimmed === '' ? null : trimmed)
+                    if (missingSources.length > 0) {
+                        actions.recordMissingSources(missingSources)
+                    }
+                    return snapshot
+                },
+            },
+        ],
         activity: [
             {} as Record<string, AccountActivity>,
             {
@@ -215,6 +229,7 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
             if (fleet.length > 0) {
                 actions.loadProjection(fleet)
                 actions.loadActivity(fleet)
+                actions.loadNrr()
             }
         },
         setCsmFilter: () => {

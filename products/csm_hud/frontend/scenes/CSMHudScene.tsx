@@ -15,6 +15,7 @@ import { EngagementTab } from '../components/EngagementTab'
 import { ExpansionTab } from '../components/ExpansionTab'
 import { FleetTab } from '../components/FleetTab'
 import { MissingSourcesBanner } from '../components/MissingSourcesBanner'
+import { NrrBadge } from '../components/NrrBadge'
 import { RenewalsTab } from '../components/RenewalsTab'
 import { csmHudSceneLogic } from '../logics/csmHudSceneLogic'
 
@@ -85,6 +86,7 @@ export function CSMHudScene(): JSX.Element {
                 resourceType={{ type: 'csm_hud' }}
                 actions={
                     <div className="flex items-center gap-2">
+                        <NrrBadge />
                         <LemonInput
                             type="search"
                             value={csmFilter}
