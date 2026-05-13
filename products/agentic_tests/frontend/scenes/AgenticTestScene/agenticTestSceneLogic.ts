@@ -7,7 +7,14 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import { AgenticTest, AgenticTestDraft, AgenticTestRun } from '../../types'
+import {
+    AgenticTest,
+    AgenticTestAssertion,
+    AgenticTestAssertionType,
+    AgenticTestDraft,
+    AgenticTestRun,
+    defaultAssertion,
+} from '../../types'
 import type { agenticTestSceneLogicType } from './agenticTestSceneLogicType'
 
 export interface AgenticTestSceneProps {
@@ -23,6 +30,7 @@ const emptyDraft: AgenticTestDraft = {
     target_url: '',
     prompt: '',
     status: 'proposed',
+    assertions: [],
 }
 
 export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
@@ -41,6 +49,9 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
         runNow: true,
         activate: true,
         pause: true,
+        addAssertion: (assertionType: AgenticTestAssertionType) => ({ assertionType }),
+        updateAssertion: (index: number, patch: Partial<AgenticTestAssertion>) => ({ index, patch }),
+        removeAssertion: (index: number) => ({ index }),
     }),
     loaders(({ props }) => ({
         test: [
@@ -98,7 +109,7 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
             },
         },
     })),
-    listeners(({ props, actions }) => ({
+    listeners(({ props, actions, values }) => ({
         loadTestSuccess: ({ test }) => {
             if (!test) {
                 return
@@ -109,9 +120,24 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                 target_url: test.target_url,
                 prompt: test.prompt,
                 status: test.status,
+                assertions: test.assertions ?? [],
                 source_replay_id: test.source_replay_id,
             })
             actions.loadRuns()
+        },
+        addAssertion: ({ assertionType }) => {
+            const current = values.testForm.assertions ?? []
+            actions.setTestFormValue('assertions', [...current, defaultAssertion(assertionType)])
+        },
+        updateAssertion: ({ index, patch }) => {
+            const current = [...(values.testForm.assertions ?? [])]
+            current[index] = { ...current[index], ...patch } as AgenticTestAssertion
+            actions.setTestFormValue('assertions', current)
+        },
+        removeAssertion: ({ index }) => {
+            const current = [...(values.testForm.assertions ?? [])]
+            current.splice(index, 1)
+            actions.setTestFormValue('assertions', current)
         },
         runNow: async () => {
             if (!props.id || props.id === 'new') {

@@ -40,6 +40,7 @@ class AgenticTestSerializer(serializers.ModelSerializer):
             "target_url",
             "prompt",
             "status",
+            "assertions",
             "source_replay_id",
             "created_by",
             "created_at",

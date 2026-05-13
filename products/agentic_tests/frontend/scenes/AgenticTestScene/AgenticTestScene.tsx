@@ -5,6 +5,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonInput,
+    LemonSelect,
     LemonTable,
     LemonTag,
     LemonTagType,
@@ -18,6 +19,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { AgenticTestAssertion, AgenticTestAssertionType, ASSERTION_TYPE_LABELS, defaultAssertion } from '../../types'
 import { agenticTestSceneLogic, AgenticTestSceneProps } from './agenticTestSceneLogic'
 
 const STATUS_TAG: Record<string, { type: LemonTagType; label: string }> = {
@@ -28,17 +30,112 @@ const STATUS_TAG: Record<string, { type: LemonTagType; label: string }> = {
     error: { type: 'danger', label: 'Error' },
 }
 
+const ASSERTION_TYPE_OPTIONS: { value: AgenticTestAssertionType; label: string }[] = (
+    Object.entries(ASSERTION_TYPE_LABELS) as [AgenticTestAssertionType, string][]
+).map(([value, label]) => ({ value, label }))
+
+interface AssertionsEditorProps {
+    assertions: AgenticTestAssertion[]
+    onAdd: (type: AgenticTestAssertionType) => void
+    onUpdate: (index: number, patch: Partial<AgenticTestAssertion>) => void
+    onRemove: (index: number) => void
+}
+
+function AssertionsEditor({ assertions, onAdd, onUpdate, onRemove }: AssertionsEditorProps): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            {assertions.map((assertion, idx) => (
+                <div key={idx} className="border rounded p-2 flex flex-wrap items-center gap-2 bg-bg-light">
+                    <span className="text-xs text-muted w-6">#{idx + 1}</span>
+                    <LemonSelect
+                        size="small"
+                        value={assertion.type}
+                        options={ASSERTION_TYPE_OPTIONS}
+                        onChange={(value) => {
+                            if (value && value !== assertion.type) {
+                                onUpdate(idx, defaultAssertion(value as AgenticTestAssertionType))
+                            }
+                        }}
+                        data-attr={`assertion-${idx}-type`}
+                    />
+                    {assertion.type === 'url_contains' && (
+                        <LemonInput
+                            size="small"
+                            placeholder="/success"
+                            value={assertion.value}
+                            onChange={(v) => onUpdate(idx, { value: v } as Partial<AgenticTestAssertion>)}
+                            data-attr={`assertion-${idx}-value`}
+                        />
+                    )}
+                    {assertion.type === 'event_captured' && (
+                        <>
+                            <LemonInput
+                                size="small"
+                                placeholder="$purchase"
+                                value={assertion.event}
+                                onChange={(v) => onUpdate(idx, { event: v } as Partial<AgenticTestAssertion>)}
+                                data-attr={`assertion-${idx}-event`}
+                            />
+                            <span className="text-xs text-muted">within</span>
+                            <LemonInput
+                                size="small"
+                                type="number"
+                                min={1}
+                                max={3600}
+                                value={assertion.within_seconds}
+                                onChange={(v) =>
+                                    onUpdate(idx, {
+                                        within_seconds: Number(v) || 30,
+                                    } as Partial<AgenticTestAssertion>)
+                                }
+                                data-attr={`assertion-${idx}-within`}
+                            />
+                            <span className="text-xs text-muted">seconds</span>
+                        </>
+                    )}
+                    <div className="grow" />
+                    <LemonButton
+                        size="xsmall"
+                        status="danger"
+                        onClick={() => onRemove(idx)}
+                        data-attr={`assertion-${idx}-remove`}
+                    >
+                        Remove
+                    </LemonButton>
+                </div>
+            ))}
+            <LemonButton size="small" type="secondary" onClick={() => onAdd('url_contains')} data-attr="assertion-add">
+                + Add assertion
+            </LemonButton>
+        </div>
+    )
+}
+
 export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
     const logic = agenticTestSceneLogic({ id })
-    const { test, runs, runsLoading, isNew, logsUrl } = useValues(logic)
-    const { runNow, activate, pause, submitTestForm } = useActions(logic)
+    const { test, testForm, runs, runsLoading, isNew, logsUrl } = useValues(logic)
+    const {
+        runNow,
+        activate,
+        pause,
+        submitTestForm,
+        setTestFormValue,
+        addAssertion,
+        updateAssertion,
+        removeAssertion,
+    } = useActions(logic)
 
     return (
         <SceneContent>
             <SceneTitleSection
-                name={isNew ? 'New agentic test' : (test?.name ?? 'Agentic test')}
-                description="An LLM-driven browser test. Edit the prompt below and hit Run now to execute it."
+                name={isNew ? 'New agentic test' : (testForm.name ?? '')}
+                description={testForm.description ?? ''}
                 resourceType={{ type: 'agentic_tests' }}
+                canEdit
+                onNameChange={(name) => setTestFormValue('name', name)}
+                onDescriptionChange={(description) => setTestFormValue('description', description)}
+                renameDebounceMs={200}
+                forceBackTo={{ key: 'AgenticTests', name: 'Agentic tests', path: '/agentic_tests' }}
                 actions={
                     <>
                         {!isNew && test?.status === 'active' && (
@@ -75,9 +172,6 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
             )}
             <Form logic={agenticTestSceneLogic} props={{ id }} formKey="testForm">
                 <div className="flex flex-col gap-4 max-w-3xl">
-                    <Field name="name" label="Name">
-                        <LemonInput placeholder="Hedgebox upload smoke test" data-attr="agentic-test-name" />
-                    </Field>
                     <Field name="target_url" label="Target URL">
                         <LemonInput placeholder="https://hedgebox-dummy.posthog.com" data-attr="agentic-test-url" />
                     </Field>
@@ -100,6 +194,19 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                             data-attr="agentic-test-prompt"
                         />
                     </Field>
+                    <div>
+                        <label className="font-semibold">Assertions</label>
+                        <p className="text-xs text-muted mb-2">
+                            Extra checks the run must satisfy on top of the agent's own self-evaluation. Pulled from
+                            PostHog data — events, logs, errors — not just what the browser shows.
+                        </p>
+                        <AssertionsEditor
+                            assertions={testForm.assertions ?? []}
+                            onAdd={addAssertion}
+                            onUpdate={updateAssertion}
+                            onRemove={removeAssertion}
+                        />
+                    </div>
                 </div>
             </Form>
             {!isNew && (
