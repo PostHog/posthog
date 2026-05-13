@@ -818,7 +818,6 @@ rules:
                               |MCPServerInstallation
                               |PersistedFolder
                               |SessionRecordingViewed
-                              |UserHomeSettings
                               |UserProductList
                               |UserScenePersonalisation
                           )$
@@ -887,7 +886,6 @@ rules:
                         |KernelRuntime
                         |PersistedFolder
                         |SessionRecordingViewed
-                        |UserHomeSettings
                         |UserProductList
                         |UserScenePersonalisation
                     )$

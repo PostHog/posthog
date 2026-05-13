@@ -9,7 +9,6 @@ import requests
 
 from posthog.models import Team, User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
-from posthog.models.user_home_settings import UserHomeSettings
 
 
 class Command(BaseCommand):
@@ -102,7 +101,7 @@ class Command(BaseCommand):
             raise CommandError(f"Failed to fetch user settings from {host}: {e}")
 
         # Fetch team-specific settings from cloud once
-        cloud_home_settings, cloud_shortcuts = self._fetch_team_settings(host, api_key, cloud_team_id)
+        cloud_shortcuts = self._fetch_team_settings(host, api_key, cloud_team_id)
 
         # Sync each user
         for user in local_users:
@@ -116,7 +115,6 @@ class Command(BaseCommand):
                 cloud_user_settings,
                 local_team_id,
                 cloud_team_id,
-                cloud_home_settings,
                 cloud_shortcuts,
                 dry_run,
             )
@@ -135,7 +133,6 @@ class Command(BaseCommand):
         cloud_user_settings: dict[str, Any],
         local_team_id: int | None,
         cloud_team_id: int,
-        cloud_home_settings: dict[str, Any] | None,
         cloud_shortcuts: list[dict[str, Any]],
         dry_run: bool,
     ):
@@ -150,26 +147,17 @@ class Command(BaseCommand):
         print(f"Using cloud team ID: {cloud_team_id}\n")
 
         self._sync_user_settings(local_user, cloud_user_settings, dry_run)
-        self._sync_home_settings(local_user, local_team, cloud_home_settings, dry_run)
         self._sync_shortcuts(local_user, local_team, cloud_shortcuts, dry_run)
 
-    def _fetch_team_settings(
-        self, host: str, api_key: str, team_id: int
-    ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
-        """Fetch home settings and shortcuts for the specified cloud team"""
-        try:
-            cloud_home_settings = self._fetch_home_settings(host, api_key, team_id)
-        except (requests.RequestException, Exception) as e:
-            print(f"⚠ Warning: Failed to fetch cloud home settings for team {team_id}: {e}")
-            cloud_home_settings = None
-
+    def _fetch_team_settings(self, host: str, api_key: str, team_id: int) -> list[dict[str, Any]]:
+        """Fetch shortcuts for the specified cloud team"""
         try:
             cloud_shortcuts = self._fetch_shortcuts(host, api_key, team_id)
         except (requests.RequestException, Exception) as e:
             print(f"⚠ Warning: Failed to fetch cloud shortcuts for team {team_id}: {e}")
             cloud_shortcuts = []
 
-        return cloud_home_settings, cloud_shortcuts
+        return cloud_shortcuts
 
     def _get_local_user(self, email: str | None) -> User | None:
         """Get the local user to sync to"""
@@ -208,15 +196,6 @@ class Command(BaseCommand):
         response.raise_for_status()
         return response.json()
 
-    def _fetch_home_settings(self, host: str, api_key: str, team_id: int) -> dict[str, Any] | None:
-        """Fetch user home settings from PostHog cloud API"""
-        headers = {"Authorization": f"Bearer {api_key}"}
-        response = requests.get(f"{host}/api/projects/{team_id}/user_home_settings/", headers=headers, timeout=30)
-        if response.status_code == 404:
-            return None
-        response.raise_for_status()
-        return response.json()
-
     def _fetch_shortcuts(self, host: str, api_key: str, team_id: int) -> list[dict[str, Any]]:
         """Fetch shortcuts from PostHog cloud API"""
         headers = {"Authorization": f"Bearer {api_key}"}
@@ -249,36 +228,6 @@ class Command(BaseCommand):
 
         if not changes_made:
             print("  No changes needed")
-
-    def _sync_home_settings(
-        self, local_user: User, local_team: Team, cloud_settings: dict[str, Any] | None, dry_run: bool
-    ):
-        """Sync user home settings"""
-        print("\nSyncing home settings:")
-
-        if not cloud_settings:
-            print("  No home settings found in cloud")
-            return
-
-        try:
-            home_settings = UserHomeSettings.objects.get(user=local_user, team=local_team)
-            action = "Updated"
-        except UserHomeSettings.DoesNotExist:
-            home_settings = UserHomeSettings(user=local_user, team=local_team)
-            action = "Created"
-
-        home_settings.tabs = cloud_settings.get("tabs", [])
-        home_settings.homepage = cloud_settings.get("homepage", {})
-
-        tab_count = len(home_settings.tabs)
-        homepage_status = "set" if home_settings.homepage else "not set"
-
-        print(f"  {action} home settings:")
-        print(f"    - Pinned tabs: {tab_count}")
-        print(f"    - Homepage: {homepage_status}")
-
-        if not dry_run:
-            home_settings.save()
 
     def _sync_shortcuts(self, local_user: User, local_team: Team, cloud_shortcuts: list[dict[str, Any]], dry_run: bool):
         """Sync file system shortcuts"""

@@ -94,7 +94,6 @@ from .user_integration import UserIntegration
 from .repo_routing_rule import RepoRoutingRule
 from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
-from .user_home_settings import UserHomeSettings
 from .web_analytics_filter_preset import WebAnalyticsFilterPreset
 from .oauth import (
     CIMDVerificationToken,
@@ -232,7 +231,6 @@ __all__ = [
     "RepoRoutingRule",
     "UserRepoPreference",
     "UserScenePersonalisation",
-    "UserHomeSettings",
     "UserManager",
     "UserGroup",
     "UserGroupMembership",

@@ -134,7 +134,6 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/core_memory/': { results: [] },
         '/api/environments/:team_id/conversations/': EMPTY_PAGINATED_RESPONSE,
-        '/api/user_home_settings/@me/': { tabs: [], homepage: null },
         '/api/organizations/@current/': (): MockSignature => [
             200,
             {
@@ -277,7 +276,6 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/session_recording_playlists/:playlist_id/': {},
         '/api/environments/:team_id/add_product_intent/': MOCK_DEFAULT_TEAM,
         '/api/environments/:team_id/': MOCK_DEFAULT_TEAM,
-        '/api/user_home_settings/@me/': { tabs: [], homepage: null },
     },
     options: {
         'https://us.i.posthog.com/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),

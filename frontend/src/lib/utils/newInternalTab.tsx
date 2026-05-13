@@ -1,10 +1,9 @@
-import { getContext } from 'kea'
+import { router } from 'kea-router'
 
 export const NEW_INTERNAL_TAB = 'NEW_INTERNAL_TAB'
 
-export function newInternalTab(path?: string, source: 'internal_link' | 'unknown' = 'internal_link'): void {
-    getContext().store.dispatch({
-        type: NEW_INTERNAL_TAB,
-        payload: { path, source },
-    })
+export function newInternalTab(path?: string): void {
+    if (path) {
+        router.actions.push(path)
+    }
 }

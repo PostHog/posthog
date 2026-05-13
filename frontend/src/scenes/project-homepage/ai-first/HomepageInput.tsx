@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArrowRight, IconClock, IconGear, IconInfo, IconLock, IconPin, IconRewind, IconStar } from '@posthog/icons'
+import { IconArrowRight, IconClock, IconInfo, IconLock, IconPin, IconStar } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
@@ -20,8 +20,6 @@ import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
@@ -531,55 +529,9 @@ function IdleGrid(): JSX.Element {
     )
 }
 
-function HomePageOfframp(): JSX.Element {
-    const { showConfigurePinnedTabsModal, showConfigurePinnedTabsTooltip } = useActions(navigationLogic)
-    const { mobileLayout } = useValues(navigationLogic)
-    const { showLayoutNavBar } = useActions(panelLayoutLogic)
-    const { revertToPreviousHomepage } = useActions(aiFirstHomepageLogic)
-    const { previousHomepage } = useValues(aiFirstHomepageLogic)
-
-    return (
-        <div className="flex items-center gap-2">
-            <ButtonPrimitive
-                variant="panel"
-                onClick={() => {
-                    posthog.capture('homepage configure home clicked', { source: 'offramp' })
-                    showConfigurePinnedTabsModal()
-                }}
-                className="text-tertiary hover:text-primary"
-            >
-                Configure home <IconGear className="size-4" />
-            </ButtonPrimitive>
-
-            {previousHomepage && (
-                <ButtonPrimitive
-                    variant="panel"
-                    onClick={() => {
-                        posthog.capture('homepage revert clicked', {
-                            previous_homepage_id: previousHomepage.id,
-                            previous_homepage_title: previousHomepage.title,
-                        })
-                        revertToPreviousHomepage()
-                        showConfigurePinnedTabsTooltip()
-                        if (mobileLayout) {
-                            showLayoutNavBar(true)
-                        }
-                    }}
-                    tooltip={`Revert to ${previousHomepage.title || 'previous homepage'}, this causes a full page refresh`}
-                    className="text-tertiary hover:text-primary"
-                >
-                    Put my {(previousHomepage.title || 'previous homepage').toLocaleLowerCase()} back{' '}
-                    <IconRewind className="size-4" />
-                </ButtonPrimitive>
-            )}
-        </div>
-    )
-}
-
 export function HomepageInput(): JSX.Element {
     const { mode } = useValues(aiFirstHomepageLogic)
     const { user } = useValues(userLogic)
-    const { isConfigurePinnedTabsTooltipDismissed } = useValues(navigationLogic)
 
     return (
         <div className="w-full max-w-180 mx-auto py-2 ">
@@ -588,8 +540,6 @@ export function HomepageInput(): JSX.Element {
                     <Intro forceHeadline={`Hello ${user?.first_name || 'there'}`} forceSubheadline={null} />
                     <IdleInput />
                     <IdleGrid />
-
-                    {!isConfigurePinnedTabsTooltipDismissed && <HomePageOfframp />}
                 </div>
             )}
             {mode === 'ai' && <HomepageAiInput />}

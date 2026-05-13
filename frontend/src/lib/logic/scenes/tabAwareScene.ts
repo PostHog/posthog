@@ -1,13 +1,7 @@
-import { BuiltLogic, Logic, key } from 'kea'
+import { BuiltLogic, Logic } from 'kea'
 
-export const tabAwareScene = <L extends Logic = Logic>() => {
-    return (logic: BuiltLogic<L>) => {
-        // add a tab-based key if none present
-        key((props) => {
-            if (!props.tabId) {
-                throw new Error('Tab-aware scene logic (' + logic.pathString + ') must have a tabId prop')
-            }
-            return props.tabId
-        })(logic)
+export const tabAwareScene = <L extends Logic = Logic>(): ((logic: BuiltLogic<L>) => void) => {
+    return (logic: BuiltLogic<L>): void => {
+        void logic
     }
 }

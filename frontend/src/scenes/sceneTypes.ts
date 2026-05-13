@@ -225,10 +225,11 @@ export interface SceneExport<T = SceneProps> {
 // we use an untyped SceneProps to satisfy the types
 export interface LoadedScene extends SceneExport<SceneProps> {
     id: string
-    tabId?: string
     sceneParams: SceneParams
 }
 
+// Compatibility stub left behind after the scene tabs feature was removed.
+// A handful of callers still type-check against this; remove once those callers are inlined.
 export interface SceneTab {
     id: string
     pathname: string
@@ -239,9 +240,7 @@ export interface SceneTab {
     customTitle?: string
     iconType: FileSystemIconType | 'loading' | 'blank'
     pinned?: boolean
-    /** Show a small badge indicator on the tab icon */
     badge?: boolean
-
     sceneId?: string
     sceneKey?: string
     sceneParams?: SceneParams

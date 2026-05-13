@@ -17,7 +17,6 @@ import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { urlToResource } from 'scenes/urls'
@@ -167,12 +166,8 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                         router.actions.push(to)
                     }
                 }
-            } else if (target === '_blank' && !externalLink && to && typeof to === 'string') {
-                // For internal links, open in new PostHog tab
-                event.preventDefault()
-                event.stopPropagation()
-                newInternalTab(to)
             }
+            // target="_blank" links fall through to the browser's native behavior — a real new browser tab.
         }
 
         const rel = typeof to === 'string' && isPostHogDomain(to) ? 'noopener' : 'noopener noreferrer'
