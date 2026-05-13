@@ -527,9 +527,9 @@ export const billingLogic = kea<billingLogicType>([
                     return []
                 }
 
-                const addonPlans = platformAndSupportProduct?.addons?.map((addon) => addon.plans).flat()
-                const insertionIndex = Math.max(0, (platformAndSupportProduct?.plans?.length ?? 1) - 1)
-                const allPlans = platformAndSupportProduct?.plans?.slice(0) || []
+                const addonPlans = (platformAndSupportProduct.addons ?? []).map((addon) => addon.plans).flat()
+                const insertionIndex = Math.max(0, (platformAndSupportProduct.plans?.length ?? 1) - 1)
+                const allPlans = platformAndSupportProduct.plans?.slice(0) || []
                 allPlans.splice(insertionIndex, 0, ...addonPlans)
                 return allPlans
             },
