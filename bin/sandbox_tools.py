@@ -1,0 +1,245 @@
+"""tools.yaml schema, parsing, persistence, and compose-override generation.
+
+Owns everything that touches the user's ``tools.yaml`` (at
+``~/.posthog-sandboxes/tools.yaml``) and the checked-in catalog file
+(``bin/sandbox-tools.yaml``). Pure data layer: no docker calls, no
+interactive prompts, no side effects at import.
+
+Callers wrap ``ToolsError`` with their own error reporter (e.g. ``fatal``).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
+
+REGISTRY_DIR = Path.home() / ".posthog-sandboxes"
+TOOLS_FILE = REGISTRY_DIR / "tools.yaml"
+TOOL_AUTH_COMPOSE_FILE = REGISTRY_DIR / "docker-compose.tool-auth.yml"
+
+# In-sandbox $HOME. Must stay in sync with SANDBOX_HOME in
+# bin/sandbox-entrypoint.py; tools.yaml copy targets resolve here.
+SANDBOX_HOME_IN_CONTAINER = "/tmp/sandbox-home"
+
+
+class ToolsError(Exception):
+    """Raised on any malformed tools.yaml or catalog entry."""
+
+
+@dataclass
+class ToolCopy:
+    """Resolved host -> sandbox path pair for a single host-to-sandbox copy.
+
+    ``source`` is a host absolute path. ``target`` is an absolute path under
+    the in-sandbox $HOME (``SANDBOX_HOME_IN_CONTAINER``). Transport is a bind
+    mount under /tmp/sandbox-tool-auth/N; the entrypoint copies from there to
+    ``target`` at boot. Runtime semantics are snapshot copy, not live mount.
+    """
+
+    source: str
+    target: str
+
+
+@dataclass
+class Tool:
+    name: str
+    install: str | None = None
+    copy: list[ToolCopy] = field(default_factory=list)
+
+
+@dataclass
+class CatalogEntry:
+    name: str
+    description: str = ""
+    install: str | None = None
+    copy: list[ToolCopy] = field(default_factory=list)
+
+
+class _BlockLiteralDumper(yaml.SafeDumper):
+    """SafeDumper variant that emits multi-line strings as block literals (``|``).
+
+    Scoped to this module so we don't mutate ``yaml.SafeDumper`` globally.
+    """
+
+
+def _block_literal_str(dumper: yaml.SafeDumper, data: str) -> yaml.ScalarNode:
+    if "\n" in data:
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+
+_BlockLiteralDumper.add_representer(str, _block_literal_str)
+
+
+def parse_tool_copy(entry: object, *, source_label: str) -> ToolCopy:
+    """Resolve a tools.yaml copy[] entry to a ToolCopy.
+
+    Accepts short form (``"~/path"``) or long form (``{source, target}``).
+    Raises ToolsError for the genuinely-ambiguous user inputs: short form
+    not under $HOME, ``~user`` targets, or targets outside sandbox $HOME.
+    """
+    host_home = str(Path.home())
+    if isinstance(entry, str):
+        source = str(Path(entry).expanduser().resolve(strict=False))
+        try:
+            rel = Path(source).relative_to(host_home)
+        except ValueError:
+            raise ToolsError(
+                f"{source_label}: short-form copy entry {entry!r} is not under "
+                f"$HOME ({host_home}). Use long form: "
+                "{source: /abs/path, target: ~/...}."
+            )
+        return ToolCopy(source=source, target=f"{SANDBOX_HOME_IN_CONTAINER}/{rel}")
+
+    if isinstance(entry, dict):
+        source = str(Path(entry["source"]).expanduser().resolve(strict=False))
+        target_raw = str(entry["target"])
+        if target_raw.startswith("~/"):
+            target = f"{SANDBOX_HOME_IN_CONTAINER}/{target_raw[2:]}"
+        elif target_raw == "~":
+            target = SANDBOX_HOME_IN_CONTAINER
+        elif target_raw.startswith("~"):
+            raise ToolsError(
+                f"{source_label}: target {target_raw!r} uses '~user' which is "
+                "not supported. Use '~/...' or an absolute path under "
+                f"{SANDBOX_HOME_IN_CONTAINER}."
+            )
+        else:
+            target = target_raw
+        if target != SANDBOX_HOME_IN_CONTAINER and not target.startswith(SANDBOX_HOME_IN_CONTAINER + "/"):
+            raise ToolsError(
+                f"{source_label}: target {entry['target']!r} must resolve "
+                f"under sandbox $HOME ({SANDBOX_HOME_IN_CONTAINER})."
+            )
+        return ToolCopy(source=source, target=target)
+
+    raise ToolsError(f"{source_label}: invalid copy entry {entry!r} (expected string or mapping).")
+
+
+def _parse_entry(raw: dict, *, label: str, with_description: bool) -> Tool | CatalogEntry:
+    # Migration guard: 'mounts' was renamed to 'copy' in a recent commit.
+    if "mounts" in raw:
+        raise ToolsError(
+            f"{label} uses 'mounts:' which was renamed to 'copy:'. "
+            "Edit the YAML key (the field semantics are unchanged)."
+        )
+    name = raw.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ToolsError(f"{label}: 'name' is required and must be a non-empty string.")
+    install = raw.get("install")
+    copy = [parse_tool_copy(c, source_label=f"{label}.copy[{i}]") for i, c in enumerate(raw.get("copy") or [])]
+    if with_description:
+        return CatalogEntry(name=name, description=raw.get("description", "") or "", install=install, copy=copy)
+    return Tool(name=name, install=install, copy=copy)
+
+
+def _load_entries(path: Path) -> list[dict]:
+    if not path.is_file():
+        return []
+    raw = yaml.safe_load(path.read_text()) or {}
+    return raw.get("tools") or []
+
+
+def load_user_tools() -> list[Tool]:
+    """Parse ~/.posthog-sandboxes/tools.yaml, or return [] if missing."""
+    tools: list[Tool] = []
+    seen: set[str] = set()
+    for i, entry in enumerate(_load_entries(TOOLS_FILE)):
+        tool = _parse_entry(entry, label=f"{TOOLS_FILE}: tools[{i}]", with_description=False)
+        assert isinstance(tool, Tool)
+        if tool.name in seen:
+            raise ToolsError(f"{TOOLS_FILE}: duplicate tool name {tool.name!r}.")
+        seen.add(tool.name)
+        tools.append(tool)
+    return tools
+
+
+def load_catalog(catalog_file: Path) -> dict[str, CatalogEntry]:
+    """Parse the checked-in catalog file into a {name: entry} mapping."""
+    catalog: dict[str, CatalogEntry] = {}
+    for i, entry in enumerate(_load_entries(catalog_file)):
+        item = _parse_entry(entry, label=f"{catalog_file}: tools[{i}]", with_description=True)
+        assert isinstance(item, CatalogEntry)
+        if item.name in catalog:
+            raise ToolsError(f"{catalog_file}: duplicate catalog entry {item.name!r}.")
+        catalog[item.name] = item
+    return catalog
+
+
+def _format_copy(c: ToolCopy, host_home: Path) -> str | dict[str, str]:
+    """Round-trip a ToolCopy back to YAML, preferring short form."""
+    try:
+        rel = Path(c.source).relative_to(host_home)
+    except ValueError:
+        rel = None
+    if rel is not None and c.target == f"{SANDBOX_HOME_IN_CONTAINER}/{rel}":
+        return f"~/{rel}"
+
+    target = c.target
+    if target == SANDBOX_HOME_IN_CONTAINER:
+        target = "~"
+    elif target.startswith(SANDBOX_HOME_IN_CONTAINER + "/"):
+        target = "~/" + target[len(SANDBOX_HOME_IN_CONTAINER) + 1 :]
+    return {"source": c.source, "target": target}
+
+
+def save_user_tools(tools: list[Tool]) -> None:
+    """Write tools.yaml, preferring short-form copy entries when possible."""
+    host_home = Path.home()
+    entries: list[dict] = []
+    for t in tools:
+        entry: dict = {"name": t.name}
+        if t.install is not None:
+            entry["install"] = t.install if t.install.endswith("\n") else t.install + "\n"
+        if t.copy:
+            entry["copy"] = [_format_copy(c, host_home) for c in t.copy]
+        entries.append(entry)
+    TOOLS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    TOOLS_FILE.write_text(
+        yaml.dump(
+            {"tools": entries},
+            Dumper=_BlockLiteralDumper,
+            sort_keys=False,
+            default_flow_style=False,
+            indent=2,
+        )
+    )
+
+
+def write_tool_auth_compose(tools: list[Tool]) -> Path:
+    """Generate a compose override that bind-mounts each tools.yaml copy entry.
+
+    Stacked under docker-compose.sandbox.yml via an extra ``-f`` flag, so the
+    base compose file stays static. Caller invokes this before every
+    ``docker compose`` invocation: tools.yaml is the source of truth and the
+    override is just a view of it, so there is no cache to invalidate.
+
+    Missing host sources are skipped entirely (no mount, no target). The
+    entrypoint then leaves that target absent in the sandbox, letting tools
+    that initialize their own state on first run (e.g. ``gh auth login``)
+    keep working.
+    """
+    volumes: list[str] = []
+    targets: list[str] = []
+    for c in (c for t in tools for c in t.copy):
+        src_path = Path(c.source)
+        if not (src_path.is_file() or src_path.is_dir()):
+            continue
+        idx = len(volumes)
+        volumes.append(f"{c.source}:/tmp/sandbox-tool-auth/{idx}:ro")
+        targets.append(c.target)
+
+    payload = {
+        "services": {
+            "app": {
+                "volumes": volumes,
+                "environment": {"SANDBOX_TOOL_AUTH_PATHS": ":".join(targets)},
+            },
+        },
+    }
+    TOOL_AUTH_COMPOSE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(TOOL_AUTH_COMPOSE_FILE, "w") as f:
+        yaml.safe_dump(payload, f, sort_keys=False)
+    return TOOL_AUTH_COMPOSE_FILE

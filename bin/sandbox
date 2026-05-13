@@ -27,7 +27,7 @@ import textwrap
 import functools
 import subprocess
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import NoReturn
 
@@ -37,6 +37,15 @@ except ImportError:
     print("ERROR: PyYAML is required. Install with: pip install pyyaml", file=sys.stderr)
     print("  Or activate the flox environment first.", file=sys.stderr)
     sys.exit(1)
+
+import sandbox_tools
+from sandbox_tools import (
+    TOOLS_FILE,
+    CatalogEntry,
+    Tool,
+    ToolCopy,
+    ToolsError,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -75,7 +84,6 @@ HOST_GIT_DIR = _resolve_host_git_dir()
 REGISTRY_DIR = Path.home() / ".posthog-sandboxes"
 REGISTRY_FILE = REGISTRY_DIR / "registry.json"
 CONFIG_FILE = REGISTRY_DIR / "config.json"
-TOOLS_FILE = REGISTRY_DIR / "tools.yaml"
 TOOLS_BUILD_LOCK = REGISTRY_DIR / ".tools-build.lock"
 
 # Checked-in repository catalog of vetted tool recipes (gh, gt, etc.).
@@ -87,15 +95,6 @@ CATALOG_FILE = REPO_ROOT / "bin/sandbox-tools.yaml"
 BASE_IMAGE_TAG = "posthog-sandbox:base"
 USER_IMAGE_PREFIX = "posthog-sandbox-user"
 KEEP_USER_IMAGES = 3
-
-# Generated compose override that adds one bind mount per tools.yaml copy
-# entry. Rewritten before every `docker compose` invocation, so cache
-# invalidation is just "always regenerate".
-TOOL_AUTH_COMPOSE_FILE = REGISTRY_DIR / "docker-compose.tool-auth.yml"
-
-# In-sandbox $HOME. Must stay in sync with SANDBOX_HOME in
-# bin/sandbox-entrypoint.py, since tools.yaml copy targets resolve here.
-SANDBOX_HOME_IN_CONTAINER = "/tmp/sandbox-home"
 
 PORT_BASE = 48001
 
@@ -322,241 +321,36 @@ class Registry:
 
 # ---------------------------------------------------------------------------
 # User tool management (~/.posthog-sandboxes/tools.yaml)
+#
+# Schema, parsing, persistence, and the compose-override generator live in
+# bin/sandbox_tools.py. The wrappers below translate ToolsError -> fatal()
+# so call sites keep the script's fail-loud-with-message convention.
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class ToolCopy:
-    """Resolved host -> sandbox path pair for a single host-to-sandbox copy.
-
-    `source` is a host absolute path (may equal "/dev/null" if the host
-    file is missing). `target` is an absolute path under the in-sandbox
-    $HOME (SANDBOX_HOME_IN_CONTAINER). The transport is a bind mount under
-    /tmp/sandbox-tool-auth/N; the entrypoint copies from there to `target`
-    at boot. Runtime semantics are snapshot copy, not live mount.
-    """
-
-    source: str
-    target: str
-
-
-@dataclass
-class Tool:
-    name: str
-    install: str | None = None
-    copy: list[ToolCopy] = field(default_factory=list)
-
-
-def _tools_yaml_str_representer(dumper, data):
-    """Force multi-line strings into block-literal style (`install: |`)."""
-    if "\n" in data:
-        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
-    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
-
-
-# Module-scope: PyYAML representers are global. Safe to register
-# unconditionally since this dumper is only used by `sandbox tools ...`.
-yaml.add_representer(str, _tools_yaml_str_representer, Dumper=yaml.SafeDumper)
-
-
 def _parse_tool_copy(entry: object, *, source_label: str) -> ToolCopy:
-    """Resolve a tools.yaml copy[] entry to a ToolCopy.
-
-    Raises via fatal() on validation errors; the schema is intentionally
-    strict so misconfiguration shows up at load time, not at runtime.
-    """
-    host_home = str(Path.home())
-    if isinstance(entry, str):
-        source = str(Path(entry).expanduser().resolve(strict=False))
-        try:
-            rel = Path(source).relative_to(host_home)
-        except ValueError:
-            fatal(
-                f"{source_label}: short-form copy entry {entry!r} is not under "
-                f"$HOME ({host_home}). Use long form: "
-                "{source: /abs/path, target: ~/...}."
-            )
-        target = f"{SANDBOX_HOME_IN_CONTAINER}/{rel}"
-        return ToolCopy(source=source, target=target)
-
-    if isinstance(entry, dict):
-        if "source" not in entry or "target" not in entry:
-            fatal(f"{source_label}: long-form copy entry must have 'source' and 'target'.")
-        source = str(Path(entry["source"]).expanduser().resolve(strict=False))
-        target_raw = str(entry["target"])
-        if target_raw.startswith("~/"):
-            target = f"{SANDBOX_HOME_IN_CONTAINER}/{target_raw[2:]}"
-        elif target_raw == "~":
-            target = SANDBOX_HOME_IN_CONTAINER
-        elif target_raw.startswith("~"):
-            fatal(
-                f"{source_label}: target {target_raw!r} uses '~user' which is "
-                "not supported. Use '~/...' or an absolute path under "
-                f"{SANDBOX_HOME_IN_CONTAINER}."
-            )
-        else:
-            target = target_raw
-        if target != SANDBOX_HOME_IN_CONTAINER and not target.startswith(SANDBOX_HOME_IN_CONTAINER + "/"):
-            fatal(
-                f"{source_label}: target {entry['target']!r} must resolve "
-                f"under sandbox $HOME ({SANDBOX_HOME_IN_CONTAINER})."
-            )
-        return ToolCopy(source=source, target=target)
-
-    fatal(f"{source_label}: invalid copy entry {entry!r} (expected string or mapping).")
+    try:
+        return sandbox_tools.parse_tool_copy(entry, source_label=source_label)
+    except ToolsError as e:
+        fatal(str(e))
 
 
 def _load_user_tools() -> list[Tool]:
-    """Parse ~/.posthog-sandboxes/tools.yaml or return [] if missing.
-
-    Validation is intentionally strict: bad entries fail loudly rather
-    than getting silently dropped from the personal image. Each tool
-    must have a name; install and copy paths are independently optional
-    but at least one is expected (the loader does not enforce that part,
-    so a name-only entry is technically allowed for forward-compat).
-    """
-    if not TOOLS_FILE.is_file():
-        return []
-    raw = yaml.safe_load(TOOLS_FILE.read_text()) or {}
-    if not isinstance(raw, dict):
-        fatal(f"{TOOLS_FILE}: top-level must be a mapping with a 'tools' key.")
-    tools_data = raw.get("tools", [])
-    if tools_data is None:
-        tools_data = []
-    if not isinstance(tools_data, list):
-        fatal(f"{TOOLS_FILE}: 'tools' must be a list.")
-
-    tools: list[Tool] = []
-    seen: set[str] = set()
-    for i, entry in enumerate(tools_data):
-        if not isinstance(entry, dict):
-            fatal(f"{TOOLS_FILE}: tools[{i}] must be a mapping.")
-        name = entry.get("name")
-        if not isinstance(name, str) or not name.strip():
-            fatal(f"{TOOLS_FILE}: tools[{i}] is missing a 'name'.")
-        if name in seen:
-            fatal(f"{TOOLS_FILE}: duplicate tool name {name!r}.")
-        seen.add(name)
-
-        if "mounts" in entry:
-            fatal(
-                f"{TOOLS_FILE}: tools[{i}] uses 'mounts:' which was renamed to "
-                "'copy:'. Edit the YAML key (the field semantics are unchanged)."
-            )
-
-        install = entry.get("install")
-        if install is not None and not isinstance(install, str):
-            fatal(f"{TOOLS_FILE}: tools[{i}].install must be a string.")
-
-        copy_raw = entry.get("copy") or []
-        if not isinstance(copy_raw, list):
-            fatal(f"{TOOLS_FILE}: tools[{i}].copy must be a list.")
-        copy_entries = [
-            _parse_tool_copy(c, source_label=f"{TOOLS_FILE}: tools[{i}].copy[{j}]") for j, c in enumerate(copy_raw)
-        ]
-
-        tools.append(Tool(name=name, install=install, copy=copy_entries))
-
-    return tools
+    try:
+        return sandbox_tools.load_user_tools()
+    except ToolsError as e:
+        fatal(str(e))
 
 
 def _save_user_tools(tools: list[Tool]) -> None:
-    """Write tools.yaml back, preferring short-form copy entries when possible."""
-    TOOLS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    host_home = str(Path.home())
-
-    out_tools: list[dict] = []
-    for t in tools:
-        entry: dict = {"name": t.name}
-        if t.install is not None:
-            install = t.install
-            if not install.endswith("\n"):
-                install = install + "\n"
-            entry["install"] = install
-        if t.copy:
-            entry_copy: list = []
-            for c in t.copy:
-                short = _try_short_form_copy(c.source, c.target, host_home)
-                if short is not None:
-                    entry_copy.append(short)
-                else:
-                    target_for_yaml = c.target
-                    if target_for_yaml.startswith(SANDBOX_HOME_IN_CONTAINER + "/"):
-                        target_for_yaml = "~/" + target_for_yaml[len(SANDBOX_HOME_IN_CONTAINER) + 1 :]
-                    elif target_for_yaml == SANDBOX_HOME_IN_CONTAINER:
-                        target_for_yaml = "~"
-                    entry_copy.append({"source": c.source, "target": target_for_yaml})
-            entry["copy"] = entry_copy
-        out_tools.append(entry)
-
-    TOOLS_FILE.write_text(yaml.safe_dump({"tools": out_tools}, sort_keys=False, default_flow_style=False, indent=2))
-
-
-def _try_short_form_copy(source: str, target: str, host_home: str) -> str | None:
-    """Return the short-form representation of a copy entry if applicable, else None."""
-    try:
-        rel = Path(source).relative_to(host_home)
-    except ValueError:
-        return None
-    expected_target = f"{SANDBOX_HOME_IN_CONTAINER}/{rel}"
-    if target != expected_target:
-        return None
-    return f"~/{rel}"
-
-
-@dataclass
-class CatalogEntry:
-    name: str
-    description: str
-    install: str | None
-    copy: list[ToolCopy]
+    sandbox_tools.save_user_tools(tools)
 
 
 def _load_catalog() -> dict[str, CatalogEntry]:
-    """Load the checked-in tool recipe catalog (bin/sandbox-tools.yaml).
-
-    Returns a name -> CatalogEntry mapping. Missing or empty file is OK
-    (catalog is opt-in); malformed entries fail loudly so a bad merge
-    doesn't silently lose recipes.
-    """
-    if not CATALOG_FILE.is_file():
-        return {}
-    raw = yaml.safe_load(CATALOG_FILE.read_text()) or {}
-    if not isinstance(raw, dict):
-        fatal(f"{CATALOG_FILE}: top-level must be a mapping with a 'tools' key.")
-    entries_data = raw.get("tools", [])
-    if not isinstance(entries_data, list):
-        fatal(f"{CATALOG_FILE}: 'tools' must be a list.")
-
-    catalog: dict[str, CatalogEntry] = {}
-    for i, entry in enumerate(entries_data):
-        if not isinstance(entry, dict):
-            fatal(f"{CATALOG_FILE}: tools[{i}] must be a mapping.")
-        name = entry.get("name")
-        if not isinstance(name, str) or not name.strip():
-            fatal(f"{CATALOG_FILE}: tools[{i}] is missing a 'name'.")
-        if name in catalog:
-            fatal(f"{CATALOG_FILE}: duplicate catalog entry {name!r}.")
-        description = entry.get("description", "")
-        if not isinstance(description, str):
-            fatal(f"{CATALOG_FILE}: tools[{i}].description must be a string.")
-        install = entry.get("install")
-        if install is not None and not isinstance(install, str):
-            fatal(f"{CATALOG_FILE}: tools[{i}].install must be a string.")
-        if "mounts" in entry:
-            fatal(
-                f"{CATALOG_FILE}: tools[{i}] uses 'mounts:' which was renamed to "
-                "'copy:'. Update the catalog file."
-            )
-        copy_raw = entry.get("copy") or []
-        if not isinstance(copy_raw, list):
-            fatal(f"{CATALOG_FILE}: tools[{i}].copy must be a list.")
-        copy_entries = [
-            _parse_tool_copy(c, source_label=f"{CATALOG_FILE}: tools[{i}].copy[{j}]")
-            for j, c in enumerate(copy_raw)
-        ]
-        catalog[name] = CatalogEntry(name=name, description=description, install=install, copy=copy_entries)
-    return catalog
+    try:
+        return sandbox_tools.load_catalog(CATALOG_FILE)
+    except ToolsError as e:
+        fatal(str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -808,41 +602,7 @@ def _ensure_images_built() -> tuple[str, list[Tool]]:
 
 
 def _write_tool_auth_compose() -> Path:
-    """Generate a compose override that bind-mounts each tools.yaml copy entry.
-
-    Stacked under docker-compose.sandbox.yml via an extra `-f` flag, so the
-    base compose file stays static. Rewritten on every `compose()` call:
-    `tools.yaml` is the source of truth and the override is just a view of
-    it, so there is no cache to invalidate.
-
-    Missing host sources are skipped entirely (no mount, no target). The
-    entrypoint will then leave that target absent in the sandbox, letting
-    tools that initialize their own state on first run (e.g., `gh auth
-    login`) keep working.
-    """
-    tools = _load_user_tools()
-    volumes: list[str] = []
-    targets: list[str] = []
-    for c in (c for t in tools for c in t.copy):
-        src_path = Path(c.source)
-        if not (src_path.is_file() or src_path.is_dir()):
-            continue
-        idx = len(volumes)
-        volumes.append(f"{c.source}:/tmp/sandbox-tool-auth/{idx}:ro")
-        targets.append(c.target)
-
-    payload = {
-        "services": {
-            "app": {
-                "volumes": volumes,
-                "environment": {"SANDBOX_TOOL_AUTH_PATHS": ":".join(targets)},
-            },
-        },
-    }
-    TOOL_AUTH_COMPOSE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(TOOL_AUTH_COMPOSE_FILE, "w") as f:
-        yaml.safe_dump(payload, f, sort_keys=False)
-    return TOOL_AUTH_COMPOSE_FILE
+    return sandbox_tools.write_tool_auth_compose(_load_user_tools())
 
 
 # ---------------------------------------------------------------------------
