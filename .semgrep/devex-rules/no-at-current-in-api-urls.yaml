@@ -1,0 +1,82 @@
+rules:
+    - id: no-at-current-in-api-urls
+      message: |
+          `@current` in API URLs is deprecated. Use explicit IDs from
+          `currentTeamLogic` / `currentProjectLogic` / `currentOrganizationLogic`
+          instead — `currentTeamIdStrict` / `currentProjectIdStrict` /
+          `currentOrganizationIdStrict` are non-nullable selectors that throw
+          if accessed before the data is loaded.
+
+          Why: `@current` is implicit server-side state. The frontend has the
+          resolved ID; sending it explicitly removes a class of bugs caused by
+          frontend/backend disagreement about which project/org is "current".
+
+          Context: PR #51110 migrated the bulk of frontend calls. A small set
+          of bootstrap files (teamLogic, organizationLogic, projectLogic,
+          welcomeDialogLogic, lib/api.ts) and the toolbar still use `@current`
+          intentionally — they're exempted via paths.exclude below.
+
+          This rule is currently informational (WARNING severity). Findings
+          are the backlog of call sites still to migrate. Once the backlog
+          hits zero this rule's severity will be switched to ERROR so
+          regressions get blocked.
+      languages: [typescript, javascript]
+      severity: WARNING
+      paths:
+          include:
+              - 'frontend/'
+              - 'products/*/frontend/'
+          exclude:
+              # tests and fixtures legitimately exercise the `@current` route
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/test/**'
+              - '**/__tests__/**'
+              - '**/*.stories.tsx'
+              - '**/*.stories.ts'
+              - '**/__mocks__/**'
+              - '**/mocks/**'
+              # toolbar runs in third-party page context — separate concern
+              - '/frontend/src/toolbar/'
+              # documented bootstrap exceptions: explicit ID isn't loaded yet
+              - '/frontend/src/scenes/teamLogic.tsx'
+              - '/frontend/src/scenes/organizationLogic.tsx'
+              - '/frontend/src/scenes/projectLogic.ts'
+              - '/frontend/src/scenes/welcome/welcomeDialogLogic.ts'
+              - '/frontend/src/lib/api.ts'
+      pattern-either:
+          # api.<verb>($URL, ...) with @current in the URL string/template literal
+          - patterns:
+                - pattern-either:
+                      - pattern: api.get($URL, ...)
+                      - pattern: api.post($URL, ...)
+                      - pattern: api.put($URL, ...)
+                      - pattern: api.patch($URL, ...)
+                      - pattern: api.delete($URL, ...)
+                      - pattern: api.create($URL, ...)
+                      - pattern: api.update($URL, ...)
+                - metavariable-regex:
+                      metavariable: $URL
+                      regex: '.*@current.*'
+          # Semgrep's TypeScript parser treats generic-typed calls
+          # (api.create<T>(...)) as a different AST shape that the patterns above
+          # don't match — same limitation as documented in prefer-codegen-api.yaml.
+          # Fall back to a regex; bounds type args by `(` so nested generics like
+          # api.get<PaginatedResponse<Foo>>(...) still match.
+          - pattern-regex: '\bapi\.(get|post|put|patch|delete|create|update)<[^(]*>\s*\([^)]*@current[^)]*'
+          # raw fetch with full URL
+          - patterns:
+                - pattern: fetch($URL, ...)
+                - metavariable-regex:
+                      metavariable: $URL
+                      regex: '.*@current.*'
+          # combineUrl for query string building
+          - patterns:
+                - pattern: combineUrl($URL, ...)
+                - metavariable-regex:
+                      metavariable: $URL
+                      regex: '.*@current.*'
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit
