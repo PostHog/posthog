@@ -126,7 +126,7 @@ Returns `results` for the last hour and `compare` for the hour before. Diff `tot
 ```json
 {
   "query": {
-    "filterGroup": [{ "key": "status_code", "operator": "exact", "type": "span", "value": "Error" }],
+    "filterGroup": [{ "key": "status_code", "operator": "exact", "type": "span", "value": 2 }],
     "dateRange": { "date_from": "-6h" }
   }
 }
