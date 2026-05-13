@@ -1,4 +1,4 @@
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -8,7 +8,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..facade import api, contracts
 from ..tasks import ping_monitor
-from .serializers import CreateMonitorSerializer, MonitorSerializer, PingSerializer
+from .serializers import (
+    BulkCreateMonitorSerializer,
+    CreateMonitorSerializer,
+    MonitorSerializer,
+    PingSerializer,
+    SuggestedUrlSerializer,
+)
 
 
 class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -45,3 +51,48 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def ping_now(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         ping_monitor.delay(str(pk))
         return Response(status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="days",
+                type=int,
+                required=False,
+                description="Look-back window in days. Defaults to 30.",
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=int,
+                required=False,
+                description="Maximum number of suggestions to return. Defaults to 20.",
+            ),
+        ],
+        responses={200: SuggestedUrlSerializer(many=True)},
+        description="Suggest pingable URLs derived from $pageview events, excluding hosts already monitored.",
+    )
+    @action(detail=False, methods=["get"], url_path="suggested_urls")
+    def suggested_urls(self, request: Request, **kwargs) -> Response:
+        days = int(request.query_params.get("days", 30))
+        limit = int(request.query_params.get("limit", 20))
+        suggestions = api.list_suggested_urls(team_id=self.team_id, days=days, limit=limit)
+        return Response(SuggestedUrlSerializer(suggestions, many=True).data)
+
+    @extend_schema(
+        request=BulkCreateMonitorSerializer,
+        responses={201: MonitorSerializer(many=True)},
+        description="Create multiple monitors in a single atomic transaction. Used by the URL-suggester bulk add.",
+    )
+    @action(detail=False, methods=["post"], url_path="bulk_create")
+    def bulk_create(self, request: Request, **kwargs) -> Response:
+        serializer = BulkCreateMonitorSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        dtos = api.bulk_create(
+            contracts.BulkCreateMonitorInput(
+                team_id=self.team_id,
+                items=[
+                    contracts.BulkCreateMonitorItem(name=item["name"], url=item["url"])
+                    for item in serializer.validated_data["monitors"]
+                ],
+            )
+        )
+        return Response(MonitorSerializer(dtos, many=True).data, status=status.HTTP_201_CREATED)

@@ -21,8 +21,30 @@ def create(input: contracts.CreateMonitorInput) -> contracts.MonitorDTO:
     return _to_dto(obj)
 
 
+def bulk_create(input: contracts.BulkCreateMonitorInput) -> list[contracts.MonitorDTO]:
+    objs = logic.bulk_create_monitors(
+        team_id=input.team_id,
+        items=[{"name": item.name, "url": item.url} for item in input.items],
+    )
+    return [_to_dto(obj) for obj in objs]
+
+
 def list_all() -> list[contracts.MonitorDTO]:
     return [_to_dto(obj) for obj in logic.list_monitors()]
+
+
+def list_suggested_urls(*, team_id: int, days: int = 30, limit: int = 20) -> list[contracts.SuggestedUrlDTO]:
+    rows = logic.list_suggested_urls(team_id=team_id, days=days, limit=limit)
+    return [
+        contracts.SuggestedUrlDTO(
+            url=row["url"],
+            host=row["host"],
+            event_count=row["event_count"],
+            unique_paths=row["unique_paths"],
+            last_seen=row["last_seen"],
+        )
+        for row in rows
+    ]
 
 
 def list_recent_pings(*, team_id: int, monitor_id: UUID, limit: int = 50) -> list[contracts.PingDTO]:

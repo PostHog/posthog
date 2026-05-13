@@ -21,6 +21,27 @@ class CreateMonitorInput:
 
 
 @dataclass(frozen=True)
+class BulkCreateMonitorItem:
+    name: str
+    url: str
+
+
+@dataclass(frozen=True)
+class BulkCreateMonitorInput:
+    team_id: int
+    items: list[BulkCreateMonitorItem]
+
+
+@dataclass(frozen=True)
+class SuggestedUrlDTO:
+    url: str
+    host: str
+    event_count: int
+    unique_paths: int
+    last_seen: datetime
+
+
+@dataclass(frozen=True)
 class PingDTO:
     monitor_id: UUID
     timestamp: datetime

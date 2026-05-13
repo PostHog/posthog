@@ -6328,6 +6328,24 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    export interface BulkCreateMonitorItem {
+      /**
+         * Human-readable name of the monitor.
+         * @maxLength 255
+         */
+      name: string;
+      /**
+         * HTTP(S) URL to ping every 5 minutes.
+         * @maxLength 2048
+         */
+      url: string;
+    }
+
+    export interface BulkCreateMonitor {
+      /** List of monitors to create. All-or-nothing: created atomically. */
+      monitors: BulkCreateMonitorItem[];
+    }
+
     export interface BulkUpdateTagsError {
       id: number;
       reason: string;
@@ -8027,6 +8045,19 @@ export namespace Schemas {
       company_address: string;
       /** Email the signed PandaDoc envelope is sent to (PandaDoc's Client.Email). */
       representative_email: string;
+    }
+
+    export interface CreateMonitor {
+      /**
+         * Human-readable name of the monitor.
+         * @maxLength 255
+         */
+      name: string;
+      /**
+         * HTTP(S) URL to ping every 5 minutes.
+         * @maxLength 2048
+         */
+      url: string;
     }
 
     /**
@@ -20080,6 +20111,13 @@ export namespace Schemas {
       FeatureFlag: 'FeatureFlag',
     } as const;
 
+    export interface MonitorDTO {
+      id: string;
+      name: string;
+      url: string;
+      created_at: string;
+    }
+
     export interface MyFlagsResponse {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
@@ -20714,6 +20752,18 @@ export namespace Schemas {
       /** @nullable */
       success?: boolean | null;
     }
+
+    /**
+     * * `success` - SUCCESS
+    * `failure` - FAILURE
+     */
+    export type OutcomeEnum = typeof OutcomeEnum[keyof typeof OutcomeEnum];
+
+
+    export const OutcomeEnum = {
+      Success: 'success',
+      Failure: 'failure',
+    } as const;
 
     export interface OutdatedTrafficAlert {
       /** Outdated version handling significant traffic. */
@@ -21564,6 +21614,15 @@ export namespace Schemas {
       results: MessageTemplate[];
     }
 
+    export interface PaginatedMonitorDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MonitorDTO[];
+    }
+
     export interface PaginatedNodeList {
       count: number;
       /** @nullable */
@@ -21730,6 +21789,24 @@ export namespace Schemas {
       previous?: string | null;
       count?: number;
       results?: PersonRecord[];
+    }
+
+    export interface PingDTO {
+      monitor_id: string;
+      timestamp: string;
+      latency_ms: number;
+      /** @nullable */
+      status_code: number | null;
+      outcome: OutcomeEnum;
+    }
+
+    export interface PaginatedPingDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: PingDTO[];
     }
 
     /**
@@ -22991,6 +23068,23 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Subscription[];
+    }
+
+    export interface SuggestedUrlDTO {
+      url: string;
+      host: string;
+      event_count: number;
+      unique_paths: number;
+      last_seen: string;
+    }
+
+    export interface PaginatedSuggestedUrlDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SuggestedUrlDTO[];
     }
 
     /**
@@ -37936,6 +38030,54 @@ export namespace Schemas {
       at_limit: boolean;
     };
 
+    export type EnvironmentsUptimeMonitorsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsUptimeMonitorsPingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsUptimeMonitorsBulkCreateCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsUptimeMonitorsSuggestedUrlsListParams = {
+    /**
+     * Look-back window in days. Defaults to 30.
+     */
+    days?: number;
+    /**
+     * Maximum number of suggestions to return. Defaults to 20.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsUserProductListListParams = {
     /**
      * Number of results to return per page.
@@ -43454,6 +43596,54 @@ export namespace Schemas {
     };
 
     export type UploadedMediaCreate201 = { [key: string]: unknown };
+
+    export type UptimeMonitorsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type UptimeMonitorsPingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type UptimeMonitorsBulkCreateCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type UptimeMonitorsSuggestedUrlsListParams = {
+    /**
+     * Look-back window in days. Defaults to 30.
+     */
+    days?: number;
+    /**
+     * Maximum number of suggestions to return. Defaults to 20.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type UserProductListListParams = {
     /**
