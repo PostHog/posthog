@@ -2,10 +2,13 @@ from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from django.test.client import Client
+
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Team
+from posthog.models import PersonalAPIKey, Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 
 from products.live_debugger.backend.models import LiveDebuggerBreakpoint, LiveDebuggerProgram
 
@@ -1328,3 +1331,40 @@ class TestLiveDebuggerActiveProgramsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids = [p.id for p in ProgramList.from_bytes(response.content).programs]
         self.assertEqual(ids, [str(valid.id)])
+
+    def _personal_api_key(self, scopes: list[str]) -> str:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test pak",
+            secure_value=hash_key_value(token),
+            mask_value=mask_key_value(token),
+            scopes=scopes,
+        )
+        return token
+
+    def test_personal_api_key_authenticates(self):
+        from hogtrace import ProgramList
+
+        own = self._make_program(self.HOGTRACE_SOURCE_A)
+        token = self._personal_api_key(["live_debugger:read"])
+
+        unauth_client = Client()
+        response = unauth_client.get(self.URL, headers={"Authorization": f"Bearer {token}"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [p.id for p in ProgramList.from_bytes(response.content).programs]
+        self.assertEqual(ids, [str(own.id)])
+
+    def test_missing_auth_returns_401(self):
+        unauth_client = Client()
+        response = unauth_client.get(self.URL)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_personal_api_key_without_scope_returns_403(self):
+        # `live_debugger:write` would satisfy `live_debugger:read` (write implies read),
+        # so use a clearly unrelated scope to exercise the "missing scope" path.
+        token = self._personal_api_key(["feature_flag:read"])
+        unauth_client = Client()
+        response = unauth_client.get(self.URL, headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
