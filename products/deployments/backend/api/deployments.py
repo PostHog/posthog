@@ -16,7 +16,6 @@ from django.db.models import Exists, OuterRef
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import filters, status, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -24,7 +23,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
@@ -85,12 +84,6 @@ class DeploymentViewSet(
     # the internal transitions endpoint moves it through states, and the
     # action endpoints handle redeploy/rollback/cancel.
     http_method_names = ["get", "post", "head", "options"]
-
-    # We do the parent-lookup filtering manually in `safely_get_queryset`
-    # so the framework's `team__project_id` kludge doesn't fire — our
-    # ProductTeamModel-based rows have no `team` FK to traverse.
-    def _should_skip_parents_filter(self) -> bool:
-        return True
 
     @property
     def deployment_project_id(self) -> str:
