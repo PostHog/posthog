@@ -12,6 +12,7 @@ tools:
     user-interview-topics-create:
         operation: user_interview_topics_create
         enabled: true
+        feature_flag: user-interviews
         scopes:
             - user_interview:write
         annotations:
@@ -39,6 +40,7 @@ tools:
     user-interview-topics-list:
         operation: user_interview_topics_list
         enabled: true
+        feature_flag: user-interviews
         scopes:
             - user_interview:read
         annotations:
