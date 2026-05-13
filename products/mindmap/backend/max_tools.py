@@ -44,13 +44,18 @@ class ListMindMapTool(MaxTool):
     ).strip()
     args_schema: type[BaseModel] = ListMindMapArgs
 
-    async def _arun_impl(self, _args: dict[str, Any]) -> dict[str, Any]:
-        # service.list_mindmap uses select_related so source/target are pre-fetched.
+    async def _arun_impl(self, **_kwargs: Any) -> tuple[str, dict[str, Any]]:
         state = await sync_to_async(service.list_mindmap)(team=self._team)
-        return {
+        payload: dict[str, Any] = {
             "postits": [_postit_dict(p) for p in state.postits],
             "edges": [{"source": e.source.short_id, "target": e.target.short_id} for e in state.edges],
         }
+        summary = (
+            f"Mindmap has {len(payload['postits'])} post-it(s) and {len(payload['edges'])} edge(s)."
+            if payload["postits"]
+            else "Mindmap is empty."
+        )
+        return summary, payload
 
 
 # ---- create_postit ----
@@ -81,19 +86,20 @@ class CreatePostItTool(MaxTool):
         - `title` is required and short (1-256 chars). Put long-form content in the linked notebook, not in `body`.
         - Omit `position_x`/`position_y` to let the canvas auto-place the post-it on the next free grid slot.
         - Use `parent_short_ids` and `child_short_ids` to wire arrows in the same step.
-        - Returns {short_id, ...full post-it...}.
+        - Returns the created post-it as a dict.
         """
     ).strip()
     args_schema: type[BaseModel] = CreatePostItArgs
 
-    async def _arun_impl(self, args: dict[str, Any]) -> dict[str, Any]:
-        kwargs = {k: v for k, v in args.items() if v is not None}
+    async def _arun_impl(self, **kwargs: Any) -> tuple[str, dict[str, Any]]:
+        clean = {k: v for k, v in kwargs.items() if v is not None}
 
-        def _do_create() -> dict[str, Any]:
-            postit = service.create_postit(team=self._team, user=self._user, **kwargs)
+        def _do() -> dict[str, Any]:
+            postit = service.create_postit(team=self._team, user=self._user, **clean)
             return _postit_dict(postit)
 
-        return await sync_to_async(_do_create)()
+        result = await sync_to_async(_do)()
+        return f"Created post-it '{result['title']}' (short_id={result['short_id']}).", result
 
 
 # ---- update_postit ----
@@ -125,16 +131,16 @@ class UpdatePostItTool(MaxTool):
     ).strip()
     args_schema: type[BaseModel] = UpdatePostItArgs
 
-    async def _arun_impl(self, args: dict[str, Any]) -> dict[str, Any]:
-        # Keep keys whose value is not None, EXCEPT keep notebook_short_id even if None (sentinel "unlink").
-        kwargs = {k: v for k, v in args.items() if v is not None or k == "notebook_short_id"}
+    async def _arun_impl(self, **kwargs: Any) -> tuple[str, dict[str, Any]]:
         short_id = kwargs.pop("short_id")
+        clean = {k: v for k, v in kwargs.items() if v is not None or k == "notebook_short_id"}
 
-        def _do_update() -> dict[str, Any]:
-            postit = service.update_postit(team=self._team, user=self._user, short_id=short_id, **kwargs)
+        def _do() -> dict[str, Any]:
+            postit = service.update_postit(team=self._team, user=self._user, short_id=short_id, **clean)
             return _postit_dict(postit)
 
-        return await sync_to_async(_do_update)()
+        result = await sync_to_async(_do)()
+        return f"Updated post-it '{result['title']}' (short_id={result['short_id']}).", result
 
 
 # ---- delete_postit ----
@@ -153,13 +159,13 @@ class DeletePostItTool(MaxTool):
     ).strip()
     args_schema: type[BaseModel] = DeletePostItArgs
 
-    async def _arun_impl(self, args: dict[str, Any]) -> dict[str, Any]:
+    async def _arun_impl(self, short_id: str, **_: Any) -> tuple[str, dict[str, Any]]:
         await sync_to_async(service.delete_postit)(
             team=self._team,
             user=self._user,
-            short_id=args["short_id"],
+            short_id=short_id,
         )
-        return {"ok": True}
+        return f"Deleted post-it {short_id}.", {"short_id": short_id, "deleted": True}
 
 
 # ---- connect_postits ----
@@ -182,11 +188,8 @@ class ConnectPostItsTool(MaxTool):
     ).strip()
     args_schema: type[BaseModel] = ConnectPostItsArgs
 
-    async def _arun_impl(self, args: dict[str, Any]) -> dict[str, Any]:
-        source_short_id = args["source_short_id"]
-        target_short_id = args["target_short_id"]
-
-        def _do_connect() -> None:
+    async def _arun_impl(self, source_short_id: str, target_short_id: str, **_: Any) -> tuple[str, dict[str, Any]]:
+        def _do() -> None:
             service.connect(
                 team=self._team,
                 user=self._user,
@@ -194,8 +197,11 @@ class ConnectPostItsTool(MaxTool):
                 target_short_id=target_short_id,
             )
 
-        await sync_to_async(_do_connect)()
-        return {"source": source_short_id, "target": target_short_id}
+        await sync_to_async(_do)()
+        return (
+            f"Connected {source_short_id} → {target_short_id}.",
+            {"source": source_short_id, "target": target_short_id},
+        )
 
 
 # ---- disconnect_postits ----
@@ -215,14 +221,17 @@ class DisconnectPostItsTool(MaxTool):
     ).strip()
     args_schema: type[BaseModel] = DisconnectPostItsArgs
 
-    async def _arun_impl(self, args: dict[str, Any]) -> dict[str, Any]:
+    async def _arun_impl(self, source_short_id: str, target_short_id: str, **_: Any) -> tuple[str, dict[str, Any]]:
         await sync_to_async(service.disconnect)(
             team=self._team,
             user=self._user,
-            source_short_id=args["source_short_id"],
-            target_short_id=args["target_short_id"],
+            source_short_id=source_short_id,
+            target_short_id=target_short_id,
         )
-        return {"ok": True}
+        return (
+            f"Disconnected {source_short_id} → {target_short_id}.",
+            {"source": source_short_id, "target": target_short_id, "deleted": True},
+        )
 
 
 # ---- link_notebook_to_postit ----
@@ -246,11 +255,10 @@ class LinkNotebookToPostItTool(MaxTool):
     ).strip()
     args_schema: type[BaseModel] = LinkNotebookArgs
 
-    async def _arun_impl(self, args: dict[str, Any]) -> dict[str, Any]:
-        postit_short_id = args["postit_short_id"]
-        notebook_short_id = args["notebook_short_id"]
-
-        def _do_link() -> dict[str, Any]:
+    async def _arun_impl(
+        self, postit_short_id: str, notebook_short_id: str | None, **_: Any
+    ) -> tuple[str, dict[str, Any]]:
+        def _do() -> dict[str, Any]:
             postit = service.update_postit(
                 team=self._team,
                 user=self._user,
@@ -259,4 +267,6 @@ class LinkNotebookToPostItTool(MaxTool):
             )
             return _postit_dict(postit)
 
-        return await sync_to_async(_do_link)()
+        result = await sync_to_async(_do)()
+        verb = "Linked" if notebook_short_id else "Unlinked"
+        return f"{verb} notebook on post-it {postit_short_id}.", result
