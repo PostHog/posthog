@@ -304,6 +304,14 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                 loadGenerations: () => true,
             },
         ],
+        generationsError: [
+            false as boolean,
+            {
+                loadGenerations: () => false,
+                loadGenerationsFailure: () => true,
+                loadGenerationsSuccess: () => false,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
