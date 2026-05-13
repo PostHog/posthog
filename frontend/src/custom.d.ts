@@ -40,6 +40,12 @@ declare module '*.sql?raw' {
     export default content
 }
 
+// This fixes TS2882 errors when side-effect importing .scss files
+declare module '*.scss'
+
+// This fixes TS2882 errors when side-effect importing .css files
+declare module '*.css'
+
 // This fixes a TS error where @tiptap/react/menus cannot be found because of our moduleResolution
 declare module '@tiptap/react/menus' {
     export * from '@tiptap/react/dist/menus/index.d.ts'
