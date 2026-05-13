@@ -10,6 +10,7 @@
         "build",
         "rust",
         "cli",
+        "cli-2.0",
         "nodejs",
         "common/hogvm/typescript",
         "common/hogvm/typescript/dist",
@@ -190,10 +191,7 @@
             }
         },
         {
-            "files": [
-                "services/mcp/src/ui-apps/**/*.{ts,tsx}",
-                "products/**/mcp/apps/**/*.{ts,tsx}"
-            ],
+            "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}", "products/**/mcp/apps/**/*.{ts,tsx}"],
             "rules": {
                 "react/forbid-elements": "off"
             }

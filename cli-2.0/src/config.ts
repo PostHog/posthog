@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { Entry } from '@napi-rs/keyring'
 import Conf from 'conf'
 import inquirer from 'inquirer'
 import chalk from 'chalk'
@@ -29,8 +30,103 @@ export interface CLIConfig {
 const DEFAULT_HOST = 'https://us.posthog.com'
 const TOKEN_EXPIRY_SKEW_MS = 60_000
 
+const KEYRING_SERVICE = 'posthog-ph'
+const SECRET_KEYS = ['apiKey', 'accessToken', 'refreshToken'] as const
+type SecretKey = (typeof SECRET_KEYS)[number]
+
+function isSecretKey(key: keyof CLIConfig): key is SecretKey {
+  return (SECRET_KEYS as readonly string[]).includes(key)
+}
+
+interface SecretStore {
+  get(key: SecretKey): string | undefined
+  set(key: SecretKey, value: string): void
+  delete(key: SecretKey): void
+  clear(): void
+}
+
+class KeyringSecretStore implements SecretStore {
+  private readonly entries = new Map<SecretKey, Entry>()
+
+  private entry(key: SecretKey): Entry {
+    let cached = this.entries.get(key)
+    if (!cached) {
+      cached = new Entry(KEYRING_SERVICE, key)
+      this.entries.set(key, cached)
+    }
+    return cached
+  }
+
+  get(key: SecretKey): string | undefined {
+    try {
+      const value = this.entry(key).getPassword()
+      return value ?? undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  set(key: SecretKey, value: string): void {
+    try {
+      this.entry(key).setPassword(value)
+    } catch (err) {
+      throw new Error(`Failed to store credential '${key}' in the OS keychain`, { cause: err })
+    }
+  }
+
+  delete(key: SecretKey): void {
+    try {
+      this.entry(key).deletePassword()
+    } catch {
+      // Already absent or backend unavailable; nothing to do.
+    }
+  }
+
+  clear(): void {
+    for (const key of SECRET_KEYS) {
+      this.delete(key)
+    }
+  }
+}
+
+class FileSecretStore implements SecretStore {
+  constructor(private readonly conf: Conf<CLIConfig>) {}
+
+  get(key: SecretKey): string | undefined {
+    const value = this.conf.get(key)
+    return typeof value === 'string' && value.length > 0 ? value : undefined
+  }
+
+  set(key: SecretKey, value: string): void {
+    this.conf.set(key, value)
+  }
+
+  delete(key: SecretKey): void {
+    this.conf.delete(key)
+  }
+
+  clear(): void {
+    for (const key of SECRET_KEYS) {
+      this.conf.delete(key)
+    }
+  }
+}
+
+// Probes the OS keychain to decide which backend to use. On Linux this fails
+// when libsecret / Secret Service isn't available; in that case we fall back
+// to the plaintext Conf file so headless / CI environments still work.
+function createSecretStore(conf: Conf<CLIConfig>): { store: SecretStore; backend: 'keyring' | 'file' } {
+  try {
+    new Entry(KEYRING_SERVICE, '__posthog-cli-probe__').getPassword()
+    return { store: new KeyringSecretStore(), backend: 'keyring' }
+  } catch {
+    return { store: new FileSecretStore(conf), backend: 'file' }
+  }
+}
+
 export class ConfigManager {
   private conf: Conf<CLIConfig>
+  private secrets: SecretStore
 
   constructor() {
     this.conf = new Conf<CLIConfig>({
@@ -45,17 +141,45 @@ export class ConfigManager {
         projectId: { type: 'string' }
       }
     })
+
+    const { store, backend } = createSecretStore(this.conf)
+    this.secrets = store
+
+    if (backend === 'keyring') {
+      this.migrateLegacySecrets()
+    } else {
+      console.warn(chalk.dim('⚠ OS keychain unavailable; storing credentials in the config file.'))
+    }
+  }
+
+  private migrateLegacySecrets(): void {
+    for (const key of SECRET_KEYS) {
+      try {
+        const fileValue = this.conf.get(key)
+        if (typeof fileValue !== 'string' || fileValue.length === 0) {
+          continue
+        }
+        if (this.secrets.get(key)) {
+          this.conf.delete(key)
+          continue
+        }
+        this.secrets.set(key, fileValue)
+        this.conf.delete(key)
+      } catch {
+        // Migration is best-effort; never block CLI startup on it.
+      }
+    }
   }
 
   get(key: keyof CLIConfig): any {
     // Check environment variables first
     switch (key) {
       case 'apiKey':
-        return process.env.POSTHOG_CLI_API_KEY || process.env.POSTHOG_API_KEY || this.conf.get(key)
+        return process.env.POSTHOG_CLI_API_KEY || process.env.POSTHOG_API_KEY || this.secrets.get('apiKey')
       case 'accessToken':
-        return process.env.POSTHOG_CLI_ACCESS_TOKEN || process.env.POSTHOG_ACCESS_TOKEN || this.conf.get(key)
+        return process.env.POSTHOG_CLI_ACCESS_TOKEN || process.env.POSTHOG_ACCESS_TOKEN || this.secrets.get('accessToken')
       case 'refreshToken':
-        return process.env.POSTHOG_CLI_REFRESH_TOKEN || this.conf.get(key)
+        return process.env.POSTHOG_CLI_REFRESH_TOKEN || this.secrets.get('refreshToken')
       case 'clientId':
         return process.env.POSTHOG_CLI_CLIENT_ID || this.conf.get(key)
       case 'expiresAt':
@@ -70,6 +194,14 @@ export class ConfigManager {
   }
 
   set(key: keyof CLIConfig, value: any): void {
+    if (isSecretKey(key)) {
+      if (typeof value === 'string' && value.length > 0) {
+        this.secrets.set(key, value)
+      } else {
+        this.secrets.delete(key)
+      }
+      return
+    }
     this.conf.set(key, value)
   }
 
@@ -110,6 +242,7 @@ export class ConfigManager {
 
   clear(): void {
     this.conf.clear()
+    this.secrets.clear()
     console.log(chalk.green('✅ Configuration cleared!'))
   }
 
@@ -134,8 +267,8 @@ export class ConfigManager {
       return refreshedConfig
     } catch (error) {
       spinner.warn('OAuth token refresh failed; please log in again')
-      this.conf.delete('accessToken')
-      this.conf.delete('refreshToken')
+      this.secrets.delete('accessToken')
+      this.secrets.delete('refreshToken')
       this.conf.delete('expiresAt')
       this.conf.delete('clientId')
       return { ...config, accessToken: undefined, refreshToken: undefined, expiresAt: undefined, clientId: undefined }
