@@ -3,6 +3,7 @@ import { Grid } from 'react-window'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { TZLabel } from 'lib/components/TZLabel'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -41,7 +42,19 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
                     noLink={!response.distinctId}
                     muted
                 />
-                {response.timestamp && <TZLabel time={response.timestamp} formatDate="MMM D" formatTime="HH:mm" />}
+                <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    {response.sessionId && (
+                        <ViewRecordingButton
+                            sessionId={response.sessionId}
+                            timestamp={response.timestamp}
+                            size="xsmall"
+                            iconOnly
+                            noPadding
+                            checkRecordingExists
+                        />
+                    )}
+                    {response.timestamp && <TZLabel time={response.timestamp} formatDate="MMM D" formatTime="HH:mm" />}
+                </div>
             </div>
         </div>
     )
@@ -67,7 +80,17 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
                             noEllipsis={false}
                             noLink={!response.distinctId}
                         />
-                        {response.timestamp && <TZLabel time={response.timestamp} />}
+                        <div className="flex items-center gap-2">
+                            {response.sessionId && (
+                                <ViewRecordingButton
+                                    sessionId={response.sessionId}
+                                    timestamp={response.timestamp}
+                                    size="xsmall"
+                                    checkRecordingExists
+                                />
+                            )}
+                            {response.timestamp && <TZLabel time={response.timestamp} />}
+                        </div>
                     </div>
                 </div>
             }
