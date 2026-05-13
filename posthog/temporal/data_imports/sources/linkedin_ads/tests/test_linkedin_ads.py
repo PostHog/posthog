@@ -300,7 +300,6 @@ class TestFlattenLinkedinRecord:
         )
 
         result = _flatten_linkedin_record(record, schema)
-        assert result is not None
 
         assert result is None
 
