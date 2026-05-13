@@ -474,6 +474,54 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["name"], "Regular Insight")
 
+    def test_hide_on_dashboard_filter(self) -> None:
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "the dashboard"})
+
+        # Insight attached to a dashboard via the `dashboards` write path,
+        # which creates a DashboardTile under the hood.
+        self.dashboard_api.create_insight(
+            {"filters": filter_dict, "name": "On dashboard", "dashboards": [dashboard_id], "saved": True}
+        )
+
+        # Orphan insight — no DashboardTile.
+        Insight.objects.create(
+            name="Not on dashboard",
+            filters=Filter(data=filter_dict).to_dict(),
+            saved=True,
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Insight whose only DashboardTile was soft-deleted — should be treated
+        # as not on a dashboard, since the default DashboardTile manager hides
+        # soft-deleted rows.
+        soft_deleted_insight = Insight.objects.create(
+            name="Soft-deleted tile",
+            filters=Filter(data=filter_dict).to_dict(),
+            saved=True,
+            team=self.team,
+            created_by=self.user,
+        )
+        DashboardTile.objects_including_soft_deleted.create(
+            dashboard_id=dashboard_id, insight=soft_deleted_insight, deleted=True
+        )
+
+        # Without filter: all 3 saved insights returned.
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 3)
+
+        # With filter: only the two insights with no active dashboard tile.
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true&hide_on_dashboard=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        names = sorted(r["name"] for r in response.json()["results"])
+        self.assertEqual(names, ["Not on dashboard", "Soft-deleted tile"])
+
     def test_get_insight_in_dashboard_context(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],

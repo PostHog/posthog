@@ -1709,6 +1709,16 @@ class InsightViewSet(
                     queryset = queryset.exclude(
                         name__in=[FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME, FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME]
                     )
+            elif key == "hide_on_dashboard":
+                if str_to_bool(request.GET["hide_on_dashboard"]):
+                    # Exclude insights that are attached to any active dashboard.
+                    # DashboardTile.objects (default manager) already excludes soft-deleted tiles
+                    # and tiles whose dashboard is soft-deleted.
+                    queryset = queryset.exclude(
+                        id__in=DashboardTile.objects.filter(insight__isnull=False).values_list(
+                            "insight_id", flat=True
+                        )
+                    )
             elif key == "date_from":
                 queryset = queryset.filter(
                     last_modified_at__gt=relative_date_parse(request.GET["date_from"], self.team.timezone_info)
