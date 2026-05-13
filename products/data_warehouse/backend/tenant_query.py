@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
+from datetime import datetime, timedelta
 from time import perf_counter
 from uuid import UUID
+
+from django.utils import timezone
 
 import structlog
 
@@ -13,8 +17,8 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import FieldOrTable, TableNode
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.resolver_utils import extract_base_table_types
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -29,6 +33,9 @@ logger = structlog.get_logger(__name__)
 DEFAULT_TENANT_QUERY_TIMEOUT_MS = 30_000
 DEFAULT_TENANT_QUERY_MAX_TIMEOUT_MS = 120_000
 DEFAULT_TENANT_QUERY_MAX_RESULT_LIMIT = 100_000
+DEFAULT_TENANT_QUERY_OBSERVABILITY_LIMIT = 100
+MAX_TENANT_QUERY_OBSERVABILITY_LIMIT = 1_000
+TENANT_QUERY_LOG_EVENT = "tenant_query_execution"
 TENANT_QUERY_RESPONSE_FIELDS = {
     "columns",
     "error",
@@ -341,6 +348,369 @@ def execute_tenant_metadata_query(
         },
         len(results),
     )
+
+
+def _tenant_query_observability_limit(limit: int | None) -> int:
+    if limit is None:
+        return DEFAULT_TENANT_QUERY_OBSERVABILITY_LIMIT
+    return max(1, min(limit, MAX_TENANT_QUERY_OBSERVABILITY_LIMIT))
+
+
+def _tenant_query_observability_window(
+    date_from: datetime | None,
+    date_to: datetime | None,
+    default_lookback: timedelta = timedelta(hours=24),
+) -> tuple[datetime, datetime]:
+    resolved_date_to = date_to or timezone.now()
+    resolved_date_from = date_from or resolved_date_to - default_lookback
+    if resolved_date_from > resolved_date_to:
+        raise ExposedHogQLError("date_from must be earlier than date_to.")
+    return resolved_date_from, resolved_date_to
+
+
+def _tenant_query_logs_filter(
+    *,
+    date_from: datetime,
+    date_to: datetime,
+    connection_id: str | None = None,
+    tenant_value: object | None = None,
+    success: bool | None = None,
+) -> ast.Expr:
+    exprs: list[ast.Expr] = [
+        parse_expr(
+            "(body = {event_name} OR event_name = {event_name} OR JSONExtractString(attributes, 'event') = {event_name})",
+            placeholders={"event_name": ast.Constant(value=TENANT_QUERY_LOG_EVENT)},
+        ),
+        parse_expr(
+            "toStartOfDay(time_bucket) >= toStartOfDay({date_from}) AND toStartOfDay(time_bucket) <= toStartOfDay({date_to})",
+            placeholders={
+                "date_from": ast.Constant(value=date_from),
+                "date_to": ast.Constant(value=date_to),
+            },
+        ),
+        parse_expr(
+            "timestamp >= {date_from} AND timestamp <= {date_to}",
+            placeholders={
+                "date_from": ast.Constant(value=date_from),
+                "date_to": ast.Constant(value=date_to),
+            },
+        ),
+    ]
+
+    if connection_id is not None:
+        exprs.append(
+            parse_expr(
+                "JSONExtractString(attributes, 'connection_id') = {connection_id}",
+                placeholders={"connection_id": ast.Constant(value=str(connection_id))},
+            )
+        )
+    if tenant_value is not None:
+        exprs.append(
+            parse_expr(
+                "JSONExtractString(attributes, 'tenant_value') = {tenant_value}",
+                placeholders={"tenant_value": ast.Constant(value=str(tenant_value))},
+            )
+        )
+    if success is not None:
+        exprs.append(
+            parse_expr(
+                "JSONExtractBool(attributes, 'success') = {success}",
+                placeholders={"success": ast.Constant(value=success)},
+            )
+        )
+
+    return ast.And(exprs=exprs)
+
+
+def _execute_tenant_query_logs(team: Team, query: ast.SelectQuery) -> list[list[object]]:
+    response = execute_hogql_query(
+        query=query,
+        team=team,
+        query_type="TenantQueryLogs",
+        limit_context=LimitContext.QUERY,
+    )
+    return response.results or []
+
+
+def _serialize_log_timestamp(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def _parse_log_json(value: object, default: object) -> object:
+    if value is None or value == "":
+        return default
+    if isinstance(value, dict | list):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return default
+    return default
+
+
+def _parse_log_json_list(value: object) -> list[str]:
+    parsed_value = _parse_log_json(value, [])
+    if isinstance(parsed_value, list):
+        return [str(item) for item in parsed_value]
+    if parsed_value is None:
+        return []
+    return [str(parsed_value)]
+
+
+def _parse_log_json_dict(value: object) -> dict[str, object]:
+    parsed_value = _parse_log_json(value, {})
+    if isinstance(parsed_value, dict):
+        return {str(key): value for key, value in parsed_value.items()}
+    return {}
+
+
+def _tenant_query_log_row_to_execution(row: list[object]) -> dict[str, object | None]:
+    return {
+        "id": str(row[0]),
+        "timestamp": _serialize_log_timestamp(row[1]),
+        "connection_id": str(row[2]),
+        "tenant_value": str(row[3]),
+        "original_query": str(row[4]),
+        "postgres_sql": str(row[5]) if row[5] else None,
+        "success": bool(row[6]),
+        "error": str(row[7]) if row[7] else None,
+        "duration_ms": float(row[8]) if row[8] is not None else None,
+        "row_count": int(row[9]) if row[9] is not None else None,
+        "referenced_tables": _parse_log_json_list(row[10]),
+        "metadata_only": bool(row[11]),
+    }
+
+
+def _tenant_query_log_row_to_execution_detail(row: list[object]) -> dict[str, object | None]:
+    execution = _tenant_query_log_row_to_execution(row[:12])
+    execution["referenced_table_metadata"] = _parse_log_json(row[12], [])
+    execution["connection_metadata"] = _parse_log_json_dict(row[13])
+    execution["attributes"] = _parse_log_json_dict(row[14])
+    return execution
+
+
+def list_tenant_query_executions(
+    *,
+    team: Team,
+    connection_id: str | None = None,
+    tenant_value: object | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    success: bool | None = None,
+    limit: int | None = None,
+) -> dict[str, object]:
+    resolved_date_from, resolved_date_to = _tenant_query_observability_window(date_from, date_to)
+    resolved_limit = _tenant_query_observability_limit(limit)
+    query = parse_select(
+        """
+        SELECT
+            uuid,
+            timestamp,
+            JSONExtractString(attributes, 'connection_id') as connection_id,
+            JSONExtractString(attributes, 'tenant_value') as tenant_value,
+            JSONExtractString(attributes, 'original_query') as original_query,
+            JSONExtractString(attributes, 'postgres_sql') as postgres_sql,
+            JSONExtractBool(attributes, 'success') as success,
+            JSONExtractString(attributes, 'error') as error,
+            JSONExtractFloat(attributes, 'duration_ms') as duration_ms,
+            JSONExtractInt(attributes, 'row_count') as row_count,
+            JSONExtractRaw(attributes, 'referenced_tables') as referenced_tables,
+            JSONExtractBool(attributes, 'metadata_only') as metadata_only
+        FROM logs
+        WHERE {where}
+        ORDER BY timestamp DESC
+        LIMIT {limit}
+        """,
+        placeholders={
+            "where": _tenant_query_logs_filter(
+                date_from=resolved_date_from,
+                date_to=resolved_date_to,
+                connection_id=connection_id,
+                tenant_value=tenant_value,
+                success=success,
+            ),
+            "limit": ast.Constant(value=resolved_limit),
+        },
+    )
+    rows = _execute_tenant_query_logs(team, query)
+    return {
+        "executions": [_tenant_query_log_row_to_execution(row) for row in rows],
+        "count": len(rows),
+    }
+
+
+def get_tenant_query_execution(
+    *,
+    team: Team,
+    execution_id: str,
+    timestamp: datetime | None = None,
+) -> dict[str, object | None] | None:
+    if timestamp is not None:
+        resolved_date_from = timestamp - timedelta(minutes=5)
+        resolved_date_to = timestamp + timedelta(minutes=5)
+    else:
+        resolved_date_from, resolved_date_to = _tenant_query_observability_window(
+            None, None, default_lookback=timedelta(days=7)
+        )
+
+    where = parse_expr(
+        "{base_filter} AND uuid = {execution_id}",
+        placeholders={
+            "base_filter": _tenant_query_logs_filter(date_from=resolved_date_from, date_to=resolved_date_to),
+            "execution_id": ast.Constant(value=execution_id),
+        },
+    )
+    query = parse_select(
+        """
+        SELECT
+            uuid,
+            timestamp,
+            JSONExtractString(attributes, 'connection_id') as connection_id,
+            JSONExtractString(attributes, 'tenant_value') as tenant_value,
+            JSONExtractString(attributes, 'original_query') as original_query,
+            JSONExtractString(attributes, 'postgres_sql') as postgres_sql,
+            JSONExtractBool(attributes, 'success') as success,
+            JSONExtractString(attributes, 'error') as error,
+            JSONExtractFloat(attributes, 'duration_ms') as duration_ms,
+            JSONExtractInt(attributes, 'row_count') as row_count,
+            JSONExtractRaw(attributes, 'referenced_tables') as referenced_tables,
+            JSONExtractBool(attributes, 'metadata_only') as metadata_only,
+            JSONExtractRaw(attributes, 'referenced_table_metadata') as referenced_table_metadata,
+            JSONExtractRaw(attributes, 'connection_metadata') as connection_metadata,
+            attributes
+        FROM logs
+        WHERE {where}
+        ORDER BY timestamp DESC
+        LIMIT 1
+        """,
+        placeholders={"where": where},
+    )
+    rows = _execute_tenant_query_logs(team, query)
+    if not rows:
+        return None
+    return _tenant_query_log_row_to_execution_detail(rows[0])
+
+
+def summarize_tenant_query_errors(
+    *,
+    team: Team,
+    connection_id: str | None = None,
+    tenant_value: object | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    limit: int | None = None,
+) -> dict[str, object]:
+    resolved_date_from, resolved_date_to = _tenant_query_observability_window(date_from, date_to)
+    resolved_limit = _tenant_query_observability_limit(limit)
+    query = parse_select(
+        """
+        SELECT
+            JSONExtractString(attributes, 'connection_id') as connection_id,
+            JSONExtractString(attributes, 'tenant_value') as tenant_value,
+            JSONExtractRaw(attributes, 'referenced_tables') as referenced_tables,
+            JSONExtractString(attributes, 'original_query') as original_query,
+            JSONExtractString(attributes, 'error') as error,
+            count() as error_count,
+            max(timestamp) as last_seen_at,
+            avg(JSONExtractFloat(attributes, 'duration_ms')) as average_duration_ms
+        FROM logs
+        WHERE {where}
+        GROUP BY connection_id, tenant_value, referenced_tables, original_query, error
+        ORDER BY error_count DESC, last_seen_at DESC
+        LIMIT {limit}
+        """,
+        placeholders={
+            "where": _tenant_query_logs_filter(
+                date_from=resolved_date_from,
+                date_to=resolved_date_to,
+                connection_id=connection_id,
+                tenant_value=tenant_value,
+                success=False,
+            ),
+            "limit": ast.Constant(value=resolved_limit),
+        },
+    )
+    rows = _execute_tenant_query_logs(team, query)
+    return {
+        "errors": [
+            {
+                "connection_id": str(row[0]),
+                "tenant_value": str(row[1]),
+                "referenced_tables": _parse_log_json_list(row[2]),
+                "original_query": str(row[3]),
+                "error": str(row[4]),
+                "count": int(row[5]),
+                "last_seen_at": _serialize_log_timestamp(row[6]),
+                "average_duration_ms": float(row[7]) if row[7] is not None else None,
+            }
+            for row in rows
+        ],
+        "count": len(rows),
+    }
+
+
+def summarize_tenant_query_usage(
+    *,
+    team: Team,
+    connection_id: str | None = None,
+    tenant_value: object | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    limit: int | None = None,
+) -> dict[str, object]:
+    resolved_date_from, resolved_date_to = _tenant_query_observability_window(date_from, date_to)
+    resolved_limit = _tenant_query_observability_limit(limit)
+    query = parse_select(
+        """
+        SELECT
+            JSONExtractString(attributes, 'connection_id') as connection_id,
+            JSONExtractString(attributes, 'tenant_value') as tenant_value,
+            JSONExtractRaw(attributes, 'referenced_tables') as referenced_tables,
+            count() as total_count,
+            countIf(JSONExtractBool(attributes, 'success')) as success_count,
+            count() - countIf(JSONExtractBool(attributes, 'success')) as error_count,
+            sum(JSONExtractInt(attributes, 'row_count')) as total_rows,
+            avg(JSONExtractFloat(attributes, 'duration_ms')) as average_duration_ms,
+            max(timestamp) as last_seen_at
+        FROM logs
+        WHERE {where}
+        GROUP BY connection_id, tenant_value, referenced_tables
+        ORDER BY total_count DESC, last_seen_at DESC
+        LIMIT {limit}
+        """,
+        placeholders={
+            "where": _tenant_query_logs_filter(
+                date_from=resolved_date_from,
+                date_to=resolved_date_to,
+                connection_id=connection_id,
+                tenant_value=tenant_value,
+            ),
+            "limit": ast.Constant(value=resolved_limit),
+        },
+    )
+    rows = _execute_tenant_query_logs(team, query)
+    return {
+        "usage": [
+            {
+                "connection_id": str(row[0]),
+                "tenant_value": str(row[1]),
+                "referenced_tables": _parse_log_json_list(row[2]),
+                "count": int(row[3]),
+                "success_count": int(row[4]),
+                "error_count": int(row[5]),
+                "total_rows": int(row[6]),
+                "average_duration_ms": float(row[7]) if row[7] is not None else None,
+                "last_seen_at": _serialize_log_timestamp(row[8]),
+            }
+            for row in rows
+        ],
+        "count": len(rows),
+    }
 
 
 def _tenant_query_config_response(

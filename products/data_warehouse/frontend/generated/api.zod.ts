@@ -53,6 +53,97 @@ export const TenantQueryConfigCreateBody = /* @__PURE__ */ zod.object({
         .describe('Maximum result row limit. Explicit query limits above this value are clamped.'),
 })
 
+/**
+ * Groups failed tenant query executions by tenant, referenced tables, original query, and error.
+ * @summary Summarize tenant query errors
+ */
+export const tenantQueryErrorsSummaryCreateBodyLimitDefault = 100
+export const tenantQueryErrorsSummaryCreateBodyLimitMax = 1000
+
+export const TenantQueryErrorsSummaryCreateBody = /* @__PURE__ */ zod.object({
+    connection_id: zod.uuid().optional().describe('Optional direct Postgres connection ID to filter executions.'),
+    tenant_value: zod
+        .union([zod.string(), zod.number()])
+        .nullish()
+        .describe('Optional tenant value to filter executions.'),
+    date_from: zod.iso
+        .datetime({})
+        .optional()
+        .describe('Start timestamp for the execution log search. Defaults to 24 hours before date_to.'),
+    date_to: zod.iso.datetime({}).optional().describe('End timestamp for the execution log search. Defaults to now.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(tenantQueryErrorsSummaryCreateBodyLimitMax)
+        .default(tenantQueryErrorsSummaryCreateBodyLimitDefault)
+        .describe('Maximum number of executions or summary rows to return.'),
+})
+
+/**
+ * Returns a single tenant query execution log with captured table and connection metadata.
+ * @summary Get tenant query execution detail
+ */
+export const TenantQueryExecutionCreateBody = /* @__PURE__ */ zod.object({
+    execution_id: zod.string().describe('Execution log UUID returned by the executions list.'),
+    timestamp: zod.iso
+        .datetime({})
+        .optional()
+        .describe('Optional execution timestamp to narrow the Logs search window.'),
+})
+
+/**
+ * Returns recent tenant query execution logs for auditing and debugging tenant query service usage.
+ * @summary List tenant query executions
+ */
+export const tenantQueryExecutionsCreateBodyLimitDefault = 100
+export const tenantQueryExecutionsCreateBodyLimitMax = 1000
+
+export const TenantQueryExecutionsCreateBody = /* @__PURE__ */ zod.object({
+    connection_id: zod.uuid().optional().describe('Optional direct Postgres connection ID to filter executions.'),
+    tenant_value: zod
+        .union([zod.string(), zod.number()])
+        .nullish()
+        .describe('Optional tenant value to filter executions.'),
+    date_from: zod.iso
+        .datetime({})
+        .optional()
+        .describe('Start timestamp for the execution log search. Defaults to 24 hours before date_to.'),
+    date_to: zod.iso.datetime({}).optional().describe('End timestamp for the execution log search. Defaults to now.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(tenantQueryExecutionsCreateBodyLimitMax)
+        .default(tenantQueryExecutionsCreateBodyLimitDefault)
+        .describe('Maximum number of executions or summary rows to return.'),
+    success: zod.boolean().nullish().describe('Optional success status to filter executions.'),
+})
+
+/**
+ * Groups tenant query executions by tenant and referenced tables for usage and auditing.
+ * @summary Summarize tenant query usage
+ */
+export const tenantQueryUsageSummaryCreateBodyLimitDefault = 100
+export const tenantQueryUsageSummaryCreateBodyLimitMax = 1000
+
+export const TenantQueryUsageSummaryCreateBody = /* @__PURE__ */ zod.object({
+    connection_id: zod.uuid().optional().describe('Optional direct Postgres connection ID to filter executions.'),
+    tenant_value: zod
+        .union([zod.string(), zod.number()])
+        .nullish()
+        .describe('Optional tenant value to filter executions.'),
+    date_from: zod.iso
+        .datetime({})
+        .optional()
+        .describe('Start timestamp for the execution log search. Defaults to 24 hours before date_to.'),
+    date_to: zod.iso.datetime({}).optional().describe('End timestamp for the execution log search. Defaults to now.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(tenantQueryUsageSummaryCreateBodyLimitMax)
+        .default(tenantQueryUsageSummaryCreateBodyLimitDefault)
+        .describe('Maximum number of executions or summary rows to return.'),
+})
+
 export const warehouseSavedQueryDraftsCreateBodyEditedHistoryIdMax = 255
 
 export const WarehouseSavedQueryDraftsCreateBody = /* @__PURE__ */ zod.object({

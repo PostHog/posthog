@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 from posthog.test.base import APIBaseTest
@@ -19,7 +20,11 @@ from products.data_warehouse.backend.tenant_query import (
     configure_tenant_query,
     execute_tenant_query,
     get_tenant_query_config,
+    get_tenant_query_execution,
     infer_tenant_column_type,
+    list_tenant_query_executions,
+    summarize_tenant_query_errors,
+    summarize_tenant_query_usage,
 )
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -427,6 +432,195 @@ class TestTenantQuery(APIBaseTest):
         execute_tenant_query.assert_called_once()
         call_kwargs = cast(dict, execute_tenant_query.call_args.kwargs)
         assert call_kwargs["connection_id"] == "00000000-0000-0000-0000-000000000001"
+        assert call_kwargs["tenant_value"] == "42"
+
+    def test_lists_tenant_query_executions_from_logs(self):
+        timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+        response = Mock()
+        response.results = [
+            [
+                "execution-1",
+                timestamp,
+                "00000000-0000-0000-0000-000000000001",
+                "42",
+                "select id from trips",
+                "SELECT id FROM trips WHERE customer_id = 42",
+                1,
+                "",
+                12.5,
+                1,
+                '["trips"]',
+                0,
+            ]
+        ]
+
+        with patch(
+            "products.data_warehouse.backend.tenant_query.execute_hogql_query", return_value=response
+        ) as execute:
+            result = list_tenant_query_executions(
+                team=self.team,
+                connection_id="00000000-0000-0000-0000-000000000001",
+                tenant_value=42,
+                date_from=timestamp - timedelta(hours=1),
+                date_to=timestamp,
+                success=True,
+            )
+
+        assert result["count"] == 1
+        assert result["executions"][0]["referenced_tables"] == ["trips"]
+        assert result["executions"][0]["success"] is True
+        assert result["executions"][0]["metadata_only"] is False
+        assert execute.call_args.kwargs["query_type"] == "TenantQueryLogs"
+
+    def test_gets_tenant_query_execution_detail_from_logs(self):
+        timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+        response = Mock()
+        response.results = [
+            [
+                "execution-1",
+                timestamp,
+                "00000000-0000-0000-0000-000000000001",
+                "42",
+                "select id from trips",
+                "SELECT id FROM trips WHERE customer_id = 42",
+                1,
+                "",
+                12.5,
+                1,
+                '["trips"]',
+                0,
+                '[{"name": "trips", "postgres_schema": "public"}]',
+                '{"engine": "postgres"}',
+                {"connection_id": "00000000-0000-0000-0000-000000000001"},
+            ]
+        ]
+
+        with patch("products.data_warehouse.backend.tenant_query.execute_hogql_query", return_value=response):
+            result = get_tenant_query_execution(team=self.team, execution_id="execution-1", timestamp=timestamp)
+
+        assert result is not None
+        assert result["referenced_table_metadata"] == [{"name": "trips", "postgres_schema": "public"}]
+        assert result["connection_metadata"] == {"engine": "postgres"}
+        assert result["attributes"] == {"connection_id": "00000000-0000-0000-0000-000000000001"}
+
+    def test_summarizes_tenant_query_errors_from_logs(self):
+        timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+        response = Mock()
+        response.results = [
+            [
+                "00000000-0000-0000-0000-000000000001",
+                "42",
+                '["trips"]',
+                "select bad from trips",
+                "Unknown field",
+                3,
+                timestamp,
+                9.5,
+            ]
+        ]
+
+        with patch("products.data_warehouse.backend.tenant_query.execute_hogql_query", return_value=response):
+            result = summarize_tenant_query_errors(
+                team=self.team,
+                date_from=timestamp - timedelta(hours=1),
+                date_to=timestamp,
+            )
+
+        assert result["errors"][0]["count"] == 3
+        assert result["errors"][0]["referenced_tables"] == ["trips"]
+        assert result["errors"][0]["error"] == "Unknown field"
+
+    def test_summarizes_tenant_query_usage_from_logs(self):
+        timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+        response = Mock()
+        response.results = [
+            [
+                "00000000-0000-0000-0000-000000000001",
+                "42",
+                '["trips"]',
+                7,
+                6,
+                1,
+                123,
+                13.5,
+                timestamp,
+            ]
+        ]
+
+        with patch("products.data_warehouse.backend.tenant_query.execute_hogql_query", return_value=response):
+            result = summarize_tenant_query_usage(
+                team=self.team,
+                tenant_value="42",
+                date_from=timestamp - timedelta(hours=1),
+                date_to=timestamp,
+            )
+
+        assert result["usage"][0]["count"] == 7
+        assert result["usage"][0]["success_count"] == 6
+        assert result["usage"][0]["error_count"] == 1
+        assert result["usage"][0]["total_rows"] == 123
+
+    def test_executions_endpoint_uses_tenant_query_log_service(self):
+        with patch("products.data_warehouse.backend.api.tenant_query.list_tenant_query_executions") as list_executions:
+            list_executions.return_value = {"executions": [], "count": 0}
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/tenant_query/executions/",
+                {
+                    "connection_id": "00000000-0000-0000-0000-000000000001",
+                    "tenant_value": "42",
+                    "success": True,
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {"executions": [], "count": 0}
+        list_executions.assert_called_once()
+        call_kwargs = cast(dict, list_executions.call_args.kwargs)
+        assert call_kwargs["connection_id"] == "00000000-0000-0000-0000-000000000001"
+        assert call_kwargs["tenant_value"] == "42"
+        assert call_kwargs["success"] is True
+
+    def test_execution_endpoint_returns_404_for_missing_log(self):
+        with patch("products.data_warehouse.backend.api.tenant_query.get_tenant_query_execution", return_value=None):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/tenant_query/execution/",
+                {"execution_id": "execution-1"},
+                format="json",
+            )
+
+        assert response.status_code == 404
+
+    def test_error_summary_endpoint_uses_tenant_query_log_service(self):
+        with patch(
+            "products.data_warehouse.backend.api.tenant_query.summarize_tenant_query_errors"
+        ) as summarize_errors:
+            summarize_errors.return_value = {"errors": [], "count": 0}
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/tenant_query/errors/summary/",
+                {"tenant_value": "42"},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {"errors": [], "count": 0}
+        summarize_errors.assert_called_once()
+        call_kwargs = cast(dict, summarize_errors.call_args.kwargs)
+        assert call_kwargs["tenant_value"] == "42"
+
+    def test_usage_summary_endpoint_uses_tenant_query_log_service(self):
+        with patch("products.data_warehouse.backend.api.tenant_query.summarize_tenant_query_usage") as summarize_usage:
+            summarize_usage.return_value = {"usage": [], "count": 0}
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/tenant_query/usage/summary/",
+                {"tenant_value": "42"},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {"usage": [], "count": 0}
+        summarize_usage.assert_called_once()
+        call_kwargs = cast(dict, summarize_usage.call_args.kwargs)
         assert call_kwargs["tenant_value"] == "42"
 
     def test_configure_endpoint_uses_tenant_query_config_service(self):

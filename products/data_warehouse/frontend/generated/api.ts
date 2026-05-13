@@ -56,8 +56,15 @@ import type {
     TableApi,
     TenantQueryConfigRequestApi,
     TenantQueryConfigResponseApi,
+    TenantQueryErrorSummaryResponseApi,
+    TenantQueryExecutionDetailRequestApi,
+    TenantQueryExecutionDetailResponseApi,
+    TenantQueryExecutionsRequestApi,
+    TenantQueryExecutionsResponseApi,
+    TenantQueryObservabilityRequestApi,
     TenantQueryRequestApi,
     TenantQueryResponseApi,
+    TenantQueryUsageSummaryResponseApi,
     ViewLinkApi,
     ViewLinkValidationApi,
     WarehouseModelPathsListParams,
@@ -212,6 +219,90 @@ export const tenantQueryConfigCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(tenantQueryConfigRequestApi),
+    })
+}
+
+/**
+ * Groups failed tenant query executions by tenant, referenced tables, original query, and error.
+ * @summary Summarize tenant query errors
+ */
+export const getTenantQueryErrorsSummaryCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/tenant_query/errors/summary/`
+}
+
+export const tenantQueryErrorsSummaryCreate = async (
+    projectId: string,
+    tenantQueryObservabilityRequestApi: TenantQueryObservabilityRequestApi,
+    options?: RequestInit
+): Promise<TenantQueryErrorSummaryResponseApi> => {
+    return apiMutator<TenantQueryErrorSummaryResponseApi>(getTenantQueryErrorsSummaryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tenantQueryObservabilityRequestApi),
+    })
+}
+
+/**
+ * Returns a single tenant query execution log with captured table and connection metadata.
+ * @summary Get tenant query execution detail
+ */
+export const getTenantQueryExecutionCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/tenant_query/execution/`
+}
+
+export const tenantQueryExecutionCreate = async (
+    projectId: string,
+    tenantQueryExecutionDetailRequestApi: TenantQueryExecutionDetailRequestApi,
+    options?: RequestInit
+): Promise<TenantQueryExecutionDetailResponseApi> => {
+    return apiMutator<TenantQueryExecutionDetailResponseApi>(getTenantQueryExecutionCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tenantQueryExecutionDetailRequestApi),
+    })
+}
+
+/**
+ * Returns recent tenant query execution logs for auditing and debugging tenant query service usage.
+ * @summary List tenant query executions
+ */
+export const getTenantQueryExecutionsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/tenant_query/executions/`
+}
+
+export const tenantQueryExecutionsCreate = async (
+    projectId: string,
+    tenantQueryExecutionsRequestApi: TenantQueryExecutionsRequestApi,
+    options?: RequestInit
+): Promise<TenantQueryExecutionsResponseApi> => {
+    return apiMutator<TenantQueryExecutionsResponseApi>(getTenantQueryExecutionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tenantQueryExecutionsRequestApi),
+    })
+}
+
+/**
+ * Groups tenant query executions by tenant and referenced tables for usage and auditing.
+ * @summary Summarize tenant query usage
+ */
+export const getTenantQueryUsageSummaryCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/tenant_query/usage/summary/`
+}
+
+export const tenantQueryUsageSummaryCreate = async (
+    projectId: string,
+    tenantQueryObservabilityRequestApi: TenantQueryObservabilityRequestApi,
+    options?: RequestInit
+): Promise<TenantQueryUsageSummaryResponseApi> => {
+    return apiMutator<TenantQueryUsageSummaryResponseApi>(getTenantQueryUsageSummaryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tenantQueryObservabilityRequestApi),
     })
 }
 

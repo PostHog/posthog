@@ -71,6 +71,69 @@ tools:
     data-warehouse-warehouse-status-retrieve:
         operation: data_warehouse_warehouse_status_retrieve
         enabled: false
+    tenant-query-errors-summary:
+        operation: tenant_query_errors_summary_create
+        enabled: true
+        scopes:
+            - query:read
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Summarize tenant query errors
+        description: >
+            Group failed tenant query service executions by direct Postgres connection, tenant value, referenced tables,
+            submitted HogQL query, and error message. Use this to inspect which customer tenants are hitting query
+            failures and which tables or query shapes are involved.
+    tenant-query-execution-get:
+        operation: tenant_query_execution_create
+        enabled: true
+        scopes:
+            - query:read
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get tenant query execution
+        description: >
+            Return a single tenant query service execution log, including the submitted HogQL query, prepared direct
+            Postgres SQL, success or error state, referenced table metadata, and captured connection metadata. Use an
+            execution_id returned by tenant-query-executions-list.
+    tenant-query-executions-list:
+        operation: tenant_query_executions_create
+        enabled: true
+        scopes:
+            - query:read
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List tenant query executions
+        description: >
+            List recent tenant query service executions from Logs. Filter by direct Postgres connection, tenant value,
+            timestamp range, and success status to audit or debug how a PostHog customer's end-customers are using the
+            tenant query service.
+    tenant-query-usage-summary:
+        operation: tenant_query_usage_summary_create
+        enabled: true
+        scopes:
+            - query:read
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Summarize tenant query usage
+        description: >
+            Group tenant query service executions by direct Postgres connection, tenant value, and referenced tables.
+            Returns total executions, successes, failures, result rows, average duration, and last-seen timestamp for
+            auditing and operational visibility.
     external-data-schemas-cancel:
         operation: external_data_schemas_cancel_create
         enabled: true
