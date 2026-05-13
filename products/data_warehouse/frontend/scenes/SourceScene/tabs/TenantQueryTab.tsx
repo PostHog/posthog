@@ -12,13 +12,14 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTag,
-    LemonTextArea,
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
+import { type HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type {
@@ -272,6 +273,14 @@ function TenantQueryTableColumns({ columns }: { columns: TenantQueryTableColumn[
     )
 }
 
+function tenantQueryPlaygroundSourceQuery(query: string, connectionId: string): HogQLQuery {
+    return {
+        kind: NodeKind.HogQLQuery,
+        query,
+        connectionId,
+    }
+}
+
 export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element {
     const connectionId = source?.id || id
     const logic = tenantQueryConfigLogic({ id: connectionId })
@@ -303,6 +312,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
         setTenantQueryTableColumnDraft,
         cancelEditingTenantQueryTableColumn,
         saveTenantQueryTableColumnOverride,
+        submitTenantQueryPlayground,
     } = useActions(logic)
 
     if (tenantQueryConfigLoading || !source) {
@@ -690,7 +700,22 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                     </div>
 
                     <LemonField name="query" label="Query">
-                        <LemonTextArea minRows={6} placeholder="select * from trips" />
+                        {({ value, onChange }) => {
+                            const query = typeof value === 'string' ? value : ''
+
+                            return (
+                                <CodeEditorInline
+                                    queryKey={`tenant-query-playground/${connectionId}`}
+                                    value={query}
+                                    onChange={(newValue) => onChange(newValue ?? '')}
+                                    language="hogQL"
+                                    sourceQuery={tenantQueryPlaygroundSourceQuery(query, connectionId)}
+                                    minHeight="180px"
+                                    maxHeight="60vh"
+                                    onPressCmdEnter={() => submitTenantQueryPlayground()}
+                                />
+                            )
+                        }}
                     </LemonField>
 
                     <div className="flex justify-end">
