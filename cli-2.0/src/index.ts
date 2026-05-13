@@ -102,6 +102,7 @@ async function main() {
                 return yargs
                     .option('token', { type: 'string', describe: 'JWT token (for scripting)' })
                     .option('host', { type: 'string', describe: 'PostHog host (default: https://app.posthog.com)' })
+                    .option('livestream-host', { type: 'string', describe: 'Livestream service host (for self-hosted)' })
                     .option('event-type', { type: 'string', describe: 'Filter by event type(s), comma-separated' })
                     .option('distinct-id', { type: 'string', describe: 'Filter by distinct ID' })
                     .option('geo', { type: 'boolean', describe: 'Stream geo events instead' })
@@ -112,6 +113,7 @@ async function main() {
                 await runLivestream({
                     token: argv.token,
                     host: argv.host,
+                    livestreamHost: argv.livestreamHost,
                     eventType: argv.eventType,
                     distinctId: argv.distinctId,
                     geo: argv.geo,

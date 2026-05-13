@@ -1,10 +1,10 @@
-import { createServer } from 'node:http'
+import { createServer, type Server } from 'node:http'
 import open from 'open'
 import type { LivestreamCredentials } from './types.js'
 import { deriveLivestreamHost } from './utils/host.js'
 import { secureStorage } from './utils/keychain.js'
 
-type AuthOptions = { token?: string; host?: string }
+type AuthOptions = { token?: string; host?: string; livestreamHost?: string }
 
 type CallbackResult = {
   token: string
@@ -12,6 +12,8 @@ type CallbackResult = {
   teamId: number
   apiHost: string
 }
+
+const AUTH_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 const loadCredentials = (): LivestreamCredentials | null => {
   try {
@@ -27,11 +29,31 @@ const saveCredentials = (creds: LivestreamCredentials): void => {
   secureStorage.set(JSON.stringify(creds))
 }
 
-const startCallbackServer = (): Promise<{ port: number; waitForCallback: () => Promise<CallbackResult> }> => {
-  return new Promise((resolve, reject) => {
-    let callbackResolve: (result: CallbackResult) => void
+type CallbackServer = {
+  port: number
+  waitForCallback: Promise<CallbackResult>
+  close: () => void
+}
 
-    const server = createServer((req, res) => {
+const startCallbackServer = (): Promise<CallbackServer> => {
+  return new Promise((resolve, reject) => {
+    // Create the result promise upfront to avoid race condition
+    let callbackResolve: (result: CallbackResult) => void
+    let callbackReject: (error: Error) => void
+    const callbackPromise = new Promise<CallbackResult>((res, rej) => {
+      callbackResolve = res
+      callbackReject = rej
+    })
+
+    let server: Server
+    let timeoutId: NodeJS.Timeout
+
+    const cleanup = () => {
+      clearTimeout(timeoutId)
+      server?.close()
+    }
+
+    server = createServer((req, res) => {
       const url = new URL(req.url!, `http://localhost`)
       if (url.pathname === '/callback') {
         const token = url.searchParams.get('token')
@@ -44,21 +66,37 @@ const startCallbackServer = (): Promise<{ port: number; waitForCallback: () => P
           <div style="text-align:center"><h1 style="color:#F54E00">Authorization complete!</h1><p>You can close this tab.</p></div>
         </body></html>`)
 
-        server.close()
-        callbackResolve({ token: token || '', teamName, teamId, apiHost })
+        cleanup()
+
+        if (!token) {
+          callbackReject(new Error('No token received from callback'))
+        } else {
+          callbackResolve({ token, teamName, teamId, apiHost })
+        }
       }
     })
 
     server.listen(0, '127.0.0.1', () => {
       const addr = server.address()
       const port = typeof addr === 'object' ? addr!.port : 0
+
+      // Set up timeout
+      timeoutId = setTimeout(() => {
+        cleanup()
+        callbackReject(new Error('Authorization timed out after 5 minutes'))
+      }, AUTH_TIMEOUT_MS)
+
       resolve({
         port,
-        waitForCallback: () => new Promise((r) => { callbackResolve = r }),
+        waitForCallback: callbackPromise,
+        close: cleanup,
       })
     })
 
-    server.on('error', reject)
+    server.on('error', (err) => {
+      cleanup()
+      reject(err)
+    })
   })
 }
 
@@ -67,9 +105,10 @@ export const authenticate = async (opts: AuthOptions): Promise<LivestreamCredent
 
   // Priority 1: direct token flag
   if (opts.token) {
+    const livestreamHost = opts.livestreamHost || deriveLivestreamHost(host)
     return {
       host,
-      livestreamHost: deriveLivestreamHost(host),
+      livestreamHost,
       token: opts.token,
       teamId: 0,
       teamName: '',
@@ -84,18 +123,33 @@ export const authenticate = async (opts: AuthOptions): Promise<LivestreamCredent
   }
 
   // Priority 3: browser flow
-  const { port, waitForCallback } = await startCallbackServer()
-  const url = `${host}/cli/live?port=${port}`
+  const callbackServer = await startCallbackServer()
+  const url = `${host}/cli/live?port=${callbackServer.port}`
 
   console.error(`Opening browser to authorize: ${url}`)
-  await open(url)
-  console.error('Waiting for authorization...')
 
-  const result = await waitForCallback()
+  try {
+    await open(url)
+  } catch {
+    console.error(`Could not open browser automatically.`)
+    console.error(`Please open this URL manually: ${url}`)
+  }
+
+  console.error('Waiting for authorization (timeout: 5 minutes)...')
+
+  let result: CallbackResult
+  try {
+    result = await callbackServer.waitForCallback
+  } catch (err) {
+    callbackServer.close()
+    throw err
+  }
+
+  const livestreamHost = opts.livestreamHost || deriveLivestreamHost(result.apiHost || host)
 
   const creds: LivestreamCredentials = {
     host: result.apiHost || host,
-    livestreamHost: deriveLivestreamHost(result.apiHost || host),
+    livestreamHost,
     token: result.token,
     teamId: result.teamId,
     teamName: result.teamName,

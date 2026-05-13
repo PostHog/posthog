@@ -40,6 +40,7 @@ export async function* streamEvents(
   const queue: (EventMsg | GeoEventMsg)[] = []
   let resolveWait: (() => void) | null = null
   let streamEnded = false
+  let streamError: Error | null = null
 
   const parser = createParser({
     onEvent: (event: EventSourceMessage) => {
@@ -57,7 +58,7 @@ export async function* streamEvents(
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
 
-  // Read loop in background
+  // Read loop in background - errors are captured and propagated to the generator
   const readLoop = async () => {
     try {
       while (true) {
@@ -65,17 +66,27 @@ export async function* streamEvents(
         if (done) break
         parser.feed(decoder.decode(value, { stream: true }))
       }
+    } catch (err) {
+      // Capture error to propagate to generator, unless it's an abort
+      if (err instanceof Error && err.name !== 'AbortError') {
+        streamError = err
+      }
     } finally {
       streamEnded = true
       resolveWait?.()
     }
   }
 
-  // Start reading in background
+  // Start reading in background - don't await, but handle errors via streamError
   readLoop()
 
   // Yield events as they arrive
   while (!streamEnded || queue.length > 0) {
+    // Check for errors before yielding
+    if (streamError) {
+      throw streamError
+    }
+
     if (queue.length > 0) {
       yield queue.shift()!
     } else if (!streamEnded) {
@@ -83,5 +94,10 @@ export async function* streamEvents(
         resolveWait = r
       })
     }
+  }
+
+  // Final error check after stream ends
+  if (streamError) {
+    throw streamError
   }
 }

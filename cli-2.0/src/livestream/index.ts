@@ -3,7 +3,11 @@ import { authenticate } from './auth.js'
 import { streamEvents } from './sse-client.js'
 
 export const runLivestream = async (options: LivestreamOptions): Promise<void> => {
-  const creds = await authenticate({ token: options.token, host: options.host })
+  const creds = await authenticate({
+    token: options.token,
+    host: options.host,
+    livestreamHost: options.livestreamHost,
+  })
 
   if (creds.teamName) {
     console.error(`Connected to ${creds.livestreamHost} (team: ${creds.teamName})`)

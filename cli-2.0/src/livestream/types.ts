@@ -27,6 +27,7 @@ export type GeoEventMsg = {
 export type LivestreamOptions = {
   token?: string
   host?: string
+  livestreamHost?: string
   eventType?: string
   distinctId?: string
   geo?: boolean
