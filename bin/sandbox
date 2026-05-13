@@ -45,9 +45,32 @@ except ImportError:
 REPO_ROOT = Path(__file__).resolve().parent.parent
 COMPOSE_FILE = REPO_ROOT / "docker-compose.sandbox.yml"
 PROFILES_FILE = REPO_ROOT / "docker-compose.profiles.yml"
-HOST_GIT_DIR = REPO_ROOT / ".git"
 GIT_HELPER_IMAGE = "alpine/git:latest"
 SANDBOX_ORIGIN_URL = "git@github.com:PostHog/posthog.git"
+
+
+def _resolve_host_git_dir() -> Path:
+    """Path to bind-mount as /host-git for the in-container clone helper.
+
+    For a regular checkout this is `<repo>/.git`. For a git worktree, that
+    path is a gitdir pointer file rather than a real directory, so we
+    resolve the common .git dir via `rev-parse --git-common-dir` and mount
+    that instead. The container only needs refs/objects, which both layouts
+    expose from the common dir.
+    """
+    git_path = REPO_ROOT / ".git"
+    if git_path.is_dir():
+        return git_path
+    common = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "rev-parse", "--git-common-dir"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return Path(common).resolve()
+
+
+HOST_GIT_DIR = _resolve_host_git_dir()
 
 REGISTRY_DIR = Path.home() / ".posthog-sandboxes"
 REGISTRY_FILE = REGISTRY_DIR / "registry.json"
@@ -517,6 +540,8 @@ def _image_label(tag: str, label: str) -> str:
     return result.stdout.strip()
 
 
+
+
 def _ensure_base_image() -> str:
     """Build posthog-sandbox:base if missing or stale, then return its tag.
 
@@ -551,15 +576,17 @@ def _ensure_base_image() -> str:
     return BASE_IMAGE_TAG
 
 
-def _user_image_hash_input(tools: list[Tool], base_digest: str) -> bytes:
+def _user_image_hash_input(tools: list[Tool]) -> bytes:
     """Canonical bytes hashed into the user image tag.
 
     Tool list order matters (it determines the layer order, so reordering
     changes the cached layers); within each entry, keys are sorted to
-    keep the hash stable across YAML formatting differences.
+    keep the hash stable across YAML formatting differences. The base
+    image's *content hash* (not its tag) is folded in so a rebuilt base
+    under the same tag invalidates every user image stacked on top.
     """
     payload = {
-        "base_digest": base_digest,
+        "base_content_hash": _base_image_hash(),
         "uid": os.getuid(),
         "gid": os.getgid(),
         "tools": [
@@ -574,8 +601,8 @@ def _user_image_hash_input(tools: list[Tool], base_digest: str) -> bytes:
     return json.dumps(payload, sort_keys=True).encode()
 
 
-def _user_image_tag(tools: list[Tool], base_digest: str) -> str:
-    h = hashlib.sha256(_user_image_hash_input(tools, base_digest)).hexdigest()[:16]
+def _user_image_tag(tools: list[Tool]) -> str:
+    h = hashlib.sha256(_user_image_hash_input(tools)).hexdigest()[:16]
     return f"{USER_IMAGE_PREFIX}:{h}"
 
 
@@ -584,7 +611,10 @@ def _generate_personal_dockerfile(tools: list[Tool], base_tag: str) -> str:
 
     One RUN per tool's install snippet so layers cache independently:
     appending a tool reuses prior layers; editing a snippet invalidates
-    only that layer onward.
+    only that layer onward. The image reverts to USER root at the end
+    so the entrypoint's root_phase (creates /tmp/sandbox-home, copies
+    host auth, starts sshd, then gosu's down to the sandbox user) still
+    has the privileges it needs.
     """
     lines = [
         "# syntax=docker/dockerfile:1.4",
@@ -616,6 +646,8 @@ def _generate_personal_dockerfile(tools: list[Tool], base_tag: str) -> str:
         lines.extend(snippet.splitlines())
         lines.append("__POSTHOG_SANDBOX_EOF__")
         lines.append("")
+    lines.append("# root_phase in the entrypoint expects to start as root.")
+    lines.append("USER root")
     return "\n".join(lines) + "\n"
 
 
@@ -664,12 +696,12 @@ def _docker_build_personal_image(dockerfile_text: str, tag: str) -> None:
 def _ensure_user_image(tools: list[Tool], base_tag: str) -> str:
     """Build the user's personal image if missing; return its tag.
 
-    The tag is content-addressed over (base, uid, gid, tools.yaml) so
-    edits to tools.yaml invalidate the cache and unedited reruns are
-    instant. A flock prevents concurrent sandbox creates from racing
-    on the same target tag.
+    The tag is content-addressed over (base sources, uid, gid, tools.yaml)
+    so edits to either tools.yaml or the base Dockerfile invalidate the
+    cache and unedited reruns are instant. A flock prevents concurrent
+    sandbox creates from racing on the same target tag.
     """
-    tag = _user_image_tag(tools, base_tag)
+    tag = _user_image_tag(tools)
     if _image_exists(tag):
         return tag
 
@@ -1131,8 +1163,7 @@ def _compose_env(port: int) -> dict[str, str]:
     just by computing compose env.
     """
     tools = _load_user_tools()
-    base_tag = BASE_IMAGE_TAG
-    user_image = _user_image_tag(tools, base_tag) if tools else base_tag
+    user_image = _user_image_tag(tools) if tools else BASE_IMAGE_TAG
 
     env: dict[str, str] = {
         **_host_compose_env(),
@@ -2310,7 +2341,7 @@ def _tools_list() -> None:
         print(f"(or edit {TOOLS_FILE} directly)")
         return
 
-    current_user_tag = _user_image_tag(tools, BASE_IMAGE_TAG)
+    current_user_tag = _user_image_tag(tools)
     image_baked = _image_exists(current_user_tag)
     status = "baked" if image_baked else "pending rebuild on next `sandbox create`"
 

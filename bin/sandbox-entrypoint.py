@@ -238,6 +238,7 @@ def copy_user_tool_auth(uid: int, gid: int) -> None:
     if not raw:
         return
 
+    copied_anything = False
     for index, target_str in enumerate(raw.split(":")):
         target_str = target_str.strip()
         if not target_str:
@@ -249,7 +250,7 @@ def copy_user_tool_auth(uid: int, gid: int) -> None:
             dst = Path(target_str)
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
-            run(["chown", f"{uid}:{gid}", str(dst)])
+            copied_anything = True
         elif src.is_dir():
             dst = Path(target_str)
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -257,7 +258,14 @@ def copy_user_tool_auth(uid: int, gid: int) -> None:
             # of crashing; copy_function=copy2 preserves modes for files like
             # gh's hosts.yml that need to stay 0600.
             shutil.copytree(src, dst, dirs_exist_ok=True, copy_function=shutil.copy2)
-            run(["chown", "-R", f"{uid}:{gid}", str(dst)])
+            copied_anything = True
+
+    if copied_anything:
+        # Recursive chown so intermediate dirs we just created
+        # (e.g. ~/.config when only ~/.config/gh was declared) end up
+        # writable by the sandbox user. Without this, tools like gt try
+        # to mkdir alongside the copied data and hit EACCES.
+        run(["chown", "-R", f"{uid}:{gid}", str(SANDBOX_HOME)])
 
 
 def root_phase() -> None:
