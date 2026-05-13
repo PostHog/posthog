@@ -3233,6 +3233,7 @@ export type FileSystemIconType =
     | 'llm_prompts'
     | 'llm_clusters'
     | 'exports'
+    | 'agentic_tests'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string

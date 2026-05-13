@@ -1,5 +1,6 @@
 {
     "products": [
+        { "path": "Agentic tests", "category": "Behavior", "iconType": null, "type": "agentic_tests", "intents": [] },
         {
             "path": "Web scripts",
             "category": "Tools",
