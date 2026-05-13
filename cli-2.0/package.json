@@ -7,8 +7,9 @@
     },
     "type": "module",
     "scripts": {
-        "build": "tsc",
-        "dev": "tsx src/index.ts",
+        "build": "tsx scripts/generate-commands.ts && tsc",
+        "dev": "tsx scripts/generate-commands.ts && tsx src/index.ts",
+        "generate:commands": "tsx scripts/generate-commands.ts",
         "start": "node ./bin/ph.js"
     },
     "dependencies": {
@@ -21,6 +22,7 @@
         "ora": "^8.0.1",
         "tsx": "^4.0.0",
         "uuid": "^11.1.0",
+        "yaml": "^2.8.2",
         "yargs": "^17.7.2",
         "zod": "^4.3.6"
     },
