@@ -57,6 +57,9 @@ export function NotificationRow({
     const otherProjectName = projectNameForNotification(notification)
 
     const hasNavigationTarget = !!sourcePathForNotification(notification)
+    // TODO(concierge): When notification_type === 'concierge', open ConciergeModal
+    // instead of navigating. Import ConciergeModal from 'lib/components/ConciergeModal/ConciergeModal'
+    // and manage open/close state here. The modal component is ready at that path.
     const handleNavigate = (e: React.MouseEvent): void => {
         e.stopPropagation()
         if (hasNavigationTarget) {
