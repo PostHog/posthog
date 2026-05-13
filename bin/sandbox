@@ -686,8 +686,8 @@ def _generate_personal_dockerfile(tools: list[Tool], base_tag: str) -> str:
         "",
         "USER sandbox",
         "ENV NPM_CONFIG_PREFIX=/home/sandbox/.npm-global",
-        "ENV PATH=/home/sandbox/.npm-global/bin:${PATH}",
-        "RUN mkdir -p /home/sandbox/.npm-global/bin",
+        "ENV PATH=/home/sandbox/.npm-global/bin:/home/sandbox/.local/bin:${PATH}",
+        "RUN mkdir -p /home/sandbox/.npm-global/bin /home/sandbox/.local/bin",
         "",
     ]
     for tool in tools:
@@ -2327,8 +2327,8 @@ def _build_test_dockerfile(install: str, base_tag: str) -> str:
         "",
         "USER sandbox",
         "ENV NPM_CONFIG_PREFIX=/home/sandbox/.npm-global",
-        "ENV PATH=/home/sandbox/.npm-global/bin:${PATH}",
-        "RUN mkdir -p /home/sandbox/.npm-global/bin",
+        "ENV PATH=/home/sandbox/.npm-global/bin:/home/sandbox/.local/bin:${PATH}",
+        "RUN mkdir -p /home/sandbox/.npm-global/bin /home/sandbox/.local/bin",
         "",
         "RUN <<'__POSTHOG_SANDBOX_EOF__'",
         "set -e",

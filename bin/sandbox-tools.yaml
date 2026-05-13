@@ -26,8 +26,9 @@ tools:
       install: |
           GH_VERSION=2.92.0
           ARCH=$(dpkg --print-architecture)
+          mkdir -p ~/.local
           curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${ARCH}.tar.gz" \
-            | sudo tar -xz --strip-components=1 -C /usr/local
+            | tar -xz --strip-components=1 -C ~/.local
       mounts:
           - ~/.config/gh
 

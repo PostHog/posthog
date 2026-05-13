@@ -20,8 +20,11 @@ Two responsibilities, split cleanly:
 tools:
   - name: gh
     install: |
-      sudo apt-get update -qq
-      sudo apt-get install -y gh
+      GH_VERSION=2.92.0
+      ARCH=$(dpkg --print-architecture)
+      mkdir -p ~/.local
+      curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${ARCH}.tar.gz" \
+        | tar -xz --strip-components=1 -C ~/.local
     mounts:
       - ~/.config/gh
 
@@ -30,10 +33,6 @@ tools:
       npm install -g @withgraphite/graphite-cli@stable
     mounts:
       - ~/.config/graphite
-
-  - name: btop
-    install: |
-      sudo apt-get install -y btop
 
   - name: somecli # long form: explicit target when source isn't under $HOME
     mounts:
@@ -44,10 +43,12 @@ tools:
 - `name` is required. `install` and `mounts` are independently optional; a
   tool that only declares `mounts` is valid (useful for wiring auth into a
   tool already in the base image).
-- `install` is plain shell run as the sandbox user at image build time. `sudo`
-  (NOPASSWD) is preconfigured for `apt-get install` etc. User-mode installs
-  (`npm install -g`, `pip install --user`, `cargo install`) work without
-  sudo because the npm prefix points at a user-writable location.
+- `install` is plain shell run as the sandbox user at image build time.
+  It must not need root — install tools into the user's home (`~/.local`,
+  `~/.npm-global` via `npm install -g`, `~/.cargo` via `cargo install`,
+  etc.). Anything that genuinely needs system-wide install (`apt-get`,
+  writes under `/usr`) belongs in the base `Dockerfile.sandbox`, not in
+  a per-user recipe.
 - Mount short form (string): host absolute path under `$HOME`, copied to the
   same `$HOME`-relative path inside the sandbox.
 - Mount long form (`{source, target}`): use when source isn't under `$HOME`,
