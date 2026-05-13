@@ -24,7 +24,8 @@ export interface FleetRow {
     keyRoles: unknown[]
 }
 
-const FLEET_SQL = `
+function fleetSql(csmEmail: string | null): { query: string; values?: Record<string, unknown> } {
+    const base = `
 SELECT
   id,
   external_id,
@@ -37,9 +38,16 @@ SELECT
   key_roles
 FROM vitally_accounts
 WHERE key_roles LIKE '%"label":"CSM"%'
-  AND key_roles LIKE {csmPattern}
-LIMIT 100
 `.trim()
+    if (!csmEmail) {
+        // No CSM filter — return any account that has any CSM assignment.
+        return { query: `${base}\nLIMIT 100` }
+    }
+    return {
+        query: `${base}\n  AND key_roles LIKE {csmPattern}\nLIMIT 100`,
+        values: { csmPattern: `%"email":"${csmEmail}"%` },
+    }
+}
 
 function parseJson<T>(value: unknown, fallback: T): T {
     if (value == null) {
@@ -107,16 +115,14 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
                         return []
                     }
                     const trimmed = values.csmFilter.trim()
-                    // Empty filter → match every account that has any CSM assigned.
-                    // `%` is a wildcard, so `LIKE '%'` is a no-op constraint kept
-                    // in the query just to avoid two SQL variants.
-                    const pattern = trimmed === '' ? '%' : `%"email":"${trimmed}"%`
-                    const query: HogQLQuery = {
+                    const { query, values: queryValues } = fleetSql(trimmed === '' ? null : trimmed)
+                    const node: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: FLEET_SQL,
-                        values: { csmPattern: pattern },
+                        query,
+                        tags: { productKey: 'csm_hud', scene: 'CSMHud', name: 'csm_hud_fleet' },
+                        ...(queryValues ? { values: queryValues } : {}),
                     }
-                    const response = await api.query(query)
+                    const response = await api.query(node)
                     return (response.results ?? []).map(mapFleetRow)
                 },
             },

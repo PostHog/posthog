@@ -63,8 +63,12 @@ interface InvoiceRow {
     amountPaid: number
 }
 
-async function runHogQL<T>(query: string, mapRow: (row: unknown[]) => T): Promise<T[]> {
-    const node: HogQLQuery = { kind: NodeKind.HogQLQuery, query }
+async function runHogQL<T>(name: string, query: string, mapRow: (row: unknown[]) => T): Promise<T[]> {
+    const node: HogQLQuery = {
+        kind: NodeKind.HogQLQuery,
+        query,
+        tags: { productKey: 'csm_hud', scene: 'CSMHud', name: `csm_hud_${name}` },
+    }
     const response = await api.query(node)
     return (response.results ?? []).map(mapRow)
 }
@@ -272,14 +276,14 @@ export async function loadProjection({
 
     // Sequential — PostHog's HogQL concurrency guard rejects parallel submits
     // on the same project. Each slice is sub-second; total bound is ~6s.
-    const billing = await runHogQL<BillingRow>(billingSql(orgIds), (row) => ({
+    const billing = await runHogQL<BillingRow>('projection_billing', billingSql(orgIds), (row) => ({
         organizationId: String(row[0] ?? ''),
         periodStarts: toStringOrNull(row[1]),
         periodEnds: toStringOrNull(row[2]),
         priorMonthMrr: toFloat(row[3]),
         currentMonthSpend: toFloat(row[4]),
     }))
-    const contracts = await runHogQL<ContractsRow>(contractsSql(orgIds), (row) => ({
+    const contracts = await runHogQL<ContractsRow>('projection_contracts', contractsSql(orgIds), (row) => ({
         organizationId: String(row[0] ?? ''),
         contractStart: toStringOrNull(row[1]),
         contractEnd: toStringOrNull(row[2]),
@@ -287,20 +291,20 @@ export async function loadProjection({
         arrDiscounted: toFloatOrNull(row[4]),
         opportunityName: toStringOrNull(row[5]),
     }))
-    const owners = await runHogQL<OwnersRow>(ownersSql(orgIds), (row) => ({
+    const owners = await runHogQL<OwnersRow>('projection_owners', ownersSql(orgIds), (row) => ({
         organizationId: String(row[0] ?? ''),
         csm: toStringOrNull(row[1]),
         ae: toStringOrNull(row[2]),
         managedBy: toStringOrNull(row[3]),
     }))
-    const mrr = await runHogQL<MrrHistoryRow>(mrrHistorySql(orgIds), (row) => ({
+    const mrr = await runHogQL<MrrHistoryRow>('projection_mrr_history', mrrHistorySql(orgIds), (row) => ({
         organizationId: String(row[0] ?? ''),
         m2Actual: toFloat(row[1]),
         m3Actual: toFloat(row[2]),
     }))
     const charges =
         stripeIds.length > 0
-            ? await runHogQL<ChargesRow>(chargesSql(stripeIds), (row) => ({
+            ? await runHogQL<ChargesRow>('projection_charges', chargesSql(stripeIds), (row) => ({
                   customerId: String(row[0] ?? ''),
                   recentChargeCount: toFloat(row[1]),
                   mtdStripe: toFloatOrNull(row[2]),
@@ -311,7 +315,7 @@ export async function loadProjection({
             : []
     const invoices =
         stripeIds.length > 0
-            ? await runHogQL<InvoiceRow>(invoicesSql(stripeIds), (row) => ({
+            ? await runHogQL<InvoiceRow>('projection_invoices', invoicesSql(stripeIds), (row) => ({
                   customerId: String(row[0] ?? ''),
                   invoiceDate: String(row[1] ?? ''),
                   subtotal: toFloat(row[2]),

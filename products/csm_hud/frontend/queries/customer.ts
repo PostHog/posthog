@@ -37,8 +37,12 @@ export interface Task {
     completedAt: string | null
 }
 
-async function runHogQL<T>(query: string, mapRow: (row: unknown[]) => T): Promise<T[]> {
-    const node: HogQLQuery = { kind: NodeKind.HogQLQuery, query }
+async function runHogQL<T>(name: string, query: string, mapRow: (row: unknown[]) => T): Promise<T[]> {
+    const node: HogQLQuery = {
+        kind: NodeKind.HogQLQuery,
+        query,
+        tags: { productKey: 'csm_hud', scene: 'CSMHudCustomer', name: `csm_hud_${name}` },
+    }
     const response = await api.query(node)
     return (response.results ?? []).map(mapRow)
 }
@@ -123,7 +127,7 @@ LEFT JOIN roles r ON r.email = u.email
 ORDER BY sessions DESC
 LIMIT 5
 `.trim()
-    return runHogQL<TopUser>(query, (row) => ({
+    return runHogQL<TopUser>('customer_top_users', query, (row) => ({
         email: String(row[0] ?? ''),
         userName: String(row[1] ?? ''),
         role: String(row[2] ?? ''),
@@ -147,7 +151,7 @@ WHERE t.organization_id = ${zendeskOrgId}
 ORDER BY t.created_at DESC
 LIMIT 5
 `.trim()
-    return runHogQL<Ticket>(query, (row) => ({
+    return runHogQL<Ticket>('customer_tickets', query, (row) => ({
         subject: String(row[0] ?? ''),
         status: String(row[1] ?? ''),
         priority: toStringOrNull(row[2]),
@@ -167,7 +171,7 @@ WHERE account_id = '${accountId}'
 ORDER BY note_date DESC
 LIMIT 5
 `.trim()
-    return runHogQL<Note>(query, (row) => ({
+    return runHogQL<Note>('customer_notes', query, (row) => ({
         id: String(row[0] ?? ''),
         subject: toStringOrNull(row[1]),
         note: toStringOrNull(row[2]),
@@ -189,7 +193,7 @@ WHERE account_id = '${accountId}'
 ORDER BY due_date DESC
 LIMIT 5
 `.trim()
-    return runHogQL<Task>(query, (row) => ({
+    return runHogQL<Task>('customer_tasks', query, (row) => ({
         id: String(row[0] ?? ''),
         name: toStringOrNull(row[1]),
         dueDate: toStringOrNull(row[2]),

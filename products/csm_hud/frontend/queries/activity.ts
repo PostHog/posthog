@@ -58,8 +58,12 @@ const toStringOrNull = (v: unknown): string | null => {
     return s.length === 0 ? null : s
 }
 
-async function runHogQL<T>(query: string, mapRow: (row: unknown[]) => T): Promise<T[]> {
-    const node: HogQLQuery = { kind: NodeKind.HogQLQuery, query }
+async function runHogQL<T>(name: string, query: string, mapRow: (row: unknown[]) => T): Promise<T[]> {
+    const node: HogQLQuery = {
+        kind: NodeKind.HogQLQuery,
+        query,
+        tags: { productKey: 'csm_hud', scene: 'CSMHud', name: `csm_hud_${name}` },
+    }
     const response = await api.query(node)
     return (response.results ?? []).map(mapRow)
 }
@@ -77,7 +81,7 @@ WHERE account_id IN (${inList})
 ORDER BY account_id, note_date DESC
 LIMIT 1000
 `.trim()
-    return runHogQL<NoteRow>(query, (row) => ({
+    return runHogQL<NoteRow>('notes_batch', query, (row) => ({
         id: String(row[0] ?? ''),
         accountId: String(row[1] ?? ''),
         subject: toStringOrNull(row[2]),
@@ -101,7 +105,7 @@ WHERE account_id IN (${inList})
 ORDER BY account_id, due_date DESC
 LIMIT 1000
 `.trim()
-    return runHogQL<TaskRow>(query, (row) => ({
+    return runHogQL<TaskRow>('tasks_batch', query, (row) => ({
         id: String(row[0] ?? ''),
         accountId: String(row[1] ?? ''),
         name: toStringOrNull(row[2]),
@@ -122,7 +126,7 @@ WHERE organization_id IN (${inList})
 ORDER BY organization_id, created_at DESC
 LIMIT 1000
 `.trim()
-    return runHogQL<TicketRow>(query, (row) => ({
+    return runHogQL<TicketRow>('tickets_batch', query, (row) => ({
         zendeskOrgId: typeof row[0] === 'number' ? row[0] : parseInt(String(row[0] ?? '0'), 10) || 0,
         subject: String(row[1] ?? ''),
         status: String(row[2] ?? ''),
