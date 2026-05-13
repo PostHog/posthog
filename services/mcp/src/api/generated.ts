@@ -6778,9 +6778,19 @@ export namespace Schemas {
       Sparkline: 'sparkline',
     } as const;
 
+    export type Type = typeof Type[keyof typeof Type];
+
+
+    export const Type = {
+      Bar: 'bar',
+      Line: 'line',
+    } as const;
+
     export interface SparklineColumnSettings {
+      /** Color name from vars.scss (e.g. 'primary', 'success', 'muted'). Defaults to 'primary'. */
       color?: string | null;
-      type?: 'bar' | 'line' | null;
+      /** 'bar' draws bars, 'line' draws a line. Defaults to 'line'. */
+      type?: Type | null;
     }
 
     export type YAxisPosition = typeof YAxisPosition[keyof typeof YAxisPosition];
@@ -6795,6 +6805,7 @@ export namespace Schemas {
       color?: string | null;
       displayType?: DisplayType | null;
       label?: string | null;
+      /** When set on a HogQL table column, the cell is rendered as the corresponding visualization. Requires the column to return an array of numbers per row (e.g. `groupArray(value) AS trend`). */
       renderAs?: ColumnRenderAs | null;
       sparkline?: SparklineColumnSettings | null;
       trendLine?: boolean | null;
@@ -7634,9 +7645,11 @@ export namespace Schemas {
       color: string;
       colorMode?: ColorMode | null;
       columnName: string;
+      /** How the rule is rendered when matched. Defaults to 'background' for backwards compatibility. */
       displayMode?: ConditionalFormattingDisplayMode | null;
       id: string;
       input: string;
+      /** Optional label override used by 'badge' display mode. Falls back to the cell value when omitted. */
       label?: string | null;
       templateId: string;
     }

@@ -6503,9 +6503,18 @@ export const ColumnRenderAsApi = {
     Sparkline: 'sparkline',
 } as const
 
+export type TypeApi = (typeof TypeApi)[keyof typeof TypeApi]
+
+export const TypeApi = {
+    Bar: 'bar',
+    Line: 'line',
+} as const
+
 export interface SparklineColumnSettingsApi {
+    /** Color name from vars.scss (e.g. 'primary', 'success', 'muted'). Defaults to 'primary'. */
     color?: string | null
-    type?: 'bar' | 'line' | null
+    /** 'bar' draws bars, 'line' draws a line. Defaults to 'line'. */
+    type?: TypeApi | null
 }
 
 export type YAxisPositionApi = (typeof YAxisPositionApi)[keyof typeof YAxisPositionApi]
@@ -6519,6 +6528,7 @@ export interface ChartSettingsDisplayApi {
     color?: string | null
     displayType?: DisplayTypeApi | null
     label?: string | null
+    /** When set on a HogQL table column, the cell is rendered as the corresponding visualization. Requires the column to return an array of numbers per row (e.g. `groupArray(value) AS trend`). */
     renderAs?: ColumnRenderAsApi | null
     sparkline?: SparklineColumnSettingsApi | null
     trendLine?: boolean | null
@@ -6602,9 +6612,11 @@ export interface ConditionalFormattingRuleApi {
     color: string
     colorMode?: ColorModeApi | null
     columnName: string
+    /** How the rule is rendered when matched. Defaults to 'background' for backwards compatibility. */
     displayMode?: ConditionalFormattingDisplayModeApi | null
     id: string
     input: string
+    /** Optional label override used by 'badge' display mode. Falls back to the cell value when omitted. */
     label?: string | null
     templateId: string
 }
