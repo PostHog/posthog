@@ -2356,6 +2356,22 @@
             "readOnlyHint": true
         }
     },
+    "generate-canvas": {
+        "description": "Generate a React/TSX rendering canvas from a natural-language prompt. The server runs the LLM call, validates that the generated TSX is safe to render, and persists it as a RenderingCanvas record scoped to the current project. Returns the canvas id, name, and content. Pass `task` whenever the agent has a current task UUID so the canvas surfaces in the right place in PostHog Code. The generated module must default-export a single React component, must not perform network or DOM side effects, and may only read PostHog data through `{{ @api.<dotted.path>(args) }}` template expressions — the server rejects anything else.",
+        "category": "Canvases",
+        "summary": "Generate a React/TSX rendering canvas from a prompt.",
+        "feature": "canvases",
+        "title": "Generate canvas",
+        "required_scopes": ["task:write"],
+        "new_mcp": false,
+        "requires_ai_consent": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": false,
+            "readOnlyHint": false
+        }
+    },
     "get-llm-total-costs-for-project": {
         "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
         "category": "LLM analytics",

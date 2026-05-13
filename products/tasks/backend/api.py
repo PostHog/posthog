@@ -2609,6 +2609,7 @@ class RenderingCanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team=self.team,
             created_by=request.user,
             name=name,
+            path=data.get("path", ""),
             content=tsx,
             task=task,
         )

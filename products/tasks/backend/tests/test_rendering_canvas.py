@@ -118,6 +118,32 @@ class TestRenderingCanvasAPI(TestCase):
         self.assertEqual(get_response.status_code, status.HTTP_200_OK)
         self.assertEqual(get_response.json()["name"], "My UI")
 
+    def test_create_with_path_roundtrips_and_normalizes(self) -> None:
+        response = self.client.post(
+            self._url(),
+            {
+                "name": "Button",
+                "path": "/src//components/Button.tsx/",
+                "content": VALID_CONTENT,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        body = response.json()
+        self.assertEqual(body["path"], "src/components/Button.tsx")
+
+        get_response = self.client.get(self._url(canvas_id=body["id"]))
+        self.assertEqual(get_response.json()["path"], "src/components/Button.tsx")
+
+    def test_create_without_path_defaults_to_empty(self) -> None:
+        response = self.client.post(
+            self._url(),
+            {"name": "Root", "content": VALID_CONTENT},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.json()["path"], "")
+
     def test_create_rejects_forbidden_content(self) -> None:
         response = self.client.post(
             self._url(),
@@ -233,6 +259,19 @@ class TestRenderingCanvasGenerate(TestCase):
         self.assertEqual(kwargs["team"].id, self.team.id)
         self.assertEqual(kwargs["user"].id, self.user.id)
         self.assertEqual(kwargs["prompt"], "a card with the project name")
+
+    @patch("products.tasks.backend.api.generate_canvas_tsx")
+    def test_generate_persists_path(self, mock_generate: MagicMock) -> None:
+        mock_generate.return_value = (VALID_CONTENT, "Generated UI")
+        response = self.client.post(
+            self._generate_url(),
+            {"prompt": "anything", "path": "src/pages/Home.tsx"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.json()["path"], "src/pages/Home.tsx")
+        canvas = RenderingCanvas.objects.get(id=response.json()["id"])
+        self.assertEqual(canvas.path, "src/pages/Home.tsx")
 
     @patch("products.tasks.backend.api.generate_canvas_tsx")
     def test_generate_uses_name_hint_when_provided(self, mock_generate: MagicMock) -> None:

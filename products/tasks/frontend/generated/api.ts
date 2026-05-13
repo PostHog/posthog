@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
+    PaginatedRenderingCanvasListApi,
     PaginatedSandboxEnvironmentListListApi,
     PaginatedTaskAutomationListApi,
     PaginatedTaskListApi,
@@ -19,6 +20,9 @@ import type {
     PatchedTaskApi,
     PatchedTaskRunSetOutputRequestApi,
     PatchedTaskRunUpdateApi,
+    RenderingCanvasApi,
+    RenderingCanvasGenerateApi,
+    RenderingCanvasesListParams,
     RepositoryReadinessResponseApi,
     SandboxEnvironmentApi,
     SandboxListParams,
@@ -104,6 +108,77 @@ export const codeInvitesRedeemCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(codeInviteRedeemRequestApi),
+    })
+}
+
+export const getRenderingCanvasesListUrl = (projectId: string, params?: RenderingCanvasesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/rendering_canvases/?${stringifiedParams}`
+        : `/api/projects/${projectId}/rendering_canvases/`
+}
+
+/**
+ * CRUD for LLM-generated React canvases rendered inside PostHog Code.
+ */
+export const renderingCanvasesList = async (
+    projectId: string,
+    params?: RenderingCanvasesListParams,
+    options?: RequestInit
+): Promise<PaginatedRenderingCanvasListApi> => {
+    return apiMutator<PaginatedRenderingCanvasListApi>(getRenderingCanvasesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getRenderingCanvasesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/rendering_canvases/`
+}
+
+/**
+ * CRUD for LLM-generated React canvases rendered inside PostHog Code.
+ */
+export const renderingCanvasesCreate = async (
+    projectId: string,
+    renderingCanvasApi: NonReadonly<RenderingCanvasApi>,
+    options?: RequestInit
+): Promise<RenderingCanvasApi> => {
+    return apiMutator<RenderingCanvasApi>(getRenderingCanvasesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(renderingCanvasApi),
+    })
+}
+
+export const getRenderingCanvasesGenerateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/rendering_canvases/generate/`
+}
+
+/**
+ * Generate a React/TSX module from a natural-language prompt, validate it, and persist it as a new RenderingCanvas. Returns the created canvas.
+ * @summary Generate a rendering canvas from a prompt
+ */
+export const renderingCanvasesGenerateCreate = async (
+    projectId: string,
+    renderingCanvasGenerateApi: RenderingCanvasGenerateApi,
+    options?: RequestInit
+): Promise<RenderingCanvasApi> => {
+    return apiMutator<RenderingCanvasApi>(getRenderingCanvasesGenerateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(renderingCanvasGenerateApi),
     })
 }
 
