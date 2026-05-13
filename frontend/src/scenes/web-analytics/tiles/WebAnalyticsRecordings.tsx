@@ -60,7 +60,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
                     'col-span-1 row-span-1 flex flex-col',
                     layout.colSpanClassName ?? 'md:col-span-6',
                     layout.rowSpanClassName ?? 'md:row-span-1',
-                    layout.orderWhenLargeClassName ?? 'xxl:order-12',
+                    layout.orderWhenLargeClassName ?? '2xl:order-12',
                     layout.className
                 )}
             >
