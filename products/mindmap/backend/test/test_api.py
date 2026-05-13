@@ -64,3 +64,36 @@ class TestPostItAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids = [p["short_id"] for p in response.json()["results"]]
         self.assertNotIn(other_postit.short_id, ids)
+
+
+class TestEdgeAPI(APIBaseTest):
+    def _url(self, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.pk}/mindmap_edges/{suffix}"
+
+    def test_create_edge(self) -> None:
+        a = MindMapPostIt.objects.create(team=self.team, title="A")
+        b = MindMapPostIt.objects.create(team=self.team, title="B")
+        response = self.client.post(self._url(), {"source": a.short_id, "target": b.short_id}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        data = response.json()
+        self.assertEqual(data["source"], a.short_id)
+        self.assertEqual(data["target"], b.short_id)
+
+    def test_duplicate_edge_returns_existing(self) -> None:
+        a = MindMapPostIt.objects.create(team=self.team, title="A")
+        b = MindMapPostIt.objects.create(team=self.team, title="B")
+        self.client.post(self._url(), {"source": a.short_id, "target": b.short_id}, format="json")
+        response = self.client.post(self._url(), {"source": a.short_id, "target": b.short_id}, format="json")
+        self.assertIn(response.status_code, (status.HTTP_200_OK, status.HTTP_201_CREATED))
+
+    def test_self_loop_rejected(self) -> None:
+        a = MindMapPostIt.objects.create(team=self.team, title="A")
+        response = self.client.post(self._url(), {"source": a.short_id, "target": a.short_id}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    def test_cross_team_rejected(self) -> None:
+        a = MindMapPostIt.objects.create(team=self.team, title="A")
+        other_team = self.organization.teams.create(name="other")
+        b_other = MindMapPostIt.objects.create(team=other_team, title="B")
+        response = self.client.post(self._url(), {"source": a.short_id, "target": b_other.short_id}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
