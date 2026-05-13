@@ -52,6 +52,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
     BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/BusinessKnowledgeScene'),
+    CatalogDefinition: () => import('../../products/catalog/frontend/CatalogDefinitionScene'),
     Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
     SupportTickets: () => import('../../products/conversations/frontend/scenes/tickets/SupportTicketsScene'),
     SupportTicketDetail: () => import('../../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
@@ -144,6 +145,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
+    '/catalog/definitions/:id': ['CatalogDefinition', 'catalogDefinition'],
     '/transformations': ['Transformations', 'transformations'],
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
@@ -316,6 +318,13 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'KnowledgeSource',
         description:
             'Upload text, public URLs, or files your AI support agent can cite when answering customer tickets.',
+    },
+    CatalogDefinition: {
+        projectBased: true,
+        name: 'Catalog definition',
+        activityScope: 'CatalogNode',
+        layout: 'app-container',
+        iconType: 'data_warehouse',
     },
     Transformations: {
         projectBased: true,
@@ -629,6 +638,7 @@ export const productUrls = {
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
     businessKnowledge: (): string => '/business-knowledge',
+    catalogDefinition: (id: string): string => `/catalog/definitions/${id}`,
     transformations: (): string => '/transformations',
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
@@ -1309,6 +1319,18 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
+    {
+        path: 'Catalog',
+        intents: [ProductKey.CATALOG],
+        category: ProductItemCategory.UNRELEASED,
+        href: '/catalog/definitions',
+        iconType: 'data_warehouse' as FileSystemIconType,
+        iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
+        flag: FEATURE_FLAGS.CATALOG,
+        tags: ['alpha'],
+        sceneKey: 'CatalogDefinition',
+        sceneKeys: ['CatalogDefinition'],
+    },
     {
         path: 'Clusters',
         intents: [ProductKey.LLM_CLUSTERS],
