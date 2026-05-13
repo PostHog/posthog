@@ -7,6 +7,9 @@ export const founderLogic = kea<founderLogicType>([
 
     actions({
         setStep: (step: number) => ({ step }),
+        // Cross-stage handle. Each stage reads this to know which FounderProject row to read/write.
+        // Stage 1 sets it on project create; later stages assume it's already set.
+        setCurrentProjectId: (projectId: string | null) => ({ projectId }),
     }),
 
     reducers({
@@ -14,6 +17,12 @@ export const founderLogic = kea<founderLogicType>([
             0,
             {
                 setStep: (_, { step }) => step,
+            },
+        ],
+        currentProjectId: [
+            null as string | null,
+            {
+                setCurrentProjectId: (_, { projectId }) => projectId,
             },
         ],
     }),
