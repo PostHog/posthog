@@ -26,7 +26,7 @@ npx @posthog/wizard@latest mcp add
       "args": [
         "-y",
         "mcp-remote@latest",
-        "https://mcp.posthog.com/mcp", // You can replace this with https://mcp.posthog.com/sse if your client does not support Streamable HTTP
+        "https://mcp.posthog.com/mcp",
         "--header",
         "Authorization:${POSTHOG_AUTH_HEADER}"
       ],
@@ -227,7 +227,7 @@ Created experiment 'Pricing page test':
 
 **What happens:**
 
-1. The `query-error-tracking-issues` tool fetches error groups sorted by occurrence count
+1. The `query-error-tracking-issues-list` tool fetches error groups sorted by occurrence count
 2. Returns error details including affected user counts
 
 **Expected output:**

@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import {
     ProxyRecordsCreateBody,
     ProxyRecordsDestroyParams,
+    ProxyRecordsDiagnoseCreateParams,
     ProxyRecordsRetrieveParams,
     ProxyRecordsRetryCreateParams,
 } from '@/generated/proxy-records/api'
@@ -41,6 +42,21 @@ const proxyDelete = (): ToolBase<typeof ProxyDeleteSchema, unknown> => ({
         const result = await context.api.request<unknown>({
             method: 'DELETE',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/proxy_records/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const ProxyDiagnoseSchema = ProxyRecordsDiagnoseCreateParams.omit({ organization_id: true })
+
+const proxyDiagnose = (): ToolBase<typeof ProxyDiagnoseSchema, Schemas.DiagnosticReport> => ({
+    name: 'proxy-diagnose',
+    schema: ProxyDiagnoseSchema,
+    handler: async (context: Context, params: z.infer<typeof ProxyDiagnoseSchema>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.DiagnosticReport>({
+            method: 'POST',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/proxy_records/${encodeURIComponent(String(params.id))}/diagnose/`,
         })
         return result
     },
@@ -95,6 +111,7 @@ const proxyRetry = (): ToolBase<typeof ProxyRetrySchema, Schemas.ProxyRecord> =>
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'proxy-create': proxyCreate,
     'proxy-delete': proxyDelete,
+    'proxy-diagnose': proxyDiagnose,
     'proxy-get': proxyGet,
     'proxy-list': proxyList,
     'proxy-retry': proxyRetry,

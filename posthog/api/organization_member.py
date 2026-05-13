@@ -1,11 +1,14 @@
-from typing import cast
+from typing import Any, cast
 
-from django.db.models import F, Model, Prefetch, QuerySet
+from django.contrib.postgres.search import TrigramWordSimilarity
+from django.db.models import F, Model, Prefetch, Q, QuerySet, Value
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from opentelemetry import trace
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -18,11 +21,14 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.event_usage import groups
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, MIN_NAME_TRIGRAM_SIMILARITY, normalize_search_term
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
 from posthog.utils import posthoganalytics
+
+tracer = trace.get_tracer(__name__)
 
 # Only index-backed orderings are allowed. `-joined_at` is served by the
 # `(organization, -joined_at)` composite index; other fields would force a
@@ -110,6 +116,11 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
                 enum=sorted(ALLOWED_ORDERINGS),
                 description=f"Sort order. Defaults to `{DEFAULT_ORDERING}`.",
             ),
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                description="Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.",
+            ),
         ],
     ),
 )
@@ -151,6 +162,46 @@ class OrganizationMemberViewSet(
         filter_kwargs = {self.lookup_field: lookup_value}
         return get_object_or_404(queryset, **filter_kwargs)
 
+    @tracer.start_as_current_span("OrganizationMemberViewSet.list")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response = super().list(request, *args, **kwargs)
+        if request.query_params.get("search"):
+            data = response.data if isinstance(response.data, dict) else {}
+            results_len = data.get("count", len(data.get("results", [])))
+            span = trace.get_current_span()
+            span.set_attribute("organization_member.search.result_count", results_len)
+            span.set_attribute("organization_member.search.empty", results_len == 0)
+        return response
+
+    @staticmethod
+    @tracer.start_as_current_span("OrganizationMemberViewSet._apply_search")
+    def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+        search = normalize_search_term(search)
+        span = trace.get_current_span()
+        span.set_attribute("organization_member.search.length", len(search))
+        if not search:
+            return queryset
+
+        zero = Value(0.0)
+        first_name_score = Coalesce(TrigramWordSimilarity(search, "user__first_name"), zero)
+        last_name_score = Coalesce(TrigramWordSimilarity(search, "user__last_name"), zero)
+        email_score = Coalesce(TrigramWordSimilarity(search, "user__email"), zero)
+
+        return (
+            queryset.annotate(
+                _first_name_score=first_name_score,
+                _last_name_score=last_name_score,
+                _email_score=email_score,
+            )
+            .filter(
+                Q(_first_name_score__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+                | Q(_last_name_score__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+                | Q(_email_score__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+            )
+            .annotate(_search_score=F("_first_name_score") + F("_last_name_score") + F("_email_score"))
+            .order_by("-_search_score", "user__first_name")
+        )
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             params = self.request.GET.dict()
@@ -161,11 +212,22 @@ class OrganizationMemberViewSet(
             if "updated_after" in params:
                 queryset = queryset.filter(updated_at__gt=params["updated_after"])
 
-            order = self.request.GET.get("order")
-            if order in ALLOWED_ORDERINGS:
-                queryset = queryset.order_by(order)
+            search = self.request.GET.get("search", "")
+            if len(search) > MAX_SEARCH_LENGTH:
+                raise serializers.ValidationError(
+                    {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+                )
+            # Normalize before deciding so whitespace-only queries fall through to default
+            # ordering rather than reaching `_apply_search` and returning the queryset
+            # without any order applied.
+            if normalize_search_term(search):
+                queryset = self._apply_search(queryset, search)
             else:
-                queryset = queryset.order_by(DEFAULT_ORDERING)
+                order = self.request.GET.get("order")
+                if order in ALLOWED_ORDERINGS:
+                    queryset = queryset.order_by(order)
+                else:
+                    queryset = queryset.order_by(DEFAULT_ORDERING)
 
         return queryset
 

@@ -258,10 +258,20 @@ export interface ImageContentItem {
     image: string
 }
 
+export interface FunctionContentItem {
+    type: 'function'
+    id?: string
+    function: {
+        name: string
+        arguments: string | Record<string, unknown> | null
+    }
+}
+
 export type MultiModalContentItem =
     | string
     | TextContentItem
     | ImageContentItem
+    | FunctionContentItem
     | OpenAIImageURLMessage
     | OpenAIFileMessage
     | OpenAIAudioMessage

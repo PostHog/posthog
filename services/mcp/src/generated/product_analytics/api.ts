@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -184,6 +184,12 @@ export const InsightsRetrieveParams = /* @__PURE__ */ zod.object({
 export const insightsRetrieveQueryRefreshDefault = `force_cache`
 
 export const InsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    filters_override: zod
+        .string()
+        .optional()
+        .describe(
+            "Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+        ),
     format: zod.enum(['csv', 'json']).optional(),
     from_dashboard: zod
         .number()
@@ -204,6 +210,12 @@ export const InsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .default(insightsRetrieveQueryRefreshDefault)
         .describe(
             "\nWhether to refresh the insight, how aggresively, and if sync or async:\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\nBackground calculation can be tracked using the `query_status` response field."
+        ),
+    variables_override: zod
+        .string()
+        .optional()
+        .describe(
+            'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
         ),
 })
 
@@ -274,4 +286,62 @@ export const InsightsDestroyParams = /* @__PURE__ */ zod.object({
 
 export const InsightsDestroyQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['csv', 'json']).optional(),
+})
+
+/**
+ * Audit trail for a single insight — every change made to it, by whom, and when. Use this when you want the change history of a specific insight; use the project-wide activity endpoint for a broader view.
+ */
+export const InsightsActivityRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this insight.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const InsightsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['csv', 'json']).optional(),
+    limit: zod.number().optional().describe('Page size. Defaults to 10.'),
+    page: zod.number().optional().describe('1-indexed page number. Defaults to 1.'),
+})
+
+/**
+ * Project-wide audit trail across all insights — who created, edited, deleted, or restored insights, what changed (with before/after diffs), and when. Useful for surfacing what people (or agents) have been working on recently.
+ */
+export const InsightsAllActivityRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const InsightsAllActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['csv', 'json']).optional(),
+    limit: zod.number().optional().describe('Page size. Defaults to 10.'),
+    page: zod.number().optional().describe('1-indexed page number. Defaults to 1.'),
+})
+
+/**
+ * Returns insights ranked by view count over the last N days (default 7), highest first. Each result includes the same metadata as the standard insights list, plus a `view_count` and up to 3 recent `viewers`. Useful for surfacing the most-used insights in a project.
+ */
+export const InsightsTrendingRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const InsightsTrendingRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    days: zod
+        .number()
+        .optional()
+        .describe(
+            "Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now."
+        ),
+    format: zod.enum(['csv', 'json']).optional(),
+    limit: zod.number().optional().describe('Maximum number of insights to return. Defaults to 10. Capped at 100.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })

@@ -149,26 +149,16 @@ describe('experimentLogic', () => {
 
             const promise = logic.asyncActions.loadPrimaryMetricsResults(true)
 
-            await expectLogic(logic)
-                .toDispatchActions(['setPrimaryMetricsResultsLoading', 'setLegacyPrimaryMetricsResults'])
-                .toMatchValues({
-                    legacyPrimaryMetricsResults: [],
-                    primaryMetricsResultsLoading: true,
-                    primaryMetricsResultsErrors: [],
-                })
+            await expectLogic(logic).toDispatchActions(['setPrimaryMetricsResultsLoading']).toMatchValues({
+                primaryMetricsResultsLoading: true,
+                primaryMetricsResultsErrors: [],
+            })
 
             await promise
 
             await expectLogic(logic)
                 .toDispatchActions(['setPrimaryMetricsResultsLoading'])
                 .toMatchValues({
-                    legacyPrimaryMetricsResults: [
-                        {
-                            ...experimentMetricResultsSuccessJson.query_status.results,
-                            fakeInsightId: expect.any(String),
-                        },
-                        null,
-                    ],
                     primaryMetricsResultsLoading: false,
                     primaryMetricsResultsErrors: [
                         null,
@@ -227,26 +217,16 @@ describe('experimentLogic', () => {
 
             const promise = logic.asyncActions.loadSecondaryMetricsResults(true)
 
-            await expectLogic(logic)
-                .toDispatchActions(['setSecondaryMetricsResultsLoading', 'setLegacySecondaryMetricsResults'])
-                .toMatchValues({
-                    legacySecondaryMetricsResults: [],
-                    secondaryMetricsResultsLoading: true,
-                    secondaryMetricsResultsErrors: [],
-                })
+            await expectLogic(logic).toDispatchActions(['setSecondaryMetricsResultsLoading']).toMatchValues({
+                secondaryMetricsResultsLoading: true,
+                secondaryMetricsResultsErrors: [],
+            })
 
             await promise
 
             await expectLogic(logic)
                 .toDispatchActions(['setSecondaryMetricsResultsLoading'])
                 .toMatchValues({
-                    legacySecondaryMetricsResults: [
-                        null,
-                        {
-                            ...experimentMetricResultsSuccessJson.query_status.results,
-                            fakeInsightId: expect.any(String),
-                        },
-                    ],
                     secondaryMetricsResultsLoading: false,
                     secondaryMetricsResultsErrors: [
                         {
@@ -294,16 +274,9 @@ describe('experimentLogic', () => {
 
             await logic.asyncActions.refreshExperimentResults(true, 'manual')
 
+            // Verify loading states are properly reset after refresh completes
             expect(logic.values.primaryMetricsResultsLoading).toBe(false)
             expect(logic.values.secondaryMetricsResultsLoading).toBe(false)
-
-            const successfulCount =
-                logic.values.legacyPrimaryMetricsResults.filter(Boolean).length +
-                logic.values.primaryMetricsResults.filter(Boolean).length +
-                logic.values.legacySecondaryMetricsResults.filter(Boolean).length +
-                logic.values.secondaryMetricsResults.filter(Boolean).length
-
-            expect(successfulCount).toBeGreaterThan(0)
         })
     })
 

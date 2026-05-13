@@ -34,6 +34,7 @@ import products.live_debugger.backend.api as live_debugger
 import products.web_analytics.backend.api as web_analytics_api
 import products.surveys.backend.api.survey as survey
 import products.revenue_analytics.backend.api as revenue_analytics
+import products.business_knowledge.backend.api as business_knowledge
 import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
@@ -63,8 +64,10 @@ from products.error_tracking.backend.api import (
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
     ErrorTrackingIssueViewSet,
+    ErrorTrackingQueryViewSet,
     ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
+    ErrorTrackingSettingsViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingSpikeEventViewSet,
     ErrorTrackingStackFrameViewSet,
@@ -82,6 +85,7 @@ from products.llm_analytics.backend.api import (
     EvaluationRunViewSet,
     EvaluationViewSet,
     LLMAnalyticsClusteringRunViewSet,
+    LLMAnalyticsOfflineEvaluationsViewSet,
     LLMAnalyticsSentimentViewSet,
     LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
@@ -105,6 +109,7 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.notifications.backend.presentation.views import NotificationsViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
+from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
@@ -129,6 +134,7 @@ from . import (
     annotation,
     async_migration,
     authentication,
+    cimd_verification_token,
     cli_auth,
     comments,
     dead_letter_queue,
@@ -676,6 +682,12 @@ organizations_router.register(
     ["organization_id"],
 )
 organizations_router.register(
+    r"cimd_verification_tokens",
+    cimd_verification_token.CIMDVerificationTokenViewSet,
+    "organization_cimd_verification_tokens",
+    ["organization_id"],
+)
+organizations_router.register(
     r"legal_documents",
     legal_documents.LegalDocumentViewSet,
     "organization_legal_documents",
@@ -709,6 +721,12 @@ organizations_router.register(
     r"welcome",
     welcome.WelcomeViewSet,
     "organization_welcome",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"advanced_activity_logs",
+    advanced_activity_logs.OrganizationAdvancedActivityLogsViewSet,
+    "organization_advanced_activity_logs",
     ["organization_id"],
 )
 
@@ -802,9 +820,10 @@ register_grandfathered_environment_nested_viewset(r"saved", SavedHeatmapViewSet,
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
+    from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
+
     from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
     from ee.clickhouse.views.experiment_saved_metrics import ExperimentSavedMetricViewSet
-    from ee.clickhouse.views.experiments import EnterpriseExperimentsViewSet
     from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet, GroupUsageMetricViewSet
     from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
     from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
@@ -911,11 +930,18 @@ legacy_project_session_recordings_router.register(
     ["team_id", "recording_id"],
 )
 
-projects_router.register(
+project_notebooks_router = projects_router.register(
     r"notebooks",
     NotebookViewSet,
     "project_notebooks",
     ["project_id"],
+)
+
+project_notebooks_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_notebook_sharing",
+    ["project_id", "notebook_id"],
 )
 
 projects_router.register(
@@ -996,6 +1022,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/query",
+    ErrorTrackingQueryViewSet,
+    "environment_error_tracking_query",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/external_references",
     ErrorTrackingExternalReferenceViewSet,
     "environment_error_tracking_external_references",
@@ -1013,6 +1046,13 @@ environments_router.register(
     r"error_tracking/spike_detection_config",
     ErrorTrackingSpikeDetectionConfigViewSet,
     "environment_error_tracking_spike_detection_config",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/settings",
+    ErrorTrackingSettingsViewSet,
+    "environment_error_tracking_settings",
     ["team_id"],
 )
 
@@ -1110,6 +1150,13 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
+
+projects_router.register(
+    r"business_knowledge/sources",
+    business_knowledge.KnowledgeSourceViewSet,
+    "environment_business_knowledge_sources",
+    ["team_id"],
+)
 
 projects_router.register(
     r"conversations/tickets",
@@ -1232,6 +1279,9 @@ environments_router.register(
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
 register_grandfathered_environment_nested_viewset(
     r"logs/alerts", logs.LogsAlertViewSet, "environment_logs_alerts", ["team_id"]
+)
+register_grandfathered_environment_nested_viewset(
+    r"logs/sampling_rules", logs.LogsSamplingRuleViewSet, "environment_logs_sampling_rules", ["team_id"]
 )
 environments_router.register(r"logs/views", logs.LogsViewViewSet, "environment_logs_views", ["team_id"])
 
@@ -1449,6 +1499,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"llm_analytics/offline_evaluations",
+    LLMAnalyticsOfflineEvaluationsViewSet,
+    "environment_llm_analytics_offline_evaluations",
+    ["team_id"],
+)
+
+environments_router.register(
     r"llm_analytics/review_queue_items",
     ReviewQueueItemViewSet,
     "environment_llm_analytics_review_queue_items",
@@ -1481,6 +1538,19 @@ environments_router.register(
     EvaluationReportViewSet,
     "environment_llm_analytics_evaluation_reports",
     ["team_id"],
+)
+
+environment_vision_lenses_router = environments_router.register(
+    r"vision/lenses",
+    ReplayLensViewSet,
+    "environment_vision_lenses",
+    ["team_id"],
+)
+environment_vision_lenses_router.register(
+    r"observations",
+    ReplayObservationViewSet,
+    "environment_vision_lens_observations",
+    ["team_id", "lens_id"],
 )
 
 environments_router.register(

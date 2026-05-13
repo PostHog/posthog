@@ -9,7 +9,7 @@ from posthog.schema import FeatureFlagGroupType
 
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.exceptions_capture import capture_exception
-from posthog.models import FeatureFlag, GroupTypeMapping
+from posthog.models import FeatureFlag
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
@@ -219,11 +219,14 @@ class CreateFeatureFlagTool(MaxTool):
             if flag_schema.group_type:
 
                 @database_sync_to_async
-                def get_group_mapping() -> GroupTypeMapping | None:
-                    return GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                        team=self._team,
-                        group_type=flag_schema.group_type.lower() if flag_schema.group_type else None,
-                    ).first()
+                def get_group_mapping() -> dict | None:
+                    from posthog.models.group_type_mapping import get_group_types_for_project
+
+                    target = flag_schema.group_type.lower() if flag_schema.group_type else None
+                    for m in get_group_types_for_project(self._team.project_id):
+                        if m["group_type"] == target:
+                            return m
+                    return None
 
                 group_mapping = await get_group_mapping()
                 if not group_mapping:
@@ -232,8 +235,8 @@ class CreateFeatureFlagTool(MaxTool):
                         {"error": "group_type_not_found"},
                     )
 
-                aggregation_group_type_index = group_mapping.group_type_index
-                group_type_display_name = group_mapping.name_plural or flag_schema.group_type
+                aggregation_group_type_index = group_mapping["group_type_index"]
+                group_type_display_name = group_mapping["name_plural"] or flag_schema.group_type
 
             filters: dict[str, Any] = {}
             if aggregation_group_type_index is not None:

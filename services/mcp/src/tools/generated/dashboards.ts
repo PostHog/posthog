@@ -11,9 +11,11 @@ import {
     DashboardsReorderTilesCreateBody,
     DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
+    DashboardsRetrieveQueryParams,
     DashboardsRunInsightsRetrieveParams,
     DashboardsRunInsightsRetrieveQueryParams,
 } from '@/generated/dashboards/api'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -106,7 +108,9 @@ const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUr
     },
 })
 
-const DashboardDeleteSchema = DashboardsDestroyParams.omit({ project_id: true })
+const DashboardDeleteSchema = DashboardsDestroyParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, DashboardsDestroyParams.shape['id']),
+})
 
 const dashboardDelete = (): ToolBase<typeof DashboardDeleteSchema, Schemas.Dashboard> => ({
     name: 'dashboard-delete',
@@ -123,6 +127,22 @@ const dashboardDelete = (): ToolBase<typeof DashboardDeleteSchema, Schemas.Dashb
 })
 
 const DashboardGetSchema = DashboardsRetrieveParams.omit({ project_id: true })
+    .extend(DashboardsRetrieveQueryParams.omit({ format: true }).shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsRetrieveParams.shape['id']) })
+    .extend({
+        filters_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
+            ),
+        variables_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+            ),
+    })
 
 const dashboardGet = (): ToolBase<typeof DashboardGetSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
     name: 'dashboard-get',
@@ -132,6 +152,10 @@ const dashboardGet = (): ToolBase<typeof DashboardGetSchema, WithPostHogUrl<Sche
         const result = await context.api.request<Schemas.Dashboard>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                filters_override: params.filters_override,
+                variables_override: params.variables_override,
+            },
         })
         const filtered = omitResponseFields(result, [
             'effective_restriction_level',
@@ -174,9 +198,23 @@ const dashboardGet = (): ToolBase<typeof DashboardGetSchema, WithPostHogUrl<Sche
     },
 })
 
-const DashboardInsightsRunSchema = DashboardsRunInsightsRetrieveParams.omit({ project_id: true }).extend(
-    DashboardsRunInsightsRetrieveQueryParams.omit({ format: true }).shape
-)
+const DashboardInsightsRunSchema = DashboardsRunInsightsRetrieveParams.omit({ project_id: true })
+    .extend(DashboardsRunInsightsRetrieveQueryParams.omit({ format: true }).shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsRunInsightsRetrieveParams.shape['id']) })
+    .extend({
+        filters_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
+            ),
+        variables_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+            ),
+    })
 
 const dashboardInsightsRun = (): ToolBase<
     typeof DashboardInsightsRunSchema,
@@ -190,8 +228,10 @@ const dashboardInsightsRun = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/run_insights/`,
             query: {
+                filters_override: params.filters_override,
                 output_format: params.output_format,
                 refresh: params.refresh,
+                variables_override: params.variables_override,
             },
         })
         return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
@@ -220,9 +260,9 @@ const dashboardReorderTiles = (): ToolBase<typeof DashboardReorderTilesSchema, W
     },
 })
 
-const DashboardUpdateSchema = DashboardsPartialUpdateParams.omit({ project_id: true }).extend(
-    DashboardsPartialUpdateBody.shape
-)
+const DashboardUpdateSchema = DashboardsPartialUpdateParams.omit({ project_id: true })
+    .extend(DashboardsPartialUpdateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']) })
 
 const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
     name: 'dashboard-update',
@@ -309,7 +349,10 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUr
     },
 })
 
-const DashboardsGetAllSchema = DashboardsListQueryParams.omit({ format: true })
+const DashboardsGetAllSchema = DashboardsListQueryParams.omit({ format: true }).extend({
+    limit: z.preprocess(castStringToInt, DashboardsListQueryParams.shape['limit']).optional(),
+    offset: z.preprocess(castStringToInt, DashboardsListQueryParams.shape['offset']).optional(),
+})
 
 const dashboardsGetAll = (): ToolBase<
     typeof DashboardsGetAllSchema,
@@ -325,6 +368,7 @@ const dashboardsGetAll = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
             },
         })
         return await withPostHogUrl(

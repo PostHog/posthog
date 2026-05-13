@@ -5,6 +5,7 @@ from typing import Any
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.temporal.observability import log_activity_execution
 
@@ -40,6 +41,7 @@ def _task_run_log_context(task_run: Any) -> dict[str, Any]:
 
 
 @activity.defn
+@close_db_connections
 def forward_pending_user_message(run_id: str) -> None:
     """Forward a pending user message stored in task run state to the sandbox agent.
 

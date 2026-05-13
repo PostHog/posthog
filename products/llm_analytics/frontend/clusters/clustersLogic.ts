@@ -1,5 +1,6 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -10,12 +11,21 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { urls } from 'scenes/urls'
 
+import { EventsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { Breadcrumb } from '~/types'
+import { AnyPropertyFilter, Breadcrumb, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import { loadClusterMetrics } from './clusterMetricsLoader'
 import type { clustersLogicType } from './clustersLogicType'
-import { MAX_CLUSTERING_RUNS, NOISE_CLUSTER_ID, OUTLIER_COLOR } from './constants'
+import {
+    FILTER_QUERY_MAX_ROWS,
+    LLM_ANALYTICS_CLUSTERS_SCENE_TAG,
+    MAX_CLUSTERING_RUNS,
+    NOISE_CLUSTER_ID,
+    OUTLIER_COLOR,
+    SAFE_ID_RE,
+} from './constants'
 import {
     EvaluationItemAttributes,
     EvaluationVerdict,
@@ -85,8 +95,20 @@ export const clustersLogic = kea<clustersLogicType>([
     props({} as ClustersLogicProps),
     key((props) => props.tabId ?? 'default'),
 
+    connect((props: ClustersLogicProps) => ({
+        values: [llmAnalyticsSharedLogic({ tabId: props.tabId }), ['propertyFilters', 'shouldFilterTestAccounts']],
+        actions: [
+            llmAnalyticsSharedLogic({ tabId: props.tabId }),
+            ['setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
+        ],
+    })),
+
     actions({
         setClusteringLevel: (level: ClusteringLevel) => ({ level }),
+        // Declared explicitly so kea-typegen emits a no-arg signature for the loader
+        // action below — without this, the `(_, breakpoint)` loader signature forces
+        // every call site to pass a placeholder argument.
+        loadPropertyFilteredItemIds: true,
         syncClusteringLevelFromRun: (level: ClusteringLevel) => ({ level }),
         setSelectedRunId: (runId: string | null) => ({ runId }),
         toggleClusterExpanded: (clusterId: number) => ({ clusterId }),
@@ -202,6 +224,102 @@ export const clustersLogic = kea<clustersLogicType>([
     }),
 
     loaders(({ values }) => ({
+        // Subset of the current run's item IDs that match the user's active property
+        // filters (cohorts, person properties, group properties, etc.). Null when no
+        // filters are active or filtering can't be applied — selectors treat null as
+        // "show everything" so unfiltered runs skip the round-trip.
+        propertyFilteredItemIds: [
+            null as Set<string> | null,
+            {
+                loadPropertyFilteredItemIds: async (_, breakpoint) => {
+                    // Debounce overlapping filter changes (quick toggles or successive
+                    // cohort selections) into a single EventsQuery round-trip.
+                    await breakpoint(150)
+
+                    const propertyFilters: AnyPropertyFilter[] = values.propertyFilters || []
+                    const shouldFilterTestAccounts: boolean = values.shouldFilterTestAccounts
+                    const run = values.currentRun
+
+                    if (!run) {
+                        return null
+                    }
+
+                    if (propertyFilters.length === 0 && !shouldFilterTestAccounts) {
+                        return null
+                    }
+
+                    // Eval clusters key on $ai_evaluation event UUIDs which don't carry
+                    // the person/cohort fields these filters target. The eval-specific
+                    // filter bar handles those.
+                    const level = run.level || values.clusteringLevel
+                    if (level === 'evaluation') {
+                        return null
+                    }
+
+                    const allIds: string[] = []
+                    for (const cluster of run.clusters) {
+                        for (const id of Object.keys(cluster.traces)) {
+                            if (SAFE_ID_RE.test(id)) {
+                                allIds.push(id)
+                            }
+                        }
+                    }
+                    if (allIds.length === 0) {
+                        return new Set<string>()
+                    }
+
+                    if (allIds.length > FILTER_QUERY_MAX_ROWS) {
+                        console.warn(
+                            `Run has ${allIds.length} items, exceeding the ${FILTER_QUERY_MAX_ROWS}-row cap for filter queries. Filters not applied.`
+                        )
+                        return null
+                    }
+
+                    const idPropertyKey = level === 'generation' ? '$ai_generation_id' : '$ai_trace_id'
+                    const idSelectExpression = `properties['${idPropertyKey}']`
+
+                    // Restrict the events to the cluster's items via a typed event-property
+                    // filter rather than a raw HogQL `where` clause: `properties.$ai_generation_id`
+                    // doesn't parse cleanly as a column reference because of the leading `$`,
+                    // which would 500 the EventsQuery. The typed filter goes through
+                    // `property_to_expr` which knows how to escape it.
+                    const idsFilter: AnyPropertyFilter = {
+                        type: PropertyFilterType.Event,
+                        key: idPropertyKey,
+                        operator: PropertyOperator.Exact,
+                        value: allIds,
+                    }
+
+                    const eventsQuery: EventsQuery = {
+                        kind: NodeKind.EventsQuery,
+                        select: [idSelectExpression],
+                        event: '$ai_generation',
+                        properties: [idsFilter, ...propertyFilters],
+                        after: run.windowStart,
+                        before: run.windowEnd,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                        limit: allIds.length + 1,
+                        // Required for the query runner to populate the `product` ClickHouse
+                        // tag — without it the dev-mode `UntaggedQueryError` enforcement 500s
+                        // every request.
+                        tags: { productKey: ProductKey.LLM_ANALYTICS, scene: LLM_ANALYTICS_CLUSTERS_SCENE_TAG },
+                    }
+
+                    const response = await api.query(eventsQuery)
+                    breakpoint()
+
+                    const matched = new Set<string>()
+                    for (const row of response.results || []) {
+                        const id = (row as unknown[])[0]
+                        if (typeof id === 'string' && id) {
+                            matched.add(id)
+                        }
+                    }
+                    return matched
+                },
+            },
+        ],
+
         clusteringRuns: [
             [] as ClusteringRunOption[],
             {
@@ -346,10 +464,26 @@ export const clustersLogic = kea<clustersLogicType>([
             },
         ],
 
+        // True while the loaded run still belongs to the level the user is currently
+        // looking at. Goes false the moment the user switches levels, until the new
+        // level's first run resolves — gates downstream selectors so we don't paint
+        // trace cards on the Generations tab during the load. kea-loaders preserves
+        // the previous loader value, so without this check `currentRun` would still
+        // be the trace-level run for a few hundred milliseconds.
+        //
+        // Runs emitted before the `clustering_level` event property existed are inferred
+        // as 'trace' by `loadClusteringRun` via `getLevelFromRunId`, so the same default
+        // applies here for any path that bypasses the loader (e.g. test fixtures).
+        currentRunMatchesLevel: [
+            (s) => [s.currentRun, s.clusteringLevel],
+            (currentRun: ClusteringRun | null, level: ClusteringLevel): boolean =>
+                !!currentRun && (currentRun.level || 'trace') === level,
+        ],
+
         sortedClusters: [
-            (s) => [s.currentRun],
-            (currentRun: ClusteringRun | null): Cluster[] => {
-                if (!currentRun?.clusters) {
+            (s) => [s.currentRun, s.currentRunMatchesLevel],
+            (currentRun: ClusteringRun | null, matches: boolean): Cluster[] => {
+                if (!matches || !currentRun?.clusters) {
                     return []
                 }
                 return [...currentRun.clusters].sort((a, b) => b.size - a.size)
@@ -421,8 +555,41 @@ export const clustersLogic = kea<clustersLogicType>([
             },
         ],
 
+        propertyFiltersActive: [
+            (s) => [s.propertyFilters, s.shouldFilterTestAccounts],
+            (propertyFilters: AnyPropertyFilter[], shouldFilterTestAccounts: boolean): boolean =>
+                (propertyFilters?.length ?? 0) > 0 || shouldFilterTestAccounts,
+        ],
+
+        anyFiltersActive: [
+            (s) => [s.evalFiltersActive, s.propertyFiltersActive],
+            (evalActive: boolean, propertyActive: boolean): boolean => evalActive || propertyActive,
+        ],
+
+        // Single predicate combines the eval-specific filter (for evaluation-level clusters)
+        // with the cohort/property filter (for trace and generation levels). Cluster cards,
+        // scatter plot, and distribution bar all derive from this so the views can never
+        // diverge on which items count as "in" the filtered set.
+        clusterMembershipPredicate: [
+            (s) => [s.evalFilterPredicate, s.propertyFilteredItemIds],
+            (
+                evalPredicate: (id: string) => boolean,
+                propertyFilteredItemIds: Set<string> | null
+            ): ((id: string) => boolean) => {
+                return (id: string) => {
+                    if (!evalPredicate(id)) {
+                        return false
+                    }
+                    if (propertyFilteredItemIds && !propertyFilteredItemIds.has(id)) {
+                        return false
+                    }
+                    return true
+                }
+            },
+        ],
+
         filteredSortedClusters: [
-            (s) => [s.sortedClusters, s.evalFilterPredicate, s.evalFiltersActive],
+            (s) => [s.sortedClusters, s.clusterMembershipPredicate, s.anyFiltersActive],
             (clusters: Cluster[], predicate: (id: string) => boolean, active: boolean): Cluster[] => {
                 if (!active) {
                     return clusters
@@ -671,8 +838,28 @@ export const clustersLogic = kea<clustersLogicType>([
                 // For evaluation runs, also load the per-item (evaluator name, verdict) lookup
                 // so the post-hoc filter bar can drive scatter + cluster card filtering.
                 actions.loadEvaluationAttributesForRun(currentRun)
+                // Re-run the property filter against the new run's items. The shared filter
+                // state is preserved across run switches, so a previously filtered view
+                // should immediately narrow the new run's clusters.
+                actions.loadPropertyFilteredItemIds()
             }
         },
+
+        // Property filter state lives in the shared logic; mirror its updates into a
+        // fresh EventsQuery scoped to the current run's items. Both listener entries are
+        // needed because the dispatch path differs by trigger:
+        //   - UI clicks dispatch `setPropertyFilters` / `setShouldFilterTestAccounts`
+        //     directly. The shared logic's `actionToUrl` then echoes the new state into
+        //     the URL, but `applySearchParams` short-circuits because URL and state
+        //     already agree, so `applyUrlState` is *not* fired in this path.
+        //   - Deep links and browser back/forward fire the URL handler first; that
+        //     path detects the divergence and dispatches `applyUrlState` (not
+        //     `setPropertyFilters`) to sync state.
+        // The 150ms breakpoint debounce inside the loader collapses any stray double
+        // dispatches into a single round-trip.
+        setPropertyFilters: () => actions.loadPropertyFilteredItemIds(),
+        setShouldFilterTestAccounts: () => actions.loadPropertyFilteredItemIds(),
+        applyUrlState: () => actions.loadPropertyFilteredItemIds(),
 
         loadClusteringRunFailure: () => {
             lemonToast.error('Failed to load clustering run')
@@ -709,22 +896,37 @@ export const clustersLogic = kea<clustersLogicType>([
         actions.loadClusteringRuns()
     }),
 
-    tabAwareUrlToAction(({ actions }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         '/llm-analytics/clusters': () => {
-            actions.setSelectedRunId(null)
+            if (values.selectedRunId !== null) {
+                actions.setSelectedRunId(null)
+            }
         },
         '/llm-analytics/clusters/:runId': ({ runId }: { runId?: string }) => {
-            // Decode the URL-encoded runId
-            actions.setSelectedRunId(runId ? decodeURIComponent(runId) : null)
+            // Decode the URL-encoded runId. Only re-dispatch when the runId actually
+            // changed — a filter change updates the URL's search params (?filters=…)
+            // but keeps the same path, and re-firing `setSelectedRunId` here would
+            // chain into `loadClusteringRun` → `loadClusteringRunSuccess` →
+            // `loadPropertyFilteredItemIds`, which races with the loader the
+            // `setPropertyFilters` listener already kicked off and silently aborts it.
+            const newRunId = runId ? decodeURIComponent(runId) : null
+            if (newRunId !== values.selectedRunId) {
+                actions.setSelectedRunId(newRunId)
+            }
         },
     })),
 
     tabAwareActionToUrl(({ values }) => ({
         setSelectedRunId: () => {
-            if (values.selectedRunId) {
-                return urls.llmAnalyticsClusters(values.selectedRunId)
-            }
-            return urls.llmAnalyticsClusters()
+            // Preserve any search params already on the URL — `setPropertyFilters` (in the
+            // shared logic) writes `?filters=...` and `?filter_test_accounts=...`, and the
+            // route handler immediately echoes that back through `setSelectedRunId(currentRunId)`.
+            // Returning a bare path here would strip those params, the URL handler would re-fire
+            // with an empty `filters` set, and the property filter would be reset on every change.
+            const pathname = values.selectedRunId
+                ? urls.llmAnalyticsClusters(values.selectedRunId)
+                : urls.llmAnalyticsClusters()
+            return [pathname, router.values.searchParams]
         },
     })),
 ])

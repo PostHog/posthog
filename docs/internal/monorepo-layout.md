@@ -27,10 +27,11 @@ services/              # Independent backend services
   stripe-app/          # Stripe integration app
 
 common/                # Shared code (transitional - prefer other locations for new code)
-  hogli/               # Developer CLI tooling
   hogql_parser/        # HogQL parser
 
 tools/                 # Developer/CI tooling, not imported by runtime code
+  hogli/               # Developer CLI framework (PyPI-publishable; uv workspace member)
+  hogli-commands/      # PostHog-specific hogli commands (consumed via hogli.yaml)
 
 devenv/                # Developer environment config (intent map, process model)
 
@@ -85,11 +86,11 @@ That destroys the "platform is foundational" property and makes boundaries britt
 
 ### Common
 
-Transitional bucket for shared code that exists today: `hogli` (developer CLI), `hogql_parser`, and other cross-cutting utilities. New code should prefer `platform/`, `tools/`, `products/`, or `services/` — `common/` should not become the default dumping ground. Items here will migrate to more specific locations over time.
+Transitional bucket for shared code that exists today: `hogql_parser` and other cross-cutting utilities. New code should prefer `platform/`, `tools/`, `products/`, or `services/` — `common/` should not become the default dumping ground. Items here will migrate to more specific locations over time.
 
 ### Tools
 
-Developer tooling: CLIs, linters, formatters, code generators, scaffolding scripts, CI automation. Not imported by runtime code — build-time, CI, or developer-workflow artifacts only.
+Developer tooling: CLIs (notably `hogli/` framework + `hogli-commands/`), linters, formatters, code generators, scaffolding scripts, CI automation. Not imported by runtime code — build-time, CI, or developer-workflow artifacts only.
 
 ### Dev environment
 

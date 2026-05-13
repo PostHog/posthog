@@ -281,7 +281,7 @@ LIMIT 50`,
                         },
                         insightProps: createInsightProps(TileId.BOT_CRAWLERS, 'table'),
                         canOpenModal: false,
-                        canOpenInsight: false,
+                        canOpenInsight: true,
                     },
                     {
                         kind: 'query',
@@ -321,7 +321,7 @@ LIMIT 50`,
                         },
                         insightProps: createInsightProps(TileId.BOT_PATHS, 'table'),
                         canOpenModal: false,
-                        canOpenInsight: false,
+                        canOpenInsight: true,
                     },
                 ]
 

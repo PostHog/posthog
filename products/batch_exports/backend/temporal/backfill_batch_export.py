@@ -26,6 +26,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import (
     ClickHouseMemoryLimitExceededError,
+    ClickHouseQueryTimeoutError,
     ClickHouseTooManyBytesError,
     get_client,
 )
@@ -46,6 +47,11 @@ from products.batch_exports.backend.temporal.record_batch_model import SessionsR
 from products.batch_exports.backend.temporal.spmc import compose_filters_clause
 
 LOGGER = get_write_only_logger(__name__)
+
+# Cap individual backfill estimation queries so a slow query cannot hold a
+# ClickHouse slot for hours. The estimate is advisory: when the timeout fires
+# we proceed with the backfill without a record-count estimate.
+BACKFILL_INFO_QUERY_TIMEOUT_SECONDS = 300
 
 
 class TemporalScheduleNotFoundError(Exception):
@@ -252,7 +258,7 @@ async def _get_backfill_info_for_events(
         {filters_str}
         {date_conditions}
         FORMAT JSONEachRow
-        SETTINGS log_comment=%(log_comment)s
+        SETTINGS max_execution_time=%(max_execution_time)s, log_comment=%(log_comment)s
     """
 
     query_parameters = {
@@ -260,6 +266,7 @@ async def _get_backfill_info_for_events(
         "include_events": include_events,
         "exclude_events": exclude_events,
         "log_comment": log_comment,
+        "max_execution_time": BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
         **extra_query_parameters,
     }
 
@@ -313,7 +320,11 @@ async def _get_backfill_info_for_persons(
     lower_bound_condition = ""
     date_conditions = ""
     having_date_conditions = ""
-    query_parameters: dict[str, typing.Any] = {"team_id": team_id, "log_comment": log_comment}
+    query_parameters: dict[str, typing.Any] = {
+        "team_id": team_id,
+        "log_comment": log_comment,
+        "max_execution_time": BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
+    }
 
     if start_at is not None:
         lower_bound_condition = "AND _timestamp >= %(start_at)s "
@@ -340,7 +351,7 @@ async def _get_backfill_info_for_persons(
         AND _timestamp > '2000-01-01'
         {date_conditions}
         FORMAT JSONEachRow
-        SETTINGS log_comment=%(log_comment)s
+        SETTINGS max_execution_time=%(max_execution_time)s, log_comment=%(log_comment)s
     """
 
     min_timestamp_query_id = str(uuid.uuid4())
@@ -408,7 +419,7 @@ async def _get_backfill_info_for_persons(
         SELECT uniq(distinct_id) AS record_count
         FROM distinct_ids
         FORMAT JSONEachRow
-        SETTINGS optimize_uniq_to_count = 0, log_comment=%(log_comment)s
+        SETTINGS optimize_uniq_to_count = 0, max_execution_time=%(max_execution_time)s, log_comment=%(log_comment)s
     """
 
     count_query_id = str(uuid.uuid4())
@@ -444,7 +455,12 @@ async def _get_backfill_info_for_sessions(
     """
 
     model = SessionsRecordBatchModel(team_id=batch_export.team_id, batch_export_id=str(batch_export.id))
-    min_timestamp, record_count = await model.get_backfill_info(start_at, end_at, log_comment=log_comment)
+    min_timestamp, record_count = await model.get_backfill_info(
+        start_at,
+        end_at,
+        log_comment=log_comment,
+        max_execution_time_seconds=BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
+    )
 
     if min_timestamp is None:
         return None, 0
@@ -535,9 +551,30 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
                 total_records_count=None,
                 interval_seconds=interval_seconds,
             )
-    except (ClickHouseMemoryLimitExceededError, ClickHouseTooManyBytesError):
+    except ClickHouseQueryTimeoutError:
         logger.warning(
-            "Backfill estimation query exceeded resource limits, proceeding without estimate",
+            "Backfill estimation query timed out, proceeding without estimate",
+            model=model,
+            timeout_seconds=BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
+        )
+        return GetBackfillInfoOutputs(
+            adjusted_start_at=inputs.start_at,
+            total_records_count=None,
+            interval_seconds=interval_seconds,
+        )
+    except ClickHouseMemoryLimitExceededError:
+        logger.warning(
+            "Backfill estimation query exceeded memory limit, proceeding without estimate",
+            model=model,
+        )
+        return GetBackfillInfoOutputs(
+            adjusted_start_at=inputs.start_at,
+            total_records_count=None,
+            interval_seconds=interval_seconds,
+        )
+    except ClickHouseTooManyBytesError:
+        logger.warning(
+            "Backfill estimation query exceeded bytes-read limit, proceeding without estimate",
             model=model,
         )
         return GetBackfillInfoOutputs(

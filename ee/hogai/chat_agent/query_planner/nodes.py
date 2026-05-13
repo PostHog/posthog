@@ -23,8 +23,6 @@ from posthog.hogql.ai import SCHEMA_MESSAGE
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 
-from posthog.models.group_type_mapping import GroupTypeMapping
-
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.core.mixins import TaxonomyUpdateDispatcherNodeMixin
 from ee.hogai.core.node import AssistantNode
@@ -182,11 +180,9 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
 
     @cached_property
     def _team_group_types(self) -> list[str]:
-        return list(
-            GroupTypeMapping.objects.filter(project_id=self._team.project_id)  # nosemgrep: no-direct-persons-db-orm
-            .order_by("group_type_index")
-            .values_list("group_type", flat=True)
-        )
+        from posthog.models.group_type_mapping import get_group_types_for_project
+
+        return [m["group_type"] for m in get_group_types_for_project(self._team.project_id)]
 
     def _construct_messages(self, state: AssistantState) -> ChatPromptTemplate:
         """

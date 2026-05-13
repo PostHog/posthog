@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201 print is the intended output of this CLI
+#
+# THIS SCRIPT IS NO LONGER USED!
+# The Blacksmith trial period is over and we no longer run Blacksmith
+# runners alongside Depot, so there is nothing to pair.
+#
 # Pair Depot and Blacksmith job durations for the 7-day CI trial.
 #
 # Usage:
@@ -46,7 +51,6 @@ WORKFLOWS = [
     "ci-rust-flags-integration.yml",
     "ci-rust.yml",
     "ci-storybook.yml",
-    "ci-blacksmith-shadow.yml",
 ]
 
 # Matches a runner label at the end of a job name, either alone in trailing parens

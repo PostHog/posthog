@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
+import { IconFlag, IconGear, IconPulse, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
@@ -10,7 +10,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { RepoSwitcher } from '../components/RepoSwitcher'
-import { SnapshotCard } from '../components/SnapshotCard'
+import { RECENT_DRIFT_WINDOW, SnapshotCard } from '../components/SnapshotCard'
 import { SnapshotFacetSidebar } from '../components/SnapshotFacetSidebar'
 import { SnapshotStatRow } from '../components/SnapshotStatRow'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
@@ -44,7 +44,6 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
         facetGroups,
         facetSelection,
         filters,
-        sortLabel,
         thumbnailBasePath,
     } = useValues(visualReviewSnapshotOverviewSceneLogic)
     const { setStatPreset, toggleType, toggleArea, toggleStability, setTheme, setSearch, clearAllFilters } = useActions(
@@ -110,17 +109,12 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                             Clear all
                         </button>
                     )}
-                    <div className="text-xs text-muted">
-                        {filteredEntries.length > 0 && overview && (
-                            <>
-                                <span className="text-default">{filteredEntries.length.toLocaleString()}</span>
-                                {filteredEntries.length !== overview.entries.length && (
-                                    <> of {overview.entries.length.toLocaleString()}</>
-                                )}{' '}
-                                snapshots ·{' '}
-                            </>
-                        )}
-                        Sorted by <span className="text-default">{sortLabel.label}</span>
+                    <div className="text-xs text-muted inline-flex items-center gap-1">
+                        Sorted by{' '}
+                        <span className="text-default inline-flex items-center gap-0.5">
+                            <IconPulse className="w-3 h-3" />
+                            drift (high → low)
+                        </span>
                     </div>
                 </div>
             </div>
@@ -132,27 +126,29 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {/* Legend lives above the grid so first-time viewers see what the
-                sparkline colors and the "tolerated" chip mean before they dive
-                into hundreds of cards. */}
-            <div className="flex items-center gap-3 text-[11px] text-muted">
-                <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--success)' }} />
-                    Clean
-                </span>
-                <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--primary-3000)' }} />
-                    Tolerated
-                </span>
-                <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--warning-dark)' }} />
-                    Changed
-                </span>
-                <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--danger)' }} />
+            {/* Legend mirrors the card meta row: same icons, same order
+                (severity → trust debt → history). Lives above the grid so
+                first-time viewers see what each glyph means before they
+                dive into hundreds of cards. */}
+            <div className="flex items-center gap-4 text-[11px] text-muted flex-wrap">
+                <span className="inline-flex items-center gap-1">
+                    <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-warning text-white">
+                        <IconWarning className="w-2.5 h-2.5" />
+                    </span>
                     Quarantined
                 </span>
-                <span className="ml-auto">Sparkline shows last 30 days</span>
+                <span className="inline-flex items-center gap-1">
+                    <IconPulse className="w-3 h-3" />
+                    Avg drift over last {RECENT_DRIFT_WINDOW} default-branch runs
+                </span>
+                <span className="inline-flex items-center gap-1">
+                    <IconFlag className="w-3 h-3" />
+                    Drift accepted in last 30 days (human or agent)
+                </span>
+                <span className="inline-flex items-center gap-1">
+                    <span className="font-mono">↻ N</span>
+                    Baseline updates since inception
+                </span>
             </div>
 
             <div className="flex gap-6 items-start">
@@ -170,7 +166,16 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                     }}
                 />
 
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 flex flex-col gap-2">
+                    {overview && filteredEntries.length > 0 && (
+                        <div className="text-sm text-default">
+                            Showing <span className="font-semibold">{filteredEntries.length.toLocaleString()}</span>
+                            {filteredEntries.length !== overview.entries.length && (
+                                <> of {overview.entries.length.toLocaleString()}</>
+                            )}{' '}
+                            {filteredEntries.length === 1 ? 'snapshot' : 'snapshots'}
+                        </div>
+                    )}
                     {overviewLoading && !overview ? (
                         <div
                             className="grid gap-3"

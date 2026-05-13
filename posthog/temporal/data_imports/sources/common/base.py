@@ -130,6 +130,10 @@ class WebhookCreationResult:
     success: bool
     error: str | None = None
     extra_inputs: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Names of `webhookFields` the user still needs to fill in after creation
+    # (e.g. when the source's API doesn't return the signing secret on create).
+    # Empty list means the auto-created webhook is fully configured.
+    pending_inputs: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -170,6 +174,18 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         webhook creation, returns a failed result so the user can set it up manually.
         """
         raise NotImplementedError()
+
+    def webhook_inputs_updated(
+        self, config: ConfigType, webhook_url: str, team_id: int, inputs: dict[str, Any]
+    ) -> tuple[bool, str | None]:
+        """Called when webhook inputs have been set on the underlying hog function.
+
+        Returns ``(success, error)``. Implementations that need to call out to the
+        external service (e.g. enabling a previously-disabled webhook) should return
+        ``(False, message)`` on failure so the API view can surface the error to the
+        user instead of silently dropping it.
+        """
+        return True, None
 
     @property
     @abstractmethod

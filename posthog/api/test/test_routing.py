@@ -9,6 +9,8 @@ from django.urls import include, path
 from django.utils import timezone
 
 from rest_framework import viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
 from posthog.api.annotation import AnnotationSerializer
 from posthog.api.oauth.test_dcr import generate_rsa_key
@@ -17,6 +19,7 @@ from posthog.models.annotation import Annotation
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization
 from posthog.models.project import Project
+from posthog.models.scoping import get_current_team_id
 from posthog.models.team.team import Team
 
 
@@ -24,6 +27,10 @@ class FooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
+
+    @action(detail=False, methods=["get"])
+    def current_scope(self, request, **kwargs):
+        return Response({"team_id": get_current_team_id()})
 
 
 class ScopedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -94,6 +101,34 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         response = self.client.get(f"/api/organizations/{self.organization.id}/foos/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 3)  # All except other_org_annotation
+
+    def test_team_scope_context_set_from_url_team_not_user_current_team(self):
+        # User's "current" team is set to self.team, but the URL targets another
+        # team in the same org. The team scope context inside the view must reflect
+        # the URL's team, not user.current_team_id (otherwise queries would silently
+        # mismatch — same class of bug as #50899).
+        other_team = Team.objects.create(organization=self.organization, project=self.project)
+        self.user.current_team = self.team
+        self.user.save()
+
+        # Capture the scope before the request — `dispatch()` resets via
+        # ContextVar.reset(token), which restores whatever was in scope before
+        # the view fired. Some test runners may have leftover scope from
+        # earlier tests on the same thread; we just assert the wrapper
+        # restored the pre-request value, not unconditionally None.
+        pre_request_scope = get_current_team_id()
+
+        response = self.client.get(f"/api/environments/{other_team.id}/foos/current_scope/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["team_id"], other_team.id)
+        self.assertEqual(get_current_team_id(), pre_request_scope)
+
+    def test_team_scope_context_set_from_url_for_project_view(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/foos/current_scope/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["team_id"], self.team.id)
 
     def test_cannot_override_special_methods(self):
         with pytest.raises(Exception) as e:

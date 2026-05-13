@@ -9,15 +9,17 @@ use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
-use personhog_coordination::error::Result as CoordResult;
-use personhog_coordination::routing_table::{CutoverHandler, RoutingTable, RoutingTableConfig};
+use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
-use personhog_router::backend::{LeaderBackend, ReplicaBackend, ReplicaBackendConfig};
+use personhog_router::backend::{
+    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaBackendConfig, StashTable,
+};
 use personhog_router::config::{Config, RouterMode};
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
+use personhog_router::stash_handler::RouterStashHandler;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -27,36 +29,6 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 common_alloc::used!();
-
-/// Cutover handler for the router. When a partition handoff reaches the Ready
-/// phase, the routing table calls this to perform the traffic switch.
-///
-/// The `LeaderBackend` already reads from the shared routing table which is
-/// updated by the `RoutingTable`'s assignment watch. The cutover handler
-/// clears the cached gRPC client for the old owner so the next request
-/// reconnects to the new leader pod.
-struct RouterCutoverHandler {
-    leader_backend: Arc<LeaderBackend>,
-}
-
-#[async_trait::async_trait]
-impl CutoverHandler for RouterCutoverHandler {
-    async fn execute_cutover(
-        &self,
-        partition: u32,
-        old_owner: &str,
-        new_owner: &str,
-    ) -> CoordResult<()> {
-        tracing::info!(
-            partition,
-            old_owner,
-            new_owner,
-            "executing cutover: clearing cached client for old owner"
-        );
-        self.leader_backend.clear_client_cache(old_owner);
-        Ok(())
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -220,16 +192,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let leader_backend = Arc::new(LeaderBackend::new(
             shared_table,
             Arc::new(move |pod_name: &str| Some(format!("http://{}:{}", pod_name, leader_port))),
-            num_partitions,
-            config.backend_timeout(),
-            config.retry_config(),
-            config.grpc_max_send_message_size,
-            config.grpc_max_recv_message_size,
+            LeaderBackendConfig {
+                num_partitions,
+                timeout: config.backend_timeout(),
+                retry_config: config.retry_config(),
+                max_send_message_size: config.grpc_max_send_message_size,
+                max_recv_message_size: config.grpc_max_recv_message_size,
+            },
+            StashTable::with_bounds(
+                config.stash_max_messages_per_partition,
+                config.stash_max_bytes_per_partition,
+            ),
         ));
 
-        let cutover_handler: Arc<dyn CutoverHandler> = Arc::new(RouterCutoverHandler {
-            leader_backend: Arc::clone(&leader_backend),
-        });
+        let stash_handler: Arc<dyn StashHandler> = Arc::new(RouterStashHandler::new(
+            Arc::clone(&leader_backend),
+            config.stash_max_wait(),
+            config.stash_drain_concurrency,
+        ));
 
         // Start routing table (etcd registration + assignment/handoff watches)
         let routing_table_handle =
@@ -238,7 +218,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             let _guard = routing_table_handle.process_scope();
             if let Err(e) = coordination_routing_table
-                .run(routing_table_handle.shutdown_token(), cutover_handler)
+                .run(routing_table_handle.shutdown_token(), stash_handler)
                 .await
             {
                 routing_table_handle.signal_failure(format!("Routing table error: {e}"));

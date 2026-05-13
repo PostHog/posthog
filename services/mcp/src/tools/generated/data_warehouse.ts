@@ -405,6 +405,7 @@ const externalDataSourcesCreate = (): ToolBase<
         if (params.access_method !== undefined) {
             body['access_method'] = params.access_method
         }
+        body['created_via'] = 'mcp'
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/`,
@@ -427,6 +428,9 @@ const externalDataSourcesCreateWebhookCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesCreateWebhookCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         if (params.client_secret !== undefined) {
             body['client_secret'] = params.client_secret
         }
@@ -464,6 +468,9 @@ const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesDeleteWebhookCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         if (params.client_secret !== undefined) {
             body['client_secret'] = params.client_secret
         }
@@ -539,6 +546,9 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         if (params.client_secret !== undefined) {
             body['client_secret'] = params.client_secret
         }
@@ -572,9 +582,14 @@ const externalDataSourcesRefreshSchemas = (): ToolBase<typeof ExternalDataSource
     schema: ExternalDataSourcesRefreshSchemasSchema,
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesRefreshSchemasSchema>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/refresh_schemas/`,
+            body,
         })
         return result
     },
@@ -589,9 +604,14 @@ const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadS
     schema: ExternalDataSourcesReloadSchema,
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesReloadSchema>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/reload/`,
+            body,
         })
         return result
     },
@@ -628,6 +648,9 @@ const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesUpdateWebhookInputsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         if (params.client_secret !== undefined) {
             body['client_secret'] = params.client_secret
         }

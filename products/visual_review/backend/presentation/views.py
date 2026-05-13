@@ -357,8 +357,43 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots", "recompute"]
-    scope_object_read_actions = ["retrieve", "snapshots"]
+    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts", "snapshot_history", "tolerated_hashes"]
     serializer_class = RunSerializer
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("review_state", str, required=False, description="Filter by review state"),
+            OpenApiParameter("pr_number", int, required=False, description="Filter by GitHub PR number"),
+            OpenApiParameter("commit_sha", str, required=False, description="Filter by full commit SHA"),
+            OpenApiParameter("branch", str, required=False, description="Filter by branch name"),
+        ],
+        responses={200: RunSerializer(many=True)},
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        """List runs for the team, optionally filtered by review state, PR number, commit SHA, or branch."""
+        pr_number_raw = request.query_params.get("pr_number")
+        try:
+            pr_number = int(pr_number_raw) if pr_number_raw is not None else None
+        except ValueError:
+            return Response({"detail": "pr_number must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+        runs = api.list_runs(
+            self.team_id,
+            review_state=request.query_params.get("review_state"),
+            pr_number=pr_number,
+            commit_sha=request.query_params.get("commit_sha"),
+            branch=request.query_params.get("branch"),
+        )
+        page = self.paginate_queryset(runs)
+        if page is not None:
+            serializer = RunSerializer(instance=page, many=True)
+            return self.get_paginated_response(serializer.data)
+        return Response(RunSerializer(instance=runs, many=True).data)
+
+    @extend_schema(responses={200: ReviewStateCountsSerializer})
+    @action(detail=False, methods=["get"])
+    def counts(self, request: Request, **kwargs) -> Response:
+        """Review state counts for the runs list."""
+        return Response(api.get_review_state_counts(self.team_id))
 
     @validated_request(
         request_serializer=CreateRunInputSerializer,
@@ -451,6 +486,28 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except ValueError:
             return Response({"detail": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(AddSnapshotsResultSerializer(instance=result).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
+        responses={200: SnapshotHistoryEntrySerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="snapshot-history")
+    def snapshot_history(self, request: Request, pk: str, **kwargs) -> Response:
+        """Recent change history for a snapshot identifier across runs."""
+        identifier = request.query_params.get("identifier")
+        if not identifier:
+            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            run = api.get_run(UUID(pk), team_id=self.team_id)
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        history = api.get_snapshot_history(run.repo_id, identifier, run.run_type)
+        page = self.paginate_queryset(history)
+        if page is not None:
+            return self.get_paginated_response(SnapshotHistoryEntrySerializer(instance=page, many=True).data)
+        return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
     @extend_schema(request=None, responses={200: RunSerializer})
     @action(detail=True, methods=["post"])

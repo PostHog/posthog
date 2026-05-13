@@ -1,9 +1,9 @@
 import base64
 from typing import Any, Optional
 
-import requests
 from requests import Request, Response
 
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator, JSONLinkPaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
@@ -310,7 +310,7 @@ def zendesk_source(
 
 def validate_credentials(subdomain: str, api_key: str, email_address: str) -> bool:
     basic_token = base64.b64encode(f"{email_address}/token:{api_key}".encode("ascii")).decode("ascii")
-    res = requests.get(
+    res = make_tracked_session().get(
         f"https://{subdomain}.zendesk.com/api/v2/tickets/count",
         headers={"Authorization": f"Basic {basic_token}"},
     )

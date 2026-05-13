@@ -11,7 +11,7 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import ArtifactContentType, ArtifactSource, VisualizationArtifactContent
 
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
@@ -164,13 +164,14 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         return "next"
 
     async def _get_group_mapping_prompt(self) -> str:
-        # nosemgrep: no-direct-persons-db-orm
-        groups = GroupTypeMapping.objects.filter(
-            project_id=self._team.project_id
-        ).order_by(  # nosemgrep: no-direct-persons-db-orm
-            "group_type_index"
-        )  # nosemgrep: no-direct-persons-db-orm
-        group_names = [f'name "{group.group_type}", index {group.group_type_index}' async for group in groups]
+        from posthog.models.group_type_mapping import get_group_types_for_project
+
+        @database_sync_to_async(thread_sensitive=False)
+        def _fetch() -> list[dict]:
+            return get_group_types_for_project(self._team.project_id)
+
+        groups = await _fetch()
+        group_names = [f'name "{g["group_type"]}", index {g["group_type_index"]}' for g in groups]
         if not group_names:
             return "The user has not defined any groups."
 

@@ -3,10 +3,11 @@ from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Any, Optional
 
-import requests
 from requests import Request, Response
+from requests.exceptions import RequestException
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
@@ -160,7 +161,7 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = make_tracked_session().get(url, headers=headers, timeout=10)
 
         if response.status_code == 200:
             return True, None
@@ -179,7 +180,7 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
             pass
 
         return False, response.text
-    except requests.exceptions.RequestException as e:
+    except RequestException as e:
         return False, str(e)
 
 
@@ -189,15 +190,18 @@ def _fetch_all_lists(api_key: str, dc: str) -> list[dict[str, Any]]:
     offset = 0
     page_size = 1000
 
-    headers = {
-        "Authorization": f"apikey {api_key}",
-        "Accept": "application/json",
-    }
+    # One session for the whole pagination loop so urllib3's connection
+    # pool keeps the TLS connection warm across pages.
+    session = make_tracked_session(
+        headers={
+            "Authorization": f"apikey {api_key}",
+            "Accept": "application/json",
+        }
+    )
 
     while True:
-        response = requests.get(
+        response = session.get(
             f"https://{dc}.api.mailchimp.com/3.0/lists",
-            headers=headers,
             params={"count": page_size, "offset": offset},
             timeout=120,
         )
@@ -227,10 +231,13 @@ def _fetch_contacts_for_list(
     offset = start_offset
     page_size = 1000
 
-    headers = {
-        "Authorization": f"apikey {api_key}",
-        "Accept": "application/json",
-    }
+    # One session for the whole pagination loop — see `_fetch_all_lists`.
+    session = make_tracked_session(
+        headers={
+            "Authorization": f"apikey {api_key}",
+            "Accept": "application/json",
+        }
+    )
 
     while True:
         params: dict[str, str | int] = {
@@ -240,9 +247,8 @@ def _fetch_contacts_for_list(
         if since_last_changed:
             params["since_last_changed"] = since_last_changed
 
-        response = requests.get(
+        response = session.get(
             f"https://{dc}.api.mailchimp.com/3.0/lists/{list_id}/members",
-            headers=headers,
             params=params,
             timeout=120,
         )

@@ -282,7 +282,8 @@ class CopperSourceConfig(config.Config):
 
 @config.config
 class CustomerIOSourceConfig(config.Config):
-    pass
+    app_api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -416,7 +417,7 @@ class InstagramSourceConfig(config.Config):
 
 @config.config
 class IntercomSourceConfig(config.Config):
-    pass
+    intercom_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config

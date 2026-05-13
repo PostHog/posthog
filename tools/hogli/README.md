@@ -115,13 +115,41 @@ my:command:
 
 ## Python Commands
 
-For complex logic, create Python commands using Click. Create a `commands.py` (or `__init__.py`) in your commands directory:
+For complex logic, define plain Click commands and reference them from `hogli.yaml` with `click: module.path:attribute`.
+
+Click command modules are lazy-loaded. Top-level `hogli --help` uses the manifest description without importing Python command modules; `hogli <command> --help` and command execution import the target on demand.
+
+The Click command name must match the manifest key — drift surfaces as a `ClickException` on resolution. The framework follows Click's recommendation that lazy loading be paired with a test that runs `--help` on each subcommand; PostHog's test suite parametrizes over every `click:` entry in `hogli.yaml` to do exactly that.
+
+Mark commands hidden via `hidden: true` in `hogli.yaml`. Don't use `@click.command(hidden=True)` — the manifest is the single source of truth.
+
+### Minimal: one importable package
+
+```text
+your-repo/
+├── hogli.yaml
+└── tools/
+    └── hogli_commands/
+        ├── __init__.py
+        └── db.py
+```
+
+```yaml
+# hogli.yaml
+config:
+  commands_dir: tools/hogli_commands
+
+db:
+  db:migrate:
+    click: hogli_commands.db:db_migrate
+    description: Run database migrations
+```
 
 ```python
+# tools/hogli_commands/db.py
 import click
-from hogli.cli import cli
 
-@cli.command(name="db:migrate")
+@click.command(name="db:migrate")
 @click.option("--dry-run", is_flag=True, help="Show SQL without executing")
 def db_migrate(dry_run: bool) -> None:
     """Run database migrations."""
@@ -132,20 +160,52 @@ def db_migrate(dry_run: bool) -> None:
         pass
 ```
 
-Configure the location in `hogli.yaml`:
+`commands_dir` is optional and explicit: hogli only uses it when configured. It must be a relative path to an existing directory. hogli puts that directory's parent on `sys.path`, so the directory should be an importable package or module tree. It must not be named `hogli`, since that shadows the installed framework.
+
+### Full: project package with submodules
+
+For a larger command surface, keep the distribution/project directory separate from the import package:
+
+```text
+your-repo/
+├── hogli.yaml
+└── tools/
+    └── hogli-commands/
+        ├── pyproject.toml
+        └── hogli_commands/    # underscored: this is the import name
+            ├── __init__.py
+            ├── build.py
+            ├── db.py
+            └── deploy.py
+```
 
 ```yaml
+# hogli.yaml
 config:
-  commands_dir: tools/cli # Defaults to hogli/ next to hogli.yaml
+  commands_dir: tools/hogli-commands/hogli_commands
+
+build:
+  build:
+    click: hogli_commands.build:build
+    description: Run build pipelines
 ```
+
+The dashed outer dir + underscored inner package follows PEP 8 (dashed project name, underscored import name). This is the layout PostHog itself uses.
 
 ## Extension Hooks
 
-Extensions can inject behavior at three framework call sites without forking. Register from a module that runs at command-load time (e.g. your `commands_dir` package's `__init__.py` or `commands.py`). Exceptions raised by hooks are swallowed — one extension can't break another.
+Extensions can inject behavior at three framework call sites without forking. Register hooks from modules listed in `config.boot_modules`; those modules are imported once at startup, before command dispatch. Keep boot modules cheap to import and move heavy work inside hook functions. Exceptions raised by hooks are swallowed, so one extension can't break another.
+
+```yaml
+config:
+  commands_dir: tools/hogli_commands
+  boot_modules:
+    - hogli_commands.boot
+```
 
 ### Prechecks
 
-Run validation before a command executes, keyed by `type:` in a `precheck:` entry in `hogli.yaml`. Return `False` to abort, `True`/`None` to continue.
+Run validation before a command executes, keyed by `type:` in a `prechecks:` entry in `hogli.yaml`. Return `False` to abort, `True`/`None` to continue.
 
 ```python
 from hogli.hooks import register_precheck
@@ -160,7 +220,7 @@ register_precheck("migrations", check_migrations)
 ```yaml
 dev:start:
   cmd: docker compose up -d
-  precheck:
+  prechecks:
     - type: migrations
 ```
 
@@ -195,7 +255,9 @@ register_post_command_hook(maybe_show_hint)
 
 ```yaml
 config:
-  commands_dir: path/to/commands # Python commands directory (default: hogli/)
+  commands_dir: path/to/commands # Optional local Python command package
+  boot_modules:
+    - package.boot # Optional eager hook registration modules
   scripts_dir: scripts # For bin_script resolution (default: bin/)
 
 metadata:
@@ -209,7 +271,7 @@ metadata:
 ## Built-in Commands
 
 - `hogli quickstart` - Getting started guide
-- `hogli meta:check` - Validate manifest, find undocumented scripts
+- `hogli meta:check` - Validate manifest against bin scripts (for CI)
 - `hogli meta:concepts` - Show infrastructure concepts (if defined)
 
 ## Requirements
@@ -217,6 +279,35 @@ metadata:
 - Python 3.10+
 - click
 - pyyaml
+
+## Releasing
+
+Releases are published to PyPI via `.github/workflows/publish-hogli.yml`,
+triggered by pushing a `hogli-v*` tag from `master`.
+
+1. Bump `version` in `tools/hogli/pyproject.toml` and merge to `master`.
+2. From `master`, tag and push:
+
+   ```bash
+   git tag hogli-v0.1.1
+   git push origin hogli-v0.1.1
+   ```
+
+The workflow verifies the tag matches the `pyproject.toml` version, builds
+the sdist and wheel with `uv build`, smoke-tests the wheel in a fresh
+venv, publishes via PyPI trusted publishing (OIDC) — no API tokens —
+and creates a GitHub Release with auto-generated notes from the commits
+since the previous tag.
+
+To re-trigger after a failed publish, dispatch the workflow against the
+existing tag — no need to retag:
+
+```bash
+gh workflow run publish-hogli.yml --ref hogli-v0.1.1
+```
+
+The publish job is guarded by `if: startsWith(github.ref, 'refs/tags/hogli-v')`,
+so dispatches from a branch are no-ops.
 
 ## License
 

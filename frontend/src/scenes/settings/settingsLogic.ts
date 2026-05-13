@@ -632,5 +632,18 @@ export const settingsLogic = kea<settingsLogicType>([
                 actions.selectSetting(selectedSettingId)
             }
         },
+        ['*/logs']: (_, searchParams, hashParams) => {
+            const fromHash = hashParams.selectedSetting as string | undefined
+            const fromQuery = typeof searchParams?.setting === 'string' ? searchParams.setting : undefined
+            const raw = fromHash ?? fromQuery
+            if (!raw) {
+                return
+            }
+            const selectedSettingId = (raw === 'logs-sampling' ? 'logs-drop-rules' : raw) as SettingId
+
+            if (values.selectedSettingId !== selectedSettingId) {
+                actions.selectSetting(selectedSettingId)
+            }
+        },
     })),
 ])
