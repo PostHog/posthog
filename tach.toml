@@ -117,6 +117,13 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.automl"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.batch_exports"
 depends_on = [
     "ee",
