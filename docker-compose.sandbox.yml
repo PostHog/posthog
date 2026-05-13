@@ -122,11 +122,16 @@ services:
             - app
 
     app:
-        # The image is built by bin/sandbox before `compose up`: either the
-        # shared base (posthog-sandbox:base) or a per-user image layered with
-        # the contributor's tools.yaml. compose never builds it directly,
-        # which is why there is no `build:` block here.
-        image: ${SANDBOX_USER_IMAGE:-posthog-sandbox:base}
+        # Base build. When the user has tools.yaml entries, bin/sandbox
+        # generates a Dockerfile.user that layers tool installs on top and
+        # writes an override (docker-compose.tool-auth.yml) that swaps
+        # build.dockerfile to point at it.
+        build:
+            context: .
+            dockerfile: Dockerfile.sandbox
+            args:
+                SANDBOX_UID: '${SANDBOX_UID:-1000}'
+                SANDBOX_GID: '${SANDBOX_GID:-1000}'
         restart: on-failure
         init: true
         # mprocs (used by bin/start) requires a TTY

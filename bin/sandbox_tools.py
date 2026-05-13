@@ -18,6 +18,7 @@ import yaml
 REGISTRY_DIR = Path.home() / ".posthog-sandboxes"
 TOOLS_FILE = REGISTRY_DIR / "tools.yaml"
 TOOL_AUTH_COMPOSE_FILE = REGISTRY_DIR / "docker-compose.tool-auth.yml"
+USER_DOCKERFILE = REGISTRY_DIR / "Dockerfile.user"
 
 # In-sandbox $HOME. Must stay in sync with SANDBOX_HOME in
 # bin/sandbox-entrypoint.py; tools.yaml copy targets resolve here.
@@ -195,18 +196,55 @@ def save_user_tools(tools: list[Tool]) -> None:
     )
 
 
-def write_tool_auth_compose(tools: list[Tool]) -> Path:
-    """Generate a compose override that bind-mounts each tools.yaml copy entry.
+def write_user_dockerfile(tools: list[Tool], *, base_dockerfile: Path, out: Path = USER_DOCKERFILE) -> Path:
+    """Generate a Dockerfile that layers tool installs on top of the base.
 
-    Stacked under docker-compose.sandbox.yml via an extra ``-f`` flag, so the
-    base compose file stays static. Caller invokes this before every
-    ``docker compose`` invocation: tools.yaml is the source of truth and the
-    override is just a view of it, so there is no cache to invalidate.
+    Appends one RUN block per tool's install snippet to the base Dockerfile's
+    contents. Docker's BuildKit layer cache shares the base content across
+    all generated user dockerfiles automatically, so there is no separate
+    base-image tag to manage.
 
-    Missing host sources are skipped entirely (no mount, no target). The
-    entrypoint then leaves that target absent in the sandbox, letting tools
-    that initialize their own state on first run (e.g. ``gh auth login``)
-    keep working.
+    The personal layers create the sandbox user at build time so commands
+    like ``npm install -g`` resolve against /home/sandbox; the entrypoint's
+    create_sandbox_user is idempotent and short-circuits if the user already
+    exists.
+    """
+    parts = [
+        base_dockerfile.read_text().rstrip(),
+        "\n\n# --- Personal tool layers (generated from ~/.posthog-sandboxes/tools.yaml) ---\n",
+        "ARG SANDBOX_UID\nARG SANDBOX_GID\n\n",
+        "RUN groupadd -g ${SANDBOX_GID} sandbox 2>/dev/null || true \\\n",
+        " && useradd  -u ${SANDBOX_UID} -g ${SANDBOX_GID} -m -s /bin/bash sandbox\n\n",
+        "USER sandbox\n",
+        "ENV NPM_CONFIG_PREFIX=/home/sandbox/.npm-global\n",
+        "ENV PATH=/home/sandbox/.npm-global/bin:/home/sandbox/.local/bin:${PATH}\n",
+        "RUN mkdir -p /home/sandbox/.npm-global/bin /home/sandbox/.local/bin\n\n",
+    ]
+    for t in tools:
+        snippet = (t.install or "").strip()
+        if not snippet:
+            continue
+        parts.append(f"# Tool: {t.name}\n")
+        parts.append("RUN <<'__POSTHOG_SANDBOX_EOF__'\nset -e\n")
+        parts.append(snippet + "\n")
+        parts.append("__POSTHOG_SANDBOX_EOF__\n\n")
+    parts.append("USER root\n")
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("".join(parts))
+    return out
+
+
+def write_tool_auth_compose(tools: list[Tool], *, dockerfile: Path | None) -> Path:
+    """Generate a compose override that wires up tool auth mounts and (when
+    ``dockerfile`` is set) points the app build at the generated user
+    Dockerfile.
+
+    Rewritten before every ``docker compose`` call: tools.yaml is the source
+    of truth and the override is just a view of it, so there is no cache to
+    invalidate. Missing host sources are skipped entirely (no mount, no
+    target), letting tools that initialize their own state on first run
+    (e.g. ``gh auth login``) keep working.
     """
     volumes: list[str] = []
     targets: list[str] = []
@@ -218,15 +256,14 @@ def write_tool_auth_compose(tools: list[Tool]) -> Path:
         volumes.append(f"{c.source}:/tmp/sandbox-tool-auth/{idx}:ro")
         targets.append(c.target)
 
-    payload = {
-        "services": {
-            "app": {
-                "volumes": volumes,
-                "environment": {"SANDBOX_TOOL_AUTH_PATHS": ":".join(targets)},
-            },
-        },
+    app: dict = {
+        "volumes": volumes,
+        "environment": {"SANDBOX_TOOL_AUTH_PATHS": ":".join(targets)},
     }
+    if dockerfile is not None:
+        app["build"] = {"dockerfile": str(dockerfile)}
+
     TOOL_AUTH_COMPOSE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(TOOL_AUTH_COMPOSE_FILE, "w") as f:
-        yaml.safe_dump(payload, f, sort_keys=False)
+        yaml.safe_dump({"services": {"app": app}}, f, sort_keys=False)
     return TOOL_AUTH_COMPOSE_FILE

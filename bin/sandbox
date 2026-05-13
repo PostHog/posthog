@@ -19,7 +19,6 @@ import json
 import time
 import fcntl
 import shutil
-import hashlib
 import argparse
 import platform
 import tempfile
@@ -76,17 +75,12 @@ def _host_git_dir() -> Path:
 REGISTRY_DIR = Path.home() / ".posthog-sandboxes"
 REGISTRY_FILE = REGISTRY_DIR / "registry.json"
 CONFIG_FILE = REGISTRY_DIR / "config.json"
-TOOLS_BUILD_LOCK = REGISTRY_DIR / ".tools-build.lock"
 
 # Checked-in repository catalog of vetted tool recipes (gh, gt, etc.).
 # `sandbox tools add <name>` picks up entries by name.
 CATALOG_FILE = REPO_ROOT / "bin/sandbox-tools.yaml"
 
-# Shared, content-addressed image tags used by docker-compose.sandbox.yml.
-# Personal layers on top track tools.yaml + host UID/GID.
-BASE_IMAGE_TAG = "posthog-sandbox:base"
-USER_IMAGE_PREFIX = "posthog-sandbox-user"
-KEEP_USER_IMAGES = 3
+SANDBOX_DOCKERFILE = REPO_ROOT / "Dockerfile.sandbox"
 
 PORT_BASE = 48001
 
@@ -311,248 +305,11 @@ class Registry:
             self._write(f, data)
 
 
-# ---------------------------------------------------------------------------
-# Sandbox image management (base + per-user layers)
-# ---------------------------------------------------------------------------
-
-
-# Files that affect the contents of the base sandbox image. Editing any of
-# them invalidates the cached base via the image label set in
-# _ensure_base_image.
-_BASE_IMAGE_SOURCES = (
-    "Dockerfile.sandbox",
-    "bin/sandbox-shims/tmux.sandbox.conf",
-    "bin/sandbox-entrypoint.py",
-)
-
-
-def _base_image_hash() -> str:
-    h = hashlib.sha256()
-    for rel in _BASE_IMAGE_SOURCES:
-        path = REPO_ROOT / rel
-        h.update(rel.encode())
-        h.update(b"\0")
-        h.update(path.read_bytes())
-        h.update(b"\0")
-    return h.hexdigest()
-
-
-def _image_exists(tag: str) -> bool:
-    return run(["docker", "image", "inspect", tag], check=False, capture=True).returncode == 0
-
-
-def _image_label(tag: str, label: str) -> str | None:
-    """Read a label from an image. Returns None if the label isn't set.
-
-    Caller is expected to have already confirmed the image exists; a docker
-    inspect failure here raises rather than silently masking a daemon problem.
-    """
-    result = run(
-        ["docker", "image", "inspect", "--format", f'{{{{ index .Config.Labels "{label}" }}}}', tag],
-        capture=True,
-    )
-    value = result.stdout.strip()
-    return value if value and value != "<no value>" else None
-
-
-
-
-def _ensure_base_image() -> str:
-    """Build posthog-sandbox:base if missing or stale, then return its tag.
-
-    Staleness is detected by comparing the cached image's
-    `posthog.sandbox.dockerfile-hash` label against a hash of the
-    Dockerfile and the files it COPYs.
-    """
-    expected_hash = _base_image_hash()
-    if (
-        _image_exists(BASE_IMAGE_TAG)
-        and _image_label(BASE_IMAGE_TAG, "posthog.sandbox.dockerfile-hash") == expected_hash
-    ):
-        return BASE_IMAGE_TAG
-
-    info("Building sandbox base image (first build is ~3-5 min; cached rebuilds are fast)...")
-    result = subprocess.run(
-        [
-            "docker",
-            "build",
-            "-t",
-            BASE_IMAGE_TAG,
-            "--label",
-            f"posthog.sandbox.dockerfile-hash={expected_hash}",
-            "-f",
-            str(REPO_ROOT / "Dockerfile.sandbox"),
-            str(REPO_ROOT),
-        ],
-    )
-    if result.returncode != 0:
-        fatal(f"Base image build failed (exit {result.returncode}).")
-    success(f"Built base image {BASE_IMAGE_TAG}.")
-    return BASE_IMAGE_TAG
-
-
-def _user_image_hash_input(tools: list[Tool]) -> bytes:
-    """Canonical bytes hashed into the user image tag.
-
-    Tool list order matters (it determines the layer order, so reordering
-    changes the cached layers); within each entry, keys are sorted to
-    keep the hash stable across YAML formatting differences. The base
-    image's *content hash* (not its tag) is folded in so a rebuilt base
-    under the same tag invalidates every user image stacked on top.
-    """
-    payload = {
-        "base_content_hash": _base_image_hash(),
-        "uid": os.getuid(),
-        "gid": os.getgid(),
-        "tools": [
-            {
-                "name": t.name,
-                "install": t.install,
-                "copy": [{"source": c.source, "target": c.target} for c in t.copy],
-            }
-            for t in tools
-        ],
-    }
-    return json.dumps(payload, sort_keys=True).encode()
-
-
-def _user_image_tag(tools: list[Tool]) -> str:
-    h = hashlib.sha256(_user_image_hash_input(tools)).hexdigest()[:16]
-    return f"{USER_IMAGE_PREFIX}:{h}"
-
-
-_DOCKERFILE_PROLOGUE = """\
-# syntax=docker/dockerfile:1.4
-FROM {base_tag}
-
-ARG SANDBOX_UID
-ARG SANDBOX_GID
-
-# Bake the sandbox user at build time so install snippets run as the same
-# identity that the runtime container does. groupadd may fail when the host
-# GID matches a stock system group; the trailing || true keeps the build
-# going since useradd will reuse that group.
-RUN groupadd -g ${{SANDBOX_GID}} sandbox 2>/dev/null || true \\
- && useradd  -u ${{SANDBOX_UID}} -g ${{SANDBOX_GID}} -m -s /bin/bash sandbox
-
-USER sandbox
-ENV NPM_CONFIG_PREFIX=/home/sandbox/.npm-global
-ENV PATH=/home/sandbox/.npm-global/bin:/home/sandbox/.local/bin:${{PATH}}
-RUN mkdir -p /home/sandbox/.npm-global/bin /home/sandbox/.local/bin
-"""
-
-
-def _generate_dockerfile(installs: list[tuple[str, str]], base_tag: str, *, end_as_root: bool) -> str:
-    """Materialize a sandbox image Dockerfile.
-
-    `installs` is `(tool_name, install_snippet)` pairs, one RUN per pair so
-    layers cache independently: appending a tool reuses prior layers; editing
-    a snippet invalidates only that layer onward. `end_as_root` controls
-    whether the image reverts to USER root before exit. The personal image
-    needs it (the entrypoint's root_phase creates /tmp/sandbox-home, copies
-    host auth, starts sshd, then gosu's down to the sandbox user); the
-    throwaway test image does not.
-    """
-    parts = [_DOCKERFILE_PROLOGUE.format(base_tag=base_tag), "\n"]
-    for name, install in installs:
-        snippet = install.strip()
-        if not snippet:
-            continue
-        parts.append(f"# Tool: {name}\n")
-        parts.append("RUN <<'__POSTHOG_SANDBOX_EOF__'\nset -e\n")
-        parts.append(snippet + "\n")
-        parts.append("__POSTHOG_SANDBOX_EOF__\n\n")
-    if end_as_root:
-        parts.append("# root_phase in the entrypoint expects to start as root.\nUSER root\n")
-    return "".join(parts)
-
-
-def _docker_build_from_stdin(dockerfile: str, tag: str, *, extra_args: tuple[str, ...] = ()) -> int:
-    """Run `docker build` with a Dockerfile piped on stdin. Returns the exit code.
-
-    Build context is an empty temp directory; the Dockerfile never COPYs from
-    the repo. SANDBOX_UID/GID are baked in as build args so the same image
-    works regardless of which compose project invokes it.
-    """
-    with tempfile.TemporaryDirectory(prefix="sandbox-build-") as ctx:
-        proc = subprocess.Popen(
-            [
-                "docker", "build", *extra_args,
-                "--build-arg", f"SANDBOX_UID={os.getuid()}",
-                "--build-arg", f"SANDBOX_GID={os.getgid()}",
-                "-t", tag,
-                "-f", "-", ctx,
-            ],
-            stdin=subprocess.PIPE,
-            env={**os.environ, "DOCKER_BUILDKIT": "1"},
-        )
-        proc.communicate(input=dockerfile.encode())
-        return proc.returncode
-
-
-@contextmanager
-def _tools_build_lock():
-    """Serialize concurrent personal image builds across sandbox create calls."""
-    REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
-    with open(TOOLS_BUILD_LOCK, "w") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
-
-
-def _ensure_user_image(tools: list[Tool], base_tag: str) -> str:
-    """Build the user's personal image if missing; return its tag.
-
-    The tag is content-addressed over (base sources, uid, gid, tools.yaml)
-    so edits to either tools.yaml or the base Dockerfile invalidate the
-    cache and unedited reruns are instant. A flock prevents concurrent
-    sandbox creates from racing on the same target tag.
-    """
-    tag = _user_image_tag(tools)
-    if _image_exists(tag):
-        return tag
-
-    info(f"Building your sandbox tools image {tag} (~30-90s)...")
-    installs = [(t.name, t.install) for t in tools if t.install]
-    dockerfile = _generate_dockerfile(installs, base_tag, end_as_root=True)
-    with _tools_build_lock():
-        if _image_exists(tag):
-            return tag
-        rc = _docker_build_from_stdin(dockerfile, tag)
-        if rc != 0:
-            fatal(f"Image build failed (exit {rc}).")
-    success(f"Built user image {tag}.")
-    _prune_old_user_images()
-    return tag
-
-
-def _prune_old_user_images() -> None:
-    """Remove all but the most-recent KEEP_USER_IMAGES user image tags."""
-    result = run(
-        ["docker", "images", "--format", "{{.Tag}}\t{{.CreatedAt}}", USER_IMAGE_PREFIX],
-        capture=True,
-    )
-    # CreatedAt is lexicographically sortable: "2024-01-02 03:04:05 +0000 UTC".
-    entries = sorted(
-        (line.split("\t", 1) for line in result.stdout.strip().splitlines() if "\t" in line),
-        key=lambda e: e[1],
-        reverse=True,
-    )
-    # rmi may fail when a stopped container still references the tag; that's
-    # an "OK, try again next prune" case rather than a hard error.
-    for tag_part, _ in entries[KEEP_USER_IMAGES:]:
-        run(["docker", "rmi", "-f", f"{USER_IMAGE_PREFIX}:{tag_part}"], capture=True, check=False)
-
-
-def _ensure_images_built() -> tuple[str, list[Tool]]:
-    """Build whatever images the next compose up needs. Idempotent."""
-    base_tag = _ensure_base_image()
-    tools = sandbox_tools.load_user_tools()
-    if tools:
-        _ensure_user_image(tools, base_tag)
-    return base_tag, tools
+# Image building is delegated to compose's `build:` directive. When the
+# user has tools.yaml entries, we generate a Dockerfile.user (Dockerfile.sandbox
+# + RUN blocks per tool) and a compose override that points build.dockerfile
+# at it. Docker's BuildKit layer cache handles staleness and inter-sandbox
+# sharing automatically, so there is no Python-side image management.
 
 
 # ---------------------------------------------------------------------------
@@ -941,45 +698,37 @@ def compose(
     capture: bool = False,
     profiles: list[str] | None = None,
     env_overrides: dict[str, str] | None = None,
+    use_tools: bool = True,
 ) -> subprocess.CompletedProcess:
     """Run `docker compose` with sandbox env vars.
 
-    `env_overrides` overrides individual env keys (used by cache-init to pin
-    SANDBOX_USER_IMAGE to the base tag even when the caller has personal
-    tools configured). tools.yaml is loaded once and threaded through the
-    generated tool-auth override and the SANDBOX_USER_IMAGE env var so we
-    don't re-parse it.
+    When `use_tools` is set and the user has tools.yaml entries, a personal
+    Dockerfile and compose override are regenerated and stacked under the
+    base compose files. Cache-init style callers that need a tool-free
+    image set `use_tools=False`.
     """
-    tools = sandbox_tools.load_user_tools()
     env = {
         **_host_compose_env(),
         "SANDBOX_PORT": str(port),
         "SANDBOX_VITE_PORT": str(port + 1000),
         "SANDBOX_SSH_PORT": str(port + 2000),
-        "SANDBOX_USER_IMAGE": _user_image_tag(tools) if tools else BASE_IMAGE_TAG,
     }
     if env_overrides:
         env.update(env_overrides)
-    tool_auth_file = sandbox_tools.write_tool_auth_compose(tools)
+
+    compose_files = [str(COMPOSE_FILE), str(PROFILES_FILE)]
+    tools = sandbox_tools.load_user_tools() if use_tools else []
+    if tools:
+        dockerfile = sandbox_tools.write_user_dockerfile(tools, base_dockerfile=SANDBOX_DOCKERFILE)
+        override = sandbox_tools.write_tool_auth_compose(tools, dockerfile=dockerfile)
+        compose_files.append(str(override))
+
     profile_flags: list[str] = []
     for p in profiles or []:
         profile_flags.extend(["--profile", p])
+    file_flags = [arg for f in compose_files for arg in ("-f", f)]
     return run(
-        [
-            "docker",
-            "compose",
-            "--progress=quiet",
-            "-p",
-            project,
-            "-f",
-            str(COMPOSE_FILE),
-            "-f",
-            str(PROFILES_FILE),
-            "-f",
-            str(tool_auth_file),
-            *profile_flags,
-            *args,
-        ],
+        ["docker", "compose", "--progress=quiet", "-p", project, *file_flags, *profile_flags, *args],
         check=check,
         capture=capture,
         env_extra=env,
@@ -1269,12 +1018,6 @@ def init_cache_from_master() -> None:
     """Run migrations, generate demo data, pre-build Rust, and snapshot databases."""
     info("No database cache found. Building from master (one-time setup, ~10 min)...")
 
-    # The shared cache is built from master with no personal tools, so we
-    # explicitly pin the image to the base tag instead of the caller's
-    # user image. The cache is reused across all sandboxes regardless of
-    # which contributor's tools.yaml is active.
-    _ensure_base_image()
-
     init_project = "sandbox-cache-init"
     init_port = 47999
     init_volume = workspace_volume_name(init_project)
@@ -1292,15 +1035,19 @@ def init_cache_from_master() -> None:
         _populate_workspace_volume(init_volume, "master", master_sha, "master", None, branch_ref=master_ref)
 
         info("Running cache-init entrypoint...")
+        # The shared cache is built from master with no personal tools, so we
+        # build off Dockerfile.sandbox directly. The cache is reused across
+        # all sandboxes regardless of which contributor's tools.yaml is active.
         compose(
             init_project,
             init_port,
             "run",
             "--rm",
+            "--build",
             "-e",
             "SANDBOX_MODE=cache-init",
             "app",
-            env_overrides={"SANDBOX_USER_IMAGE": BASE_IMAGE_TAG},
+            use_tools=False,
         )
 
         info("Snapshotting databases...")
@@ -1486,14 +1233,12 @@ def _restore_and_start(
 ) -> None:
     """Restore databases from cache (if available) and bring up the stack.
 
-    Image build happens up front in `_ensure_images_built`; compose just
-    runs the already-tagged image. That keeps the personal image cache
-    sticky across `sandbox start` / `sandbox create` instead of trying to
-    rebuild every time.
+    `compose up --build` lets docker's layer cache decide whether to rebuild;
+    cached runs are seconds.
     """
     if not use_cache:
         info("Starting containers...")
-        compose(project, port, "up", "-d", capture=True, profiles=profiles)
+        compose(project, port, "up", "-d", "--build", capture=True, profiles=profiles)
         return
 
     # Restore postgres from volume snapshot
@@ -1555,7 +1300,7 @@ def _restore_and_start(
 
     # Now start the app + proxy on top of restored infra
     info("Starting app...")
-    compose(project, port, "up", "-d", capture=True, profiles=profiles)
+    compose(project, port, "up", "-d", "--build", capture=True, profiles=profiles)
 
 
 # ---------------------------------------------------------------------------
@@ -1589,11 +1334,6 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
 
     _ensure_cache_volumes()
     _ensure_jetbrains()
-    # Build base + per-user images up front so compose `up` is a fast
-    # start, not a build. init_cache_from_master ensures the base for
-    # its own run, but it does not produce the user image, so we still
-    # need to call this here even when the cache is missing.
-    _ensure_images_built()
     if not _is_cache_ready():
         init_cache_from_master()
 
@@ -1641,14 +1381,13 @@ def cmd_start(branch: str) -> None:
     vite_port = entry.port + 1000
     profiles = resolve_docker_profiles(entry.intents)
 
-    # Pick up Dockerfile or tools.yaml changes that happened while the
-    # sandbox was stopped. Both calls are no-ops when nothing changed.
-    _ensure_images_built()
-
     info(f"Starting sandbox '{project}' on port {entry.port} (Vite: {vite_port})...")
     if profiles:
         info(f"Docker profiles: {', '.join(profiles)}")
-    compose(project, entry.port, "up", "-d", capture=True, profiles=profiles)
+    # --build lets docker pick up Dockerfile or tools.yaml changes that
+    # happened while the sandbox was stopped; cached layers make it a no-op
+    # when nothing changed.
+    compose(project, entry.port, "up", "-d", "--build", capture=True, profiles=profiles)
 
     container = f"{project}-app-1"
     health_url = f"http://localhost:{entry.port}/_health"
@@ -2018,16 +1757,33 @@ def _run_install_test(name: str, install: str) -> None:
 def _test_install_snippet(install: str) -> bool:
     """Build a single-tool throwaway image to verify the install snippet.
 
-    Returns True on success. On failure docker's streamed build log is
-    already on the terminal so the user can see exactly which step blew up.
-    The test tag is always cleaned up, even on Ctrl-C or unexpected exit.
+    Returns True on success. Failure leaves docker's streamed build log on
+    the terminal so the user can see exactly which step blew up. The
+    generated Dockerfile and the test tag are always cleaned up.
     """
-    base_tag = _ensure_base_image()
     test_tag = f"posthog-sandbox-tools-test:{int(time.time())}-{os.getpid()}"
-    dockerfile = _generate_dockerfile([("test", install)], base_tag, end_as_root=False)
+    with tempfile.NamedTemporaryFile(prefix="Dockerfile.test-", delete=False) as f:
+        dockerfile_path = Path(f.name)
     try:
-        return _docker_build_from_stdin(dockerfile, test_tag, extra_args=("--rm",)) == 0
+        sandbox_tools.write_user_dockerfile(
+            [Tool(name="test", install=install)],
+            base_dockerfile=SANDBOX_DOCKERFILE,
+            out=dockerfile_path,
+        )
+        rc = subprocess.run(
+            [
+                "docker", "build", "--rm",
+                "--build-arg", f"SANDBOX_UID={os.getuid()}",
+                "--build-arg", f"SANDBOX_GID={os.getgid()}",
+                "-t", test_tag,
+                "-f", str(dockerfile_path),
+                str(REPO_ROOT),
+            ],
+            env={**os.environ, "DOCKER_BUILDKIT": "1"},
+        ).returncode
+        return rc == 0
     finally:
+        dockerfile_path.unlink(missing_ok=True)
         run(["docker", "rmi", "-f", test_tag], capture=True, check=False)
 
 
@@ -2051,11 +1807,7 @@ def _tools_list() -> None:
     configured_names = {t.name for t in tools}
 
     if tools:
-        current_user_tag = _user_image_tag(tools)
-        image_baked = _image_exists(current_user_tag)
-        status = "baked" if image_baked else "pending rebuild on next `sandbox create`"
         print(f"Tools defined in {TOOLS_FILE}")
-        print(f"User image: {current_user_tag} ({status})")
         print()
         for t in tools:
             _print_tool_summary(t)
