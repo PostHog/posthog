@@ -37,9 +37,10 @@ import { MetricsTab } from './tabs/MetricsTab'
 import { SchemasTab } from './tabs/SchemasTab'
 import { sourceSettingsLogic } from './tabs/sourceSettingsLogic'
 import { SyncsTab } from './tabs/SyncsTab'
+import { TenantQueryTab } from './tabs/TenantQueryTab'
 import { WebhookTab } from './tabs/WebhookTab'
 
-const SOURCE_SCENE_TABS = ['schemas', 'syncs', 'metrics', 'configuration', 'webhook'] as const
+const SOURCE_SCENE_TABS = ['schemas', 'syncs', 'metrics', 'multi-tenancy', 'configuration', 'webhook'] as const
 export type SourceSceneTab = (typeof SOURCE_SCENE_TABS)[number]
 
 export interface SourceSceneProps {
@@ -59,6 +60,12 @@ export function shouldShowManagedSourceSyncsTab(
     source: Pick<ExternalDataSource, 'access_method'> | null | undefined
 ): boolean {
     return !!source && source.access_method !== 'direct'
+}
+
+export function shouldShowManagedSourceTenantQueryTab(
+    source: Pick<ExternalDataSource, 'access_method' | 'source_type'> | null | undefined
+): boolean {
+    return !!source && source.access_method === 'direct' && source.source_type === 'Postgres'
 }
 
 export const sourceSceneLogic = kea<sourceSceneLogicType>([
@@ -222,20 +229,24 @@ function ManagedSourceTabs({
     useAttachedLogic(settingsLogic, attachTo)
 
     const showSyncsTab = shouldShowManagedSourceSyncsTab(source)
+    const showTenantQueryTab = shouldShowManagedSourceTenantQueryTab(source)
     const showWebhookTab = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_SOURCE_WEBHOOKS] && !!source?.supports_webhooks
     const showMetricsTab = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
 
     useEffect(() => {
-        if (!showSyncsTab && currentTab === 'syncs') {
+        if (source && !showSyncsTab && currentTab === 'syncs') {
             setCurrentTab('schemas')
         }
-        if (!showWebhookTab && currentTab === 'webhook') {
+        if (source && !showTenantQueryTab && currentTab === 'multi-tenancy') {
+            setCurrentTab('schemas')
+        }
+        if (source && !showWebhookTab && currentTab === 'webhook') {
             setCurrentTab('schemas')
         }
         if (!showMetricsTab && currentTab === 'metrics') {
             setCurrentTab('schemas')
         }
-    }, [showSyncsTab, showWebhookTab, showMetricsTab, currentTab, setCurrentTab])
+    }, [source, showSyncsTab, showTenantQueryTab, showWebhookTab, showMetricsTab, currentTab, setCurrentTab])
 
     const tabs: LemonTab<SourceSceneTab>[] = [
         { label: 'Schemas', key: 'schemas', content: <SchemasTab id={sourceId} /> },
@@ -247,6 +258,14 @@ function ManagedSourceTabs({
 
     if (showMetricsTab) {
         tabs.push({ label: 'Metrics', key: 'metrics', content: <MetricsTab id={sourceId} /> })
+    }
+
+    if (showTenantQueryTab) {
+        tabs.push({
+            label: 'Multi-tenancy',
+            key: 'multi-tenancy',
+            content: <TenantQueryTab id={sourceId} source={source} />,
+        })
     }
 
     tabs.push({ label: 'Configuration', key: 'configuration', content: <ConfigurationTab id={sourceId} /> })

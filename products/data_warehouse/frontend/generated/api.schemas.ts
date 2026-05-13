@@ -7,6 +7,399 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface TenantQueryRequestApi {
+    /** Direct Postgres connection ID to query. */
+    connection_id: string
+    /** Tenant value to enforce against the configured tenant column. */
+    tenant_value?: string | number | null
+    /** HogQL SELECT query to execute against the tenant-scoped connection. */
+    query: string
+    /**
+     * Optional statement timeout in milliseconds, capped by the connection tenant-query config.
+     * @minimum 1
+     */
+    timeout_ms?: number
+}
+
+/**
+ * One result cell returned by the tenant-scoped query.
+ */
+export type TenantQueryResponseApiResultsItemItem =
+    | string
+    | number
+    | number
+    | boolean
+    | { [key: string]: unknown }
+    | unknown[]
+    | null
+
+export interface TenantQueryTimingApi {
+    /** Timing key. */
+    k: string
+    /** Elapsed time in seconds. */
+    t: number
+}
+
+export interface TenantQueryResponseApi {
+    /**
+     * Original query string.
+     * @nullable
+     */
+    query?: string | null
+    /**
+     * Prepared HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Prepared SQL executed against the direct Postgres connection.
+     * @nullable
+     */
+    postgres_sql?: string | null
+    /**
+     * Execution error, when debug mode is used.
+     * @nullable
+     */
+    error?: string | null
+    /** Whether the query has more rows available. */
+    hasMore?: boolean
+    /** Effective result limit. */
+    limit?: number
+    /** Effective result offset. */
+    offset?: number
+    /** HogQL execution timing entries. */
+    timings?: TenantQueryTimingApi[]
+    /** Result rows. */
+    results?: TenantQueryResponseApiResultsItemItem[][]
+    /** Result column names. */
+    columns?: string[]
+    /** Result column type metadata. */
+    types?: string[][]
+}
+
+/**
+ * Optional per-table tenant column overrides keyed by direct Postgres table name. Each override must have the same inferred tenant type as the global tenant column.
+ */
+export type TenantQueryConfigRequestApiTenantColumnNamesByTable = { [key: string]: string }
+
+export interface TenantQueryConfigRequestApi {
+    /** Direct Postgres connection ID to configure. */
+    connection_id: string
+    /** Whether tenant-scoped querying is enabled for this connection. */
+    enabled: boolean
+    /**
+     * Column name that must exist on every enabled table and will be enforced as the tenant key.
+     * @nullable
+     */
+    tenant_column_name?: string | null
+    /** Optional per-table tenant column overrides keyed by direct Postgres table name. Each override must have the same inferred tenant type as the global tenant column. */
+    tenant_column_names_by_table?: TenantQueryConfigRequestApiTenantColumnNamesByTable
+    /**
+     * Default statement timeout in milliseconds when a request does not provide timeout_ms.
+     * @minimum 1
+     */
+    default_timeout_ms?: number
+    /**
+     * Maximum allowed statement timeout in milliseconds.
+     * @minimum 1
+     */
+    max_timeout_ms?: number
+    /**
+     * Maximum result row limit. Explicit query limits above this value are clamped.
+     * @minimum 1
+     */
+    max_result_limit?: number
+}
+
+/**
+ * Per-table tenant column overrides keyed by direct Postgres table name.
+ */
+export type TenantQueryConfigResponseApiTenantColumnNamesByTable = { [key: string]: string }
+
+/**
+ * * `integer` - integer
+ * `string` - string
+ * `uuid` - uuid
+ */
+export type TenantColumnTypeEnumApi = (typeof TenantColumnTypeEnumApi)[keyof typeof TenantColumnTypeEnumApi]
+
+export const TenantColumnTypeEnumApi = {
+    Integer: 'integer',
+    String: 'string',
+    Uuid: 'uuid',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
+export interface TenantQueryConfigResponseApi {
+    /** Direct Postgres connection ID. */
+    connection_id: string
+    /** Whether tenant-scoped querying is enabled for this connection. */
+    enabled: boolean
+    /**
+     * Configured tenant column name.
+     * @nullable
+     */
+    tenant_column_name?: string | null
+    /** Tenant column type inferred from direct Postgres schema metadata.
+
+* `integer` - integer
+* `string` - string
+* `uuid` - uuid */
+    tenant_column_type?: TenantColumnTypeEnumApi | NullEnumApi | null
+    /** Per-table tenant column overrides keyed by direct Postgres table name. */
+    tenant_column_names_by_table: TenantQueryConfigResponseApiTenantColumnNamesByTable
+    /** Default statement timeout in milliseconds. */
+    default_timeout_ms: number
+    /** Maximum allowed statement timeout in milliseconds. */
+    max_timeout_ms: number
+    /** Maximum result row limit. */
+    max_result_limit: number
+    /** Enabled direct Postgres tables available to tenant-scoped queries. */
+    enabled_tables: string[]
+    /** Previously enabled tables disabled during configuration because they lacked the tenant column. */
+    disabled_tables: string[]
+}
+
+export interface TenantQueryConfigLoadRequestApi {
+    /** Direct Postgres connection ID to inspect. */
+    connection_id: string
+}
+
+export interface TenantQueryObservabilityRequestApi {
+    /** Optional direct Postgres connection ID to filter executions. */
+    connection_id?: string
+    /** Optional tenant value to filter executions. */
+    tenant_value?: string | number | null
+    /** Start timestamp for the execution log search. Defaults to 24 hours before date_to. */
+    date_from?: string
+    /** End timestamp for the execution log search. Defaults to now. */
+    date_to?: string
+    /**
+     * Maximum number of executions or summary rows to return.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+}
+
+export interface TenantQueryErrorSummaryApi {
+    /** Direct Postgres connection ID. */
+    connection_id: string
+    /** Tenant value enforced for the failed query. */
+    tenant_value: string
+    /** Direct Postgres tables referenced by the failed query. */
+    referenced_tables: string[]
+    /** Original HogQL query submitted to the tenant query service. */
+    original_query: string
+    /** Execution error message. */
+    error: string
+    /** Number of matching failed executions. */
+    count: number
+    /**
+     * Most recent matching failure timestamp.
+     * @nullable
+     */
+    last_seen_at: string | null
+    /**
+     * Average failed execution duration in milliseconds.
+     * @nullable
+     */
+    average_duration_ms: number | null
+}
+
+export interface TenantQueryErrorSummaryResponseApi {
+    /** Grouped tenant query execution errors. */
+    errors: TenantQueryErrorSummaryApi[]
+    /** Number of groups returned. */
+    count: number
+}
+
+export interface TenantQueryExecutionDetailRequestApi {
+    /** Execution log UUID returned by the executions list. */
+    execution_id: string
+    /** Optional execution timestamp to narrow the Logs search window. */
+    timestamp?: string
+}
+
+export type TenantQueryExecutionDetailApiReferencedTableMetadataItem = {
+    [key: string]: string | number | number | boolean | { [key: string]: unknown } | unknown[] | null
+}
+
+/**
+ * Direct Postgres connection metadata captured at execution time.
+ */
+export type TenantQueryExecutionDetailApiConnectionMetadata = {
+    [key: string]: string | number | number | boolean | { [key: string]: unknown } | unknown[] | null
+}
+
+/**
+ * Raw structured log attributes for this execution.
+ */
+export type TenantQueryExecutionDetailApiAttributes = {
+    [key: string]: string | number | number | boolean | { [key: string]: unknown } | unknown[] | null
+}
+
+export interface TenantQueryExecutionDetailApi {
+    /** Execution log UUID. */
+    id: string
+    /**
+     * Execution log timestamp.
+     * @nullable
+     */
+    timestamp: string | null
+    /** Direct Postgres connection ID. */
+    connection_id: string
+    /** Tenant value enforced for the query. */
+    tenant_value: string
+    /** Original HogQL query submitted to the tenant query service. */
+    original_query: string
+    /**
+     * Prepared SQL executed against the direct Postgres connection.
+     * @nullable
+     */
+    postgres_sql?: string | null
+    /** Whether the execution completed successfully. */
+    success: boolean
+    /**
+     * Execution error message, when present.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Execution duration in milliseconds.
+     * @nullable
+     */
+    duration_ms?: number | null
+    /**
+     * Number of result rows returned.
+     * @nullable
+     */
+    row_count?: number | null
+    /** Direct Postgres tables referenced by the query. */
+    referenced_tables: string[]
+    /** Whether the request was served from metadata system tables. */
+    metadata_only: boolean
+    /** Postgres table metadata captured for referenced tables. */
+    referenced_table_metadata?: TenantQueryExecutionDetailApiReferencedTableMetadataItem[]
+    /** Direct Postgres connection metadata captured at execution time. */
+    connection_metadata?: TenantQueryExecutionDetailApiConnectionMetadata
+    /** Raw structured log attributes for this execution. */
+    attributes?: TenantQueryExecutionDetailApiAttributes
+}
+
+export interface TenantQueryExecutionDetailResponseApi {
+    /** Tenant query execution detail. */
+    execution: TenantQueryExecutionDetailApi
+}
+
+export interface TenantQueryExecutionsRequestApi {
+    /** Optional direct Postgres connection ID to filter executions. */
+    connection_id?: string
+    /** Optional tenant value to filter executions. */
+    tenant_value?: string | number | null
+    /** Start timestamp for the execution log search. Defaults to 24 hours before date_to. */
+    date_from?: string
+    /** End timestamp for the execution log search. Defaults to now. */
+    date_to?: string
+    /**
+     * Maximum number of executions or summary rows to return.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Optional success status to filter executions.
+     * @nullable
+     */
+    success?: boolean | null
+}
+
+export interface TenantQueryExecutionApi {
+    /** Execution log UUID. */
+    id: string
+    /**
+     * Execution log timestamp.
+     * @nullable
+     */
+    timestamp: string | null
+    /** Direct Postgres connection ID. */
+    connection_id: string
+    /** Tenant value enforced for the query. */
+    tenant_value: string
+    /** Original HogQL query submitted to the tenant query service. */
+    original_query: string
+    /**
+     * Prepared SQL executed against the direct Postgres connection.
+     * @nullable
+     */
+    postgres_sql?: string | null
+    /** Whether the execution completed successfully. */
+    success: boolean
+    /**
+     * Execution error message, when present.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Execution duration in milliseconds.
+     * @nullable
+     */
+    duration_ms?: number | null
+    /**
+     * Number of result rows returned.
+     * @nullable
+     */
+    row_count?: number | null
+    /** Direct Postgres tables referenced by the query. */
+    referenced_tables: string[]
+    /** Whether the request was served from metadata system tables. */
+    metadata_only: boolean
+}
+
+export interface TenantQueryExecutionsResponseApi {
+    /** Tenant query executions. */
+    executions: TenantQueryExecutionApi[]
+    /** Number of executions returned. */
+    count: number
+}
+
+export interface TenantQueryUsageSummaryApi {
+    /** Direct Postgres connection ID. */
+    connection_id: string
+    /** Tenant value enforced for the query group. */
+    tenant_value: string
+    /** Direct Postgres tables referenced by the query group. */
+    referenced_tables: string[]
+    /** Total matching executions. */
+    count: number
+    /** Number of successful executions. */
+    success_count: number
+    /** Number of failed executions. */
+    error_count: number
+    /** Total result rows returned by matching executions. */
+    total_rows: number
+    /**
+     * Average execution duration in milliseconds.
+     * @nullable
+     */
+    average_duration_ms: number | null
+    /**
+     * Most recent matching execution timestamp.
+     * @nullable
+     */
+    last_seen_at: string | null
+}
+
+export interface TenantQueryUsageSummaryResponseApi {
+    /** Grouped tenant query execution usage. */
+    usage: TenantQueryUsageSummaryApi[]
+    /** Number of groups returned. */
+    count: number
+}
+
 export interface DataWarehouseSavedQueryDraftApi {
     readonly id: string
     readonly created_at: string

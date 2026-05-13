@@ -1,3 +1,6 @@
+from pydantic import Field as PydanticField
+
+from posthog.hogql.base import Expr
 from posthog.hogql.database.models import FunctionCallTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_postgres_identifier
@@ -10,6 +13,13 @@ class DirectPostgresTable(FunctionCallTable):
     postgres_table_name: str
     external_data_source_id: str
     connection_metadata: dict[str, object] | None = None
+    predicates: list[Expr] = PydanticField(default_factory=list)
+
+    def get_predicates(self) -> list[Expr]:
+        # Predicates are table-owned guards that the SQL printer applies to every reference
+        # of this direct Postgres table. The tenant query service uses this to enforce the
+        # configured tenant column without trusting the user's submitted WHERE clause.
+        return self.predicates
 
     def to_printed_hogql(self) -> str:
         return escape_hogql_identifier(self.name)

@@ -13,3 +13,4 @@ from .query_tab_state import *
 from .revenue_analytics_config import *
 from .table import *
 from .team_data_warehouse_config import *
+from .tenant_query_config import *

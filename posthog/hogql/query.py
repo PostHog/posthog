@@ -376,7 +376,9 @@ class HogQLQueryExecutor:
         self.connection_id = str(source.id) if source else None
 
         database = self.context.database
-        if database is None or self.connection_id is not None:
+        if database is None or (
+            self.connection_id is not None and getattr(database, "_connection_id", None) != self.connection_id
+        ):
             database = Database.create_for(
                 team=self.team,
                 user=self.user,

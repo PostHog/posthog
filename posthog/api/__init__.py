@@ -56,6 +56,7 @@ from products.data_warehouse.backend.api import (
     saved_query,
     saved_query_draft,
     table,
+    tenant_query,
     view_link,
 )
 from products.data_warehouse.backend.api.lineage import LineageViewSet
@@ -543,6 +544,12 @@ projects_router.register(
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
 register_grandfathered_environment_nested_viewset(r"query", query.QueryViewSet, "environment_query", ["team_id"])
+environments_router.register(
+    r"tenant_query",
+    tenant_query.TenantQueryViewSet,
+    "environment_tenant_query",
+    ["team_id"],
+)
 
 # External data resources
 register_grandfathered_environment_nested_viewset(
