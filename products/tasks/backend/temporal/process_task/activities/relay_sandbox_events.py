@@ -99,6 +99,7 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
             task_id=input.task_id,
             sandbox_id=input.sandbox_id,
             background_logs_enabled=background_logs_enabled,
+            task_run=task_run,
         )
     except asyncio.CancelledError:
         logger.info("relay_sandbox_events_cancelled", run_id=input.run_id)
@@ -220,6 +221,7 @@ async def _relay_loop(
     task_id: str,
     sandbox_id: str | None = None,
     background_logs_enabled: bool = False,
+    task_run: TaskRunModel | None = None,
 ) -> None:
     """Connect to sandbox SSE and relay events to Redis. Reconnects on transient failures."""
     reconnect_count = 0
@@ -294,6 +296,10 @@ async def _relay_loop(
                                 agent_active[0] = False
                                 if sandbox_id and background_logs_enabled:
                                     asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
+                                if task_run is not None and task_run.mode == "interactive":
+                                    # Interactive run finished a turn — the agent is now idle waiting
+                                    # for the user. Fire a mobile push so the user knows to check in.
+                                    asyncio.create_task(_dispatch_awaiting_input_push(task_run))
                             elif not agent_active[0] and _is_session_update(event_data):
                                 agent_active[0] = True
 
@@ -433,3 +439,20 @@ def _is_terminal_event(event_data: dict) -> bool:
     notification = event_data.get("notification", {})
     method = notification.get("method", "")
     return method in TERMINAL_NOTIFICATION_METHODS
+
+
+async def _dispatch_awaiting_input_push(task_run: TaskRunModel) -> None:
+    """Fire-and-forget push notification when an interactive run idles waiting on the user.
+
+    Wraps the dispatcher so a failed push never bubbles into the relay loop.
+    """
+    try:
+        from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input_async
+
+        await notify_task_run_awaiting_input_async(task_run)
+    except Exception as exc:
+        logger.warning(
+            "relay_sandbox_events_push_dispatch_failed",
+            run_id=str(task_run.id),
+            error=str(exc),
+        )
