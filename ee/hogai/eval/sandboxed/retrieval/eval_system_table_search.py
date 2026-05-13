@@ -40,13 +40,14 @@ from ee.hogai.eval.sandboxed.seeders.insight import seed_insight_noise
 
 @pytest.mark.django_db
 async def eval_system_table_search(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
+    # ``seed_insight_noise`` adds ~1000 plausible-looking noise insights plus a
+    # handful of deterministic lookup insights (incl. "Monthly Active Users
+    # (Hedgebox)") to the per-case team. The noise volume makes `insights-list`
+    # pagination painful and pushes the agent toward `execute-sql` against
+    # `system.insights` — which is what the schema-discipline scorers grade.
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
             name="system_table_search_insights_rename",
-            # Seeded via ``seed_insight_noise`` so the agent has a concrete
-            # insight to target — the original "rename the MAU insight" wording
-            # caused the agent to thrash for 15+ SQL calls when no MAU insight
-            # existed, and the schema-first discipline slipped along the way.
             prompt=("rename the insight 'Monthly Active Users (Hedgebox)' to have a 'MAU - ' prefix"),
             expected={"warehouse_schema_before_sql": {}},
             setup=seed_insight_noise,
@@ -59,6 +60,7 @@ async def eval_system_table_search(sandboxed_demo_data, pytestconfig, posthog_cl
                 "me around this time last year."
             ),
             expected={"warehouse_schema_before_sql": {}},
+            setup=seed_insight_noise,
         ),
         SandboxedEvalCase(
             name="system_table_search_insights_list_revenue",
@@ -67,6 +69,7 @@ async def eval_system_table_search(sandboxed_demo_data, pytestconfig, posthog_cl
                 "list every match with its ID, name, and last-modified time."
             ),
             expected={"warehouse_schema_before_sql": {}},
+            setup=seed_insight_noise,
         ),
     ]
 
