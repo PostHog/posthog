@@ -200,6 +200,7 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
                 try {
                     const response = await tenantQueryConfigCreate(String(values.currentTeamId), payload)
                     actions.loadTenantQueryConfigSuccess(response)
+                    actions.resetTenantQueryConfigForm(configToForm(response))
                     lemonToast.success('Multi-tenancy configuration saved')
                 } catch (error: any) {
                     lemonToast.error(error?.detail || error?.message || 'Unable to save multi-tenancy configuration')
@@ -249,9 +250,11 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
             },
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadTenantQueryConfigSuccess: ({ tenantQueryConfig }) => {
-            actions.resetTenantQueryConfigForm(configToForm(tenantQueryConfig))
+            if (!values.tenantQueryConfigFormChanged) {
+                actions.resetTenantQueryConfigForm(configToForm(tenantQueryConfig))
+            }
         },
     })),
     afterMount(({ actions }) => {

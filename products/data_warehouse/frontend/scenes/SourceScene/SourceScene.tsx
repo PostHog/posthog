@@ -261,7 +261,11 @@ function ManagedSourceTabs({
     }
 
     if (showTenantQueryTab) {
-        tabs.push({ label: 'Multi-tenancy', key: 'multi-tenancy', content: <TenantQueryTab id={sourceId} /> })
+        tabs.push({
+            label: 'Multi-tenancy',
+            key: 'multi-tenancy',
+            content: <TenantQueryTab id={sourceId} source={source} />,
+        })
     }
 
     tabs.push({ label: 'Configuration', key: 'configuration', content: <ConfigurationTab id={sourceId} /> })

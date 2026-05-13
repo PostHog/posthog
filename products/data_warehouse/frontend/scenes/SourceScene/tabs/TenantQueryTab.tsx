@@ -1,4 +1,4 @@
-import { BindLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import {
@@ -17,7 +17,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 
-import { AccessControlLevel, AccessControlResourceType, ExternalDataSourceSchema } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type {
     TenantQueryResponseApi,
@@ -25,11 +25,11 @@ import type {
 } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import { splitDirectQuerySchemaName } from './DirectQuerySchemasTab'
-import { sourceSettingsLogic } from './sourceSettingsLogic'
 import { tenantQueryConfigLogic } from './tenantQueryConfigLogic'
 
 interface TenantQueryTabProps {
     id: string
+    source: ExternalDataSource | null
 }
 
 interface TenantQueryTableRow {
@@ -158,18 +158,8 @@ function TenantQueryResultPreview({ response }: { response: TenantQueryResponseA
     )
 }
 
-export function TenantQueryTab({ id }: TenantQueryTabProps): JSX.Element {
-    return (
-        <BindLogic logic={sourceSettingsLogic} props={{ id, availableSources: {} }}>
-            <BindLogic logic={tenantQueryConfigLogic} props={{ id }}>
-                <TenantQueryTabInner />
-            </BindLogic>
-        </BindLogic>
-    )
-}
-
-function TenantQueryTabInner(): JSX.Element {
-    const { source, sourceLoading } = useValues(sourceSettingsLogic)
+export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element {
+    const logic = tenantQueryConfigLogic({ id })
     const {
         tenantQueryConfig,
         tenantQueryConfigLoading,
@@ -179,9 +169,9 @@ function TenantQueryTabInner(): JSX.Element {
         tenantQueryPlaygroundResponse,
         tenantQueryPlaygroundError,
         isTenantQueryPlaygroundSubmitting,
-    } = useValues(tenantQueryConfigLogic)
+    } = useValues(logic)
 
-    if (sourceLoading || tenantQueryConfigLoading || !source) {
+    if (tenantQueryConfigLoading || !source) {
         return <LemonSkeleton className="h-48" />
     }
 
@@ -204,6 +194,7 @@ function TenantQueryTabInner(): JSX.Element {
 
             <Form
                 logic={tenantQueryConfigLogic}
+                props={{ id }}
                 formKey="tenantQueryConfigForm"
                 enableFormOnSubmit
                 className="space-y-4"
@@ -306,6 +297,7 @@ function TenantQueryTabInner(): JSX.Element {
 
                 <Form
                     logic={tenantQueryConfigLogic}
+                    props={{ id }}
                     formKey="tenantQueryPlayground"
                     enableFormOnSubmit
                     className="space-y-4"
