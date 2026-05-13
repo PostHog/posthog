@@ -90,13 +90,18 @@ class TestTenantQuery(APIBaseTest):
         )
         return table
 
-    def _create_config(self, source: ExternalDataSource) -> DataWarehouseTenantQueryConfig:
+    def _create_config(
+        self,
+        source: ExternalDataSource,
+        tenant_column_names_by_table: dict[str, str] | None = None,
+    ) -> DataWarehouseTenantQueryConfig:
         return DataWarehouseTenantQueryConfig.objects.create(
             team=self.team,
             external_data_source=source,
             enabled=True,
             tenant_column_name="customer_id",
             tenant_column_type=DataWarehouseTenantQueryConfig.TenantColumnType.INTEGER,
+            tenant_column_names_by_table=tenant_column_names_by_table or {},
             max_result_limit=100_000,
         )
 
@@ -178,8 +183,53 @@ class TestTenantQuery(APIBaseTest):
         assert config.default_timeout_ms == 5_000
         assert config.max_timeout_ms == 30_000
         assert config.max_result_limit == 10_000
+        assert config.tenant_column_names_by_table == {}
         assert response["enabled_tables"] == ["trips"]
         assert response["disabled_tables"] == []
+
+    def test_configure_tenant_query_stores_per_table_tenant_column_overrides(self):
+        source = self._create_direct_source()
+        self._create_table(source)
+        self._create_table(
+            source,
+            name="bookings",
+            postgres_columns=[("id", "bigint", False), ("account_id", "bigint", False), ("name", "text", True)],
+            should_sync=False,
+        )
+
+        response = configure_tenant_query(
+            team=self.team,
+            connection_id=str(source.id),
+            enabled=True,
+            tenant_column_name="customer_id",
+            tenant_column_names_by_table={"bookings": "account_id"},
+        )
+
+        config = DataWarehouseTenantQueryConfig.objects.get(team=self.team, external_data_source=source)
+        assert config.tenant_column_type == DataWarehouseTenantQueryConfig.TenantColumnType.INTEGER
+        assert config.tenant_column_names_by_table == {"bookings": "account_id"}
+        assert response["tenant_column_names_by_table"] == {"bookings": "account_id"}
+        assert response["enabled_tables"] == ["bookings", "trips"]
+        assert response["disabled_tables"] == []
+        assert ExternalDataSchema.objects.get(source=source, name="bookings").should_sync is True
+
+    def test_configure_tenant_query_rejects_per_table_tenant_column_with_different_type(self):
+        source = self._create_direct_source()
+        self._create_table(source)
+        self._create_table(
+            source,
+            name="bookings",
+            postgres_columns=[("id", "bigint", False), ("account_id", "text", False)],
+        )
+
+        with self.assertRaisesRegex(Exception, "global tenant column type is `integer`"):
+            configure_tenant_query(
+                team=self.team,
+                connection_id=str(source.id),
+                enabled=True,
+                tenant_column_name="customer_id",
+                tenant_column_names_by_table={"bookings": "account_id"},
+            )
 
     def test_configure_tenant_query_disables_tables_without_tenant_column(self):
         source = self._create_direct_source()
@@ -309,6 +359,25 @@ class TestTenantQuery(APIBaseTest):
                 query="select customer_id from trips",
             )
 
+    def test_rejects_explicit_per_table_tenant_column_output(self):
+        source = self._create_direct_source()
+        self._create_table(source)
+        self._create_table(
+            source,
+            name="bookings",
+            postgres_columns=[("id", "bigint", False), ("account_id", "bigint", False)],
+        )
+        self._create_config(source, tenant_column_names_by_table={"bookings": "account_id"})
+
+        with self.assertRaisesRegex(Exception, "Tenant column `account_id` cannot be selected"):
+            execute_tenant_query(
+                team=self.team,
+                user=self.user,
+                connection_id=str(source.id),
+                tenant_value=42,
+                query="select account_id from bookings",
+            )
+
     def test_rejects_derived_tenant_column_output(self):
         source = self._create_direct_source()
         self._create_table(source)
@@ -379,6 +448,26 @@ class TestTenantQuery(APIBaseTest):
         )
 
         assert sql.count("customer_id") >= 2
+        assert "LIMIT 100" in sql
+
+    def test_injects_per_table_tenant_column_predicates(self):
+        source = self._create_direct_source()
+        self._create_table(source)
+        self._create_table(
+            source,
+            name="bookings",
+            postgres_columns=[("id", "bigint", False), ("account_id", "bigint", False), ("name", "text", True)],
+        )
+        config = self._create_config(source, tenant_column_names_by_table={"bookings": "account_id"})
+
+        sql = self._prepare_sql(
+            source,
+            config,
+            "select t.id, b.id from trips as t join bookings as b on t.id = b.id",
+        )
+
+        assert "customer_id = 42" in sql
+        assert "account_id = 42" in sql
         assert "LIMIT 100" in sql
 
     def test_rejects_disabled_tables(self):
@@ -504,6 +593,28 @@ class TestTenantQuery(APIBaseTest):
         assert ["trips", "id", "bigint"] in result["results"]
         assert ["trips", "name", "text"] in result["results"]
         assert all(row[1] != "customer_id" for row in result["results"])
+
+    def test_metadata_fields_query_hides_per_table_tenant_column(self):
+        source = self._create_direct_source()
+        self._create_table(source)
+        self._create_table(
+            source,
+            name="bookings",
+            postgres_columns=[("id", "bigint", False), ("account_id", "bigint", False), ("name", "text", True)],
+        )
+        self._create_config(source, tenant_column_names_by_table={"bookings": "account_id"})
+
+        result, _row_count = execute_tenant_query(
+            team=self.team,
+            user=self.user,
+            connection_id=str(source.id),
+            tenant_value=None,
+            query="select table, name, postgres_type from system.fields where table = 'bookings'",
+        )
+
+        assert ["bookings", "id", "bigint"] in result["results"]
+        assert ["bookings", "name", "text"] in result["results"]
+        assert all(row[1] != "account_id" for row in result["results"])
 
     def test_metadata_nested_asterisk_query_uses_resolved_subquery_columns(self):
         source = self._create_direct_source()

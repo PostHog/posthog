@@ -38446,6 +38446,11 @@ export namespace Schemas {
       connection_id: string;
     }
 
+    /**
+     * Optional per-table tenant column overrides keyed by direct Postgres table name. Each override must have the same inferred tenant type as the global tenant column.
+     */
+    export type TenantQueryConfigRequestTenantColumnNamesByTable = {[key: string]: string};
+
     export interface TenantQueryConfigRequest {
       /** Direct Postgres connection ID to configure. */
       connection_id: string;
@@ -38456,6 +38461,8 @@ export namespace Schemas {
        * @nullable
        */
       tenant_column_name?: string | null;
+      /** Optional per-table tenant column overrides keyed by direct Postgres table name. Each override must have the same inferred tenant type as the global tenant column. */
+      tenant_column_names_by_table?: TenantQueryConfigRequestTenantColumnNamesByTable;
       /**
        * Default statement timeout in milliseconds when a request does not provide timeout_ms.
        * @minimum 1
@@ -38473,6 +38480,11 @@ export namespace Schemas {
       max_result_limit?: number;
     }
 
+    /**
+     * Per-table tenant column overrides keyed by direct Postgres table name.
+     */
+    export type TenantQueryConfigResponseTenantColumnNamesByTable = {[key: string]: string};
+
     export interface TenantQueryConfigResponse {
       /** Direct Postgres connection ID. */
       connection_id: string;
@@ -38489,6 +38501,8 @@ export namespace Schemas {
     * `string` - string
     * `uuid` - uuid */
       tenant_column_type?: TenantColumnTypeEnum | NullEnum | null;
+      /** Per-table tenant column overrides keyed by direct Postgres table name. */
+      tenant_column_names_by_table: TenantQueryConfigResponseTenantColumnNamesByTable;
       /** Default statement timeout in milliseconds. */
       default_timeout_ms: number;
       /** Maximum allowed statement timeout in milliseconds. */

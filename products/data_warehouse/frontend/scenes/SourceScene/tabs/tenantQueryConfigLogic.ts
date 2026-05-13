@@ -27,6 +27,7 @@ export interface TenantQueryConfigLogicProps {
 export interface TenantQueryConfigFormValues {
     enabled: boolean
     tenant_column_name: string
+    tenant_column_names_by_table: Record<string, string>
     default_timeout_ms: number | string
     max_timeout_ms: number | string
     max_result_limit: number | string
@@ -45,9 +46,12 @@ export interface TenantQueryTableVisibility {
 
 export type TenantQueryTableVisibilityKey = keyof TenantQueryTableVisibility
 
+export const TENANT_QUERY_PLAYGROUND_ID = 'tenant-query-playground'
+
 const DEFAULT_TENANT_QUERY_CONFIG_FORM: TenantQueryConfigFormValues = {
     enabled: false,
     tenant_column_name: '',
+    tenant_column_names_by_table: {},
     default_timeout_ms: 30_000,
     max_timeout_ms: 120_000,
     max_result_limit: 100_000,
@@ -72,6 +76,7 @@ function configToForm(config: TenantQueryConfigResponseApi | null): TenantQueryC
     return {
         enabled: config.enabled,
         tenant_column_name: config.tenant_column_name ?? '',
+        tenant_column_names_by_table: config.tenant_column_names_by_table ?? {},
         default_timeout_ms: config.default_timeout_ms,
         max_timeout_ms: config.max_timeout_ms,
         max_result_limit: config.max_result_limit,
@@ -104,6 +109,11 @@ function formToRequestPayload(
         connection_id: connectionId,
         enabled: formValues.enabled,
         tenant_column_name: formValues.tenant_column_name.trim() || null,
+        tenant_column_names_by_table: Object.fromEntries(
+            Object.entries(formValues.tenant_column_names_by_table)
+                .map(([tableName, tenantColumnName]) => [tableName.trim(), tenantColumnName.trim()])
+                .filter(([tableName, tenantColumnName]) => tableName && tenantColumnName)
+        ),
         default_timeout_ms: defaultTimeoutMs,
         max_timeout_ms: maxTimeoutMs,
         max_result_limit: maxResultLimit,
@@ -158,6 +168,14 @@ function selectAllQueryForTable(tableName: string): string {
     return `select * from ${tableName.split('.').map(escapeHogQLIdentifierPart).join('.')}`
 }
 
+function scrollToTenantQueryPlayground(): void {
+    if (typeof document === 'undefined') {
+        return
+    }
+
+    document.getElementById(TENANT_QUERY_PLAYGROUND_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
     path(['products', 'dataWarehouse', 'tenantQueryConfigLogic']),
     props({} as TenantQueryConfigLogicProps),
@@ -177,6 +195,17 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
             visibility,
             visible,
         }),
+        startEditingTenantQueryTableColumn: (tableId: string, tenantColumnName: string) => ({
+            tableId,
+            tenantColumnName,
+        }),
+        setTenantQueryTableColumnDraft: (tableId: string, tenantColumnName: string) => ({
+            tableId,
+            tenantColumnName,
+        }),
+        cancelEditingTenantQueryTableColumn: true,
+        saveTenantQueryTableColumnOverride: (tableId: string, tableName: string) => ({ tableId, tableName }),
+        setSavingTenantQueryTableColumnOverride: (tableId: string | null) => ({ tableId }),
     }),
     loaders(({ props, values }) => ({
         tenantQueryConfig: [
@@ -245,6 +274,33 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
                     ...state,
                     [visibility]: visible,
                 }),
+            },
+        ],
+        editingTenantQueryTableColumnId: [
+            null as string | null,
+            {
+                startEditingTenantQueryTableColumn: (_, { tableId }) => tableId,
+                cancelEditingTenantQueryTableColumn: () => null,
+                loadTenantQueryConfigSuccess: () => null,
+            },
+        ],
+        tenantQueryTableColumnDrafts: [
+            {} as Record<string, string>,
+            {
+                startEditingTenantQueryTableColumn: (state, { tableId, tenantColumnName }) => ({
+                    ...state,
+                    [tableId]: tenantColumnName,
+                }),
+                setTenantQueryTableColumnDraft: (state, { tableId, tenantColumnName }) => ({
+                    ...state,
+                    [tableId]: tenantColumnName,
+                }),
+            },
+        ],
+        savingTenantQueryTableColumnOverride: [
+            null as string | null,
+            {
+                setSavingTenantQueryTableColumnOverride: (_, { tableId }) => tableId,
             },
         ],
     }),
@@ -350,6 +406,58 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
             actions.setTenantQueryPlaygroundValue('query', selectAllQueryForTable(tableName))
             actions.setTenantQueryPlaygroundResponse(null)
             actions.setTenantQueryPlaygroundError(null)
+            if (typeof window === 'undefined') {
+                scrollToTenantQueryPlayground()
+                actions.submitTenantQueryPlayground()
+                return
+            }
+
+            window.setTimeout(() => {
+                scrollToTenantQueryPlayground()
+                actions.submitTenantQueryPlayground()
+            })
+        },
+        saveTenantQueryTableColumnOverride: async ({ tableId, tableName }) => {
+            if (!values.currentTeamId) {
+                lemonToast.error('Project is still loading')
+                return
+            }
+
+            const tenantColumnName = values.tenantQueryTableColumnDrafts[tableId]?.trim()
+            if (!tenantColumnName) {
+                lemonToast.error('Select a tenant column')
+                return
+            }
+
+            const globalTenantColumnName = values.tenantQueryConfigForm.tenant_column_name.trim()
+            const tenantColumnNamesByTable = { ...values.tenantQueryConfigForm.tenant_column_names_by_table }
+            if (tenantColumnName === globalTenantColumnName) {
+                delete tenantColumnNamesByTable[tableName]
+            } else {
+                tenantColumnNamesByTable[tableName] = tenantColumnName
+            }
+
+            const payload = formToRequestPayload(props.id, {
+                ...values.tenantQueryConfigForm,
+                tenant_column_names_by_table: tenantColumnNamesByTable,
+            })
+            if (!payload) {
+                return
+            }
+
+            actions.setSavingTenantQueryTableColumnOverride(tableId)
+            try {
+                const response = await tenantQueryConfigCreate(String(values.currentTeamId), payload)
+                actions.loadTenantQueryConfigSuccess(response)
+                actions.resetTenantQueryConfigForm(configToForm(response))
+                actions.setTenantQueryConfigWarning(disabledTablesWarning(response.disabled_tables))
+                actions.cancelEditingTenantQueryTableColumn()
+                lemonToast.success('Tenant column saved')
+            } catch (error: any) {
+                actions.setTenantQueryConfigError(tenantQueryConfigErrorMessage(error))
+            } finally {
+                actions.setSavingTenantQueryTableColumnOverride(null)
+            }
         },
     })),
     afterMount(({ actions }) => {

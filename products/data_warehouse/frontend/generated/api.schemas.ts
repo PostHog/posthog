@@ -77,6 +77,11 @@ export interface TenantQueryResponseApi {
     types?: string[][]
 }
 
+/**
+ * Optional per-table tenant column overrides keyed by direct Postgres table name. Each override must have the same inferred tenant type as the global tenant column.
+ */
+export type TenantQueryConfigRequestApiTenantColumnNamesByTable = { [key: string]: string }
+
 export interface TenantQueryConfigRequestApi {
     /** Direct Postgres connection ID to configure. */
     connection_id: string
@@ -87,6 +92,8 @@ export interface TenantQueryConfigRequestApi {
      * @nullable
      */
     tenant_column_name?: string | null
+    /** Optional per-table tenant column overrides keyed by direct Postgres table name. Each override must have the same inferred tenant type as the global tenant column. */
+    tenant_column_names_by_table?: TenantQueryConfigRequestApiTenantColumnNamesByTable
     /**
      * Default statement timeout in milliseconds when a request does not provide timeout_ms.
      * @minimum 1
@@ -103,6 +110,11 @@ export interface TenantQueryConfigRequestApi {
      */
     max_result_limit?: number
 }
+
+/**
+ * Per-table tenant column overrides keyed by direct Postgres table name.
+ */
+export type TenantQueryConfigResponseApiTenantColumnNamesByTable = { [key: string]: string }
 
 /**
  * * `integer` - integer
@@ -137,6 +149,8 @@ export interface TenantQueryConfigResponseApi {
 * `string` - string
 * `uuid` - uuid */
     tenant_column_type?: TenantColumnTypeEnumApi | NullEnumApi | null
+    /** Per-table tenant column overrides keyed by direct Postgres table name. */
+    tenant_column_names_by_table: TenantQueryConfigResponseApiTenantColumnNamesByTable
     /** Default statement timeout in milliseconds. */
     default_timeout_ms: number
     /** Maximum allowed statement timeout in milliseconds. */

@@ -18,6 +18,7 @@ class DataWarehouseTenantQueryConfig(CreatedMetaFields, UpdatedMetaFields, UUIDT
     enabled = models.BooleanField(default=False)
     tenant_column_name = models.CharField(max_length=128)
     tenant_column_type = models.CharField(max_length=32, choices=TenantColumnType.choices)
+    tenant_column_names_by_table = models.JSONField(default=dict, blank=True, null=True)
     default_timeout_ms = models.PositiveIntegerField(default=30_000)
     max_timeout_ms = models.PositiveIntegerField(default=120_000)
     max_result_limit = models.PositiveIntegerField(default=100_000)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta
 from time import perf_counter
 from uuid import UUID
@@ -94,6 +94,8 @@ TENANT_METADATA_COLUMN_TYPES = {
     "table": "string",
 }
 
+TenantColumnNamesByTable = dict[str, str]
+
 
 def _get_direct_postgres_source(team: Team, connection_id: str) -> ExternalDataSource:
     try:
@@ -107,13 +109,17 @@ def _get_direct_postgres_source(team: Team, connection_id: str) -> ExternalDataS
     return source
 
 
-def _enabled_direct_postgres_schemas(source: ExternalDataSource) -> list[ExternalDataSchema]:
+def _direct_postgres_schemas(source: ExternalDataSource) -> list[ExternalDataSchema]:
     return list(
         ExternalDataSchema.objects.filter(team_id=source.team_id, source_id=source.id)
         .exclude(deleted=True)
-        .filter(should_sync=True, table_id__isnull=False)
+        .filter(table_id__isnull=False)
         .select_related("table")
     )
+
+
+def _enabled_direct_postgres_schemas(source: ExternalDataSource) -> list[ExternalDataSchema]:
+    return [schema for schema in _direct_postgres_schemas(source) if schema.should_sync]
 
 
 def _schema_display_name(schema: ExternalDataSchema) -> str:
@@ -212,18 +218,25 @@ def _tenant_column_type_from_postgres(postgres_type: str) -> str:
     )
 
 
+def _tenant_column_type_for_schema_column(schema: ExternalDataSchema, column_name: str) -> str | None:
+    column = _postgres_schema_column(schema, column_name)
+    if column is None:
+        return None
+
+    postgres_type = column.get("data_type")
+    if not isinstance(postgres_type, str):
+        raise ExposedHogQLError(f"Unable to infer tenant column type for table `{_schema_display_name(schema)}`.")
+    return _tenant_column_type_from_postgres(postgres_type)
+
+
 def _infer_tenant_column_type_from_schemas(schemas: list[ExternalDataSchema], tenant_column_name: str) -> str | None:
     inferred_types: set[str] = set()
 
     for schema in schemas:
-        column = _postgres_schema_column(schema, tenant_column_name)
-        if column is None:
+        tenant_column_type = _tenant_column_type_for_schema_column(schema, tenant_column_name)
+        if tenant_column_type is None:
             continue
-
-        postgres_type = column.get("data_type")
-        if not isinstance(postgres_type, str):
-            raise ExposedHogQLError(f"Unable to infer tenant column type for table `{_schema_display_name(schema)}`.")
-        inferred_types.add(_tenant_column_type_from_postgres(postgres_type))
+        inferred_types.add(tenant_column_type)
 
     if len(inferred_types) > 1:
         type_list = ", ".join(sorted(inferred_types))
@@ -255,6 +268,158 @@ def infer_tenant_column_type(source: ExternalDataSource, tenant_column_name: str
         raise ExposedHogQLError(f"Tenant column `{tenant_column_name}` was not found on any enabled table.")
 
     return tenant_column_type
+
+
+def _tenant_column_overrides(
+    config: DataWarehouseTenantQueryConfig | None,
+) -> TenantColumnNamesByTable:
+    if config is None or not isinstance(config.tenant_column_names_by_table, dict):
+        return {}
+
+    return {
+        str(table_name): str(column_name)
+        for table_name, column_name in config.tenant_column_names_by_table.items()
+        if str(table_name).strip() and str(column_name).strip()
+    }
+
+
+def _schema_lookup_names(schema: ExternalDataSchema) -> set[str]:
+    source_schema_name = _schema_source_schema_name(schema)
+    source_table_name = _schema_source_table_name(schema)
+    names = {_schema_display_name(schema), source_table_name}
+    if source_schema_name is not None:
+        names.add(f"{source_schema_name}.{source_table_name}")
+    return names
+
+
+def _schema_by_tenant_column_override_key(schemas: list[ExternalDataSchema]) -> dict[str, ExternalDataSchema]:
+    schema_by_name: dict[str, ExternalDataSchema] = {}
+    name_counts: dict[str, int] = {}
+
+    for schema in schemas:
+        for name in _schema_lookup_names(schema):
+            name_counts[name] = name_counts.get(name, 0) + 1
+            schema_by_name[name] = schema
+
+    return {name: schema for name, schema in schema_by_name.items() if name_counts[name] == 1}
+
+
+def _canonical_tenant_column_overrides(
+    schemas: list[ExternalDataSchema],
+    tenant_column_names_by_table: Mapping[str, object] | None,
+    default_tenant_column_name: str,
+) -> TenantColumnNamesByTable:
+    if tenant_column_names_by_table is None:
+        return {}
+
+    schema_by_name = _schema_by_tenant_column_override_key(schemas)
+    overrides: TenantColumnNamesByTable = {}
+    for table_name, column_name in tenant_column_names_by_table.items():
+        normalized_table_name = str(table_name).strip()
+        normalized_column_name = str(column_name).strip()
+        if not normalized_table_name or not normalized_column_name:
+            continue
+
+        schema = schema_by_name.get(normalized_table_name)
+        if schema is None:
+            continue
+
+        if normalized_column_name == default_tenant_column_name:
+            continue
+
+        overrides[_schema_display_name(schema)] = normalized_column_name
+
+    return dict(sorted(overrides.items()))
+
+
+def _tenant_column_type_for_effective_columns(
+    schemas: list[ExternalDataSchema],
+    default_tenant_column_name: str,
+    tenant_column_names_by_table: TenantColumnNamesByTable,
+    existing_tenant_column_type: str | None,
+) -> str:
+    candidate_types: set[str] = set()
+    for schema in schemas:
+        if _schema_display_name(schema) in tenant_column_names_by_table:
+            continue
+
+        tenant_column_type = _tenant_column_type_for_schema_column(schema, default_tenant_column_name)
+        if tenant_column_type is not None:
+            candidate_types.add(tenant_column_type)
+
+    if not candidate_types:
+        for schema in schemas:
+            tenant_column_type = _tenant_column_type_for_schema_column(schema, default_tenant_column_name)
+            if tenant_column_type is not None:
+                candidate_types.add(tenant_column_type)
+
+    if len(candidate_types) > 1:
+        type_list = ", ".join(sorted(candidate_types))
+        raise ExposedHogQLError(f"Tenant column `{default_tenant_column_name}` has inconsistent types: {type_list}.")
+
+    if candidate_types:
+        return next(iter(candidate_types))
+
+    return existing_tenant_column_type or DataWarehouseTenantQueryConfig.TenantColumnType.STRING
+
+
+def _validate_tenant_column_overrides(
+    schemas: list[ExternalDataSchema],
+    tenant_column_names_by_table: TenantColumnNamesByTable,
+    tenant_column_type: str,
+) -> TenantColumnNamesByTable:
+    schema_by_name = {_schema_display_name(schema): schema for schema in schemas}
+    validated_overrides: TenantColumnNamesByTable = {}
+
+    for table_name, tenant_column_name in tenant_column_names_by_table.items():
+        schema = schema_by_name.get(table_name)
+        if schema is None:
+            continue
+
+        override_type = _tenant_column_type_for_schema_column(schema, tenant_column_name)
+        if override_type is None:
+            raise ExposedHogQLError(
+                f"Tenant column `{tenant_column_name}` is missing from table `{_schema_display_name(schema)}`."
+            )
+        if override_type != tenant_column_type:
+            raise ExposedHogQLError(
+                f"Tenant column `{tenant_column_name}` on table `{_schema_display_name(schema)}` has type "
+                f"`{override_type}`, but the global tenant column type is `{tenant_column_type}`."
+            )
+
+        validated_overrides[table_name] = tenant_column_name
+
+    return dict(sorted(validated_overrides.items()))
+
+
+def _tenant_column_name_for_schema(
+    schema: ExternalDataSchema,
+    config: DataWarehouseTenantQueryConfig,
+) -> str:
+    return _tenant_column_overrides(config).get(_schema_display_name(schema), config.tenant_column_name)
+
+
+def _tenant_column_name_for_direct_postgres_table(
+    table: DirectPostgresTable,
+    config: DataWarehouseTenantQueryConfig,
+) -> str:
+    overrides = _tenant_column_overrides(config)
+    direct_table_names = [
+        table.to_printed_hogql(),
+        f"{table.postgres_schema}.{table.postgres_table_name}",
+        table.postgres_table_name,
+    ]
+
+    for table_name in direct_table_names:
+        tenant_column_name = overrides.get(table_name)
+        if tenant_column_name is not None:
+            return tenant_column_name
+
+    return config.tenant_column_name
+
+
+def _tenant_column_output_names(config: DataWarehouseTenantQueryConfig) -> set[str]:
+    return {config.tenant_column_name, *_tenant_column_overrides(config).values()}
 
 
 def _disable_schemas_without_tenant_column(source: ExternalDataSource, schemas: list[ExternalDataSchema]) -> list[str]:
@@ -297,12 +462,13 @@ def _tenant_metadata_field_rows(
     omit_source_schema = _enabled_schemas_use_single_source_schema(schemas)
     for schema in schemas:
         table_name = _tenant_query_table_name(schema, omit_source_schema=omit_source_schema)
+        tenant_column_name = _tenant_column_name_for_schema(schema, config)
         for column in _postgres_schema_columns(schema):
             column_name = column.get("name")
             postgres_type = column.get("data_type")
             if not isinstance(column_name, str) or not isinstance(postgres_type, str):
                 continue
-            if column_name == config.tenant_column_name:
+            if column_name == tenant_column_name:
                 continue
 
             rows.append(
@@ -941,6 +1107,7 @@ def _tenant_query_config_response(
         "enabled": config.enabled if config is not None else False,
         "tenant_column_name": config.tenant_column_name if config is not None else None,
         "tenant_column_type": config.tenant_column_type if config is not None else None,
+        "tenant_column_names_by_table": _tenant_column_overrides(config),
         "default_timeout_ms": (config.default_timeout_ms if config is not None else DEFAULT_TENANT_QUERY_TIMEOUT_MS),
         "max_timeout_ms": config.max_timeout_ms if config is not None else DEFAULT_TENANT_QUERY_MAX_TIMEOUT_MS,
         "max_result_limit": (config.max_result_limit if config is not None else DEFAULT_TENANT_QUERY_MAX_RESULT_LIMIT),
@@ -964,6 +1131,7 @@ def configure_tenant_query(
     connection_id: str,
     enabled: bool,
     tenant_column_name: str | None,
+    tenant_column_names_by_table: Mapping[str, object] | None = None,
     default_timeout_ms: int | None = None,
     max_timeout_ms: int | None = None,
     max_result_limit: int | None = None,
@@ -999,6 +1167,19 @@ def configure_tenant_query(
     if resolved_default_timeout_ms > resolved_max_timeout_ms:
         raise ExposedHogQLError("default_timeout_ms must be less than or equal to max_timeout_ms.")
 
+    all_schemas = _direct_postgres_schemas(source)
+    existing_tenant_column_names_by_table = _tenant_column_overrides(existing_config)
+    resolved_raw_tenant_column_names_by_table = (
+        tenant_column_names_by_table
+        if tenant_column_names_by_table is not None
+        else existing_tenant_column_names_by_table
+    )
+    canonical_tenant_column_names_by_table = _canonical_tenant_column_overrides(
+        all_schemas,
+        resolved_raw_tenant_column_names_by_table,
+        resolved_tenant_column_name,
+    )
+
     disabled_tables: list[str] = []
     tenant_column_type = (
         existing_config.tenant_column_type
@@ -1006,27 +1187,65 @@ def configure_tenant_query(
         else DataWarehouseTenantQueryConfig.TenantColumnType.STRING
     )
     if enabled:
-        enabled_schemas = _enabled_direct_postgres_schemas(source)
-        if not enabled_schemas:
+        schemas_to_configure = [
+            schema
+            for schema in all_schemas
+            if schema.should_sync or _schema_display_name(schema) in canonical_tenant_column_names_by_table
+        ]
+        if not schemas_to_configure:
             raise ExposedHogQLError("Tenant query service requires at least one enabled table.")
 
-        missing_tenant_column_schemas = [
-            schema for schema in enabled_schemas if _postgres_schema_column(schema, resolved_tenant_column_name) is None
-        ]
-        inferred_tenant_column_type = _infer_tenant_column_type_from_schemas(
-            enabled_schemas,
+        tenant_column_type = _tenant_column_type_for_effective_columns(
+            schemas_to_configure,
             resolved_tenant_column_name,
+            canonical_tenant_column_names_by_table,
+            tenant_column_type,
         )
-        if inferred_tenant_column_type is not None:
-            tenant_column_type = inferred_tenant_column_type
+        canonical_tenant_column_names_by_table = _validate_tenant_column_overrides(
+            all_schemas,
+            canonical_tenant_column_names_by_table,
+            tenant_column_type,
+        )
+
+        override_schema_ids = [
+            schema.id
+            for schema in all_schemas
+            if _schema_display_name(schema) in canonical_tenant_column_names_by_table and not schema.should_sync
+        ]
+        if override_schema_ids:
+            ExternalDataSchema.objects.filter(
+                team_id=source.team_id,
+                source_id=source.id,
+                id__in=override_schema_ids,
+            ).update(should_sync=True)
+            for schema in all_schemas:
+                if schema.id in override_schema_ids:
+                    schema.should_sync = True
+
+        enabled_schemas = [schema for schema in all_schemas if schema.should_sync]
+        missing_tenant_column_schemas = []
+        for schema in enabled_schemas:
+            schema_tenant_column_name = canonical_tenant_column_names_by_table.get(
+                _schema_display_name(schema),
+                resolved_tenant_column_name,
+            )
+            if _postgres_schema_column(schema, schema_tenant_column_name) is None:
+                missing_tenant_column_schemas.append(schema)
 
         disabled_tables = _disable_schemas_without_tenant_column(source, missing_tenant_column_schemas)
+    else:
+        canonical_tenant_column_names_by_table = _validate_tenant_column_overrides(
+            all_schemas,
+            canonical_tenant_column_names_by_table,
+            tenant_column_type,
+        )
 
     defaults = {
         "team": team,
         "enabled": enabled,
         "tenant_column_name": resolved_tenant_column_name,
         "tenant_column_type": tenant_column_type,
+        "tenant_column_names_by_table": canonical_tenant_column_names_by_table,
         "default_timeout_ms": resolved_default_timeout_ms,
         "max_timeout_ms": resolved_max_timeout_ms,
         "max_result_limit": max_result_limit
@@ -1076,27 +1295,27 @@ def _hide_tenant_field(field: FieldOrTable) -> FieldOrTable:
 
 
 class _TenantColumnOutputVisitor(TraversingVisitor):
-    def __init__(self, tenant_column_name: str) -> None:
-        self.tenant_column_name = tenant_column_name
+    def __init__(self, tenant_column_names: set[str]) -> None:
+        self.tenant_column_names = tenant_column_names
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         for expr in node.select or []:
-            visitor = _TenantColumnFieldReferenceVisitor(self.tenant_column_name)
+            visitor = _TenantColumnFieldReferenceVisitor(self.tenant_column_names)
             visitor.visit(expr)
-            if visitor.references_tenant_column:
-                raise ExposedHogQLError(f"Tenant column `{self.tenant_column_name}` cannot be selected.")
+            if visitor.referenced_tenant_column_name is not None:
+                raise ExposedHogQLError(f"Tenant column `{visitor.referenced_tenant_column_name}` cannot be selected.")
 
         super().visit_select_query(node)
 
 
 class _TenantColumnFieldReferenceVisitor(TraversingVisitor):
-    def __init__(self, tenant_column_name: str) -> None:
-        self.tenant_column_name = tenant_column_name
-        self.references_tenant_column = False
+    def __init__(self, tenant_column_names: set[str]) -> None:
+        self.tenant_column_names = tenant_column_names
+        self.referenced_tenant_column_name: str | None = None
 
     def visit_field(self, node: ast.Field) -> None:
-        if node.chain and str(node.chain[-1]) == self.tenant_column_name:
-            self.references_tenant_column = True
+        if node.chain and str(node.chain[-1]) in self.tenant_column_names:
+            self.referenced_tenant_column_name = str(node.chain[-1])
             return
 
         super().visit_field(node)
@@ -1104,9 +1323,9 @@ class _TenantColumnFieldReferenceVisitor(TraversingVisitor):
 
 def reject_tenant_column_outputs(
     query: ast.SelectQuery | ast.SelectSetQuery,
-    tenant_column_name: str,
+    tenant_column_names: set[str],
 ) -> None:
-    _TenantColumnOutputVisitor(tenant_column_name).visit(query)
+    _TenantColumnOutputVisitor(tenant_column_names).visit(query)
 
 
 def apply_tenant_query_config(
@@ -1118,16 +1337,17 @@ def apply_tenant_query_config(
     missing_table_names: list[str] = []
 
     for table in _walk_table_nodes(database.tables):
-        tenant_field = table.fields.get(config.tenant_column_name)
+        tenant_column_name = _tenant_column_name_for_direct_postgres_table(table, config)
+        tenant_field = table.fields.get(tenant_column_name)
         if tenant_field is None:
             missing_table_names.append(table.to_printed_hogql())
             continue
 
-        table.fields[config.tenant_column_name] = _hide_tenant_field(tenant_field)
+        table.fields[tenant_column_name] = _hide_tenant_field(tenant_field)
         table.predicates = [
             *table.predicates,
             ast.CompareOperation(
-                left=ast.Field(chain=[config.tenant_column_name]),
+                left=ast.Field(chain=[tenant_column_name]),
                 op=ast.CompareOperationOp.Eq,
                 right=ast.Constant(value=predicate_value),
             ),
@@ -1135,9 +1355,7 @@ def apply_tenant_query_config(
 
     if missing_table_names:
         table_list = ", ".join(sorted(missing_table_names))
-        raise ExposedHogQLError(
-            f"Tenant column `{config.tenant_column_name}` is missing from enabled tables: {table_list}."
-        )
+        raise ExposedHogQLError(f"Tenant column is missing from enabled tables: {table_list}.")
 
 
 def _timeout_ms(config: DataWarehouseTenantQueryConfig, requested_timeout_ms: int | None) -> int:
@@ -1271,7 +1489,7 @@ def execute_tenant_query(
 
     try:
         parsed_query = parse_select(query)
-        reject_tenant_column_outputs(parsed_query, config.tenant_column_name)
+        reject_tenant_column_outputs(parsed_query, _tenant_column_output_names(config))
         _apply_top_level_tenant_query_limit(
             parsed_query,
             config.max_result_limit or DEFAULT_TENANT_QUERY_MAX_RESULT_LIMIT,

@@ -40,6 +40,12 @@ export const TenantQueryConfigCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .nullish()
         .describe('Column name that must exist on every enabled table and will be enforced as the tenant key.'),
+    tenant_column_names_by_table: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Optional per-table tenant column overrides keyed by direct Postgres table name. Each override must have the same inferred tenant type as the global tenant column.'
+        ),
     default_timeout_ms: zod
         .number()
         .min(1)

@@ -96,6 +96,14 @@ class TenantQueryConfigRequestSerializer(serializers.Serializer):
         allow_blank=False,
         help_text="Column name that must exist on every enabled table and will be enforced as the tenant key.",
     )
+    tenant_column_names_by_table = serializers.DictField(
+        child=serializers.CharField(allow_blank=False),
+        required=False,
+        help_text=(
+            "Optional per-table tenant column overrides keyed by direct Postgres table name. Each override must have "
+            "the same inferred tenant type as the global tenant column."
+        ),
+    )
     default_timeout_ms = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -138,6 +146,10 @@ class TenantQueryConfigResponseSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Tenant column type inferred from direct Postgres schema metadata.",
+    )
+    tenant_column_names_by_table = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Per-table tenant column overrides keyed by direct Postgres table name.",
     )
     default_timeout_ms = serializers.IntegerField(help_text="Default statement timeout in milliseconds.")
     max_timeout_ms = serializers.IntegerField(help_text="Maximum allowed statement timeout in milliseconds.")
@@ -553,6 +565,7 @@ class TenantQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 connection_id=str(validated_data["connection_id"]),
                 enabled=validated_data["enabled"],
                 tenant_column_name=validated_data.get("tenant_column_name"),
+                tenant_column_names_by_table=validated_data.get("tenant_column_names_by_table"),
                 default_timeout_ms=validated_data.get("default_timeout_ms"),
                 max_timeout_ms=validated_data.get("max_timeout_ms"),
                 max_result_limit=validated_data.get("max_result_limit"),

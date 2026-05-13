@@ -1,1 +1,1 @@
-0050_datawarehousetenantqueryconfig
+0051_datawarehousetenantqueryconfig_tenant_column_names_by_table
