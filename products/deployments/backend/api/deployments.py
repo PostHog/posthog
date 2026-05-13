@@ -14,13 +14,31 @@ from typing import Any
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
+from ..access import has_deployments_access
 from ..models import Deployment
+
+
+class DeploymentsAccessPermission(BasePermission):
+    """Gate the whole product behind the `deployments` feature flag.
+
+    Returns 403 instead of 404 because we already have a flag-driven
+    sidebar entry — there's no point pretending the URL doesn't exist
+    once a request has reached this viewset.
+    """
+
+    message = "Deployments is not enabled for this team."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        team_id = getattr(view, "team_id", None)
+        return has_deployments_access(request.user, team_id=team_id)
 
 
 class DeploymentSerializer(serializers.ModelSerializer):
@@ -170,12 +188,17 @@ class DeploymentViewSet(
     while behavior lands in follow-up commits.
     """
 
-    scope_object = "INTERNAL"
+    scope_object = "deployment"
     serializer_class = DeploymentSerializer
     # Use `all_teams` (the unscoped sibling manager) at class-definition
     # time — `objects` is fail-closed and would raise without a team
     # context. `safely_get_queryset` re-applies the team filter explicitly.
     queryset = Deployment.all_teams.all()
+
+    def get_permissions(self) -> list[BasePermission]:
+        # Layer the feature-flag gate on top of whatever the mixin chain
+        # provides (IsAuthenticated + scope/access-control permissions).
+        return [*super().get_permissions(), DeploymentsAccessPermission()]
 
     def safely_get_queryset(self, queryset: Any) -> Any:
         # TODO(deployments-v1): wire filters (status, author, search) once
