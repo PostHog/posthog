@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-08 20:18:44 UTC
+// Generated at: 2026-05-12 10:48:44 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -28,6 +28,7 @@ export type CanonicalProvider =
     | 'azure-swedencentral'
     | 'azure-us-east-2'
     | 'baidu-fp8'
+    | 'baseten-2'
     | 'baseten-fp4'
     | 'cerebras-fp16'
     | 'chutes-fp4'
@@ -45,6 +46,7 @@ export type CanonicalProvider =
     | 'deepinfra-turbo'
     | 'deepseek'
     | 'dekallm-bf16'
+    | 'dekallm-fp4'
     | 'dekallm-fp8'
     | 'featherless'
     | 'fireworks'
@@ -73,7 +75,6 @@ export type CanonicalProvider =
     | 'ionstream-fp8'
     | 'liquid'
     | 'mancer-fp8'
-    | 'mancer-int4'
     | 'mara'
     | 'minimax'
     | 'minimax-fp8'
@@ -113,7 +114,6 @@ export type CanonicalProvider =
     | 'sambanova'
     | 'sambanova-bf16'
     | 'sambanova-fp8'
-    | 'sambanova-high-throughput'
     | 'sambanova-turbo'
     | 'seed-fp8'
     | 'siliconflow'
