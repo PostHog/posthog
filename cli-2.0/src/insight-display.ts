@@ -64,10 +64,14 @@ export function formatYValue(x: number): string {
     return '0'
   }
   const abs = Math.abs(x)
-  if (abs >= 1_000_000) {
+  // Bucket boundaries are picked so that toFixed-rounding cannot push the
+  // result into the next magnitude — e.g. -9999 would round to "-10.0k" (6
+  // chars), overflowing the 5-char Y-axis width budget. Promoting to the
+  // wider bucket early keeps every output within budget.
+  if (abs >= 999_500) {
     return `${(x / 1_000_000).toFixed(1)}M`
   }
-  if (abs >= 10_000) {
+  if (abs >= 9_950) {
     return `${(x / 1_000).toFixed(0)}k`
   }
   if (abs >= 1_000) {

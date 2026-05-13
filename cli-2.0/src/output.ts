@@ -9,19 +9,16 @@ import {
   formatYValue,
   getInsightType,
   isChartSeries,
+  isRecord,
+  type JsonRecord,
   pickStep,
+  stringify,
   widenSeries,
 } from './insight-display.js'
-
-type JsonRecord = Record<string, unknown>
 
 type TableColumn = {
   header: string
   render: (item: JsonRecord) => string
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function getListItems(result: unknown): JsonRecord[] {
@@ -42,18 +39,6 @@ function getResultCount(result: unknown): number | undefined {
   }
 
   return result.count
-}
-
-function stringify(value: unknown): string {
-  if (value === null || value === undefined) {
-    return ''
-  }
-
-  if (typeof value === 'string') {
-    return value.replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
-  }
-
-  return String(value)
 }
 
 function truncate(value: string, maxLength: number): string {

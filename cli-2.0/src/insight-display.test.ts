@@ -28,63 +28,66 @@ describe('getInsightType', () => {
 })
 
 describe('widenSeries', () => {
-  it('returns a copy when step <= 1', () => {
+  it('returns a copy (not the same reference) when step <= 1', () => {
     const series = [1, 2, 3]
     const widened = widenSeries(series, 1)
     assert.deepEqual(widened, [1, 2, 3])
     assert.notStrictEqual(widened, series)
-
-    assert.deepEqual(widenSeries([1, 2, 3], 0), [1, 2, 3])
-    assert.deepEqual(widenSeries([1, 2, 3], -5), [1, 2, 3])
   })
 
-  it('linearly interpolates between adjacent points', () => {
-    assert.deepEqual(widenSeries([0, 10], 5), [0, 2, 4, 6, 8, 10])
-  })
+  const cases: Array<{ name: string; series: number[]; step: number; expected: number[] }> = [
+    { name: 'step=1 passes through', series: [1, 2, 3], step: 1, expected: [1, 2, 3] },
+    { name: 'step=0 passes through', series: [1, 2, 3], step: 0, expected: [1, 2, 3] },
+    { name: 'negative step passes through', series: [1, 2, 3], step: -5, expected: [1, 2, 3] },
+    { name: 'linearly interpolates between adjacent points', series: [0, 10], step: 5, expected: [0, 2, 4, 6, 8, 10] },
+    { name: 'interpolates across multiple segments and preserves originals', series: [0, 10, 0], step: 2, expected: [0, 5, 10, 5, 0] },
+    { name: 'single-point input is unchanged', series: [5], step: 10, expected: [5] },
+    { name: 'empty input returns empty', series: [], step: 5, expected: [] },
+  ]
 
-  it('interpolates across multiple segments and preserves originals', () => {
-    assert.deepEqual(widenSeries([0, 10, 0], 2), [0, 5, 10, 5, 0])
-  })
-
-  it('handles single-point and empty inputs without throwing', () => {
-    assert.deepEqual(widenSeries([5], 10), [5])
-    assert.deepEqual(widenSeries([], 5), [])
-  })
+  for (const { name, series, step, expected } of cases) {
+    it(name, () => {
+      assert.deepEqual(widenSeries(series, step), expected)
+    })
+  }
 })
 
 describe('formatYValue', () => {
-  it('formats small numbers as plain integers', () => {
-    assert.equal(formatYValue(0), '0')
-    assert.equal(formatYValue(42), '42')
-    assert.equal(formatYValue(999), '999')
-  })
+  const cases: Array<{ input: number; expected: string }> = [
+    // small numbers as plain integers
+    { input: 0, expected: '0' },
+    { input: 42, expected: '42' },
+    { input: 999, expected: '999' },
+    // small non-integer values are rounded
+    { input: 4.7, expected: '5' },
+    { input: -4.7, expected: '-5' },
+    // thousands below 9950 formatted with one decimal
+    { input: 1000, expected: '1.0k' },
+    { input: 1500, expected: '1.5k' },
+    { input: 9000, expected: '9.0k' },
+    // larger thousands without decimals
+    { input: 15_000, expected: '15k' },
+    { input: 999_000, expected: '999k' },
+    // millions with one decimal and "M" suffix
+    { input: 1_500_000, expected: '1.5M' },
+    { input: -2_000_000, expected: '-2.0M' },
+    // boundary cases that previously rounded into the next magnitude and
+    // overflowed the 5-char width budget for negatives — must stay ≤5 chars
+    { input: 9999, expected: '10k' },
+    { input: -9999, expected: '-10k' },
+    { input: 999_999, expected: '1.0M' },
+    { input: -999_999, expected: '-1.0M' },
+    // non-finite values fall back to "0" (caller is responsible for padding)
+    { input: Number.NaN, expected: '0' },
+    { input: Number.POSITIVE_INFINITY, expected: '0' },
+    { input: Number.NEGATIVE_INFINITY, expected: '0' },
+  ]
 
-  it('rounds non-integer small values', () => {
-    assert.equal(formatYValue(4.7), '5')
-    assert.equal(formatYValue(-4.7), '-5')
-  })
-
-  it('formats thousands below 10k with one decimal', () => {
-    assert.equal(formatYValue(1000), '1.0k')
-    assert.equal(formatYValue(1500), '1.5k')
-    assert.equal(formatYValue(9999), '10.0k')
-  })
-
-  it('formats larger thousands without decimals', () => {
-    assert.equal(formatYValue(15_000), '15k')
-    assert.equal(formatYValue(999_000), '999k')
-  })
-
-  it('formats millions with one decimal and "M" suffix', () => {
-    assert.equal(formatYValue(1_500_000), '1.5M')
-    assert.equal(formatYValue(-2_000_000), '-2.0M')
-  })
-
-  it('returns "0" for non-finite values (caller is responsible for padding)', () => {
-    assert.equal(formatYValue(Number.NaN), '0')
-    assert.equal(formatYValue(Number.POSITIVE_INFINITY), '0')
-    assert.equal(formatYValue(Number.NEGATIVE_INFINITY), '0')
-  })
+  for (const { input, expected } of cases) {
+    it(`formats ${input} as "${expected}"`, () => {
+      assert.equal(formatYValue(input), expected)
+    })
+  }
 })
 
 describe('pickStep', () => {
