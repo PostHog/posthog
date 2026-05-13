@@ -7509,6 +7509,28 @@ export namespace Schemas {
       previous: string | null;
     }
 
+    /**
+     * * `yellow` - Yellow
+    * `pink` - Pink
+    * `blue` - Blue
+    * `green` - Green
+    * `purple` - Purple
+    * `orange` - Orange
+    * `gray` - Gray
+     */
+    export type ColorEnum = typeof ColorEnum[keyof typeof ColorEnum];
+
+
+    export const ColorEnum = {
+      Yellow: 'yellow',
+      Pink: 'pink',
+      Blue: 'blue',
+      Green: 'green',
+      Purple: 'purple',
+      Orange: 'orange',
+      Gray: 'gray',
+    } as const;
+
     export type ColorMode = typeof ColorMode[keyof typeof ColorMode];
 
 
@@ -20051,6 +20073,62 @@ export namespace Schemas {
       SetConfigOption: 'set_config_option',
     } as const;
 
+    export interface MindMapEdge {
+      /** Edge UUID */
+      readonly id: string;
+      /**
+         * Source post-it short_id
+         * @maxLength 12
+         */
+      source: string;
+      /**
+         * Target post-it short_id
+         * @maxLength 12
+         */
+      target: string;
+      /** When the edge was created */
+      readonly created_at: string;
+    }
+
+    export interface MindMapPostIt {
+      /** Unique short id used as the post-it's API key */
+      readonly short_id: string;
+      /**
+         * Short title shown on the post-it
+         * @maxLength 256
+         */
+      title: string;
+      /** Longer optional body text */
+      body?: string;
+      /** Sticky-note background color
+
+      * `yellow` - Yellow
+      * `pink` - Pink
+      * `blue` - Blue
+      * `green` - Green
+      * `purple` - Purple
+      * `orange` - Orange
+      * `gray` - Gray */
+      color?: ColorEnum;
+      /**
+         * Optional single emoji
+         * @maxLength 8
+         */
+      emoji?: string;
+      /** X coordinate on the canvas */
+      position_x?: number;
+      /** Y coordinate on the canvas */
+      position_y?: number;
+      /**
+         * Notebook short_id this post-it links to (clicking opens it)
+         * @maxLength 12
+         * @nullable
+         */
+      notebook_short_id?: string | null;
+      readonly created_at: string;
+      readonly last_modified_at: string;
+    }
+
     export interface MinimalPerson {
       /** Numeric person ID. */
       readonly id: number;
@@ -21581,6 +21659,24 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MessageTemplate[];
+    }
+
+    export interface PaginatedMindMapEdgeList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MindMapEdge[];
+    }
+
+    export interface PaginatedMindMapPostItList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MindMapPostIt[];
     }
 
     export interface PaginatedNodeList {
@@ -26859,6 +26955,45 @@ export namespace Schemas {
       /** @nullable */
       message_category?: string | null;
       deleted?: boolean;
+    }
+
+    export interface PatchedMindMapPostIt {
+      /** Unique short id used as the post-it's API key */
+      readonly short_id?: string;
+      /**
+         * Short title shown on the post-it
+         * @maxLength 256
+         */
+      title?: string;
+      /** Longer optional body text */
+      body?: string;
+      /** Sticky-note background color
+
+      * `yellow` - Yellow
+      * `pink` - Pink
+      * `blue` - Blue
+      * `green` - Green
+      * `purple` - Purple
+      * `orange` - Orange
+      * `gray` - Gray */
+      color?: ColorEnum;
+      /**
+         * Optional single emoji
+         * @maxLength 8
+         */
+      emoji?: string;
+      /** X coordinate on the canvas */
+      position_x?: number;
+      /** Y coordinate on the canvas */
+      position_y?: number;
+      /**
+         * Notebook short_id this post-it links to (clicking opens it)
+         * @maxLength 12
+         * @nullable
+         */
+      notebook_short_id?: string | null;
+      readonly created_at?: string;
+      readonly last_modified_at?: string;
     }
 
     export interface PatchedNode {
@@ -34981,6 +35116,27 @@ export namespace Schemas {
       is_organization_first_user: boolean;
     }
 
+    export interface _BulkPositionItem {
+      /**
+         * Post-it short_id
+         * @maxLength 12
+         */
+      short_id: string;
+      /** New X coordinate */
+      position_x: number;
+      /** New Y coordinate */
+      position_y: number;
+    }
+
+    export interface _BulkPositionRequest {
+      updates: _BulkPositionItem[];
+    }
+
+    export interface _BulkPositionResponse {
+      /** Number of post-its actually updated */
+      updated: number;
+    }
+
     export interface _CompareFilter {
       /** When true, also fetch results for a comparison window and return them under `compare`. */
       compare?: boolean;
@@ -42514,6 +42670,28 @@ export namespace Schemas {
       Paused: 'paused',
       Running: 'running',
     } as const;
+
+    export type MindmapEdgesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type MindmapPostitsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type NotebooksListParams = {
     /**
