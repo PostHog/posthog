@@ -119,7 +119,7 @@ export const csmHudSceneLogic = kea<csmHudSceneLogicType>([
                     const node: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
                         query,
-                        tags: { productKey: 'csm_hud', scene: 'CSMHud', name: 'csm_hud_fleet' },
+                        tags: { productKey: 'internal', scene: 'CSMHud', name: 'csm_hud_fleet' },
                         ...(queryValues ? { values: queryValues } : {}),
                     }
                     const response = await api.query(node)

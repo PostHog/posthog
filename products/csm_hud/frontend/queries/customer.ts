@@ -41,7 +41,7 @@ async function runHogQL<T>(name: string, query: string, mapRow: (row: unknown[])
     const node: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query,
-        tags: { productKey: 'csm_hud', scene: 'CSMHudCustomer', name: `csm_hud_${name}` },
+        tags: { productKey: 'internal', scene: 'CSMHudCustomer', name: `csm_hud_${name}` },
     }
     const response = await api.query(node)
     return (response.results ?? []).map(mapRow)
