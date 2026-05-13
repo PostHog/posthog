@@ -54,27 +54,28 @@ export const LemonTag: React.FunctionComponent<
         popover,
         disabledReason,
         closeOnClick,
+        onClick,
         ...props
     },
     ref
 ): JSX.Element {
+    // Base UI's Tooltip injects an onClick onto its trigger child; don't treat that as dev intent.
+    const isTooltipTrigger = 'data-base-ui-tooltip-trigger' in props
+    const isCloseClickable = !!(closeOnClick && icon && onClose)
+    const isClickable = (!!onClick && !isTooltipTrigger) || isCloseClickable
     return (
         <div
             ref={ref}
             className={clsx(
                 'LemonTag',
                 `LemonTag--size-${size}`,
-                disabledReason
-                    ? 'cursor-not-allowed'
-                    : props.onClick || (closeOnClick && icon && onClose)
-                      ? 'cursor-pointer'
-                      : undefined,
+                disabledReason ? 'cursor-not-allowed' : isClickable ? 'cursor-pointer' : undefined,
                 `LemonTag--${type}`,
                 weight && `LemonTag--${weight}`,
                 closeOnClick && 'LemonTag--close-on-click',
                 className
             )}
-            role={props.onClick || (closeOnClick && icon && onClose) ? 'button' : undefined}
+            role={isClickable ? 'button' : undefined}
             title={disabledReason || undefined}
             aria-disabled={disabledReason ? true : undefined}
             {...props}
@@ -84,7 +85,7 @@ export const LemonTag: React.FunctionComponent<
                           e.stopPropagation()
                           onClose()
                       }
-                    : props.onClick
+                    : onClick
             }
         >
             {icon && closeOnClick && onClose ? (
