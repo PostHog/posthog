@@ -19,8 +19,19 @@ export class ApiClient {
   }
 
   async request<T = any>({ method, path, body, query }: ApiRequestOptions): Promise<T> {
-    // Build URL
+    // Reject absolute and protocol-relative URLs. `new URL('//other.com', base)`
+    // returns `https://other.com` — which would leak the Authorization header to
+    // an arbitrary host.
+    if (/^(https?:)?\/\//i.test(path)) {
+      throw new Error(`API path must be relative, not an absolute or protocol-relative URL: ${path}`)
+    }
+
     const url = new URL(path.startsWith('/') ? path : `/api/${path}`, this.config.baseUrl)
+
+    const configuredHost = new URL(this.config.baseUrl).host
+    if (url.host !== configuredHost) {
+      throw new Error(`Resolved URL host '${url.host}' does not match configured host '${configuredHost}'`)
+    }
     
     // Add query parameters
     if (query) {
