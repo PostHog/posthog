@@ -2,51 +2,58 @@
 
 Builds an orchestration brief + pipeline spec and hands them to the `tasks`
 product via ``Task.create_and_run``. The real ML runs inside
-``ProcessTaskWorkflow``'s sandbox — we just establish the bridge here. The
-description is a stub for now; the frozen-harness contract lands in a
-follow-up commit.
+``ProcessTaskWorkflow``'s sandbox; this module is just the bridge that
+constructs the prompt and the spec the agent operates on.
+
+The brief itself lives in ``bootstrap_brief.md`` (alongside this file) so the
+prose stays editable without wrestling Python triple-quoted escapes.
 """
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from string import Template
 from typing import Any
 
 from posthog.models import Team
 
 from products.tasks.backend.models import Task
 
+from ..facade.enums import TaskType
 from ..models import AutoMLPipeline
 
-# Placeholder orchestration brief. Replace with frozen-harness instructions once
-# the real training contract (evaluator scripts, recipe template, AutoMLModelVersion
-# persistence) lands. Keeping it terse so future diffs to this file show real intent
-# changes.
-_ORCHESTRATION_TEMPLATE = """\
-# AutoML bootstrap: {pipeline_name}
+# Where the markdown template lives. Loaded fresh per call so edits to the
+# brief don't require restarting any long-lived process during development.
+_BRIEF_TEMPLATE_PATH = Path(__file__).parent / "bootstrap_brief.md"
 
-You are the AutoML bootstrap agent. Your job is to train the first model for an
-AutoML pipeline of task type `{task_type}`.
 
-## Pipeline spec
-
-```json
-{spec_json}
-```
-
-## What to do (stub)
-
-This is a placeholder description. The real training contract lands in a
-follow-up commit. For now, acknowledge receipt of the spec and exit 0.
-
-A future revision will:
-
-1. Pull the latest feature recipe from PostHog (HogQL via the `execute-sql` MCP tool).
-2. Run `products.automl.backend.training.trainer.train(...)` against a snapshot.
-3. Persist the result via the AutoML facade's `record_training_result(...)`.
-4. Promote the champion via `promote_to_champion(...)` once gates pass.
-5. Emit predictions as `$automl_prediction` events.
-"""
+# Per-task-type fallback gates used when the pipeline's config doesn't carry
+# its own ``success_criteria``. These are deliberately permissive — the goal
+# is "don't promote an obviously broken model", not "match the user's bar".
+# Users tighten via ``config.success_criteria``.
+_DEFAULT_GATES: dict[TaskType, dict[str, Any]] = {
+    TaskType.CLASSIFICATION: {
+        "primary_metric": "accuracy",
+        "direction": "higher_is_better",
+        "floor": 0.6,
+    },
+    TaskType.REGRESSION: {
+        "primary_metric": "r2",
+        "direction": "higher_is_better",
+        "floor": 0.3,
+    },
+    TaskType.CLUSTERING: {
+        "primary_metric": "silhouette",
+        "direction": "higher_is_better",
+        "floor": 0.2,
+    },
+    TaskType.FORECASTING: {
+        "primary_metric": "smape",
+        "direction": "lower_is_better",
+        "ceiling": 0.3,
+    },
+}
 
 
 def enqueue_bootstrap_training(*, pipeline: AutoMLPipeline, user_id: int) -> Task:
@@ -76,12 +83,21 @@ def enqueue_bootstrap_training(*, pipeline: AutoMLPipeline, user_id: int) -> Tas
 
 
 def _build_orchestration_brief(pipeline: AutoMLPipeline) -> str:
-    """Build the markdown brief passed as the Task description."""
+    """Build the markdown brief passed as the Task description.
+
+    Uses ``string.Template`` substitution rather than ``str.format`` so JSON
+    code samples in the brief (which contain literal ``{`` / ``}``) don't
+    require escaping. Substitution keys use ``$placeholder``; literal ``$``
+    in the template is ``$$``.
+    """
+    template = Template(_BRIEF_TEMPLATE_PATH.read_text(encoding="utf-8"))
     spec_json = json.dumps(_build_pipeline_spec(pipeline), indent=2, default=str)
-    return _ORCHESTRATION_TEMPLATE.format(
+    gates_json = json.dumps(_build_gate_config(pipeline), indent=2, default=str)
+    return template.substitute(
         pipeline_name=pipeline.name,
         task_type=pipeline.task_type,
-        spec_json=spec_json,
+        pipeline_spec=spec_json,
+        gates=gates_json,
     )
 
 
@@ -104,3 +120,31 @@ def _build_pipeline_spec(pipeline: AutoMLPipeline) -> dict[str, Any]:
         "retraining_cadence": pipeline.retraining_cadence,
         "output_property_name": pipeline.output_property_name,
     }
+
+
+def _build_gate_config(pipeline: AutoMLPipeline) -> dict[str, Any]:
+    """Derive the promotion-gate config the agent evaluates after training.
+
+    Precedence:
+      1. ``pipeline.config["success_criteria"]`` if it's a non-empty dict —
+         this is the user's explicit override authored at pipeline setup time.
+      2. Task-type defaults in ``_DEFAULT_GATES`` — permissive floors meant to
+         catch obviously broken models without second-guessing the user's bar.
+
+    Returns the dict embedded into the brief verbatim. Shape: a mapping with
+    ``primary_metric``, ``direction``, and either ``floor`` (higher_is_better)
+    or ``ceiling`` (lower_is_better). Source provenance is included in
+    ``source`` so the agent can mention it in the outcome report.
+    """
+    user_criteria = pipeline.config.get("success_criteria") if isinstance(pipeline.config, dict) else None
+    if isinstance(user_criteria, dict) and user_criteria:
+        return {**user_criteria, "source": "pipeline_config"}
+
+    try:
+        defaults = _DEFAULT_GATES[TaskType(pipeline.task_type)]
+    except (KeyError, ValueError):
+        # Unknown task type slipped past validation — fall back to a no-op gate
+        # that records but never auto-promotes. The agent will leave the model
+        # as a challenger and surface the unknown task type in the report.
+        return {"primary_metric": None, "direction": None, "source": "fallback_no_auto_promote"}
+    return {**defaults, "source": "task_type_default"}
