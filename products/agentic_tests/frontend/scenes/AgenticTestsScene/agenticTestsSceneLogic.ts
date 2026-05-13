@@ -75,12 +75,7 @@ export const agenticTestsSceneLogic = kea<agenticTestsSceneLogicType>([
                     if (t.status === 'proposed') {
                         return false
                     }
-                    if (statusFilter === 'all') {
-                        // Default 'all' hides rejected — match the workflows archived pattern.
-                        if (t.status === 'rejected') {
-                            return false
-                        }
-                    } else if (t.status !== (statusFilter as AgenticTestStatus)) {
+                    if (statusFilter !== 'all' && t.status !== (statusFilter as AgenticTestStatus)) {
                         return false
                     }
                     if (search && !t.name.toLowerCase().includes(search)) {
