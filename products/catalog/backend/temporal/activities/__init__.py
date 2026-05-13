@@ -1,6 +1,9 @@
 from products.catalog.backend.temporal.activities.enumerate import (
-    WarehouseColumnRef,
-    WarehouseTableRef,
+    CatalogColumnRef,
+    CatalogNodeRef,
+    enumerate_posthog_tables,
+    enumerate_saved_queries,
+    enumerate_system_tables,
     enumerate_warehouse_tables,
 )
 from products.catalog.backend.temporal.activities.run import (
@@ -10,18 +13,21 @@ from products.catalog.backend.temporal.activities.run import (
 )
 from products.catalog.backend.temporal.activities.upsert import (
     BatchUpsertResult,
-    UpsertWarehouseBatchArgs,
-    upsert_warehouse_batch,
+    UpsertNodeBatchArgs,
+    upsert_node_batch,
 )
 
 __all__ = [
     "BatchUpsertResult",
-    "UpsertWarehouseBatchArgs",
-    "WarehouseColumnRef",
-    "WarehouseTableRef",
+    "CatalogColumnRef",
+    "CatalogNodeRef",
+    "UpsertNodeBatchArgs",
     "complete_traversal_run",
     "create_traversal_run",
+    "enumerate_posthog_tables",
+    "enumerate_saved_queries",
+    "enumerate_system_tables",
     "enumerate_warehouse_tables",
     "fail_traversal_run",
-    "upsert_warehouse_batch",
+    "upsert_node_batch",
 ]

@@ -17,7 +17,13 @@ from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.catalog.backend.temporal.activities.enumerate import enumerate_warehouse_tables
+from products.catalog.backend.temporal.activities.enumerate import (
+    CatalogNodeRef,
+    enumerate_posthog_tables,
+    enumerate_saved_queries,
+    enumerate_system_tables,
+    enumerate_warehouse_tables,
+)
 from products.catalog.backend.temporal.activities.run import (
     CompleteRunArgs,
     CreateRunArgs,
@@ -27,7 +33,7 @@ from products.catalog.backend.temporal.activities.run import (
     create_traversal_run,
     fail_traversal_run,
 )
-from products.catalog.backend.temporal.activities.upsert import UpsertWarehouseBatchArgs, upsert_warehouse_batch
+from products.catalog.backend.temporal.activities.upsert import UpsertNodeBatchArgs, upsert_node_batch
 from products.catalog.backend.temporal.constants import (
     BATCH_SIZE,
     DEFAULT_RETRY_POLICY,
@@ -64,10 +70,10 @@ class CatalogTraversalResult:
 class CatalogTraversalWorkflow(PostHogWorkflow):
     """One full pass over a team's catalog.
 
-    Current shape: open a run row, do nothing (yet), close the run row. Follow-up
-    commits insert enumerate / upsert / propose activities between the create
-    and complete calls. The agentic phase appends to the same `run` body — no
-    second workflow.
+    Current shape: open a run row, enumerate warehouse / saved query / system /
+    posthog tables, upsert their nodes and columns, close the run row. The
+    agentic phase appends to this `run` body in a later iteration — no second
+    workflow.
     """
 
     inputs_cls = CatalogTraversalInputs
@@ -90,27 +96,35 @@ class CatalogTraversalWorkflow(PostHogWorkflow):
         counts = TraversalCounts()
         try:
             # --- Deterministic phase ---
-            warehouse_tables = await workflow.execute_activity(
+            # Walk each source, upsert its nodes + columns through the shared
+            # upsert activity. Order is incidental — the upsert is idempotent
+            # on the natural key (team, kind, name).
+            for enumerator in (
                 enumerate_warehouse_tables,
-                inputs.team_id,
-                start_to_close_timeout=ENUMERATE_ACTIVITY_TIMEOUT,
-                schedule_to_close_timeout=ENUMERATE_SCHEDULE_TO_CLOSE_TIMEOUT,
-                heartbeat_timeout=ENUMERATE_HEARTBEAT_TIMEOUT,
-                retry_policy=DEFAULT_RETRY_POLICY,
-            )
-            for batch in batched(warehouse_tables, BATCH_SIZE):
-                batch_result = await workflow.execute_activity(
-                    upsert_warehouse_batch,
-                    UpsertWarehouseBatchArgs(team_id=inputs.team_id, tables=list(batch)),
-                    start_to_close_timeout=UPSERT_ACTIVITY_TIMEOUT,
-                    schedule_to_close_timeout=UPSERT_SCHEDULE_TO_CLOSE_TIMEOUT,
-                    heartbeat_timeout=UPSERT_HEARTBEAT_TIMEOUT,
+                enumerate_saved_queries,
+                enumerate_system_tables,
+                enumerate_posthog_tables,
+            ):
+                refs: list[CatalogNodeRef] = await workflow.execute_activity(
+                    enumerator,
+                    inputs.team_id,
+                    start_to_close_timeout=ENUMERATE_ACTIVITY_TIMEOUT,
+                    schedule_to_close_timeout=ENUMERATE_SCHEDULE_TO_CLOSE_TIMEOUT,
+                    heartbeat_timeout=ENUMERATE_HEARTBEAT_TIMEOUT,
                     retry_policy=DEFAULT_RETRY_POLICY,
                 )
-                counts.nodes += batch_result.nodes
-                counts.columns += batch_result.columns
+                for batch in batched(refs, BATCH_SIZE):
+                    batch_result = await workflow.execute_activity(
+                        upsert_node_batch,
+                        UpsertNodeBatchArgs(team_id=inputs.team_id, refs=list(batch)),
+                        start_to_close_timeout=UPSERT_ACTIVITY_TIMEOUT,
+                        schedule_to_close_timeout=UPSERT_SCHEDULE_TO_CLOSE_TIMEOUT,
+                        heartbeat_timeout=UPSERT_HEARTBEAT_TIMEOUT,
+                        retry_policy=DEFAULT_RETRY_POLICY,
+                    )
+                    counts.nodes += batch_result.nodes
+                    counts.columns += batch_result.columns
 
-            # --- Saved queries / native / system enumeration lands in commit 3 ---
             # --- Relationship declaration lands in commit 4 ---
             # --- Agentic phase activities follow in a later iteration ---
 
