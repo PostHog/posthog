@@ -1,0 +1,14 @@
+{
+    "name": "@posthog/products-semantic-layer",
+    "scripts": {},
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-router": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@posthog/lemon-ui": "*",
+        "clsx": "*",
+        "react": "*"
+    }
+}
