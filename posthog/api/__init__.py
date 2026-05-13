@@ -74,7 +74,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingSymbolSetViewSet,
     GitProviderFileLinksViewSet,
 )
-from products.githog.backend.presentation.views import GitHogViewSet
+from products.githog.backend.presentation.views import GitHogViewSet, GithogPRImpactViewSet
 from products.llm_analytics.backend.api import (
     ClusteringConfigViewSet,
     ClusteringJobViewSet,
@@ -1026,6 +1026,20 @@ environments_router.register(
     ErrorTrackingQueryViewSet,
     "environment_error_tracking_query",
     ["team_id"],
+)
+
+environments_router.register(
+    r"githog/impact",
+    GithogPRImpactViewSet,
+    "environment_githog_impact",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"githog/impact",
+    GithogPRImpactViewSet,
+    "project_githog_impact",
+    ["project_id"],
 )
 
 environments_router.register(

@@ -1,28 +1,42 @@
 """
 DRF views for githog.
 
-Exposes a thin read-only API on top of the team's existing GitHub
-integration(s) so the GitHog frontend product can list connected
-repositories and their pull requests.
+Two viewsets:
+
+- ``GitHogViewSet`` — read-only access to the team's GitHub integration(s):
+  list connected repositories and their pull requests. Used by the GitHog
+  frontend to populate repo/PR pickers.
+
+- ``GithogPRImpactViewSet`` — user-impact analysis for a PR diff. Extracts
+  feature-flag keys from the supplied diff and measures empirical reach
+  from ``$feature_flag_called`` events. Avoids HTTP-layer business logic;
+  delegates to ``facade/api.py``.
 """
 
 from typing import Any
 
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action as rf_action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import extend_schema as posthog_extend_schema
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.models.integration import GitHubIntegration, Integration
 
+from ..facade.api import compute_pr_impact
+from ..facade.contracts import PRImpactRequest
 from .serializers import (
     GitHogPullRequestListQuerySerializer,
     GitHogPullRequestListResponseSerializer,
     GitHogRepositoryListResponseSerializer,
+    PRImpactRequestSerializer,
+    PRImpactResponseSerializer,
 )
 
 logger = structlog.get_logger(__name__)
@@ -95,7 +109,7 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         parameters=[GitHogPullRequestListQuerySerializer],
         responses={200: GitHogPullRequestListResponseSerializer},
     )
-    @action(methods=["GET"], detail=False, url_path="pull_requests")
+    @rf_action(methods=["GET"], detail=False, url_path="pull_requests")
     def pull_requests(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query = GitHogPullRequestListQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
@@ -118,3 +132,33 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "pull_requests": result.get("pull_requests", []),
             }
         )
+
+
+@posthog_extend_schema(tags=["githog"])
+class GithogPRImpactViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """User-impact analysis for pull request diffs."""
+
+    scope_object = "INTERNAL"
+
+    @validated_request(
+        request_serializer=PRImpactRequestSerializer,
+        responses={200: OpenApiResponse(response=PRImpactResponseSerializer)},
+        operation_id="githog_pr_impact_create",
+        summary="Compute user-impact for a PR diff",
+        description=(
+            "Extracts PostHog feature-flag keys referenced in the supplied unified diff, "
+            "then queries `$feature_flag_called` events to report how many users hit each "
+            "flag (and the intersection across all flags) over the lookback window. "
+            "Empirical — does not multiply configured rollout percentages, so it handles "
+            "compounding nested gates correctly."
+        ),
+    )
+    @action(methods=["POST"], detail=False, url_path="pr_impact")
+    def pr_impact(self, request: ValidatedRequest, **kwargs: object) -> Response:
+        params = dict(request.validated_data)
+        impact_request = PRImpactRequest(
+            diff_text=params["diff_text"],
+            lookback_days=params.get("lookback_days", 30),
+        )
+        report = compute_pr_impact(self.team, impact_request)
+        return Response(PRImpactResponseSerializer.from_report(report))
