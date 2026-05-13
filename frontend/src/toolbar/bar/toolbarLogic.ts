@@ -42,6 +42,17 @@ export type MenuState =
     | 'product-tours'
     | 'surveys'
 
+export type ToolbarFeatureId =
+    | 'inspect'
+    | 'heatmap'
+    | 'actions'
+    | 'flags'
+    | 'debugger'
+    | 'web-vitals'
+    | 'experiments'
+    | 'product-tours'
+    | 'surveys'
+
 export type ToolbarPositionType =
     | 'top-left'
     | 'top-center'
@@ -131,6 +142,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         startGracefulExit: true,
         completeGracefulExit: true,
         setCspBlocksNewFunction: (blocked: boolean) => ({ blocked }),
+        setFeatureEnabled: (featureId: ToolbarFeatureId, enabled: boolean) => ({ featureId, enabled }),
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -247,6 +259,18 @@ export const toolbarLogic = kea<toolbarLogicType>([
             false,
             {
                 setCspBlocksNewFunction: (_, { blocked }) => blocked,
+            },
+        ],
+        disabledFeatures: [
+            [] as ToolbarFeatureId[],
+            { persist: true },
+            {
+                setFeatureEnabled: (state, { featureId, enabled }) => {
+                    if (enabled) {
+                        return state.filter((id) => id !== featureId)
+                    }
+                    return state.includes(featureId) ? state : [...state, featureId]
+                },
             },
         ],
     })),

@@ -13,6 +13,7 @@ import {
     IconDay,
     IconEye,
     IconFlask,
+    IconGear,
     IconHide,
     IconLeave,
     IconLive,
@@ -30,6 +31,7 @@ import {
 import { LemonBadge, Spinner } from '@posthog/lemon-ui'
 
 import { AnimatedLogomark } from 'lib/brand/Logomark'
+import { FeatureFlagKey } from 'lib/constants'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -39,7 +41,7 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { AuthConfirmModal } from '~/toolbar/bar/AuthConfirmModal'
 import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
-import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
+import { ToolbarFeatureId, toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { UiHostConfigModal } from '~/toolbar/bar/UiHostConfigModal'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
@@ -60,6 +62,45 @@ import { WebVitalsToolbarMenu } from '~/toolbar/web-vitals/WebVitalsToolbarMenu'
 import { ToolbarButton } from './ToolbarButton'
 
 const HELP_URL = 'https://posthog.com/docs/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
+
+type ToolbarFeatureConfig = {
+    id: ToolbarFeatureId
+    label: string
+    icon: JSX.Element
+    flag?: FeatureFlagKey
+}
+
+const TOOLBAR_FEATURES: readonly ToolbarFeatureConfig[] = [
+    { id: 'inspect', label: 'Inspect element', icon: <IconSearch /> },
+    { id: 'heatmap', label: 'Heatmaps', icon: <IconCursorClick /> },
+    { id: 'actions', label: 'Actions', icon: <IconBolt /> },
+    { id: 'flags', label: 'Feature flags', icon: <IconToggle /> },
+    { id: 'debugger', label: 'Event debugger', icon: <IconLive /> },
+    { id: 'web-vitals', label: 'Web vitals', icon: <IconPieChart /> },
+    { id: 'experiments', label: 'Experiments', icon: <IconFlask /> },
+    { id: 'product-tours', label: 'Product tours', icon: <IconSpotlight />, flag: 'product-tours-2025' },
+    { id: 'surveys', label: 'Surveys', icon: <IconMessage />, flag: 'surveys-toolbar' },
+]
+
+function useAvailableToolbarFeatures(): Set<ToolbarFeatureId> {
+    const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
+    const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
+    const inStory = inStorybook() || inStorybookTestRunner()
+
+    const available = new Set<ToolbarFeatureId>()
+    for (const feature of TOOLBAR_FEATURES) {
+        if (!feature.flag) {
+            available.add(feature.id)
+            continue
+        }
+        if (feature.flag === 'product-tours-2025' && (inStory || productToursFlag)) {
+            available.add(feature.id)
+        } else if (feature.flag === 'surveys-toolbar' && surveysFlag) {
+            available.add(feature.id)
+        }
+    }
+    return available
+}
 
 function EnabledStatusItem({ label, value }: { label: string; value: boolean }): JSX.Element {
     return (
@@ -155,6 +196,38 @@ function postHogDebugInfoMenuItem(
     }
 }
 
+function customizeToolbarMenuItem(
+    availableFeatures: Set<ToolbarFeatureId>,
+    disabledFeatures: ToolbarFeatureId[],
+    setFeatureEnabled: (featureId: ToolbarFeatureId, enabled: boolean) => void
+): LemonMenuItem {
+    const items: LemonMenuItem[] = TOOLBAR_FEATURES.filter((feature) => availableFeatures.has(feature.id)).map(
+        (feature) => {
+            const isEnabled = !disabledFeatures.includes(feature.id)
+            const enabledCount = TOOLBAR_FEATURES.filter(
+                (f) => availableFeatures.has(f.id) && !disabledFeatures.includes(f.id)
+            ).length
+            const wouldDisableLast = isEnabled && enabledCount <= 1
+            return {
+                icon: feature.icon,
+                label: feature.label,
+                sideIcon: isEnabled ? <IconCheck /> : <IconX className="text-muted" />,
+                active: isEnabled,
+                disabledReason: wouldDisableLast ? 'At least one feature must be enabled' : undefined,
+                onClick: () => setFeatureEnabled(feature.id, !isEnabled),
+            }
+        }
+    )
+
+    return {
+        icon: <IconGear />,
+        label: 'Customize toolbar',
+        placement: 'right',
+        custom: true,
+        items,
+    }
+}
+
 function piiMaskingMenuItem(
     piiMaskingEnabled: boolean,
     piiMaskingColor: string,
@@ -216,6 +289,7 @@ function MoreMenu(): JSX.Element {
         piiMaskingEnabled,
         piiMaskingColor,
         piiWarning,
+        disabledFeatures,
     } = useValues(toolbarLogic)
     const {
         setHedgehogModeEnabled,
@@ -224,7 +298,9 @@ function MoreMenu(): JSX.Element {
         setPiiMaskingColor,
         startGracefulExit,
         openHedgehogOptions,
+        setFeatureEnabled,
     } = useActions(toolbarLogic)
+    const availableFeatures = useAvailableToolbarFeatures()
     const { isAuthenticated } = useValues(toolbarConfigLogic)
     const { logout } = useActions(toolbarConfigLogic)
     const { isTakingScreenshot } = useValues(screenshotUploadLogic)
@@ -292,6 +368,7 @@ function MoreMenu(): JSX.Element {
                             setPiiMaskingColor,
                             piiWarning
                         ),
+                        customizeToolbarMenuItem(availableFeatures, disabledFeatures, setFeatureEnabled),
                         postHogDebugInfoMenuItem(posthog, loadingSurveys, surveysCount),
                         {
                             icon: <IconQuestion />,
@@ -382,7 +459,7 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
 export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp, isExiting, isLoading } =
+    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp, isExiting, isLoading, disabledFeatures } =
         useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred, completeGracefulExit } =
         useActions(toolbarLogic)
@@ -393,11 +470,11 @@ export function Toolbar(): JSX.Element | null {
     const { selectedTourId, isPreviewing } = useValues(productToursLogic)
     const { isCreating: isSurveyCreating } = useValues(surveysToolbarLogic)
 
-    const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
-    const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
-
-    const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
-    const showSurveys = surveysFlag
+    const availableFeatures = useAvailableToolbarFeatures()
+    const isFeatureVisible = (id: ToolbarFeatureId): boolean =>
+        availableFeatures.has(id) && !disabledFeatures.includes(id)
+    const showProductTours = isFeatureVisible('product-tours')
+    const showSurveys = isFeatureVisible('surveys')
 
     useEffect(() => {
         setElement(ref.current)
@@ -435,6 +512,8 @@ export function Toolbar(): JSX.Element | null {
 
     const showToursSidebar = selectedTourId !== null && !isPreviewing
 
+    const visibleFeatureCount = TOOLBAR_FEATURES.filter((f) => isFeatureVisible(f.id)).length
+
     return (
         <>
             {showToursSidebar && <ProductToursSidebar />}
@@ -446,9 +525,6 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--minimized': minimized,
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
-                    'Toolbar--extra-buttons-1': 1 + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 1,
-                    'Toolbar--extra-buttons-2': 1 + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
-                    'Toolbar--extra-buttons-3': 1 + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -458,6 +534,7 @@ export function Toolbar(): JSX.Element | null {
                     {
                         '--toolbar-button-x': `${position.x}px`,
                         '--toolbar-button-y': `${position.y}px`,
+                        '--toolbar-feature-count': visibleFeatureCount,
                     } as any
                 }
             >
@@ -474,27 +551,41 @@ export function Toolbar(): JSX.Element | null {
                 </ToolbarButton>
                 {isAuthenticated ? (
                     <>
-                        <ToolbarButton menuId="inspect">
-                            <IconSearch />
-                        </ToolbarButton>
-                        <ToolbarButton menuId="heatmap">
-                            <IconCursorClick />
-                        </ToolbarButton>
-                        <ToolbarButton menuId="actions">
-                            <IconBolt />
-                        </ToolbarButton>
-                        <ToolbarButton menuId="flags" title="Feature flags">
-                            <IconToggle />
-                        </ToolbarButton>
-                        <ToolbarButton menuId="debugger" title="Event debugger">
-                            <IconLive />
-                        </ToolbarButton>
-                        <ToolbarButton menuId="web-vitals" title="Web vitals">
-                            <IconPieChart />
-                        </ToolbarButton>
-                        <ToolbarButton menuId="experiments" title="Experiments">
-                            <IconFlask />
-                        </ToolbarButton>
+                        {isFeatureVisible('inspect') && (
+                            <ToolbarButton menuId="inspect">
+                                <IconSearch />
+                            </ToolbarButton>
+                        )}
+                        {isFeatureVisible('heatmap') && (
+                            <ToolbarButton menuId="heatmap">
+                                <IconCursorClick />
+                            </ToolbarButton>
+                        )}
+                        {isFeatureVisible('actions') && (
+                            <ToolbarButton menuId="actions">
+                                <IconBolt />
+                            </ToolbarButton>
+                        )}
+                        {isFeatureVisible('flags') && (
+                            <ToolbarButton menuId="flags" title="Feature flags">
+                                <IconToggle />
+                            </ToolbarButton>
+                        )}
+                        {isFeatureVisible('debugger') && (
+                            <ToolbarButton menuId="debugger" title="Event debugger">
+                                <IconLive />
+                            </ToolbarButton>
+                        )}
+                        {isFeatureVisible('web-vitals') && (
+                            <ToolbarButton menuId="web-vitals" title="Web vitals">
+                                <IconPieChart />
+                            </ToolbarButton>
+                        )}
+                        {isFeatureVisible('experiments') && (
+                            <ToolbarButton menuId="experiments" title="Experiments">
+                                <IconFlask />
+                            </ToolbarButton>
+                        )}
                         {showProductTours && (
                             <ToolbarButton menuId="product-tours" title="Product tours">
                                 <IconSpotlight />
