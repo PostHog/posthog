@@ -1,5 +1,7 @@
 import './ToolbarLaunch.scss'
 
+import { useValues } from 'kea'
+
 import { IconFlag, IconFlask, IconPieChart, IconSearch } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
@@ -8,6 +10,7 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { IconGroupedEvents, IconHeatmap } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -21,6 +24,9 @@ export const scene: SceneExport = {
 }
 
 export function ToolbarLaunch(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const toolbarDisabled = !!currentTeam?.toolbar_opt_out
+
     const features: FeatureHighlightProps[] = [
         {
             title: 'Heatmaps',
@@ -64,13 +70,28 @@ export function ToolbarLaunch(): JSX.Element {
                 }}
             />
 
-            <SceneSection title="Authorized URLs for Toolbar" description="Click on the URL to launch the toolbar.">
-                <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText="Add authorized URL" />
-                <LemonBanner type="info">
-                    Make sure you're using the <Link to={`${urls.settings('project')}#snippet`}>HTML snippet</Link> or
-                    the latest <code>posthog-js</code> version.
-                </LemonBanner>
-            </SceneSection>
+            {toolbarDisabled ? (
+                <SceneSection>
+                    <LemonBanner type="warning">
+                        <p className="mb-2 font-semibold">The toolbar is disabled for this project.</p>
+                        <p className="mb-0">
+                            The toolbar cannot be launched. An admin can re-enable it under{' '}
+                            <Link to={urls.settings('environment-toolbar', 'toolbar-enabled')}>
+                                project settings → Toolbar
+                            </Link>
+                            .
+                        </p>
+                    </LemonBanner>
+                </SceneSection>
+            ) : (
+                <SceneSection title="Authorized URLs for Toolbar" description="Click on the URL to launch the toolbar.">
+                    <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText="Add authorized URL" />
+                    <LemonBanner type="info">
+                        Make sure you're using the <Link to={`${urls.settings('project')}#snippet`}>HTML snippet</Link>{' '}
+                        or the latest <code>posthog-js</code> version.
+                    </LemonBanner>
+                </SceneSection>
+            )}
 
             <SceneSection>
                 <div className="grid grid-cols-2 gap-4 max-w-[800px] mb-6 mt-4 mx-auto">
