@@ -6589,7 +6589,7 @@ export namespace Schemas {
     }
 
     export interface CatalogNodeDTO {
-      readonly columns: readonly CatalogColumnDTO[];
+      columns: CatalogColumnDTO[];
       id: string;
       team_id: number;
       kind: string;

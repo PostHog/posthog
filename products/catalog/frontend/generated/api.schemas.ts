@@ -174,7 +174,7 @@ export interface PatchedUpdateColumnInputApi {
 }
 
 export interface CatalogNodeDTOApi {
-    readonly columns: readonly CatalogColumnDTOApi[]
+    columns: CatalogColumnDTOApi[]
     id: string
     team_id: number
     kind: string
