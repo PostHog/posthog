@@ -59,6 +59,7 @@ Steps:
 
 Evidence:
 
+- GIF: `.qa-runtime/runs/<run-id>/runtime-qa.gif` when generated
 - Screenshot: `<link-or-relative-path>`
 - Console: `<scrubbed excerpt or "none">`
 

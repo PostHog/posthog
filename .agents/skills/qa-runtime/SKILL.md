@@ -30,9 +30,10 @@ approval in the current conversation.
 5. Run browser/API checks through Playwright MCP, capturing evidence.
 6. Confirm every candidate issue with one retry before calling it a finding.
 7. Apply at most 3 confident fixes, only inside files already changed by the PR.
-8. Push only after explicit approval and after verifying PR-comment connectivity.
-9. Post one final PR comment for every completed run, including clean runs.
-10. Restore the original branch in a finally-style cleanup.
+8. Create a slow GIF from captured screenshots when there is enough visual evidence.
+9. Push only after explicit approval and after verifying PR-comment connectivity.
+10. Post one final PR comment for every completed run, including clean runs.
+11. Restore the original branch in a finally-style cleanup.
 
 Supported invocation forms:
 
@@ -214,6 +215,13 @@ For each test-plan target:
 Evidence files live under `.qa-runtime/runs/<run-id>/` and stay uncommitted.
 Use filenames like `001-dashboard-load.png`, `002-save-click.png`, and
 `console-errors.json`.
+
+When a browser or visual target captures at least two screenshots, create a slow
+animated GIF by default from the ordered screenshots. Name it
+`.qa-runtime/runs/<run-id>/runtime-qa.gif`. Aim for about 1.5-2 seconds per
+frame so reviewers can follow the flow without pausing. If local tooling cannot
+create the GIF, keep the screenshots and mention the GIF creation failure in the
+local run notes, not as a PR finding.
 
 Candidate issues must pass one reproducibility retry. Re-run the same action
 sequence in the same browser session. If it does not reproduce, mark it

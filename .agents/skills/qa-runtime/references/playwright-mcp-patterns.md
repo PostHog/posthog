@@ -63,8 +63,24 @@ Use stable, readable names:
 .qa-runtime/runs/<run-id>/001-login.png
 .qa-runtime/runs/<run-id>/010-dashboard-load.png
 .qa-runtime/runs/<run-id>/011-save-click-failure.png
+.qa-runtime/runs/<run-id>/runtime-qa.gif
 .qa-runtime/runs/<run-id>/console-errors.json
 ```
+
+After a browser or visual test captures two or more screenshots, assemble the
+ordered screenshots into `runtime-qa.gif` by default. This follows the same
+evidence pattern as the demo-reel browser tier: screenshots stitched into a slow
+GIF. Use slow frames, about 1.5-2 seconds each, and preserve the original PNGs.
+
+Prefer ImageMagick when available:
+
+```bash
+magick -delay 180 -loop 0 .qa-runtime/runs/<run-id>/[0-9][0-9][0-9]-*.png .qa-runtime/runs/<run-id>/runtime-qa.gif
+```
+
+If ImageMagick is unavailable but `ffmpeg` is available, create a two-pass
+palette GIF from the ordered screenshots. Do not install packages just to create
+the GIF; keep the screenshots as the fallback evidence.
 
 Keep paths relative in PR comments. Upload the bundle as a secret gist if the
 comment would be too long.
