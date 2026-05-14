@@ -115,16 +115,26 @@ export const surveyNotificationsListLogic = kea<surveyNotificationsListLogicType
     }),
     listeners(({ actions, values }) => ({
         toggleNotificationEnabled: async ({ notificationId, enabled }) => {
-            const previous = values.allNotifications
-            const optimistic = previous.map((notification) =>
-                notification.id === notificationId ? { ...notification, enabled } : notification
-            )
-            actions.loadNotificationsSuccess(optimistic)
+            const target = values.allNotifications.find((notification) => notification.id === notificationId)
+            if (!target) {
+                return
+            }
+            const previousEnabled = target.enabled
+
+            const applyEnabled = (next: boolean): void => {
+                actions.loadNotificationsSuccess(
+                    values.allNotifications.map((notification) =>
+                        notification.id === notificationId ? { ...notification, enabled: next } : notification
+                    )
+                )
+            }
+
+            applyEnabled(enabled)
 
             try {
                 await api.hogFunctions.update(notificationId, { enabled })
             } catch (error) {
-                actions.loadNotificationsSuccess(previous)
+                applyEnabled(previousEnabled)
                 lemonToast.error('Failed to update notification')
                 posthog.captureException(error, {
                     action: 'toggle-survey-notification-from-list',

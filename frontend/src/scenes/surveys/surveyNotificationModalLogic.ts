@@ -855,7 +855,13 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
             const notification = values.surveyNotifications.find((fn) => fn.id === target)
             if (notification) {
                 actions.openDialog({ notification, intent: 'edit' })
+                return
             }
+            // The notification ID didn't resolve (deleted, wrong project, stale link). Clear the
+            // pending target so unrelated reloads of surveyNotifications don't keep re-triggering
+            // this listener with the same dead ID, and let the user know the link didn't work.
+            actions.setPendingDeepLink(null)
+            lemonToast.error("We couldn't find that notification — it may have been removed.")
         },
         closeDialog: () => {
             actions.resetNotificationForm()
