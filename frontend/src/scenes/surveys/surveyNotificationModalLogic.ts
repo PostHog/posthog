@@ -276,6 +276,36 @@ type LastSurveyResponseResult =
     | { status: 'empty' }
     | { status: 'failed' }
 
+/**
+ * Aligns sample globals with the saved notification's first event filter so the test
+ * passes the compiled filter bytecode. Without this, a tiny mismatch (e.g. a survey id
+ * that drifted from `values.survey.id` due to copying or migration) skips the test.
+ */
+function alignGlobalsWithNotificationFilter(
+    globals: CyclotronJobInvocationGlobals,
+    notification: HogFunctionType | null
+): CyclotronJobInvocationGlobals {
+    const effectiveFilter = notification?.mappings?.[0]?.filters ?? notification?.filters ?? null
+    const firstEvent = effectiveFilter?.events?.[0]
+    if (!firstEvent) {
+        return globals
+    }
+    const mergedProperties = { ...globals.event.properties }
+    for (const prop of firstEvent.properties ?? []) {
+        if ('key' in prop && prop.key && 'value' in prop && prop.value !== undefined) {
+            mergedProperties[prop.key] = prop.value
+        }
+    }
+    return {
+        ...globals,
+        event: {
+            ...globals.event,
+            event: typeof firstEvent.id === 'string' ? firstEvent.id : globals.event.event,
+            properties: mergedProperties,
+        },
+    }
+}
+
 async function fetchLastSurveyResponseGlobals(query: EventsQuery | null): Promise<LastSurveyResponseResult> {
     if (!query) {
         return { status: 'empty' }
@@ -865,6 +895,12 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                         } else {
                             lemonToast.info('No survey responses yet — sent the test with sample data instead.')
                         }
+                    }
+
+                    // For sample-data tests, align the event with the saved filter's expected values
+                    // so the test isn't skipped by a $survey_id or completion-flag mismatch.
+                    if (source === 'sample') {
+                        globals = alignGlobalsWithNotificationFilter(globals, values.editingNotification)
                     }
 
                     const id = values.editingNotification?.id ?? 'new'
