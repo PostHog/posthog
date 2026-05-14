@@ -19,8 +19,17 @@ USER_DOCKERFILE = REGISTRY_DIR / "Dockerfile.user"
 SANDBOX_DOCKERFILE = Path(__file__).resolve().parent.parent / "Dockerfile.sandbox"
 
 # In-sandbox $HOME. Must stay in sync with SANDBOX_HOME in
-# bin/sandbox-entrypoint.py; tools.yaml copy targets resolve here.
+# bin/sandbox-entrypoint.py; this is what ~ resolves to inside the container.
 SANDBOX_HOME_IN_CONTAINER = "/tmp/sandbox-home"
+
+
+def expand_sandbox_path(raw: str) -> str:
+    """Expand ~ / ~/foo to the sandbox $HOME path. Everything else passes through."""
+    if raw == "~":
+        return SANDBOX_HOME_IN_CONTAINER
+    if raw.startswith("~/"):
+        return f"{SANDBOX_HOME_IN_CONTAINER}/{raw[2:]}"
+    return raw
 
 
 class ToolsError(Exception):
@@ -29,8 +38,8 @@ class ToolsError(Exception):
 
 @dataclass
 class ToolCopy:
-    # Seeded once at create time via `docker cp` from the host; the container
-    # owns the file thereafter (token refresh, re-auth, etc. stay inside).
+    # Stored exactly as written in tools.yaml. ~ expands per side at copy time:
+    # host via Path.expanduser(), container via expand_sandbox_path().
     source: str
     target: str
 
@@ -60,43 +69,11 @@ _BlockLiteralDumper.add_representer(str, _block_literal_str)
 
 
 def parse_tool_copy(entry: object, *, source_label: str) -> ToolCopy:
-    # Short form ("~/path") or long form ({source, target}). ToolsError on
-    # short form not under $HOME, ~user targets, or targets outside sandbox $HOME.
-    host_home = str(Path.home())
+    """Short form (one string used for both sides) or long form ({source, target})."""
     if isinstance(entry, str):
-        source = str(Path(entry).expanduser().resolve(strict=False))
-        try:
-            rel = Path(source).relative_to(host_home)
-        except ValueError:
-            raise ToolsError(
-                f"{source_label}: short-form copy entry {entry!r} is not under "
-                f"$HOME ({host_home}). Use long form: "
-                "{source: /abs/path, target: ~/...}."
-            )
-        return ToolCopy(source=source, target=f"{SANDBOX_HOME_IN_CONTAINER}/{rel}")
-
+        return ToolCopy(source=entry, target=entry)
     if isinstance(entry, dict):
-        source = str(Path(entry["source"]).expanduser().resolve(strict=False))
-        target_raw = str(entry["target"])
-        if target_raw.startswith("~/"):
-            target = f"{SANDBOX_HOME_IN_CONTAINER}/{target_raw[2:]}"
-        elif target_raw == "~":
-            target = SANDBOX_HOME_IN_CONTAINER
-        elif target_raw.startswith("~"):
-            raise ToolsError(
-                f"{source_label}: target {target_raw!r} uses '~user' which is "
-                "not supported. Use '~/...' or an absolute path under "
-                f"{SANDBOX_HOME_IN_CONTAINER}."
-            )
-        else:
-            target = target_raw
-        if target != SANDBOX_HOME_IN_CONTAINER and not target.startswith(SANDBOX_HOME_IN_CONTAINER + "/"):
-            raise ToolsError(
-                f"{source_label}: target {entry['target']!r} must resolve "
-                f"under sandbox $HOME ({SANDBOX_HOME_IN_CONTAINER})."
-            )
-        return ToolCopy(source=source, target=target)
-
+        return ToolCopy(source=str(entry["source"]), target=str(entry["target"]))
     raise ToolsError(f"{source_label}: invalid copy entry {entry!r} (expected string or mapping).")
 
 
@@ -138,32 +115,18 @@ def load_catalog(catalog_file: Path) -> dict[str, Tool]:
     return {t.name: t for t in _load_tools(catalog_file)}
 
 
-def _format_copy(c: ToolCopy, host_home: Path) -> str | dict[str, str]:
-    # Prefer short form when source is under $HOME and target is the default.
-    try:
-        rel = Path(c.source).relative_to(host_home)
-    except ValueError:
-        rel = None
-    if rel is not None and c.target == f"{SANDBOX_HOME_IN_CONTAINER}/{rel}":
-        return f"~/{rel}"
-
-    target = c.target
-    if target == SANDBOX_HOME_IN_CONTAINER:
-        target = "~"
-    elif target.startswith(SANDBOX_HOME_IN_CONTAINER + "/"):
-        target = "~/" + target[len(SANDBOX_HOME_IN_CONTAINER) + 1 :]
-    return {"source": c.source, "target": target}
+def _format_copy(c: ToolCopy) -> str | dict[str, str]:
+    return c.source if c.source == c.target else {"source": c.source, "target": c.target}
 
 
 def save_user_tools(tools: list[Tool]) -> None:
-    host_home = Path.home()
     entries: list[dict] = []
     for t in tools:
         entry: dict = {"name": t.name}
         if t.install is not None:
             entry["install"] = t.install if t.install.endswith("\n") else t.install + "\n"
         if t.copy:
-            entry["copy"] = [_format_copy(c, host_home) for c in t.copy]
+            entry["copy"] = [_format_copy(c) for c in t.copy]
         entries.append(entry)
     TOOLS_FILE.parent.mkdir(parents=True, exist_ok=True)
     TOOLS_FILE.write_text(

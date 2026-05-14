@@ -1874,12 +1874,13 @@ def _seed_tool_auth(container: str, tools: list[Tool]) -> None:
     """
     for tool in tools:
         for c in tool.copy:
-            src = Path(c.source)
+            src = Path(c.source).expanduser()
+            tgt = sandbox_tools.expand_sandbox_path(c.target)
             if not src.exists():
                 continue
-            run(["docker", "exec", container, "mkdir", "-p", str(Path(c.target).parent)], capture=True)
-            run(["docker", "cp", str(src), f"{container}:{c.target}"], capture=True)
-            run(["docker", "exec", container, "chown", "-R", "sandbox:sandbox", c.target], capture=True)
+            run(["docker", "exec", container, "mkdir", "-p", str(Path(tgt).parent)], capture=True)
+            run(["docker", "cp", str(src), f"{container}:{tgt}"], capture=True)
+            run(["docker", "exec", container, "chown", "-R", "sandbox:sandbox", tgt], capture=True)
 
 
 # ---------------------------------------------------------------------------
