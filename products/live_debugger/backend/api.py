@@ -9,7 +9,7 @@ from django.http import HttpResponse
 from django_filters.rest_framework import DjangoFilterBackend, FilterSet
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -745,6 +745,51 @@ class LiveDebuggerSessionListItemSerializer(serializers.ModelSerializer):
         }
 
 
+class AddEntryRequestSerializer(serializers.Serializer):
+    """Validates a direct-write session entry (note / event_highlight / conclusion).
+
+    `program_install` and `program_uninstall` entries are server-written side effects
+    of the install/uninstall endpoints and cannot be appended via this endpoint.
+    """
+
+    DIRECT_WRITE_KINDS = [
+        LiveDebuggerSessionEntry.Kind.NOTE,
+        LiveDebuggerSessionEntry.Kind.EVENT_HIGHLIGHT,
+        LiveDebuggerSessionEntry.Kind.CONCLUSION,
+    ]
+
+    kind = serializers.ChoiceField(
+        choices=DIRECT_WRITE_KINDS,
+        help_text="Entry kind: note, event_highlight, or conclusion.",
+    )
+    payload = serializers.DictField(
+        help_text=(
+            "Payload shape depends on kind. "
+            "note/conclusion: {markdown: str}. "
+            "event_highlight: {event_uuids: list[str], caption: str}."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        kind = attrs["kind"]
+        payload = attrs["payload"]
+        if kind in (
+            LiveDebuggerSessionEntry.Kind.NOTE,
+            LiveDebuggerSessionEntry.Kind.CONCLUSION,
+        ):
+            md = payload.get("markdown")
+            if not isinstance(md, str) or not md:
+                raise serializers.ValidationError({"payload": "markdown (non-empty string) is required."})
+        elif kind == LiveDebuggerSessionEntry.Kind.EVENT_HIGHLIGHT:
+            uuids = payload.get("event_uuids")
+            caption = payload.get("caption")
+            if not isinstance(uuids, list) or not uuids or not all(isinstance(u, str) for u in uuids):
+                raise serializers.ValidationError({"payload": "event_uuids (non-empty list of strings) is required."})
+            if not isinstance(caption, str):
+                raise serializers.ValidationError({"payload": "caption (string) is required."})
+        return attrs
+
+
 class LiveDebuggerSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Start, list, inspect, and close debugging sessions.
@@ -809,3 +854,41 @@ class LiveDebuggerSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
         return super().retrieve(request, *args, **kwargs)
+
+    def _ensure_open(self, session: LiveDebuggerSession) -> None:
+        if session.status != LiveDebuggerSession.Status.OPEN:
+            raise serializers.ValidationError("Session is closed; cannot mutate.")
+
+    @extend_schema(
+        summary="Append a note, event highlight, or conclusion entry",
+        description=(
+            "Appends a direct-write entry to the session's timeline. Use `kind` to "
+            "select between `note`, `event_highlight`, and `conclusion`. `program_install` "
+            "and `program_uninstall` entries are produced as side effects of the install/"
+            "uninstall endpoints and cannot be added directly."
+        ),
+        request=AddEntryRequestSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=LiveDebuggerSessionEntryListItemSerializer,
+                description="Entry appended.",
+            ),
+            400: OpenApiResponse(description="Invalid payload or session is closed."),
+            404: OpenApiResponse(description="Session not found."),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="entries")
+    def add_entry(self, request: Request, *args, **kwargs) -> Response:
+        session = self.get_object()
+        self._ensure_open(session)
+        ser = AddEntryRequestSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        entry = LiveDebuggerSessionEntry.objects.create(
+            session=session,
+            kind=ser.validated_data["kind"],
+            payload=ser.validated_data["payload"],
+        )
+        return Response(
+            LiveDebuggerSessionEntryListItemSerializer(entry).data,
+            status=status.HTTP_201_CREATED,
+        )

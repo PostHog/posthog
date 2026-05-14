@@ -1410,3 +1410,69 @@ class TestLiveDebuggerSessionAPI(APIBaseTest):
         their_session = LiveDebuggerSession.objects.create(team=other_team, title="Theirs", description="")
         response = self.client.get(self._url(f"{their_session.id}/"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def _start_session(self) -> str:
+        return self.client.post(self._url(), data={"title": "T", "description": ""}).json()["id"]
+
+    def test_add_note_entry(self):
+        sid = self._start_session()
+        response = self.client.post(
+            self._url(f"{sid}/entries/"),
+            data={"kind": "note", "payload": {"markdown": "Trying probe X"}},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["kind"], "note")
+        self.assertEqual(response.json()["payload"]["markdown"], "Trying probe X")
+
+    def test_add_event_highlight_entry(self):
+        sid = self._start_session()
+        response = self.client.post(
+            self._url(f"{sid}/entries/"),
+            data={
+                "kind": "event_highlight",
+                "payload": {"event_uuids": ["00000000-0000-0000-0000-000000000001"], "caption": "look"},
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
+            ("note_missing_markdown", "note", {}),
+            ("note_empty_markdown", "note", {"markdown": ""}),
+            ("conclusion_missing_markdown", "conclusion", {}),
+            ("highlight_missing_uuids", "event_highlight", {"caption": "c"}),
+            ("highlight_empty_uuids", "event_highlight", {"event_uuids": [], "caption": "c"}),
+            ("highlight_missing_caption", "event_highlight", {"event_uuids": ["00000000-0000-0000-0000-000000000001"]}),
+        ]
+    )
+    def test_add_entry_validation(self, _name, kind, payload):
+        sid = self._start_session()
+        response = self.client.post(
+            self._url(f"{sid}/entries/"),
+            data={"kind": kind, "payload": payload},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_add_entry_rejects_server_only_kinds(self):
+        sid = self._start_session()
+        for kind in ("program_install", "program_uninstall"):
+            response = self.client.post(
+                self._url(f"{sid}/entries/"),
+                data={"kind": kind, "payload": {"program_id": "00000000-0000-0000-0000-000000000001"}},
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, msg=kind)
+
+    def test_entries_appear_in_retrieve_oldest_first(self):
+        sid = self._start_session()
+        for n in range(3):
+            self.client.post(
+                self._url(f"{sid}/entries/"),
+                data={"kind": "note", "payload": {"markdown": f"n{n}"}},
+                content_type="application/json",
+            )
+        body = self.client.get(self._url(f"{sid}/")).json()
+        self.assertEqual([e["payload"]["markdown"] for e in body["entries"]], ["n0", "n1", "n2"])
