@@ -12068,6 +12068,25 @@ export namespace Schemas {
       branch?: string;
     }
 
+    /**
+     * Body of POST /api/projects/{}/deployment_projects/{}/deployments/deploy/.
+     */
+    export interface DeploymentDeployInput {
+      /**
+         * Optional branch to deploy. If omitted, uses the deployment project's default_branch.
+         * @maxLength 255
+         */
+      branch?: string;
+    }
+
+    /**
+     * Response shape for the deploy endpoint.
+     */
+    export interface DeploymentDeployResponse {
+      /** ID of the deployment row created for this deploy request. */
+      deployment_id: string;
+    }
+
     export interface DeploymentEvent {
       /** Unique identifier for the event row. */
       readonly id: string;

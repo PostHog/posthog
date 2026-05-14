@@ -88,6 +88,20 @@ tools:
             Start a new deployment for a project from a specific commit. Returns 201 on success, 409 if a deployment is
             already in flight, or 502 on upstream GitHub / workflow dispatch failure.
         feature_flag: deployments
+    deployments-deploy:
+        operation: deployment_projects_deployments_deploy_create
+        enabled: true
+        scopes:
+            - deployment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Deploy
+        description: >
+            Trigger a deployment for a deployment project. Accepts an optional `branch`; omitting it uses the deployment
+            project's default branch. Returns the created deployment id.
+        feature_flag: deployments
     deployments-events:
         operation: deployment_projects_deployments_events_list
         enabled: true

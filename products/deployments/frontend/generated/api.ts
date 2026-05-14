@@ -12,6 +12,8 @@ import type {
     DeploymentActionResponseApi,
     DeploymentApi,
     DeploymentCreateInputApi,
+    DeploymentDeployInputApi,
+    DeploymentDeployResponseApi,
     DeploymentLogsResponseApi,
     DeploymentProjectApi,
     DeploymentProjectCreateApi,
@@ -381,6 +383,35 @@ export const deploymentProjectsDeploymentsRollbackCreate = async (
         {
             ...options,
             method: 'POST',
+        }
+    )
+}
+
+export const getDeploymentProjectsDeploymentsDeployCreateUrl = (projectId: string, deploymentProjectId: string) => {
+    return `/api/projects/${projectId}/deployment_projects/${deploymentProjectId}/deployments/deploy/`
+}
+
+/**
+ * Full lifecycle viewset for Deployments.
+
+All deployments are scoped to a parent DeploymentProject via the URL
+parent lookup `deployment_project_id`. The viewset enforces that
+scoping in `safely_get_queryset` so a user can never see / mutate a
+deployment that doesn't belong to the project in the URL.
+ */
+export const deploymentProjectsDeploymentsDeployCreate = async (
+    projectId: string,
+    deploymentProjectId: string,
+    deploymentDeployInputApi?: DeploymentDeployInputApi,
+    options?: RequestInit
+): Promise<DeploymentDeployResponseApi> => {
+    return apiMutator<DeploymentDeployResponseApi>(
+        getDeploymentProjectsDeploymentsDeployCreateUrl(projectId, deploymentProjectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(deploymentDeployInputApi),
         }
     )
 }

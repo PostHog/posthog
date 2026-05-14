@@ -104,6 +104,26 @@ export const DeploymentProjectsDeploymentsCreateBody = /* @__PURE__ */ zod
     .describe('Body of POST \/api\/projects\/{}\/deployment_projects\/{}\/deployments\/.')
 
 /**
+ * Full lifecycle viewset for Deployments.
+
+All deployments are scoped to a parent DeploymentProject via the URL
+parent lookup `deployment_project_id`. The viewset enforces that
+scoping in `safely_get_queryset` so a user can never see / mutate a
+deployment that doesn't belong to the project in the URL.
+ */
+export const deploymentProjectsDeploymentsDeployCreateBodyBranchMax = 255
+
+export const DeploymentProjectsDeploymentsDeployCreateBody = /* @__PURE__ */ zod
+    .object({
+        branch: zod
+            .string()
+            .max(deploymentProjectsDeploymentsDeployCreateBodyBranchMax)
+            .optional()
+            .describe("Optional branch to deploy. If omitted, uses the deployment project's default_branch."),
+    })
+    .describe('Body of POST \/api\/projects\/{}\/deployment_projects\/{}\/deployments\/deploy\/.')
+
+/**
  * CRUD for DeploymentProject (the connected-repo + hosting-target entity).
 
 Create-time provisioning calls Cloudflare BEFORE writing the DB row

@@ -415,6 +415,20 @@ class TestDeploymentsAPINested(_BaseDeploymentsAPITest):
         self.assertEqual(body["status"], Deployment.Status.QUEUED.value)
         self.assertEqual(body["trigger_kind"], Deployment.TriggerKind.MANUAL.value)
 
+    def test_deploy_returns_deployment_id_with_optional_branch(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/{self.deployment_project.id}/deployments/deploy/",
+            {"branch": "feature/agent-deploy"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        deployment = Deployment.objects.get()
+        self.assertEqual(response.json(), {"deployment_id": str(deployment.id)})
+        self.assertEqual(deployment.status, Deployment.Status.ERROR.value)
+        self.assertEqual(deployment.branch, "feature/agent-deploy")
+        self.assertEqual(deployment.error_message, "Deploy execution is not available yet.")
+
     def test_second_concurrent_post_returns_409(self) -> None:
         # First create: succeeds.
         first = self.client.post(

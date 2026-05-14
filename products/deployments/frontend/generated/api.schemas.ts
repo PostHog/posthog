@@ -400,6 +400,25 @@ export interface DeploymentLogsResponseApi {
     row_limit: number
 }
 
+/**
+ * Body of POST /api/projects/{}/deployment_projects/{}/deployments/deploy/.
+ */
+export interface DeploymentDeployInputApi {
+    /**
+     * Optional branch to deploy. If omitted, uses the deployment project's default_branch.
+     * @maxLength 255
+     */
+    branch?: string
+}
+
+/**
+ * Response shape for the deploy endpoint.
+ */
+export interface DeploymentDeployResponseApi {
+    /** ID of the deployment row created for this deploy request. */
+    deployment_id: string
+}
+
 export interface DeploymentProjectWriteApi {
     /**
      * Human-readable project name shown in the UI.

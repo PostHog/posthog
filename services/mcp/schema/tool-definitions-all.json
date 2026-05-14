@@ -1088,6 +1088,22 @@
         },
         "feature_flag": "deployments"
     },
+    "deployments-deploy": {
+        "description": "Trigger a deployment for a deployment project. Accepts an optional `branch`; omitting it uses the deployment project's default branch. Returns the created deployment id.",
+        "category": "Deployments",
+        "feature": "deployments",
+        "summary": "Deploy",
+        "title": "Deploy",
+        "required_scopes": ["deployment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "deployments"
+    },
     "deployments-events": {
         "description": "Return the state-machine event log for a deployment. Each event has `event_type` (e.g. `status_changed`, `preview_captured`, `dispatched`), `payload` (shape varies by event_type), and `occurred_at`. Use this to trace exactly what happened during a deploy — especially failures.",
         "category": "Deployments",

@@ -206,6 +206,23 @@ class DeploymentCreateInputSerializer(serializers.Serializer):
     )
 
 
+class DeploymentDeployInputSerializer(serializers.Serializer):
+    """Body of POST /api/projects/{}/deployment_projects/{}/deployments/deploy/."""
+
+    branch = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Optional branch to deploy. If omitted, uses the deployment project's default_branch.",
+    )
+
+
+class DeploymentDeployResponseSerializer(serializers.Serializer):
+    """Response shape for the deploy endpoint."""
+
+    deployment_id = serializers.UUIDField(help_text="ID of the deployment row created for this deploy request.")
+
+
 class DeploymentActionResponseSerializer(serializers.Serializer):
     """Response shape for one-off action endpoints (cancel, refresh_preview)."""
 
