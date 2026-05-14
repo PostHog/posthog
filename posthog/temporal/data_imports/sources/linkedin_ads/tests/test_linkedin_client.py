@@ -4,6 +4,7 @@ import pytest
 from unittest import mock
 
 import requests
+from structlog.testing import capture_logs
 
 from posthog.temporal.data_imports.sources.linkedin_ads.client import (
     LinkedinAdsClient,
@@ -199,7 +200,7 @@ class TestLinkedinAdsClient:
         assert actual_ranges == expected_ranges
 
     @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
-    def test_get_analytics_logs_warning_when_chunk_hits_response_cap(self, mock_restli_client, caplog):
+    def test_get_analytics_logs_warning_when_chunk_hits_response_cap(self, mock_restli_client):
         """A capped chunk yields its partial data and logs a warning."""
         from posthog.temporal.data_imports.sources.linkedin_ads.client import ANALYTICS_RESPONSE_CAP
 
@@ -211,7 +212,9 @@ class TestLinkedinAdsClient:
         mock_client_instance.finder.return_value = capped_response
 
         client = LinkedinAdsClient(self.access_token)
-        with caplog.at_level("WARNING", logger="posthog.temporal.data_imports.sources.linkedin_ads.client"):
+        # Use structlog's own capture_logs — caplog flattens the event_dict on the
+        # way through stdlib so substring matches against `record.message` miss.
+        with capture_logs() as logs:
             pages = list(
                 client.get_analytics(
                     account_id=self.account_id,
@@ -224,7 +227,7 @@ class TestLinkedinAdsClient:
         assert len(pages) == 1
         assert mock_client_instance.finder.call_count == 1
         assert len(pages[0][0]) == ANALYTICS_RESPONSE_CAP
-        assert any("analytics_chunk_capped" in record.message for record in caplog.records)
+        assert any(log.get("event") == "linkedin_ads.analytics_chunk_capped" for log in logs)
 
     @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_analytics_same_day_range_makes_one_call(self, mock_restli_client):
