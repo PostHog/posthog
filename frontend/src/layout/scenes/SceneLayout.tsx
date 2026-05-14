@@ -54,12 +54,11 @@ export function ScenePanelActionsSection({ children }: { children: React.ReactNo
 export function ScenePanelLabel({
     children,
     title,
-    className,
     ...props
 }: PropsWithChildren<Omit<LabelProps, 'title'> & { title: React.ReactNode }>): JSX.Element {
     return (
         <div className="flex flex-col gap-0">
-            <Label intent="menu" {...props} className={cn('text-tertiary/80', className)}>
+            <Label intent="menu" {...props}>
                 {title}
             </Label>
             {children}

@@ -13,7 +13,6 @@ import { DashboardMode } from '~/types'
 import { EditModeActions, FullscreenModeActions, ViewModeActions } from './DashboardHeaderActions'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { DashboardModals } from './DashboardModals'
-import { DashboardSceneMenuBar } from './DashboardSceneMenuBar'
 import { DashboardScenePanel } from './DashboardScenePanel'
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
@@ -37,7 +36,6 @@ export function DashboardHeader(): JSX.Element | null {
             {dashboard && <DashboardModals dashboard={dashboard} />}
 
             <DashboardScenePanel />
-            <DashboardSceneMenuBar />
 
             <SceneTitleSection
                 name={dashboard?.name}

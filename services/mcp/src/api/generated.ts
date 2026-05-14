@@ -20439,25 +20439,6 @@ export namespace Schemas {
       OnDemand: 'on_demand',
     } as const;
 
-    /**
-     * Body of POST /vision/lenses/{id}/observe/.
-     */
-    export interface ObserveRequest {
-      /**
-         * ID of the session recording to apply the lens to.
-         * @maxLength 128
-         */
-      session_id: string;
-    }
-
-    /**
-     * Async-accepted response for POST /vision/lenses/{id}/observe/.
-     */
-    export interface ObserveResponse {
-      /** Temporal workflow id for this lens application. Look up the resulting ReplayObservation via GET /vision/lenses/{id}/observations/?session_id=<session_id>. */
-      workflow_id: string;
-    }
-
     export interface OfflineExperimentItemsRequest {
       /** `$ai_experiment_id` whose offline-evaluation items to return. */
       experiment_id: string;

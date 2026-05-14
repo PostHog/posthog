@@ -68,7 +68,6 @@ import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatusColor, getExperimentStatusLabel, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getVariantColor, isLegacyExperiment } from '../utils'
-import { ExperimentSceneMenuBar } from './ExperimentSceneMenuBar'
 
 export function VariantTag({
     variantKey,
@@ -209,7 +208,6 @@ export function PageHeaderCustom(): JSX.Element {
 
     return (
         <>
-            <ExperimentSceneMenuBar />
             <SceneTitleSection
                 name={experiment?.name}
                 description={null}
