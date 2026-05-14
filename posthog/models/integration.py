@@ -2693,6 +2693,34 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "status_code": response.status_code,
             }
 
+    def get_pull_request_diff(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """Fetch the unified diff for a single pull request.
+
+        Uses GitHub's ``application/vnd.github.v3.diff`` accept header to get the
+        raw diff text, which is the format the GitHog impact scanner expects.
+        Returns ``{"success": True, "diff": str}`` or ``{"success": False, "error": str}``.
+        """
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = self._github_api_get(
+            f"https://api.github.com/repos/{org}/{repository}/pulls/{pr_number}",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            headers={
+                "Accept": "application/vnd.github.v3.diff",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
+            },
+        )
+
+        if response.status_code == 200:
+            return {"success": True, "diff": response.text}
+        return {
+            "success": False,
+            "error": f"Failed to fetch pull request diff: {response.text}",
+            "status_code": response.status_code,
+        }
+
     def list_pull_requests(self, repository: str, state: str = "open") -> dict[str, Any]:
         """List pull requests for a repository."""
         org = self.organization()

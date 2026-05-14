@@ -26944,6 +26944,7 @@
                 "error_tracking",
                 "experiments",
                 "feature_flags",
+                "githog",
                 "group_analytics",
                 "heatmaps",
                 "history",

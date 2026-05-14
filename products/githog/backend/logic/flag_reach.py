@@ -25,6 +25,8 @@ from typing import TYPE_CHECKING
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from .regime import is_server_side_signal
+
 if TYPE_CHECKING:
     from posthog.models import Team
 
@@ -126,6 +128,7 @@ def compute_per_flag_reach(team: "Team", keys: list[str], lookback_days: int) ->
                 call_count=calls,
                 variants=variants,
                 has_data=key in totals_by_flag,
+                is_server_side=is_server_side_signal(users, calls),
             )
         )
     return out

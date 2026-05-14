@@ -23,23 +23,56 @@ from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import ProductKey
+
 from posthog.api.documentation import extend_schema as posthog_extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.integration import GitHubIntegration, Integration
 
 from ..facade.api import compute_pr_impact
 from ..facade.contracts import PRImpactRequest
+from ..logic.cache import get_cached_impact, impact_cache_key, set_cached_impact
 from .serializers import (
+    GitHogPullRequestDiffQuerySerializer,
+    GitHogPullRequestDiffResponseSerializer,
     GitHogPullRequestListQuerySerializer,
     GitHogPullRequestListResponseSerializer,
     GitHogRepositoryListResponseSerializer,
+    PRImpactFromPRRequestSerializer,
     PRImpactRequestSerializer,
     PRImpactResponseSerializer,
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _team_github_integrations(team_id: int) -> list[Integration]:
+    return list(Integration.objects.filter(team_id=team_id, kind="github").order_by("id"))
+
+
+def _find_integration_for_repository(team_id: int, repository: str) -> tuple[Integration, str, str] | None:
+    """Return (integration, owner, name) for the first team GitHub integration whose
+    cached repository list contains ``repository`` (``owner/name``)."""
+    if "/" not in repository:
+        return None
+    owner, name = repository.split("/", 1)
+    for integration in _team_github_integrations(team_id):
+        github = GitHubIntegration(integration)
+        try:
+            cached = github.list_all_cached_repositories()
+        except Exception:
+            logger.warning(
+                "githog: failed to load cached repositories",
+                integration_id=integration.id,
+                exc_info=True,
+            )
+            continue
+        if any(str(repo.get("full_name", "")).casefold() == repository.casefold() for repo in cached):
+            return integration, owner, name
+    return None
 
 
 class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -48,28 +81,10 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "integration"
 
     def _team_github_integrations(self) -> list[Integration]:
-        return list(Integration.objects.filter(team_id=self.team_id, kind="github").order_by("id"))
+        return _team_github_integrations(self.team_id)
 
     def _find_integration_for_repository(self, repository: str) -> tuple[Integration, str, str] | None:
-        """Return (integration, owner, name) for the first team GitHub integration whose
-        cached repository list contains ``repository`` (``owner/name``)."""
-        if "/" not in repository:
-            return None
-        owner, name = repository.split("/", 1)
-        for integration in self._team_github_integrations():
-            github = GitHubIntegration(integration)
-            try:
-                cached = github.list_all_cached_repositories()
-            except Exception:
-                logger.warning(
-                    "githog: failed to load cached repositories",
-                    integration_id=integration.id,
-                    exc_info=True,
-                )
-                continue
-            if any(str(repo.get("full_name", "")).casefold() == repository.casefold() for repo in cached):
-                return integration, owner, name
-        return None
+        return _find_integration_for_repository(self.team_id, repository)
 
     @extend_schema(responses={200: GitHogRepositoryListResponseSerializer})
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -104,6 +119,29 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         repositories.sort(key=lambda r: r["full_name"].casefold())
         return Response({"repositories": repositories})
+
+    @extend_schema(
+        parameters=[GitHogPullRequestDiffQuerySerializer],
+        responses={200: GitHogPullRequestDiffResponseSerializer},
+    )
+    @rf_action(methods=["GET"], detail=False, url_path="pull_request_diff")
+    def pull_request_diff(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = GitHogPullRequestDiffQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        repository: str = query.validated_data["repository"]
+        pr_number: int = query.validated_data["pr_number"]
+
+        match = self._find_integration_for_repository(repository)
+        if match is None:
+            raise NotFound("No GitHub integration on this team has access to that repository")
+
+        integration, _owner, name = match
+        github = GitHubIntegration(integration)
+        result = github.get_pull_request_diff(name, pr_number)
+        if not result.get("success"):
+            raise ValidationError(result.get("error") or "Failed to fetch pull request diff")
+
+        return Response({"repository": repository, "pr_number": pr_number, "diff": result["diff"]})
 
     @extend_schema(
         parameters=[GitHogPullRequestListQuerySerializer],
@@ -155,10 +193,58 @@ class GithogPRImpactViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(methods=["POST"], detail=False, url_path="pr_impact")
     def pr_impact(self, request: ValidatedRequest, **kwargs: object) -> Response:
+        tag_queries(product=ProductKey.GITHOG, feature=Feature.QUERY)
         params = dict(request.validated_data)
         impact_request = PRImpactRequest(
             diff_text=params["diff_text"],
             lookback_days=params.get("lookback_days", 30),
         )
         report = compute_pr_impact(self.team, impact_request)
+        return Response(PRImpactResponseSerializer.from_report(report))
+
+    @validated_request(
+        request_serializer=PRImpactFromPRRequestSerializer,
+        responses={200: OpenApiResponse(response=PRImpactResponseSerializer)},
+        operation_id="githog_pr_impact_from_pr_create",
+        summary="Compute user-impact for a GitHub PR by number",
+        description=(
+            "Convenience endpoint that fetches the unified diff for the supplied "
+            "`{repository, pr_number}` via the team's GitHub integration, then "
+            "runs the same analysis as POST /pr_impact. Use this from the GitHog "
+            "UI so the caller doesn't have to fetch and paste the diff."
+        ),
+    )
+    @action(methods=["POST"], detail=False, url_path="from_pr")
+    def from_pr(self, request: ValidatedRequest, **kwargs: object) -> Response:
+        tag_queries(product=ProductKey.GITHOG, feature=Feature.QUERY)
+        params = dict(request.validated_data)
+        repository: str = params["repository"]
+        pr_number: int = params["pr_number"]
+        lookback_days: int = params.get("lookback_days", 30)
+        refresh: bool = bool(params.get("refresh", False))
+
+        # Cache lookup happens before we even fetch the diff — on a hit we skip
+        # the GitHub round trip entirely.
+        cache_key = impact_cache_key(self.team_id, repository, pr_number, lookback_days)
+        if not refresh:
+            cached = get_cached_impact(cache_key)
+            if cached is not None:
+                return Response(PRImpactResponseSerializer.from_report(cached))
+
+        match = _find_integration_for_repository(self.team_id, repository)
+        if match is None:
+            raise NotFound("No GitHub integration on this team has access to that repository")
+
+        integration, _owner, name = match
+        github = GitHubIntegration(integration)
+        result = github.get_pull_request_diff(name, pr_number)
+        if not result.get("success"):
+            raise ValidationError(result.get("error") or "Failed to fetch pull request diff")
+
+        impact_request = PRImpactRequest(
+            diff_text=str(result["diff"]),
+            lookback_days=lookback_days,
+        )
+        report = compute_pr_impact(self.team, impact_request)
+        set_cached_impact(cache_key, report)
         return Response(PRImpactResponseSerializer.from_report(report))
