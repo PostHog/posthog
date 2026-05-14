@@ -18,18 +18,19 @@ QA runtime: fork PR read-only mode - findings reported as suggested patches.
 ```markdown
 QA runtime: PASS - no reproducible runtime issues found.
 
-<details>
-<summary>What was tested</summary>
+### What was tested
 
 | Target           | Type         | Action                            | Outcome          |
 | ---------------- | ------------ | --------------------------------- | ---------------- |
 | `/dashboard/:id` | Browser      | Loaded dashboard and clicked Save | Passed           |
 | `/billing`       | Coverage gap | Could not load (auth boundary)    | Skipped (reason) |
 
-</details>
-
 Run metadata: tested `<sha>` at `<timestamp>` using `<BASE_URL>`.
 ```
+
+The "What was tested" table is rendered inline (not collapsed in a
+`<details>` block) so reviewers see at a glance what the agent exercised vs
+what it skipped without an extra click.
 
 Coverage gaps from the walker or runtime loop must appear in this table as
 `Coverage gap` rows with an explicit "Skipped (reason)" outcome. Do not
@@ -41,14 +42,11 @@ For findings:
 ```markdown
 QA runtime: 1 fix pushed - reproducible issue fixed and re-verified.
 
-<details>
-<summary>What was tested</summary>
+### What was tested
 
 | Target           | Type    | Action       | Outcome                             |
 | ---------------- | ------- | ------------ | ----------------------------------- |
 | `/dashboard/:id` | Browser | Clicked Save | Failed before fix, passed after fix |
-
-</details>
 
 | #   | Severity | Target           | Status                   |
 | --- | -------- | ---------------- | ------------------------ |

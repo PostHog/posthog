@@ -88,6 +88,9 @@ Parse `$ARGUMENTS` into:
   local mode, required in PR mode.
 - `LOGIN_USERNAME`: value after `--login-username` or `--username`.
 - `LOGIN_PASSWORD`: value after `--login-password` or `--password`.
+- `AUTO_PUSH_FIXES`: boolean. True if `$ARGUMENTS` contains `--auto-push` or
+  natural-language equivalents like "auto push fixes", "push fixes
+  automatically", "no need to ask before pushing". Default false.
 
 Do not print, log, or include `LOGIN_PASSWORD` in evidence or comments.
 Reject unknown options only if they prevent identifying `PR_REF`.
@@ -450,8 +453,18 @@ reachability check or a tiny draft/stub comment workflow that is immediately
 cleaned up. If comment connectivity fails, skip the push, write the final
 comment markdown to stdout, and stop.
 
-Push only for same-repo PRs, only after explicit approval, and only with
-`--force-with-lease`:
+Push approval gate (PR mode, same-repo PR, at least one confident fix
+commit):
+
+1. If `AUTO_PUSH_FIXES` was set in `$ARGUMENTS`, proceed straight to the
+   push step without asking.
+2. Otherwise, after the fix loop completes and re-verification passes, stop
+   and ask the user in chat: "Apply fix commit(s) <sha-list> to the PR
+   branch? (y/n)". Wait for explicit "yes" / "y" / "push" / similar
+   confirmation. "no" / "n" / silence means do not push; emit the comment
+   draft with the local commit SHAs and a note that the user can push
+   manually.
+3. Re-fetch and verify the remote did not move (lease check).
 
 ```bash
 git fetch origin "$headRefName"
