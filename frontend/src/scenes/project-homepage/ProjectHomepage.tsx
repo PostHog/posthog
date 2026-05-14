@@ -2,6 +2,7 @@ import './ProjectHomepage.scss'
 
 import { useValues } from 'kea'
 
+import { ConciergeModalTest } from 'lib/components/ConciergeModal/ConciergeModal'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
@@ -29,6 +30,8 @@ export function ProjectHomepage(): JSX.Element {
         <div className="flex-1 min-h-0">
             <AiFirstHomepage />
             <MaybeWelcomeDialog />
+            {/* Temporary -- delete before merging */}
+            <ConciergeModalTest />
         </div>
     )
 }
