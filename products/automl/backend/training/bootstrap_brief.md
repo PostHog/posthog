@@ -52,7 +52,7 @@ The `posthog-automl-cli` source is bind-mounted at
 
 ```bash
 uv pip install --system -e /tmp/workspace/repos/posthog/automl-cli
-automl --version  # sanity check; non-zero exit aborts the run
+automl --help > /dev/null  # sanity check; non-zero exit aborts the run
 ```
 
 `uv pip install --system` is uv's flag for "install into the system Python,

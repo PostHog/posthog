@@ -128,7 +128,7 @@ def test_brief_mentions_each_canonical_contract_step(team):
         # dedicated AutoML sandbox image, so the editable install just wires up
         # the entry point. uv is preinstalled too — no bootstrap step needed.
         "uv pip install --system -e /tmp/workspace/repos/posthog/automl-cli",
-        "automl --version",
+        "automl --help",
         # Step 2 — fetch the snapshot via the CLI.
         "automl prepare-from-hogql",
         "training_snapshot.parquet",
@@ -271,4 +271,4 @@ def test_brief_references_dedicated_automl_sandbox_image(team):
     # The uv-bootstrap step (pip install uv) is gone too — uv comes preinstalled
     # on the dedicated image now.
     assert "pip install --break-system-packages uv" not in brief
-    assert "pip install" not in brief.split("automl --version")[0].replace("uv pip install", "")
+    assert "pip install" not in brief.split("automl --help")[0].replace("uv pip install", "")
