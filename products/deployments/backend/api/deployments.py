@@ -29,6 +29,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.permissions import APIScopePermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
@@ -374,6 +375,15 @@ class DeploymentViewSet(
         # the page" (`has_more=True`). The extra row is sliced off before
         # serialization so the response shape stays bounded.
         fetch_limit = LOGS_ROW_LIMIT + 1
+        # `execute_hogql_query` reaches ClickHouse via `sync_execute`, which
+        # in DEBUG mode rejects any call missing `product`/`feature` tags
+        # (see `posthog/clickhouse/client/execute.py` UntaggedQueryError).
+        # Tag the call so local dev + production attribution stays honest.
+        tag_queries(
+            product=Product.DEPLOYMENTS,
+            feature=Feature.QUERY,
+            team_id=self.team_id,
+        )
         try:
             result = execute_hogql_query(
                 query=select,

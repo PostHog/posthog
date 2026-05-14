@@ -114,12 +114,13 @@ export const deploymentLogsLogic = kea<deploymentLogsLogicType>([
             {
                 loadLogs: async (_: void, breakpoint): Promise<DeploymentLogsResponseApi | null> => {
                     const teamId = values.currentTeamId
-                    if (!teamId) {
-                        // Cold-start: teamLogic hasn't resolved yet. Returning
-                        // null signals "no fetch happened" to the success
-                        // listener, which then skips markLogsFetched (so the
-                        // "Last refreshed" label stays honest) and skips
-                        // schedulePoll (so we don't spin a 3s no-op loop).
+                    // Cold-start guards:
+                    //   * `teamId` null while teamLogic resolves on first paint.
+                    //   * `props.deploymentId` / `props.projectId` can be undefined
+                    //     during the scene-mount → URL-params-resolve race.
+                    // Returning null signals "no fetch happened" to the success
+                    // listener so we don't bump `lastFetchedAt` or kick the poll.
+                    if (!teamId || !props.deploymentId || !props.projectId) {
                         return null
                     }
                     const response = await deploymentProjectsDeploymentsLogsRetrieve(

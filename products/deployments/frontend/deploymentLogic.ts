@@ -37,7 +37,12 @@ export const deploymentLogic = kea<deploymentLogicType>([
             {
                 loadDeployment: async (): Promise<Deployment | null> => {
                     const teamId = values.currentTeamId
-                    if (!teamId) {
+                    // The scene-level mount can race ahead of URL param
+                    // resolution and end up here with `props.id` undefined.
+                    // Bail out cleanly so we don't fire a 404-ing
+                    // `/deployments/undefined/` request and trip
+                    // `deploymentMissing`.
+                    if (!teamId || !props.id || !props.projectId) {
                         return null
                     }
                     return deploymentProjectsDeploymentsRetrieve(String(teamId), props.projectId, props.id)
@@ -46,9 +51,12 @@ export const deploymentLogic = kea<deploymentLogicType>([
         ],
     })),
     selectors(({ props }) => ({
+        // Only treat the deployment as "missing" once we have an id to ask
+        // for. Without the id guard, the scene briefly flashes "Deployment
+        // not found" while the URL params are still being resolved.
         deploymentMissing: [
             (s) => [s.deployment, s.deploymentLoading],
-            (d: Deployment | null, loading: boolean): boolean => !loading && !d,
+            (d: Deployment | null, loading: boolean): boolean => !!props.id && !loading && !d,
         ],
         breadcrumbs: [
             (s) => [s.deployment, s.deploymentProject],

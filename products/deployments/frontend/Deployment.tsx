@@ -14,17 +14,30 @@ import { DeploymentLogsViewer } from './components/DeploymentLogsViewer'
 import { deploymentLogic, DeploymentLogicProps } from './deploymentLogic'
 import { deploymentProjectLogic } from './deploymentProjectLogic'
 
-export const scene: SceneExport<DeploymentLogicProps> = {
-    component: Deployment,
-    logic: deploymentLogic,
-    paramsToProps: ({ params: { projectId, deploymentId } }) => ({ projectId, id: deploymentId }),
+// The scene component receives the raw URL params (`sceneParams.params`),
+// while the logic gets paramsToProps-mapped values. The route declares
+// `:deploymentId` so the component prop is `deploymentId`. The kea logic
+// keys on `id`, so paramsToProps renames it. Typed with a permissive shape
+// here because SceneExport<T> reuses one generic for both component props
+// AND paramsToProps return type, but in this scene they intentionally differ.
+interface DeploymentSceneComponentProps {
+    projectId: string
+    deploymentId: string
 }
 
-export function Deployment({ projectId, id }: DeploymentLogicProps): JSX.Element {
+export const scene: SceneExport<DeploymentSceneComponentProps> = {
+    component: Deployment,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    logic: deploymentLogic as any,
+    paramsToProps: ({ params: { projectId, deploymentId } }) =>
+        ({ projectId, id: deploymentId }) as unknown as DeploymentSceneComponentProps,
+}
+
+export function Deployment({ projectId, deploymentId }: DeploymentSceneComponentProps): JSX.Element {
     return (
         <BindLogic logic={deploymentProjectLogic} props={{ projectId }}>
-            <BindLogic logic={deploymentLogic} props={{ projectId, id }}>
-                <DeploymentInner projectId={projectId} id={id} />
+            <BindLogic logic={deploymentLogic} props={{ projectId, id: deploymentId }}>
+                <DeploymentInner projectId={projectId} id={deploymentId} />
             </BindLogic>
         </BindLogic>
     )
