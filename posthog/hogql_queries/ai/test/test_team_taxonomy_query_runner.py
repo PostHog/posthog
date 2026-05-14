@@ -268,6 +268,58 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(pageview_results), 1)
         self.assertEqual(pageview_results[0].count, 1)
 
+    def test_last_seen_at_and_count_24h(self):
+        now = timezone.now()
+
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        # `recent_event` fires twice in the last 24h, last 5 minutes ago
+        _create_event(
+            event="recent_event",
+            distinct_id="person1",
+            team=self.team,
+            timestamp=now - timedelta(hours=23),
+        )
+        _create_event(
+            event="recent_event",
+            distinct_id="person1",
+            team=self.team,
+            timestamp=now - timedelta(minutes=5),
+        )
+        # `old_event` fires only outside the 24h window
+        _create_event(
+            event="old_event",
+            distinct_id="person1",
+            team=self.team,
+            timestamp=now - timedelta(days=7),
+        )
+
+        flush_persons_and_events()
+
+        runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery())
+        response = runner.run()
+
+        assert isinstance(response, CachedTeamTaxonomyQueryResponse)
+        by_event = {r.event: r for r in response.results}
+
+        self.assertEqual(by_event["recent_event"].count, 2)
+        self.assertEqual(by_event["recent_event"].count_24h, 2)
+        self.assertIsNotNone(by_event["recent_event"].last_seen_at)
+
+        self.assertEqual(by_event["old_event"].count, 1)
+        self.assertEqual(by_event["old_event"].count_24h, 0)
+        self.assertIsNotNone(by_event["old_event"].last_seen_at)
+
+        # Well-known events appended on the last page get count_24h=0 and last_seen_at=None
+        well_known_in_results = [r for r in response.results if r.count == 0]
+        self.assertGreater(len(well_known_in_results), 0)
+        for item in well_known_in_results:
+            self.assertEqual(item.count_24h, 0)
+            self.assertIsNone(item.last_seen_at)
+
     def test_well_known_events_only_on_last_page(self):
         _create_person(
             distinct_ids=["person1"],

@@ -8,7 +8,7 @@ from posthog.schema import CachedTeamTaxonomyQueryResponse, MaxEventContext, Tea
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from ee.hogai.utils.helpers import format_events_xml
+from ee.hogai.utils.helpers import _format_event_recency, _format_relative_time, format_events_xml, format_events_yaml
 
 # Mock CORE_FILTER_DEFINITIONS_BY_GROUP for consistent testing
 MOCK_CORE_FILTER_DEFINITIONS = {
@@ -66,8 +66,19 @@ class TestFormatEventsPrompt(BaseTest):
         )
 
     def _create_taxonomy_items(self, events_with_counts):
-        """Helper to create TeamTaxonomyItem list from event name and count pairs."""
-        return [TeamTaxonomyItem(event=event, count=count) for event, count in events_with_counts]
+        """Helper to create TeamTaxonomyItem list from event name and count pairs.
+
+        Each entry may be `(event, count)` or `(event, count, last_seen_at, count_24h)`.
+        """
+        items = []
+        for entry in events_with_counts:
+            if len(entry) == 4:
+                event, count, last_seen_at, count_24h = entry
+                items.append(TeamTaxonomyItem(event=event, count=count, last_seen_at=last_seen_at, count_24h=count_24h))
+            else:
+                event, count = entry
+                items.append(TeamTaxonomyItem(event=event, count=count))
+        return items
 
     def _create_context_events(self, events_with_descriptions):
         """Helper to create MaxEventContext list from event name and description pairs."""
@@ -381,3 +392,77 @@ class TestFormatEventsPrompt(BaseTest):
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
             analytics_props=ANY,
         )
+
+    def test_format_relative_time(self):
+        now = datetime.datetime(2026, 5, 14, 12, 0, 0, tzinfo=datetime.UTC)
+        self.assertEqual(_format_relative_time(now - datetime.timedelta(seconds=5), now=now), "5s ago")
+        self.assertEqual(_format_relative_time(now - datetime.timedelta(minutes=38), now=now), "38m ago")
+        self.assertEqual(_format_relative_time(now - datetime.timedelta(hours=3), now=now), "3h ago")
+        self.assertEqual(_format_relative_time(now - datetime.timedelta(days=8), now=now), "8d ago")
+        # ISO 8601 string input is accepted
+        self.assertEqual(_format_relative_time("2026-05-14T11:59:55+00:00", now=now), "5s ago")
+        # Z suffix and naive timestamps fall back to UTC
+        self.assertEqual(_format_relative_time("2026-05-14T11:59:55Z", now=now), "5s ago")
+        # None / invalid inputs return None
+        self.assertIsNone(_format_relative_time(None))
+        self.assertIsNone(_format_relative_time("not-a-date"))
+
+    def test_format_event_recency(self):
+        now = datetime.datetime(2026, 5, 14, 12, 0, 0, tzinfo=datetime.UTC)
+        five_mins_ago = (now - datetime.timedelta(minutes=5)).isoformat()
+        # Both fields populated
+        self.assertEqual(
+            _format_event_recency({"last_seen_at": five_mins_ago, "count_24h": 12}),
+            "last seen 5m ago, 12 in 24h",
+        )
+        # count_24h == 0 with a recent last_seen
+        self.assertEqual(
+            _format_event_recency({"last_seen_at": five_mins_ago, "count_24h": 0}),
+            "no events in 24h, last seen 5m ago",
+        )
+        # count_24h == 0 with no last_seen_at
+        self.assertEqual(
+            _format_event_recency({"last_seen_at": None, "count_24h": 0}),
+            "no events in 24h",
+        )
+        # Neither field present → None (event predates the enrichment)
+        self.assertIsNone(_format_event_recency({"name": "some_event"}))
+
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_format_events_yaml_includes_recency_fields(self, mock_runner_class):
+        """Tool output appends `(last seen X, N in 24h)` when recency fields are present."""
+        # Use an ISO timestamp recent enough that the relative-time formatter produces something stable in the assertion.
+        # The actual delta from `now()` varies at test time, so we assert on the suffix shape rather than the exact value.
+        recent_iso = datetime.datetime.now(datetime.UTC).isoformat()
+        taxonomy_items = self._create_taxonomy_items(
+            [
+                ("$pageview", 100, recent_iso, 42),
+                ("custom_event", 5, recent_iso, 0),
+            ]
+        )
+        self._setup_mock_runner(mock_runner_class, taxonomy_items)
+
+        result = format_events_yaml([], self.team)
+
+        # Recency suffix is appended to each event line in the YAML output.
+        self.assertIn("`$pageview`", result)
+        self.assertIn("42 in 24h", result)
+        self.assertIn("`custom_event`", result)
+        self.assertIn("no events in 24h", result)
+
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_format_events_yaml_omits_recency_when_absent(self, mock_runner_class):
+        """If recency fields are not set (e.g. from a cached pre-enrichment response), no suffix is appended."""
+        taxonomy_items = self._create_taxonomy_items(
+            [
+                ("legacy_event", 10),
+            ]
+        )
+        self._setup_mock_runner(mock_runner_class, taxonomy_items)
+
+        result = format_events_yaml([], self.team)
+
+        # No parenthesized recency suffix on the event line
+        self.assertIn("`legacy_event`", result)
+        self.assertNotIn("in 24h", result)
+        self.assertNotIn("last seen", result)

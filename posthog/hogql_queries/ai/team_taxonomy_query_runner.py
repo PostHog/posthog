@@ -60,13 +60,21 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
             )
 
         results: list[TeamTaxonomyItem] = [
-            TeamTaxonomyItem(event=event, count=count) for event, count in self.paginator.results
+            TeamTaxonomyItem(
+                event=event,
+                count=count,
+                last_seen_at=last_seen_at,
+                count_24h=count_24h,
+            )
+            for event, count, last_seen_at, count_24h in self.paginator.results
         ]
 
         if not self.paginator.has_more():
             found_events = {item.event for item in results}
             results.extend(
-                TeamTaxonomyItem(event=name, count=0) for name in WELL_KNOWN_EVENT_NAMES if name not in found_events
+                TeamTaxonomyItem(event=name, count=0, last_seen_at=None, count_24h=0)
+                for name in WELL_KNOWN_EVENT_NAMES
+                if name not in found_events
             )
 
         return TeamTaxonomyQueryResponse(
@@ -82,7 +90,9 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
             """
                 SELECT
                     event,
-                    count() as count
+                    count() as count,
+                    max(timestamp) as last_seen_at,
+                    countIf(timestamp >= now() - INTERVAL 1 DAY) as count_24h
                 FROM events
                 WHERE
                     timestamp >= now () - INTERVAL 30 DAY

@@ -37130,8 +37130,16 @@
                 "count": {
                     "$ref": "#/definitions/integer"
                 },
+                "count_24h": {
+                    "anyOf": [{ "$ref": "#/definitions/integer" }, { "type": "null" }],
+                    "description": "Number of occurrences of this event within the last 24 hours."
+                },
                 "event": {
                     "type": "string"
+                },
+                "last_seen_at": {
+                    "anyOf": [{ "type": "string" }, { "type": "null" }],
+                    "description": "Timestamp of the most recent occurrence of this event within the last 30 days. Null if no occurrences."
                 }
             },
             "required": ["event", "count"],

@@ -3,6 +3,7 @@ import json
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from typing import Any, Optional, TypeVar, Union, cast
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -53,6 +54,51 @@ from ee.hogai.utils.types.base import (
 
 def remove_line_breaks(line: str) -> str:
     return line.replace("\n", " ")
+
+
+def _format_relative_time(timestamp: Any, now: datetime | None = None) -> str | None:
+    """Render a timestamp as a short relative-time string (e.g. "38m ago", "8d ago"). Returns None if input is invalid."""
+    if timestamp is None:
+        return None
+    if isinstance(timestamp, str):
+        try:
+            parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    elif isinstance(timestamp, datetime):
+        parsed = timestamp
+    else:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    reference = now or datetime.now(UTC)
+    delta_seconds = int((reference - parsed).total_seconds())
+    if delta_seconds < 0:
+        return "just now"
+    if delta_seconds < 60:
+        return f"{delta_seconds}s ago"
+    if delta_seconds < 3600:
+        return f"{delta_seconds // 60}m ago"
+    if delta_seconds < 86400:
+        return f"{delta_seconds // 3600}h ago"
+    return f"{delta_seconds // 86400}d ago"
+
+
+def _format_event_recency(event_data: Mapping[str, Any]) -> str | None:
+    """Format the last_seen_at + count_24h pair as a parenthesized suffix for event listings."""
+    if "last_seen_at" not in event_data and "count_24h" not in event_data:
+        return None
+    count_24h = event_data.get("count_24h")
+    last_seen = _format_relative_time(event_data.get("last_seen_at"))
+    if count_24h == 0:
+        return f"no events in 24h, last seen {last_seen}" if last_seen else "no events in 24h"
+    if last_seen and count_24h is not None:
+        return f"last seen {last_seen}, {count_24h} in 24h"
+    if last_seen:
+        return f"last seen {last_seen}"
+    if count_24h is not None:
+        return f"{count_24h} in 24h"
+    return None
 
 
 def filter_and_merge_messages(
@@ -177,11 +223,16 @@ def _process_events_data(
         # Add "All events" to the mapping
         "All events",
     ]
+    event_recency: dict[str, dict[str, Any]] = {}
     for item in response.results:
         event_def = CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).get(item.event)
         if event_def and (event_def.get("system") or event_def.get("ignored_in_assistant")):
             continue  # Skip system or ignored events (safety net, already filtered in SQL)
         events.append(item.event)
+        event_recency[item.event] = {
+            "last_seen_at": item.last_seen_at,
+            "count_24h": item.count_24h,
+        }
 
     event_to_description: dict[str, str] = {}
     for event in events_in_context:
@@ -195,7 +246,7 @@ def _process_events_data(
 
     processed_events = []
     for event_name in events:
-        event_data = {"name": event_name}
+        event_data: dict[str, Any] = {"name": event_name}
 
         if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
             # Only skip if it's not in context (context events should always be included)
@@ -211,6 +262,10 @@ def _process_events_data(
                 event_data["description"] = remove_line_breaks(event_data["description"])
         elif event_name in event_to_description:
             event_data["description"] = remove_line_breaks(event_to_description[event_name])
+
+        if recency := event_recency.get(event_name):
+            event_data["last_seen_at"] = recency["last_seen_at"]
+            event_data["count_24h"] = recency["count_24h"]
 
         processed_events.append(event_data)
 
@@ -244,7 +299,13 @@ def format_events_yaml(
     for event_data in processed_events:
         name = event_data["name"]
         description = event_data.get("description", "")
-        formatted_events.append(f"- `{name}` - {description}" if description else f"- `{name}`")
+        recency = _format_event_recency(event_data)
+        line = f"- `{name}`"
+        if description:
+            line += f" - {description}"
+        if recency:
+            line += f" ({recency})"
+        formatted_events.append(line)
 
     if has_more:
         next_offset = (offset or 0) + (limit or 500)

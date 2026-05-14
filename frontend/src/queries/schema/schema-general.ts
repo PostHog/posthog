@@ -4517,6 +4517,10 @@ export type CachedSuggestedQuestionsQueryResponse = CachedQueryResponse<Suggeste
 export interface TeamTaxonomyItem {
     event: string
     count: integer
+    /** Timestamp of the most recent occurrence of this event within the last 30 days. Null if no occurrences. */
+    last_seen_at?: string | null
+    /** Number of occurrences of this event within the last 24 hours. */
+    count_24h?: integer | null
 }
 
 export type TeamTaxonomyResponse = TeamTaxonomyItem[]
