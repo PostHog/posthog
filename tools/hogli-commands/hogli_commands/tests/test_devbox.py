@@ -577,6 +577,40 @@ class TestWorkspaceCreation:
         assert "dotfiles_uri" not in retried_params
         assert retried_params["disk_size"] == "100"
 
+    def test_create_workspace_drops_multiple_unknown_params_across_retries(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Two unknown params are reported one at a time across successive
+        # `coder create` calls; the loop must drop each in turn before the
+        # final call succeeds with neither key present.
+        unknown_in_order = ["dotfiles_uri", "git_name"]
+        calls: list[list[str]] = []
+
+        def fake_run_build(args: list[str], *, verbose: bool = False) -> subprocess.CompletedProcess[str]:
+            calls.append(args)
+            if unknown_in_order:
+                name = unknown_in_order.pop(0)
+                return subprocess.CompletedProcess(args, 1, f'parameter "{name}" is not present in the template\n', "")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(coder, "_run_build", fake_run_build)
+
+        coder.create_workspace(
+            "devbox-test-user",
+            100,
+            git_name="PostHog Engineer",
+            dotfiles_uri="https://github.com/user/dotfiles",
+        )
+
+        assert len(calls) == 3
+        first = self._parse_parameter_flags(calls[0])
+        second = self._parse_parameter_flags(calls[1])
+        final = self._parse_parameter_flags(calls[2])
+        assert "dotfiles_uri" in first and "git_name" in first
+        assert "dotfiles_uri" not in second and "git_name" in second
+        assert "dotfiles_uri" not in final and "git_name" not in final
+        assert final["disk_size"] == "100"
+
     def test_create_workspace_does_not_retry_on_unrelated_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[list[str]] = []
 
