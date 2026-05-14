@@ -13,26 +13,28 @@ import { LogsViewer } from 'products/logs/frontend/components/LogsViewer/LogsVie
 
 import { CurrentDeploymentCard } from './components/CurrentDeploymentCard'
 import { deploymentLogic, DeploymentLogicProps } from './deploymentLogic'
-import { deploymentsLogic } from './deploymentsLogic'
+import { deploymentProjectLogic } from './deploymentProjectLogic'
 import { Deployment as DeploymentType } from './fixtures'
 
 export const scene: SceneExport<DeploymentLogicProps> = {
     component: Deployment,
     logic: deploymentLogic,
-    paramsToProps: ({ params: { id } }) => ({ id }),
+    paramsToProps: ({ params: { projectId, deploymentId } }) => ({ projectId, id: deploymentId }),
 }
 
-export function Deployment({ id }: DeploymentLogicProps): JSX.Element {
+export function Deployment({ projectId, id }: DeploymentLogicProps): JSX.Element {
     return (
-        <BindLogic logic={deploymentLogic} props={{ id }}>
-            <DeploymentInner id={id} />
+        <BindLogic logic={deploymentProjectLogic} props={{ projectId }}>
+            <BindLogic logic={deploymentLogic} props={{ projectId, id }}>
+                <DeploymentInner projectId={projectId} id={id} />
+            </BindLogic>
         </BindLogic>
     )
 }
 
-function DeploymentInner({ id }: { id: string }): JSX.Element {
-    const { deployment, deploymentMissing, deploymentLoading } = useValues(deploymentLogic({ id }))
-    const { redeployDeployment, rollbackDeployment } = useActions(deploymentsLogic)
+function DeploymentInner({ projectId, id }: DeploymentLogicProps): JSX.Element {
+    const { deployment, deploymentMissing, deploymentLoading } = useValues(deploymentLogic({ projectId, id }))
+    const { redeployDeployment, rollbackDeployment } = useActions(deploymentProjectLogic({ projectId }))
 
     if (deploymentMissing) {
         return (

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonInput, LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
 
-import { deploymentsLogic } from '../deploymentsLogic'
+import { deploymentProjectLogic } from '../deploymentProjectLogic'
 import { DeploymentStatus } from '../fixtures'
 
 const STATUS_OPTIONS: { label: string; key: DeploymentStatus }[] = [
@@ -14,9 +14,9 @@ const STATUS_OPTIONS: { label: string; key: DeploymentStatus }[] = [
     { label: 'Cancelled', key: 'cancelled' },
 ]
 
-export function DeploymentsFilters(): JSX.Element {
-    const { filters, authorOptions } = useValues(deploymentsLogic)
-    const { setFilters } = useActions(deploymentsLogic)
+export function DeploymentsFilters({ projectId }: { projectId: string }): JSX.Element {
+    const { filters, authorOptions } = useValues(deploymentProjectLogic({ projectId }))
+    const { setFilters } = useActions(deploymentProjectLogic({ projectId }))
 
     return (
         <div className="flex flex-wrap items-center gap-2">
