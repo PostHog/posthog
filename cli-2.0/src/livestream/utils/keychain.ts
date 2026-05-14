@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { Entry } from '@napi-rs/keyring'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs'
@@ -6,60 +6,44 @@ import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs'
 const SERVICE_NAME = 'posthog-cli-livestream'
 const ACCOUNT_NAME = 'credentials'
 
-// Fallback file path for non-macOS systems
+// Fallback file path when keyring is unavailable
 const getFilePath = () => join(homedir(), '.posthog', 'livestream.json')
 
-const isMacOS = process.platform === 'darwin'
+// Probe keyring availability
+let useKeyring = false
+try {
+  new Entry(SERVICE_NAME, '__probe__').getPassword()
+  useKeyring = true
+} catch {
+  // Keyring unavailable (e.g., no libsecret on Linux, or headless environment)
+}
 
-// macOS Keychain functions using `security` CLI
-const keychainGet = (): string | null => {
+// Keyring-based storage using @napi-rs/keyring
+const keyringGet = (): string | null => {
   try {
-    const result = execFileSync(
-      'security',
-      ['find-generic-password', '-s', SERVICE_NAME, '-a', ACCOUNT_NAME, '-w'],
-      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }
-    )
-    const trimmed = result.trim()
-
-    // macOS security returns hex-encoded data for passwords with special chars
-    // Try to detect and decode hex (all hex chars, even length)
-    if (/^[0-9a-fA-F]+$/.test(trimmed) && trimmed.length % 2 === 0) {
-      try {
-        const decoded = Buffer.from(trimmed, 'hex').toString('utf-8')
-        // Verify it looks like JSON
-        if (decoded.startsWith('{')) {
-          return decoded
-        }
-      } catch {
-        // Not valid hex, return as-is
-      }
-    }
-
-    return trimmed
+    const entry = new Entry(SERVICE_NAME, ACCOUNT_NAME)
+    const value = entry.getPassword()
+    return value ?? null
   } catch {
     return null
   }
 }
 
-const keychainSet = (value: string): void => {
-  try {
-    execFileSync('security', ['delete-generic-password', '-s', SERVICE_NAME, '-a', ACCOUNT_NAME],
-      { stdio: 'ignore' })
-  } catch { /* ignore */ }
-
-  execFileSync('security',
-    ['add-generic-password', '-s', SERVICE_NAME, '-a', ACCOUNT_NAME, '-w', value],
-    { encoding: 'utf-8' })
+const keyringSet = (value: string): void => {
+  const entry = new Entry(SERVICE_NAME, ACCOUNT_NAME)
+  entry.setPassword(value)
 }
 
-const keychainDelete = (): void => {
+const keyringDelete = (): void => {
   try {
-    execFileSync('security', ['delete-generic-password', '-s', SERVICE_NAME, '-a', ACCOUNT_NAME],
-      { stdio: 'ignore' })
-  } catch { /* ignore */ }
+    const entry = new Entry(SERVICE_NAME, ACCOUNT_NAME)
+    entry.deletePassword()
+  } catch {
+    // Already absent or backend unavailable
+  }
 }
 
-// File-based fallback for non-macOS
+// File-based fallback
 const fileGet = (): string | null => {
   try {
     return readFileSync(getFilePath(), 'utf-8')
@@ -71,41 +55,41 @@ const fileGet = (): string | null => {
 const fileSet = (value: string): void => {
   const filePath = getFilePath()
   mkdirSync(join(homedir(), '.posthog'), { recursive: true })
-  writeFileSync(filePath, value, { mode: 0o600 }) // Restrict permissions
+  writeFileSync(filePath, value, { mode: 0o600 })
 }
 
 const fileDelete = (): void => {
   try {
     unlinkSync(getFilePath())
   } catch {
-    // Ignore - file might not exist
+    // File might not exist
   }
 }
 
 // Public API
 export const secureStorage = {
   get: (): string | null => {
-    if (isMacOS) {
-      return keychainGet()
+    if (useKeyring) {
+      return keyringGet()
     }
     return fileGet()
   },
 
   set: (value: string): void => {
-    if (isMacOS) {
-      keychainSet(value)
+    if (useKeyring) {
+      keyringSet(value)
     } else {
       fileSet(value)
     }
   },
 
   delete: (): void => {
-    if (isMacOS) {
-      keychainDelete()
+    if (useKeyring) {
+      keyringDelete()
     } else {
       fileDelete()
     }
   },
 
-  isSecure: isMacOS,
+  isSecure: useKeyring,
 }
