@@ -119,6 +119,15 @@ class TestPushDispatcher(TransactionTestCase):
         notify_task_run_completed(anonymous_run)
         mock_delay.assert_not_called()
 
+    @patch("products.tasks.backend.push_dispatcher._enqueue_inner", side_effect=RuntimeError("redis is down"))
+    def test_enqueue_swallows_unexpected_errors(self, _mock_inner):
+        """The dispatcher MUST NOT raise. Any DB / Redis / flag-service hiccup
+        must be swallowed so it can't fail the task lifecycle activity that
+        triggered the push."""
+        # The bare except in _enqueue should catch the RuntimeError. If it
+        # doesn't, this test raises and fails — which is the regression signal.
+        notify_task_run_completed(self.task_run)
+
     @patch("products.tasks.backend.push_dispatcher.notify_task_run_completed")
     def test_mark_completed_triggers_push(self, mock_notify):
         self.task_run.mark_completed()

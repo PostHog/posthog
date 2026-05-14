@@ -76,6 +76,26 @@ def _task_title(task_run: TaskRun) -> str:
 
 
 def _enqueue(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
+    """Best-effort: this function MUST NOT raise.
+
+    Wrap the whole body in a bare ``except Exception`` so a DB outage,
+    Redis hiccup, flag-service failure, or any other surprise can't bubble
+    out of ``mark_completed`` / ``mark_failed`` / the API cancel handler
+    and fail the surrounding task-lifecycle activity.
+    """
+    try:
+        _enqueue_inner(task_run, kind=kind, body=body)
+    except Exception:
+        logger.warning(
+            "push_dispatcher.enqueue_failed",
+            run_id=str(task_run.id),
+            task_id=str(task_run.task_id),
+            kind=kind,
+            exc_info=True,
+        )
+
+
+def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
     user = task_run.task.created_by
     if user is None:
         return
