@@ -25,6 +25,7 @@ export function AgentApplicationSettings(): JSX.Element {
             id="agent-application-settings"
             formKey="settings"
             logic={agentApplicationLogic}
+            enableFormOnSubmit
             className="grid grid-cols-1 lg:grid-cols-5 gap-8"
         >
             {/* Left column — app metadata */}

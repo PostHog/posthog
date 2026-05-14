@@ -306,6 +306,35 @@ class TestUpdateEnv(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/agent_applications/{app.id}/")
         assert response.json()["env_redacted"] == "A=********\nB=********"
 
+    def test_env_rejects_invalid_lines(self):
+        app = _create_app(self.team)
+        # `123BAD=x` has a key starting with a digit, `no-equals` has no `=`.
+        bad = "123BAD=oops\nno-equals\nGOOD=ok\n"
+
+        response = self.client.put(self._url(app), data={"env": bad}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "env"
+        # The error string surfaces line numbers so the UI can highlight bad rows.
+        assert "Line 1" in body["detail"]
+
+    def test_env_rejects_duplicate_keys(self):
+        app = _create_app(self.team)
+        response = self.client.put(
+            self._url(app),
+            data={"env": "A=1\nA=2\n"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "duplicate" in response.json()["detail"].lower()
+
+    def test_env_accepts_comments_blanks_and_export(self):
+        app = _create_app(self.team)
+        good = "# leading comment\n\nexport ANTHROPIC_API_KEY=sk-test\nSLACK_BOT_TOKEN=xoxb\n"
+        response = self.client.put(self._url(app), data={"env": good}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["env_redacted"] == "ANTHROPIC_API_KEY=********\nSLACK_BOT_TOKEN=********"
+
     def test_env_can_be_cleared_with_empty_string(self):
         app = _create_app(self.team)
         app.encrypted_env = "OLD=value"

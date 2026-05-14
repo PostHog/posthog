@@ -35,6 +35,37 @@ export interface SettingsFormValues {
     env: string
 }
 
+// Mirror of the server-side validator in
+// products/agent_stack/backend/serializers.py:parse_env. Keep these in sync so the
+// UI rejects malformed env before the network round-trip.
+const ENV_LINE_RE = /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=/
+
+export function validateEnv(env: string): string | undefined {
+    if (!env) {
+        return undefined
+    }
+    const seen = new Set<string>()
+    const lines = env.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+        const stripped = lines[i].trim()
+        if (!stripped || stripped.startsWith('#')) {
+            continue
+        }
+        if (!ENV_LINE_RE.test(lines[i])) {
+            return `Line ${i + 1}: expected \`KEY=value\` (KEY must start with a letter or \`_\` and contain only letters, digits, or \`_\`).`
+        }
+        const key = lines[i]
+            .replace(/^\s*(?:export\s+)?/, '')
+            .split('=', 1)[0]
+            .trim()
+        if (seen.has(key)) {
+            return `Line ${i + 1}: duplicate key \`${key}\`.`
+        }
+        seen.add(key)
+    }
+    return undefined
+}
+
 export const agentApplicationLogic = kea<agentApplicationLogicType>([
     path(['products', 'agent_stack', 'frontend', 'agentApplicationLogic']),
     props({} as AgentApplicationLogicProps),
@@ -136,8 +167,9 @@ export const agentApplicationLogic = kea<agentApplicationLogicType>([
     forms(({ values, props, actions }) => ({
         settings: {
             defaults: { name: '', description: '', env: '' } as SettingsFormValues,
-            errors: ({ name }) => ({
+            errors: ({ name, env }) => ({
                 name: !name?.trim() ? 'Name is required' : undefined,
+                env: validateEnv(env),
             }),
             submit: async (payload, breakpoint) => {
                 const projectId = String(values.currentProjectId)

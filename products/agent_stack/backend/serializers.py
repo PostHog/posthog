@@ -2,29 +2,60 @@
 
 from __future__ import annotations
 
+import re
+
 from rest_framework import serializers
 
 from .models import AgentApplication, AgentApplicationRevision, AgentApplicationSession
 
 REDACTED_VALUE = "********"
 
+# A valid env var name: starts with letter/underscore, then letters/digits/underscores.
+# Optional leading `export ` is allowed so we accept shell-style .env files.
+_ENV_LINE_RE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$")
+
+
+def parse_env(env_content: str) -> tuple[list[tuple[str, str]], list[str]]:
+    """Parse a `.env` blob.
+
+    Returns `(entries, errors)`. Each entry is `(key, raw_value)` in source order.
+    Errors are human-readable strings prefixed with `Line N:` for the UI to surface.
+    Blank lines and `#` comments are skipped. Optional `export KEY=value` is accepted.
+    Duplicate keys are flagged so the user sees them before saving.
+    """
+    entries: list[tuple[str, str]] = []
+    errors: list[str] = []
+    seen: set[str] = set()
+    for idx, raw_line in enumerate(env_content.splitlines(), start=1):
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        match = _ENV_LINE_RE.match(raw_line)
+        if not match:
+            errors.append(
+                f"Line {idx}: expected `KEY=value` "
+                "(KEY must start with a letter or `_` and contain only letters, digits, or `_`)."
+            )
+            continue
+        key, value = match.group(1), match.group(2)
+        if key in seen:
+            errors.append(f"Line {idx}: duplicate key `{key}`.")
+        seen.add(key)
+        entries.append((key, value))
+    return entries, errors
+
 
 def redact_env(env_content: str | None) -> str:
     """Render a `.env` blob with every value replaced by `REDACTED_VALUE`, one
     `KEY=********` line per declared key. Suitable for UI display in a textarea
-    or monospace block; preserves the original key order.
+    or monospace block; preserves the original key order. Malformed lines that
+    `parse_env` would reject are skipped so a corrupt stored blob never leaks
+    its raw values via the redacted view.
     """
     if not env_content:
         return ""
-    lines: list[str] = []
-    for raw_line in env_content.splitlines():
-        stripped = raw_line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key = stripped.split("=", 1)[0].strip()
-        if key:
-            lines.append(f"{key}={REDACTED_VALUE}")
-    return "\n".join(lines)
+    entries, _errors = parse_env(env_content)
+    return "\n".join(f"{key}={REDACTED_VALUE}" for key, _ in entries)
 
 
 # --- Output serializers ---
@@ -211,6 +242,16 @@ class UpdateEnvRequestSerializer(serializers.Serializer):
         style={"base_template": "textarea.html"},
         help_text=(
             "Raw `.env` contents to encrypt and store. Replaces the entire existing env. "
-            "Plaintext never leaves the server after creation — the agent-runner decrypts in-process."
+            "Plaintext never leaves the server after creation — the agent-runner decrypts in-process. "
+            "Each non-empty, non-comment line must match `[export ]KEY=value` with a shell-style key."
         ),
     )
+
+    def validate_env(self, value: str) -> str:
+        # Empty env is allowed (clears the stored value).
+        if not value:
+            return value
+        _entries, errors = parse_env(value)
+        if errors:
+            raise serializers.ValidationError(errors)
+        return value
