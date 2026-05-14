@@ -1052,10 +1052,27 @@ function plotTrendsSeries(series: ChartSeries[]): void {
         )
     )
 
-    const chartColors = getChartColors(asciichart)
+    // Calculate colors using PostHog's exact color assignment logic
+    // Based on getTrendDatasetPosition and getTrendResultCustomizationColorToken from frontend
+    const seriesColors = series.map((s, i) => {
+        // Replicate PostHog's getTrendDatasetPosition logic:
+        // dataset.seriesIndex ?? dataset.colorIndex ?? dataset.index
+        const datasetPosition = (s as any).seriesIndex ?? (s as any).colorIndex ?? i
+        
+        // PostHog uses 15 preset colors (preset-1 through preset-15)
+        // The formula is: (datasetPosition % themeLength) + 1
+        const colorIndex = (datasetPosition % 15) + 1
+        
+        // Get the exact PostHog color
+        const posthogHex = POSTHOG_COLORS[colorIndex - 1]  // Convert to 0-based index
+        
+        // Map to terminal colors
+        return hexToTerminalColor(posthogHex)
+    })
+
     const chart = asciichart.plot(numericSeries.length === 1 ? numericSeries[0] : numericSeries, {
         height: 12,
-        colors: numericSeries.map((_, i) => chartColors[i % chartColors.length].ansi),
+        colors: seriesColors.map(c => c.ansi),
         format: (x: number) => formatYValue(x).padStart(5, ' '),
     })
 
@@ -1064,7 +1081,7 @@ function plotTrendsSeries(series: ChartSeries[]): void {
     console.log('')
 
     series.forEach((s, i) => {
-        const { fn: color } = chartColors[i % chartColors.length]
+        const { fn: color } = seriesColors[i]
         const action = isRecord(s.action) ? s.action : null
         const name = stringify(s.label) || (action ? stringify(action.name) : '') || `Series ${i + 1}`
         const total = typeof s.count === 'number' ? chalk.gray(`  total: ${s.count}`) : ''
