@@ -48,6 +48,7 @@ describe('CLI invalid invocations still error', () => {
     const errorCases: Array<{ name: string; args: string[]; expectedInOutput: string }> = [
         { name: 'unknown top-level command', args: ['definitely-not-a-real-command'], expectedInOutput: 'Unknown command' },
         { name: 'unknown subcommand', args: ['insights', 'definitely-not-a-real-subcommand'], expectedInOutput: 'Unknown command' },
+        { name: '--jq without --json', args: ['insights', 'list', '--jq', '.[0]'], expectedInOutput: '--jq requires --json' },
     ]
 
     for (const { name, args, expectedInOutput } of errorCases) {

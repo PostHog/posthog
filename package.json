@@ -158,6 +158,7 @@
             "msgpackr-extract",
             "msw",
             "node-gyp",
+            "node-jq",
             "node-rdkafka",
             "protobufjs",
             "re2",

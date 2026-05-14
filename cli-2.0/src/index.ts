@@ -37,9 +37,19 @@ async function main() {
             describe: 'Output raw JSON without terminal formatting',
             default: false,
         })
+        .option('jq', {
+            type: 'string',
+            describe: 'Filter JSON output using a jq expression (requires --json)',
+        })
         .option('project-id', {
             type: 'string',
             describe: 'PostHog project ID to use for this command instead of the stored project',
+        })
+        .check((argv) => {
+            if (argv.jq !== undefined && !argv.json) {
+                throw new Error('--jq requires --json')
+            }
+            return true
         })
         .demandCommand(1, 'NO_COMMAND')
         .fail((msg, err, yargs) => {
@@ -230,7 +240,7 @@ async function main() {
                 })
 
                 spinner.succeed('API call completed')
-                printResult(argv, 'api', result)
+                await printResult(argv, 'api', result)
             } catch (error: any) {
                 spinner.fail('API call failed')
                 console.error(chalk.red('Error:'), error.message)
@@ -245,11 +255,14 @@ async function main() {
 async function executeGeneratedTool(argv: any, toolName: string, params: any) {
     try {
         const result = await executeToolCall(argv.mcpContext as Context, toolName, params)
-        printResult(argv, toolName, result)
+        await printResult(argv, toolName, result)
     } catch (error: any) {
         console.error(chalk.red('Error:'), error.message)
         process.exit(1)
     }
 }
 
-main().catch(console.error)
+main().catch((err) => {
+    console.error(chalk.red(err instanceof Error ? err.message : String(err)))
+    process.exit(1)
+})
