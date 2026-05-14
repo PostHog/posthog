@@ -341,24 +341,29 @@ describe('exec tool', () => {
     })
 
     describe('parseExecCallInnerToolName', () => {
-        // Non-call verbs (info/schema/search/tools) are intentionally undefined —
-        // the resolver only fires for real invocations, not for browsing/inspection.
-        it.each<[string, string | undefined]>([
+        it.each([
             ['call my-tool {}', 'my-tool'],
             ['call my-tool', 'my-tool'],
             ['call --json my-tool {}', 'my-tool'],
             ['  call   my-tool   {}  ', 'my-tool'],
-            ['info my-tool', undefined],
-            ['schema my-tool', undefined],
-            ['search query-', undefined],
-            ['tools', undefined],
-            ['call', undefined],
-            ['call ', undefined],
-            ['call --json', undefined],
-            ['', undefined],
-            ['   ', undefined],
-        ])('parseExecCallInnerToolName(%j) → %j', (input, expected) => {
-            expect(parseExecCallInnerToolName(input)).toBe(expected)
+        ])('extracts inner tool name from "%s"', (command, expected) => {
+            expect(parseExecCallInnerToolName(command)).toBe(expected)
+        })
+
+        // Non-call verbs (info/schema/search/tools) are intentionally undefined —
+        // the resolver only fires for real invocations, not for browsing/inspection.
+        it.each([
+            ['info my-tool'],
+            ['schema my-tool'],
+            ['search query-'],
+            ['tools'],
+            ['call'],
+            ['call '],
+            ['call --json'],
+            [''],
+            ['   '],
+        ])('returns undefined for "%s"', (command) => {
+            expect(parseExecCallInnerToolName(command)).toBeUndefined()
         })
     })
 
