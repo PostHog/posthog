@@ -131,7 +131,7 @@ Shared library, no process of its own. Lives here:
 The public-facing process. Responsibilities:
 
 - All `*.agents.posthog.com` traffic terminates here.
-- Domain → `(application, revision)` resolution via the Django internal `/internal/agents/applications/resolve` endpoint. In-process LRU keyed by revision id, invalidated on promotion (we expose a small admin endpoint for Django to ping after promote — or just rely on TTL, decide at impl time).
+- Domain → `(application, revision)` resolution by direct Postgres query against the main posthog DB (no Django HTTP hop). In-process LRU keyed by revision id, TTL-based invalidation on promotion.
 - Per-app auth derived from the resolved revision's config (public / webhook signature / shared secret).
 - Implements `/run`, `/listen/:id`, `/send/:id`, `/webhooks/:provider`, `/health`, `/status`. Same contract as the SDK's local dev server.
 - `/run` writes an `AgentApplicationSession` row + enqueues a session job in the agent-core queue, returns `{ session_id }` immediately.
@@ -239,7 +239,7 @@ All inherit `UUIDModel` ([`posthog/models/utils.py:183`](../../posthog/models/ut
 **`AgentApplication`** (team-scoped)
 
 - `team: FK(Team)`, `name`, `slug` (unique — partial unique constraint where `deleted=False` so deleted slugs can be reclaimed), `description`
-- `encrypted_env: EncryptedTextField` — raw `.env` contents uploaded by the developer, single encrypted blob. Plaintext never returned by the REST API after creation; decryption gated to the internal API, audit-logged per call. (Replaces a separate `AgentApplicationSecret` per-key model — single blob is enough for v1.)
+- `encrypted_env: EncryptedTextField(null=True)` — raw `.env` contents uploaded by the developer, single encrypted blob. Null when no env is set (`EncryptedFieldMixin.get_prep_value` writes None for falsy values, so `null=True` is required to avoid a NOT NULL violation on insert). Plaintext never returned by the REST API after creation; the application serializer exposes a derived `env_redacted` field rendering one `KEY=********` line per declared key for UI display. Only the agent-runner decrypts the plaintext in-process via Fernet, audit-logged from the runner. (Replaces a separate `AgentApplicationSecret` per-key model — single blob is enough for v1.)
 - Soft delete (`deleted: bool`, `deleted_at`)
 - Activity-logged via `log_activity_from_viewset` ([`posthog/api/hog_function.py:640`](../../posthog/api/hog_function.py))
 
@@ -253,7 +253,7 @@ Note: there is **no `live_revision` FK** on the application. "Which revision is 
   - Default `disabled`. Logic-layer rule: must be `state=ready` before promotion to `live` or `preview`.
   - At-most-one `live` per application is enforced at the API layer, not the DB (lets promotion fail cleanly rather than via a unique-constraint violation).
   - Promotion is a single-row update: set new revision `live`, demote previous `live` to `disabled`.
-- `bundle_s3_key`, `bundle_size`, `bundle_sha256` — content-hash binding for the presigned PUT.
+- `bundle_s3_key`, `bundle_size`, `bundle_sha256` — S3 location, exact size (enforced by the presigned POST via `content-length-range`), and the CLI-reported SHA-256. The hash is metadata only at upload time; the future async validator re-hashes the uploaded bundle and verifies. Aligns with every other presigned-POST endpoint in the codebase (error_tracking, visual_review, tasks) which similarly trusts the client hash.
 - `top_level_config: JSONField` — validated synchronously at deploy start by Django.
 - `parsed_manifest: JSONField(null=True)` — populated by the future validator package. v1 leaves this null and runner falls back to reading the bundle's `.ass.yaml` manifest section directly via `top_level_config`.
 - `validation_report: JSONField(null=True)` — structured errors when the future validator marks `failed`.
@@ -299,19 +299,26 @@ Viewsets follow `TeamAndOrgViewSetMixin` + `scope_object` ([`posthog/api/hog_fun
 Endpoints (project-scoped `/api/projects/{team_id}/...`):
 
 - `agent_applications/` — CRUD + soft delete
-  - `POST /:id/start_deploy` → `{ revision_id, presigned_put_url, expires_at, max_size, required_sha256 }`
+  - `POST /:id/start_deploy` → `{ revision_id, upload_url, upload_fields, expires_at, max_size, required_sha256 }` (presigned S3 POST with `content-length-range` bound to the exact size; `required_sha256` is what the CLI claimed and is stored on the revision row for the validator to re-verify later)
   - `POST /:id/complete_upload` → **v1: synchronously transition the revision to `state=ready`** (skipping `validating`). Logged so we know which revisions never went through real validation when the validator lands.
   - `POST /:id/promote` → atomically set the target revision's `deployment_status=live` and demote any prior live revision to `disabled`. Validates the target is `state=ready`.
-  - `PUT /:id/env` — replace `encrypted_env`. No plaintext read; response omits the field.
-- `agent_application_revisions/` — list + retrieve (read-only). Filter by `deployment_status` for "find live", "list previews".
-- `agent_application_sessions/` — list + retrieve. Filters: `application_id`, `state`, `parent_run_id`, time range.
+  - `POST /:id/preview` → set the target revision's `deployment_status=preview`. Validates `state=ready`. Previews coexist — no siblings demoted.
+  - `POST /:id/disable_revision` → set the target revision's `deployment_status=disabled`. Allowed from any state. Use to pull a broken live or preview out of traffic.
+  - `PUT /:id/env` — replace `encrypted_env`. No plaintext read; the response carries `env_redacted` (one `KEY=********` line per declared key) instead.
+- `agent_applications/:slug-or-uuid/revisions/` — nested, list + retrieve (read-only). Filter by `deployment_status`, `state`.
+- `agent_applications/:slug-or-uuid/sessions/` — nested, list + retrieve. Filter by `revision`, `state`, `parent_run_id`, `created_after`, `created_before`.
 
-**Internal-only endpoints** (called by `agent-ingress` and `agent-runner`):
+`ass secrets list` is intentionally not exposed as a dedicated endpoint. The set of configured key names is already surfaced via `env_redacted` on the application detail response, so the CLI / UI can render "your env contains these keys" without a separate call. The developer's local `.env` remains the source of truth for values.
 
-- `GET /internal/agents/applications/resolve` — given a domain or app id, returns the live revision + manifest. For preview subdomains (`<slug>-<revision_short_id>`) the suffix is the revision id. Cacheable ~5s.
-- `POST /internal/agents/applications/{app_id}/decrypt_env` — returns plaintext `encrypted_env`. Audit-logged. Separate internal scope, not exposed in OAuth UI.
+Sandboxes have no dedicated viewset. Sandbox usage is inferred per session (the runner annotates session events with the sandbox id when a tool call runs there); a sandbox-level dashboard would be additive later.
 
-Add to `INTERNAL_API_SCOPE_OBJECTS` ([`posthog/scopes.py:121`](../../posthog/scopes.py)) so they don't appear in PAT creation flows.
+**No internal HTTP API for v1.** The runtime packages read from the main posthog Postgres DB directly:
+
+- `agent-ingress` queries `AgentApplication` + `AgentApplicationRevision` for domain resolution.
+- `agent-runner` reads `encrypted_env` and decrypts in-process using `ENCRYPTION_SALT_KEYS` passed via deployment env (Fernet is reimplemented in TS — well-defined spec, small surface).
+- Per-decrypt audit log is emitted from the runner, not Django.
+
+Keep `ENCRYPTION_SALT_KEYS` out of `agent-ingress` — only the runner needs them. The HTTP boundary is worth revisiting if/when the runtime stops being a first-party service.
 
 ### Frontend
 
@@ -339,7 +346,7 @@ CLI is the primary deploy surface in v1; this UI is management + observability.
 
 1. CLI bundles the project locally.
 2. CLI calls Django `start_deploy` with the parsed top-level config. Django validates synchronously (schema-level checks on `.ass.yaml` and triggers) and creates an `AgentApplicationRevision` row in `state=pending_upload`.
-3. Django returns a presigned S3 PUT URL bound to size + content hash.
+3. Django returns a presigned S3 POST URL bound to the exact bundle size. The CLI-reported sha256 is stored on the revision row; not enforced at upload time (matches existing presigned-POST patterns in the codebase).
 4. CLI uploads the bundle to S3.
 5. CLI calls `complete_upload`.
 6. **v1 shortcut**: Django transitions the revision `uploaded → ready` immediately, with no manifest parsing. The bundle is trusted as-is.
@@ -377,7 +384,7 @@ Pure-function validators (`(bytes) -> (parsed, errors)`) inside the validator pa
   - `AgentApplicationSession` and `AgentApplicationSandboxInstance` mirrors live in main posthog Postgres (team-scoped, FKs, activity log eligible).
   - Runner writes to both — queue row is the work item, `AgentApplicationSession` is the user-visible record.
 - **S3 bucket**: new `posthog-agent-bundles-{env}`, KMS-encrypted, lifecycle expires non-`ready` bundles after 7 days. Use [`posthog/storage/object_storage.py:33`](../../posthog/storage/object_storage.py) helpers from Django.
-- **Secrets**: `AgentApplication.encrypted_env` is an `EncryptedTextField` (same key schedule as `Integration.sensitive_config`). Decrypt only in `agent-runner` via the internal API.
+- **Secrets**: `AgentApplication.encrypted_env` is an `EncryptedTextField` (same key schedule as `Integration.sensitive_config`). Only `agent-runner` decrypts (in-process Fernet), and only the runner deployment receives `ENCRYPTION_SALT_KEYS`. Audit log emitted from the runner.
 - **Per-team quotas**: enforced on Django writes (apps, secrets, revisions/day) and at `agent-ingress` (concurrent sessions per app, `/run` rate limit). Surface limits in the UI.
 - **Observability**: structured logs with `app_id` / `revision_id` / `session_id` / `queue_job_id`; OTel traces per session and per tool call; Prometheus metrics; Sentry tagged separately for `agent-ingress` and `agent-runner`.
 - **Feature flag**: `FEATURE_FLAGS.AGENTS` gates the product (frontend + API + ingress). Per-team rollout.
@@ -407,7 +414,7 @@ Each shippable behind `FEATURE_FLAGS.AGENTS`.
 1. **Scaffold + models.** `products/agent_stack/` skeleton, Django app, models with the **full state machine in the schema**, migrations. New scope entries. UI stub. _(unblocks parallel work)_
 2. **Management API.** CRUD viewsets for apps and revisions. Env upload endpoint. Activity logging wired. `complete_upload` shortcut transitions straight to `state=ready`. Promote endpoint flips `deployment_status`.
 3. **Deploy flow.** `start_deploy` → presigned PUT → `complete_upload` (auto-ready) → `promote`. End-to-end via CLI. No async work.
-4. **Internal API.** `resolve` + `decrypt_env` endpoints with internal scopes. mTLS / signed-key auth.
+4. **Runtime DB access.** Wire `agent-ingress` to read `AgentApplication` + `AgentApplicationRevision` directly; wire `agent-runner` to read `encrypted_env` and decrypt in-process via Fernet. Pass `ENCRYPTION_SALT_KEYS` to runner deployment only. Audit log emitted from runner.
 5. **`packages/agent-core/`.** Types, DB clients, queue primitives (schema + ops), pub-sub helper, internal-API client, logger/metrics. No process; tested in isolation.
 6. **`packages/agent-ingress/`.** Domain resolution, `/run` writes `AgentApplicationSession` + enqueues job, `/listen` SSE wired to pub-sub, `/send` publishes to pub-sub. Runner stubbed.
 7. **`packages/agent-runner/` — meta + built-in tools.** Queue consumer. Real Claude Agent SDK invocation. State serialized into queue `state`, reschedule loop on tool boundaries. Built-ins registry shared with `agent-core`.

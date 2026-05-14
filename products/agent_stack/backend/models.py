@@ -7,7 +7,7 @@ from django.db import models
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.utils import UUIDModel
 
-from .facade.enums import DeploymentStatus, RevisionState, SandboxState, SessionState
+from .enums import DeploymentStatus, RevisionState, SandboxState, SessionState
 
 
 class AgentApplication(UUIDModel):
@@ -19,7 +19,9 @@ class AgentApplication(UUIDModel):
     # Raw .env contents uploaded by the developer. Plaintext never returned by the
     # public API after creation; decryption is gated to the internal API used by
     # agent-runner, audit-logged per call.
-    encrypted_env: EncryptedTextField = EncryptedTextField(blank=True, default="")
+    # null when no env is set — `EncryptedFieldMixin.get_prep_value` writes None for
+    # falsy values, so a `default=""` would still hit a NOT NULL violation on insert.
+    encrypted_env: EncryptedTextField = EncryptedTextField(null=True, blank=True)
 
     deleted = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)

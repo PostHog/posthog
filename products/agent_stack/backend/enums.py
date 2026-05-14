@@ -1,10 +1,4 @@
-"""
-Exported enums for agent_stack.
-
-If an enum appears in a contract dataclass field, it belongs here.
-Internal-only constants (DB magic values, feature flags) stay in
-the implementation (logic.py, models.py).
-"""
+"""Enums for agent_stack."""
 
 from enum import StrEnum
 

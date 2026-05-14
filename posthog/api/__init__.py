@@ -41,6 +41,11 @@ import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
+from products.agent_stack.backend.api import (
+    AgentApplicationRevisionViewSet,
+    AgentApplicationSessionViewSet,
+    AgentApplicationViewSet,
+)
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -1326,6 +1331,25 @@ projects_router.register(
     VisualReviewRunViewSet,
     "project_visual_review_runs",
     ["project_id"],
+)
+
+agent_applications_router = projects_router.register(
+    r"agent_applications",
+    AgentApplicationViewSet,
+    "project_agent_applications",
+    ["project_id"],
+)
+agent_applications_router.register(
+    r"revisions",
+    AgentApplicationRevisionViewSet,
+    "project_agent_application_revisions",
+    ["project_id", "application_id"],
+)
+agent_applications_router.register(
+    r"sessions",
+    AgentApplicationSessionViewSet,
+    "project_agent_application_sessions",
+    ["project_id", "application_id"],
 )
 
 environments_router.register(
