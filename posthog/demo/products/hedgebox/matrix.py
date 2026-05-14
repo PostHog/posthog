@@ -49,6 +49,7 @@ from posthog.constants import PAGEVIEW_EVENT
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.models import SimEvent
 from posthog.demo.matrix.randomization import Industry
+from posthog.demo.products.hedgebox.arr_demo import seed_arr_demo
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Action, Cohort, FeatureFlag, Insight, InsightViewed
 from posthog.models.event.util import create_event
@@ -2115,6 +2116,11 @@ class HedgeboxMatrix(Matrix):
 
         try:
             self._upsert_demo_extended_person_properties_table(team, user, credential)
+        except Exception as err:
+            capture_exception(err)
+
+        try:
+            seed_arr_demo(self, team, user, credential)
         except Exception as err:
             capture_exception(err)
 
