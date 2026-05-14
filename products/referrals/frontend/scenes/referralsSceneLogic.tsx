@@ -162,18 +162,19 @@ export const referralsSceneLogic = kea<referralsSceneLogicType>([
                     }
                 }
                 rows.sort((a, b) => {
-                    const nameCmp = a.invitedOrganizationName.localeCompare(b.invitedOrganizationName)
-                    if (nameCmp !== 0) {
-                        return nameCmp
-                    }
                     const aSig = a.signedUpAt ? dayjs(a.signedUpAt).unix() : 0
                     const bSig = b.signedUpAt ? dayjs(b.signedUpAt).unix() : 0
                     if (aSig !== bSig) {
                         return bSig - aSig
                     }
-                    const t = dayjs(b.shareLinkCreatedAt).unix() - dayjs(a.shareLinkCreatedAt).unix()
-                    if (t !== 0) {
-                        return t
+                    const aLink = dayjs(a.shareLinkCreatedAt).unix()
+                    const bLink = dayjs(b.shareLinkCreatedAt).unix()
+                    if (aLink !== bLink) {
+                        return bLink - aLink
+                    }
+                    const nameCmp = a.invitedOrganizationName.localeCompare(b.invitedOrganizationName)
+                    if (nameCmp !== 0) {
+                        return nameCmp
                     }
                     const tUser = (a.signedUpUserDisplayName || '').localeCompare(b.signedUpUserDisplayName || '')
                     if (tUser !== 0) {

@@ -1,65 +1,21 @@
 import { useValues } from 'kea'
 
-import { IconCopy } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTable, LemonTableColumns, Spinner } from '@posthog/lemon-ui'
+import { LemonCard, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
-import { WavingHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { Badge, cn } from 'lib/ui/quill'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { REFERRAL_MILESTONE_COUNT, referralInviteMilestonesCompleted } from './referralInviteMilestoneModel'
+import { ReferralInviteMilestoneProgress } from './ReferralInviteMilestoneProgress'
+import { ReferralsAttributedSignupsIntro } from './ReferralsAttributedSignupsIntro'
 import { ReferralAttributedSignupRow, referralsSceneLogic } from './referralsSceneLogic'
-
-function ReferralsAttributedSignupsIntro({
-    referralShareUrl,
-    copyDisabledReason,
-}: {
-    referralShareUrl: string | null
-    copyDisabledReason: string | undefined
-}): JSX.Element {
-    return (
-        <div
-            data-attr="referrals-attributed-signups-empty"
-            className="flex flex-col-reverse sm:flex-row items-center justify-center gap-6 w-full max-w-[40rem] mx-auto"
-        >
-            <div className="flex flex-col gap-3 flex-1 min-w-0 text-center sm:text-left">
-                <p className="m-0 text-[17px] font-semibold text-default leading-snug text-balance">
-                    Your fan club spreadsheet is peacefully empty
-                </p>
-                <p className="m-0 text-secondary text-[15px] leading-relaxed text-balance">
-                    The moment someone waltzes into PostHog through your link, they&apos;ll flop into this tidy little
-                    list with timestamps and onboarding progress sprinkled in for context. Until then, air out your link
-                    somewhere fun and check back like someone peeking into a warmed-up oven.
-                </p>
-                <div className="flex flex-wrap gap-2 justify-center sm:justify-start pt-0.5">
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        icon={<IconCopy />}
-                        disabledReason={copyDisabledReason}
-                        data-attr="referrals-empty-copy-link"
-                        onClick={() => {
-                            if (referralShareUrl) {
-                                void copyToClipboard(referralShareUrl, 'referral link')
-                            }
-                        }}
-                    >
-                        Copy signup link
-                    </LemonButton>
-                </div>
-            </div>
-            <div className="shrink-0" aria-hidden>
-                <WavingHog alt="" draggable={false} className="w-32 sm:w-[8.75rem] h-auto drop-shadow-md" />
-            </div>
-        </div>
-    )
-}
+import { ReferralsSignupLinkPanel } from './ReferralsSignupLinkPanel'
 
 export function ReferralsScene(): JSX.Element {
     const { attributedSignupRows, referralsLoading, referralShareUrl } = useValues(referralsSceneLogic)
@@ -105,6 +61,7 @@ export function ReferralsScene(): JSX.Element {
         {
             title: 'Signup date',
             key: 'signup_date',
+            defaultSortOrder: -1,
             render: (_, row) => (row.signedUpAt ? <TZLabel time={row.signedUpAt} /> : '–'),
             sorter: (a, b) => {
                 const au = a.signedUpAt ? dayjs(a.signedUpAt).unix() : 0
@@ -113,14 +70,33 @@ export function ReferralsScene(): JSX.Element {
             },
         },
         {
-            title: 'First event sent',
-            key: 'first_event_sent',
-            render: (_, row) => (
-                <LemonTag type={row.firstEventSent ? 'success' : 'warning'} size="small">
-                    {row.firstEventSent ? 'Yes' : 'No'}
-                </LemonTag>
-            ),
-            sorter: (a, b) => Number(a.firstEventSent) - Number(b.firstEventSent),
+            title: 'Milestones',
+            key: 'milestones',
+            render: (_, row) => {
+                const done = referralInviteMilestonesCompleted(row)
+                const isMaxed = done >= REFERRAL_MILESTONE_COUNT
+                return (
+                    <Badge
+                        variant={isMaxed ? 'success' : 'default'}
+                        className={cn(
+                            'h-auto min-h-0 border-2 px-2 py-0.5 text-xs tabular-nums font-black leading-snug ring-0',
+                            isMaxed ? 'border-foreground/15' : 'border-primary/50 bg-primary/20 text-primary'
+                        )}
+                        title={`${done} of ${REFERRAL_MILESTONE_COUNT} milestones complete`}
+                        data-attr="referral-attributed-milestones-count"
+                    >
+                        {done}/{REFERRAL_MILESTONE_COUNT}
+                    </Badge>
+                )
+            },
+            sorter: (a, b) => {
+                const ad = referralInviteMilestonesCompleted(a)
+                const bd = referralInviteMilestonesCompleted(b)
+                if (ad !== bd) {
+                    return ad - bd
+                }
+                return a.invitedOrganizationId.localeCompare(b.invitedOrganizationId)
+            },
         },
     ]
 
@@ -134,70 +110,12 @@ export function ReferralsScene(): JSX.Element {
                 resourceType={{ type: 'link' }}
             />
 
-            <LemonCard hoverEffect={false} className="mb-10 overflow-hidden shadow-sm border-primary p-0">
-                <div className="relative">
-                    <div
-                        aria-hidden
-                        className="absolute inset-y-0 left-0 w-1 rounded-l bg-gradient-to-b from-accent-active to-accent"
-                    />
-                    <div className="pl-6 pr-6 py-6 flex flex-col gap-5">
-                        <div className="flex gap-4 min-w-0">
-                            <div className="hidden sm:flex shrink-0 size-11 rounded-xl items-center justify-center bg-accent-highlight-secondary border border-accent/25">
-                                <IconCopy className="text-accent text-xl" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                                <p className="m-0 text-lg font-semibold text-default tracking-tight">
-                                    Your signup link
-                                </p>
-                                <p className="m-0 mt-1 text-secondary text-[15px] leading-snug max-w-2xl">
-                                    Drop this wherever you yak about analytics: your team chat, timeline, sleepy
-                                    newsletter footer, whichever. Anyone who swings by and joins shows up below as yours
-                                    ✨
-                                </p>
-                            </div>
-                        </div>
-
-                        {!referralShareUrl ? (
-                            <div className="flex items-center gap-2 text-secondary text-sm">
-                                <Spinner />
-                                Preparing your link…
-                            </div>
-                        ) : (
-                            <div className="flex flex-col sm:flex-row gap-3 sm:items-stretch w-full max-w-2xl">
-                                <div
-                                    data-attr="social-referral-link"
-                                    className="min-w-0 flex-1 rounded-lg border border-primary bg-fill-secondary px-3.5 py-3 shadow-[inset_0_1px_0_rgba(0,0,0,0.04)] dark:shadow-none"
-                                >
-                                    <span className="block font-mono text-[13px] text-default truncate select-all cursor-default">
-                                        {referralShareUrl}
-                                    </span>
-                                </div>
-                                <LemonButton
-                                    type="primary"
-                                    size="medium"
-                                    className="shrink-0"
-                                    icon={<IconCopy />}
-                                    disabledReason={copyDisabledReason}
-                                    data-attr="social-referral-copy"
-                                    onClick={() => {
-                                        if (referralShareUrl) {
-                                            void copyToClipboard(referralShareUrl, 'referral link')
-                                        }
-                                    }}
-                                >
-                                    Copy link
-                                </LemonButton>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </LemonCard>
+            <ReferralsSignupLinkPanel referralShareUrl={referralShareUrl} copyDisabledReason={copyDisabledReason} />
 
             <header className="mb-4">
-                <h2 className="m-0 text-[15px] font-semibold text-default">Attributed signups</h2>
+                <h2 className="m-0 text-[15px] font-semibold text-default">Keep track of your flock</h2>
                 <p className="m-0 mt-1 text-secondary text-sm">
-                    Every org that joins through your link lands here, with who signed up, when, and whether
-                    they&apos;ve shipped data yet.
+                    Every org that joins through your link lands here, with who signed up and when.
                 </p>
             </header>
             {referralsLoading || (attributedSignupRows?.length ?? 0) > 0 ? (
@@ -205,7 +123,14 @@ export function ReferralsScene(): JSX.Element {
                     columns={columns}
                     dataSource={attributedSignupRows ?? []}
                     loading={!!referralsLoading}
+                    defaultSorting={{ columnKey: 'signup_date', order: -1 }}
                     rowKey={(row) => `${row.socialReferralId}:${row.invitedOrganizationId}`}
+                    expandable={{
+                        rowExpandable: () => true,
+                        expandedRowRender: (row) => (
+                            <ReferralInviteMilestoneProgress firstEventSent={row.firstEventSent} />
+                        ),
+                    }}
                 />
             ) : (
                 <LemonCard hoverEffect={false} className="shadow-sm border-primary">
