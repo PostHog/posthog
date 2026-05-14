@@ -9,6 +9,9 @@
         "outDir": "dist/",
         "rootDir": "src/",
         "moduleResolution": "node",
+        "paths": {
+            "@repo/ass-server": ["./node_modules/@repo/ass-server/dist/index.d.ts"]
+        },
         "esModuleInterop": true,
         "resolveJsonModule": true,
         "strict": true,

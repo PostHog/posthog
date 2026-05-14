@@ -1,5 +1,4 @@
 import { timingSafeEqual } from 'node:crypto'
-
 import { NextFunction, Request, Response } from 'ultimate-express'
 
 export interface InternalAuthOptions {

@@ -75,10 +75,7 @@ interface TestHarness {
     app: Express
 }
 
-async function startServer(args: {
-    rows?: SessionView[]
-    sharedKey?: string | undefined
-}): Promise<TestHarness> {
+async function startServer(args: { rows?: SessionView[]; sharedKey?: string | undefined }): Promise<TestHarness> {
     const query = new FakeSessionQuery(args.rows ?? [])
     const deps: JanitorServerDeps = {
         query: query as unknown as SessionQuery,

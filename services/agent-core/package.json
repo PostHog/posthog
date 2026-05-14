@@ -19,6 +19,7 @@
         "test": "jest --runInBand --forceExit"
     },
     "dependencies": {
+        "@repo/ass-server": "link:../../../agent-stack/packages/ass-server",
         "fernet-nodejs": "^1.0.6",
         "ioredis": "^4.27.6",
         "luxon": "^3.4.4",

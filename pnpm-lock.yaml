@@ -3471,6 +3471,9 @@ importers:
 
   services/agent-core:
     dependencies:
+      '@repo/ass-server':
+        specifier: link:../../../agent-stack/packages/ass-server
+        version: link:../../../agent-stack/packages/ass-server
       fernet-nodejs:
         specifier: ^1.0.6
         version: 1.0.6
@@ -3553,6 +3556,9 @@ importers:
       '@posthog/agent-core':
         specifier: workspace:*
         version: link:../agent-core
+      '@repo/ass-server':
+        specifier: link:../../../agent-stack/packages/ass-server
+        version: link:../../../agent-stack/packages/ass-server
       lru-cache:
         specifier: ^11.0.0
         version: 11.2.4

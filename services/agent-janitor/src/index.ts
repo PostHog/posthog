@@ -7,7 +7,9 @@ async function main(): Promise<void> {
     const config = loadConfig()
 
     if (!config.internalApiSharedKey) {
-        logger.warn('agent-janitor starting without AGENT_INTERNAL_API_SHARED_KEY — /internal routes will refuse traffic')
+        logger.warn(
+            'agent-janitor starting without AGENT_INTERNAL_API_SHARED_KEY — /internal routes will refuse traffic'
+        )
     }
 
     const query = new SessionQuery({ pool: { dbUrl: config.queueDbUrl } })

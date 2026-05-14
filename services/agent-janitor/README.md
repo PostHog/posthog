@@ -11,13 +11,13 @@ The runtime owns session state. Django **never** writes to `agent_sessions`; the
 
 ## Routes
 
-| Method | Path                                | Purpose                                      |
-| ------ | ----------------------------------- | -------------------------------------------- |
-| GET    | `/internal/sessions/:id`            | Fetch a single session by queue id           |
-| GET    | `/internal/sessions`                | List sessions filtered by `application_id`, `revision_id`, `status`, `team_id`, `created_before`, `limit` |
-| POST   | `/internal/sessions/:id/cancel`     | Cancel an `available` or `running` session   |
-| GET    | `/health`                           | Always returns `{ok: true}` while listening  |
-| GET    | `/metrics`                          | Prometheus scrape endpoint                   |
+| Method | Path                            | Purpose                                                                                                   |
+| ------ | ------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| GET    | `/internal/sessions/:id`        | Fetch a single session by queue id                                                                        |
+| GET    | `/internal/sessions`            | List sessions filtered by `application_id`, `revision_id`, `status`, `team_id`, `created_before`, `limit` |
+| POST   | `/internal/sessions/:id/cancel` | Cancel an `available` or `running` session                                                                |
+| GET    | `/health`                       | Always returns `{ok: true}` while listening                                                               |
+| GET    | `/metrics`                      | Prometheus scrape endpoint                                                                                |
 
 All `/internal/*` routes are gated by the `x-internal-key` header (`AGENT_INTERNAL_API_SHARED_KEY`).
 
