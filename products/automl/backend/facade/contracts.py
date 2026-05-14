@@ -91,6 +91,13 @@ class RecordTrainingResultInput:
 
     ``role`` defaults to ``challenger`` so a newly trained model never auto-takes
     over from the existing champion. Promotion is a separate explicit step.
+
+    ``run_id`` — when set, the matching ``AutoMLPipelineRun`` is updated in the
+    same transaction: ``created_model_version_id`` is set to the new version
+    and ``training_result`` gets a denormalized summary (metrics + top-5
+    leaderboard rows + eval_metric). The agent passes this from the brief's
+    Run context block so the pipeline-detail timeline can show the version
+    against the run row that produced it.
     """
 
     metrics: dict[str, Any]
@@ -106,6 +113,7 @@ class RecordTrainingResultInput:
     rows_val: int | None = None
     rows_test: int | None = None
     training_task_id: UUID | None = None
+    run_id: UUID | None = None
 
 
 @dataclass(frozen=True)

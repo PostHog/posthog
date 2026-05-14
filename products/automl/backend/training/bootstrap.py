@@ -30,10 +30,23 @@ from products.tasks.backend.services.sandbox import SandboxTemplate
 from ..facade.enums import TaskType
 from ..models import AutoMLPipeline
 
-# Local-dev MinIO endpoint. Production runs without an endpoint override
-# (real AWS S3 via instance role). For now this is hardcoded — once the
+# Local-dev MinIO endpoint, expressed in the form the agent's sandbox
+# container needs (not the host's view). On macOS / Linux Docker, `localhost`
+# inside the container points at the container itself — so MinIO running on
+# the host at :19000 needs `host.docker.internal:19000` to be reachable. This
+# matches how `POSTHOG_API_URL` is set in the sandbox provisioning. Production
+# runs without an endpoint override (real AWS S3 via instance role). Once the
 # scheduled inference workflow lands we'll wire it off a setting per env.
-_LOCAL_S3_ENDPOINT = "http://localhost:19000"
+_LOCAL_S3_ENDPOINT = "http://host.docker.internal:19000"
+
+# Local-dev MinIO credentials, also baked into the sandbox's Run context for
+# the agent to source as AWS env vars. These are the well-known local-dev
+# defaults set by `posthog/temporal/data_imports/sources/*` and the rest of
+# the local stack — see `docker-compose.dev.yml`. Production uses IAM roles,
+# not env-var creds, so production briefs will leave these out.
+_LOCAL_S3_AWS_ACCESS_KEY_ID = "object_storage_root_user"
+_LOCAL_S3_AWS_SECRET_ACCESS_KEY = "object_storage_root_password"  # noqa: S105
+_LOCAL_S3_AWS_REGION = "us-east-1"
 
 
 def derive_task_slug(pipeline: AutoMLPipeline) -> str:
@@ -159,6 +172,12 @@ def _build_orchestration_brief(
             "task_slug": task_slug,
             "task_workspace_root": task_workspace_root,
             "s3_endpoint": _LOCAL_S3_ENDPOINT,
+            # Local-dev MinIO credentials — exported as the standard AWS env vars
+            # so the CLI's pyarrow S3FileSystem + boto3 paths just work. Production
+            # briefs will omit these (IAM role on the host, not env-var creds).
+            "aws_access_key_id": _LOCAL_S3_AWS_ACCESS_KEY_ID,
+            "aws_secret_access_key": _LOCAL_S3_AWS_SECRET_ACCESS_KEY,
+            "aws_default_region": _LOCAL_S3_AWS_REGION,
         },
         indent=2,
     )
@@ -176,9 +195,17 @@ def _build_orchestration_brief(
         "\n"
         "## Run context\n"
         "\n"
-        "Pass `--task` and `--s3-endpoint` on every CLI invocation. Surface\n"
-        "`run_id` on every `automl-record-*` MCP call so the same\n"
-        "`AutoMLPipelineRun` row gets EDA / training / outcome updates.\n"
+        "Pass `--task $task_slug --s3-endpoint $s3_endpoint` on every CLI\n"
+        "invocation. Surface `run_id` on every `automl-record-*` MCP call so\n"
+        "the same `AutoMLPipelineRun` row accumulates EDA / training / outcome\n"
+        "updates. Export the AWS keys before any S3-touching command so\n"
+        "pyarrow / boto3 inside the CLI can authenticate to local MinIO:\n"
+        "\n"
+        "```bash\n"
+        "export AWS_ACCESS_KEY_ID=$aws_access_key_id\n"
+        "export AWS_SECRET_ACCESS_KEY=$aws_secret_access_key\n"
+        "export AWS_DEFAULT_REGION=$aws_default_region\n"
+        "```\n"
         "\n"
         "```json\n"
         f"{run_ctx_json}\n"

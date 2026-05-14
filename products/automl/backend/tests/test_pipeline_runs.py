@@ -252,6 +252,36 @@ def test_record_training_result_with_unknown_run_id_raises(team):
 
 
 @pytest.mark.django_db
+def test_record_training_result_with_run_id_on_input_links_run(team):
+    """Regression: `run_id` carried on the input dataclass (the DRF wire shape)
+    must wire through to the run-row link, not just the kwarg path.
+
+    The first smoke run shipped a bug where the DRF view ignored a body-level
+    `run_id`, so the version was created but the run row never linked to it.
+    This test pins both code paths."""
+    pipeline = _make_pipeline(team.id)
+    _, run = _open_run(team.id, pipeline.id)
+
+    # Body-level `run_id` (matches how DRF passes it through the dataclass).
+    version_dto = api.record_training_result(
+        team_id=team.id,
+        pipeline_id=pipeline.id,
+        params=contracts.RecordTrainingResultInput(
+            metrics={"accuracy": 0.85},
+            leaderboard=[{"model": "M1", "score_test": 0.85}],
+            eval_metric="accuracy",
+            run_id=run.id,
+        ),
+        run_id=run.id,
+    )
+
+    refreshed = api.get_run(team_id=team.id, run_id=run.id)
+    assert refreshed is not None
+    assert refreshed.created_model_version_id == version_dto.id
+    assert refreshed.training_result["metrics"] == {"accuracy": 0.85}
+
+
+@pytest.mark.django_db
 def test_list_runs_returns_newest_first(team):
     pipeline = _make_pipeline(team.id)
     _, run_a = _open_run(team.id, pipeline.id, task_slug="slug_a")

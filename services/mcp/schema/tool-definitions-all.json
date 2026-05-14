@@ -576,7 +576,7 @@
         }
     },
     "automl-record-training-result": {
-        "description": "Persist a completed training run as a new model version on a pipeline. Role defaults to \"challenger\" so a fresh run never auto-displaces the existing champion — promotion is a separate explicit step via automl-promote-model-version. Called by the bootstrap and retraining orchestration agents after the trainer returns; not typically called by humans directly.",
+        "description": "Persist a completed training run as a new model version on a pipeline. Role defaults to \"challenger\" so a fresh run never auto-displaces the existing champion — promotion is a separate explicit step via automl-promote-model-version. When called with run_id (from the bootstrap brief's Run context block), the matching AutoMLPipelineRun is updated in the same transaction so the pipeline-detail timeline links the version to the run that produced it. Called by the bootstrap and retraining orchestration agents after the trainer returns; not typically called by humans directly.",
         "category": "AutoML",
         "feature": "automl",
         "summary": "Record an AutoML training result",

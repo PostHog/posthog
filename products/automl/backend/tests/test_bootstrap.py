@@ -381,8 +381,9 @@ def test_enqueue_bootstrap_training_passes_canonical_args(team, user):
 
 @pytest.mark.django_db
 def test_brief_includes_run_context_block(team):
-    """The brief carries `run_id`, `task_slug`, `task_workspace_root`, `s3_endpoint`
-    so the agent can thread them through every CLI invocation + MCP call."""
+    """The brief carries `run_id`, `task_slug`, `task_workspace_root`, `s3_endpoint`,
+    and the local-dev AWS credentials so the agent can thread them through every
+    CLI invocation + MCP call without having to grep the CLI README."""
     pipeline = _make_pipeline(team.id)
     brief = _build_brief(pipeline)
 
@@ -391,9 +392,19 @@ def test_brief_includes_run_context_block(team):
     assert ctx["pipeline_id"] == str(pipeline.id)
     assert ctx["task_slug"] == _TEST_TASK_SLUG
     assert ctx["task_workspace_root"] == _TEST_WORKSPACE_ROOT
-    # Local-dev MinIO endpoint — production gets an empty value once the
-    # inference workflow lands and we wire this off a setting per env.
-    assert ctx["s3_endpoint"] == "http://localhost:19000"
+    # `host.docker.internal:19000` — `localhost:19000` inside a Docker container
+    # points at the container itself, not the host's MinIO. Production briefs
+    # leave the endpoint out (IAM role, real AWS S3).
+    assert ctx["s3_endpoint"] == "http://host.docker.internal:19000"
+    # AWS creds for local-dev MinIO. Production omits these (instance role).
+    assert ctx["aws_access_key_id"] == "object_storage_root_user"
+    assert ctx["aws_secret_access_key"] == "object_storage_root_password"
+    assert ctx["aws_default_region"] == "us-east-1"
+
+    # The brief also shows the agent how to export those creds before any S3 command.
+    assert "export AWS_ACCESS_KEY_ID=" in brief
+    assert "export AWS_SECRET_ACCESS_KEY=" in brief
+    assert "export AWS_DEFAULT_REGION=" in brief
 
 
 @pytest.mark.django_db

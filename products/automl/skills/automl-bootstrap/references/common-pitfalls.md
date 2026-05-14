@@ -38,6 +38,49 @@ target event genuinely rare). Do not proceed to training.
 This is a hackathon-grade threshold. Production raises it once we have
 realistic data volumes.
 
+## MinIO bucket doesn't exist yet (local dev only)
+
+**Symptom:** the CLI's first S3 write (`Workspace.write_spec`, `prepare-from-hogql`)
+exits with `AWS Error NO_SUCH_BUCKET during CreateMultipartUpload operation`.
+
+**Cause:** local-dev MinIO doesn't seed the `automl` bucket. The bucket has to
+exist before the workspace lands its first file.
+
+**Fix (one-shot, expected on a fresh local stack):** the CLI's `pyarrow.fs.S3FileSystem`
+has `allow_bucket_creation=True`. Create it before retrying:
+
+```python
+import pyarrow.fs as pa_fs
+fs = pa_fs.S3FileSystem(
+    endpoint_override="host.docker.internal:19000",
+    scheme="http",
+    allow_bucket_creation=True,
+)
+fs.create_dir("automl")
+```
+
+Then retry the failing CLI command. Production won't hit this — real AWS S3
+buckets are pre-provisioned in infra.
+
+## AWS credentials not exported
+
+**Symptom:** S3 writes fail with `AWS Error NETWORK_CONNECTION` or 403, even
+after the bucket exists.
+
+**Cause:** the CLI's S3 paths read `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`
+/ `AWS_DEFAULT_REGION` from env. The bootstrap brief's Run context block
+carries the local-dev MinIO values — you have to `export` them at the start
+of each shell session before any CLI invocation that touches `s3://`.
+
+```bash
+export AWS_ACCESS_KEY_ID=$aws_access_key_id
+export AWS_SECRET_ACCESS_KEY=$aws_secret_access_key
+export AWS_DEFAULT_REGION=$aws_default_region
+```
+
+(Values come from the Run context JSON block — don't hardcode them in your
+shell history.)
+
 ## MCP tools advertise as missing
 
 **Symptom:** `mcp tools | grep automl` returns no entries, or a specific

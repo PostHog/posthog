@@ -336,6 +336,9 @@ const AutomlRecordTrainingResultSchema = AutomlPipelinesModelVersionsCreateParam
         id: AutomlPipelinesModelVersionsCreateParams.shape['id'].describe(
             'Pipeline UUID this training run belongs to. Versions are pipeline-scoped and never moved between pipelines.'
         ),
+        run_id: AutomlPipelinesModelVersionsCreateBody.shape['run_id'].describe(
+            'Run UUID from the bootstrap brief\'s "Run context" JSON block. Pass this so the new AutoMLModelVersion links onto the in-flight AutoMLPipelineRun row (sets created_model_version_id and writes a compact training_result summary). Optional — omitting it creates the version without linking, but you almost always want the link.'
+        ),
         metrics: AutomlPipelinesModelVersionsCreateBody.shape['metrics'].describe(
             "Final evaluation metrics from the trainer (AutoGluon's leaderboard column names verbatim, e.g. accuracy / roc_auc / log_loss for classification). Used by the promotion gate."
         ),
@@ -403,6 +406,9 @@ const automlRecordTrainingResult = (): ToolBase<
         }
         if (params.training_task_id !== undefined) {
             body['training_task_id'] = params.training_task_id
+        }
+        if (params.run_id !== undefined) {
+            body['run_id'] = params.run_id
         }
         const result = await context.api.request<Schemas.AutoMLModelVersionDTO>({
             method: 'POST',

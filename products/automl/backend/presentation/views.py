@@ -233,15 +233,28 @@ class AutoMLPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         Always recorded as ``challenger`` by default — promotion to champion is
         the explicit ``promote`` action below. Called by the bootstrap and
         retraining agents from inside their sandbox after the trainer returns.
+
+        When the request body carries a ``run_id``, the matching
+        ``AutoMLPipelineRun`` is updated in the same transaction so the
+        pipeline-detail timeline links the new version to the run that
+        produced it. Agents pull ``run_id`` from the bootstrap brief's
+        Run context block.
         """
+        params = request.validated_data
         try:
             dto = api.record_training_result(
                 team_id=self.team_id,
                 pipeline_id=UUID(pk),
-                params=request.validated_data,
+                params=params,
+                run_id=params.run_id,
             )
         except api.PipelineNotFoundError:
             return Response({"detail": "Pipeline not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.PipelineRunNotFoundError:
+            return Response(
+                {"detail": "run_id does not resolve to a run on this pipeline", "code": "invalid_run_id"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         return Response(AutoMLModelVersionSerializer(instance=dto).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(

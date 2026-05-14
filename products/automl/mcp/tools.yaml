@@ -260,13 +260,21 @@ tools:
         description: >
             Persist a completed training run as a new model version on a pipeline. Role defaults to "challenger" so a
             fresh run never auto-displaces the existing champion — promotion is a separate explicit step via
-            automl-promote-model-version. Called by the bootstrap and retraining orchestration agents after the trainer
-            returns; not typically called by humans directly.
+            automl-promote-model-version. When called with run_id (from the bootstrap brief's Run context block), the
+            matching AutoMLPipelineRun is updated in the same transaction so the pipeline-detail timeline links the
+            version to the run that produced it. Called by the bootstrap and retraining orchestration agents after the
+            trainer returns; not typically called by humans directly.
         param_overrides:
             id:
                 description: >
                     Pipeline UUID this training run belongs to. Versions are pipeline-scoped and never moved between
                     pipelines.
+            run_id:
+                description: >
+                    Run UUID from the bootstrap brief's "Run context" JSON block. Pass this so the new
+                    AutoMLModelVersion links onto the in-flight AutoMLPipelineRun row (sets
+                    created_model_version_id and writes a compact training_result summary). Optional — omitting it
+                    creates the version without linking, but you almost always want the link.
             metrics:
                 description: >
                     Final evaluation metrics from the trainer (AutoGluon's leaderboard column names verbatim, e.g.

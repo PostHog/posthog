@@ -33159,6 +33159,8 @@ export namespace Schemas {
       rows_test?: number | null;
       /** @nullable */
       training_task_id?: string | null;
+      /** @nullable */
+      run_id?: string | null;
     }
 
     export interface ReorderTilesRequest {

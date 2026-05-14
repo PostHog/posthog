@@ -40,6 +40,60 @@ where to look:
 | `training_crash`        | AutoGluon errors on clean parquet (you verified the schema via `polars.read_parquet(...).describe()` and it looks structurally fine). Likely a CLI / dep bug. |
 | `task_create_failed`    | (Set by the surrounding workflow, not you. If you ever see this it means your run row was opened before your sandbox came up.)                                |
 
+## When `automl-record-bootstrap-outcome` itself fails
+
+You may hit a case where the MCP server returns "Tool exec not found" or a
+similar registry-level error specifically on the outcome call (transient
+workerd / wrangler hot-reload glitch). The recovery tool is the very tool
+that's broken.
+
+**What to do:**
+
+1. Retry once after ~5 seconds — most workerd reloads finish that fast.
+2. If retry still fails, **emit the outcome report markdown as your final
+   message** anyway. The workflow has full visibility into your bash + MCP
+   trace; the operator can read the report from the agent transcript and
+   manually reconcile the run row via the facade.
+3. Don't burn cycles re-querying the MCP `tools` list — if `exec` is missing,
+   the whole MCP surface is degraded and re-querying won't help.
+
+The pipeline-detail page will show the run row as `status=running` until
+reconciled. That's not great UX but it's recoverable — operators close it
+out by calling `record_bootstrap_outcome` directly via the facade or DRF
+once MCP is healthy again. (See the manual reconciliation snippet at the
+bottom of this file.)
+
+## Manual run-row reconciliation (operator-side)
+
+When an agent run completed successfully but couldn't record the outcome
+(MCP transient failure, or the surrounding workflow ran out of budget mid-call),
+the run row stays in `status=running` with empty `outcome_report`. An
+operator can flip it by hand:
+
+```python
+# From the host, in a Django shell with team_scope:
+from posthog.models.scoping import team_scope
+from products.automl.backend.facade import api, contracts
+from products.automl.backend.facade.enums import RunStatus
+import uuid
+
+with team_scope(<team_id>):
+    api.record_bootstrap_outcome(
+        team_id=<team_id>,
+        run_id=uuid.UUID("<the run id>"),
+        params=contracts.RecordBootstrapOutcomeInput(
+            status=RunStatus.SUCCEEDED,  # or FAILED / ABORTED
+            outcome_report="...",         # copy from agent transcript
+            failure_reason="",            # set if status != SUCCEEDED
+            cli_run_id="<from agent>",
+            agent_session_id="<from agent>",
+        ),
+    )
+```
+
+Calling `record_bootstrap_outcome` is idempotent on terminal state — running
+it twice is a no-op the second time.
+
 ## What to write in the outcome report when you stop
 
 The outcome report markdown body is what the user reads on the

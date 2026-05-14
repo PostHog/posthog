@@ -101,6 +101,12 @@ export const AutomlPipelinesPartialUpdateBody = /* @__PURE__ */ zod
 Always recorded as ``challenger`` by default — promotion to champion is
 the explicit ``promote`` action below. Called by the bootstrap and
 retraining agents from inside their sandbox after the trainer returns.
+
+When the request body carries a ``run_id``, the matching
+``AutoMLPipelineRun`` is updated in the same transaction so the
+pipeline-detail timeline links the new version to the run that
+produced it. Agents pull ``run_id`` from the bootstrap brief's
+Run context block.
  */
 export const AutomlPipelinesModelVersionsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -120,6 +126,7 @@ export const AutomlPipelinesModelVersionsCreateBody = /* @__PURE__ */ zod
         rows_val: zod.number().nullish(),
         rows_test: zod.number().nullish(),
         training_task_id: zod.uuid().nullish(),
+        run_id: zod.uuid().nullish(),
     })
     .describe(
         'Request body for ``POST \/automl_pipelines\/{id}\/model_versions\/``.\n\nCalled by the bootstrap \/ retraining agent when a training run finishes.\n``role`` defaults to ``challenger`` so a fresh run never auto-displaces the\nexisting champion — promotion is a separate explicit step.'
