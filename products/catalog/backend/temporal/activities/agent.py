@@ -25,6 +25,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.oauth import MCP_READ_SCOPES
 
 from products.catalog.backend.models import CatalogColumn, CatalogNode
 from products.catalog.backend.temporal.agent_prompts import CATALOG_DESCRIPTION_SYSTEM_PROMPT
@@ -65,10 +66,7 @@ def _spawn_catalog_agent_task_sync(team_id: int) -> str:
         user_id=user.id,
         repository=None,
         create_pr=False,
-        # catalog:read needed because system.tables/columns/relationships carry
-        # access_scope="catalog" and HogQL filters them out without it.
-        # query:read is for execute-sql itself.
-        posthog_mcp_scopes=["catalog:read", "catalog:write", "query:read"],
+        posthog_mcp_scopes=[*MCP_READ_SCOPES, "catalog:write"],
     )
     run = task.runs.order_by("-created_at").first()
     if run is None:
