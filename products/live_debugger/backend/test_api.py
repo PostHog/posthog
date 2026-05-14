@@ -1370,3 +1370,47 @@ class TestLiveDebuggerActiveProgramsAPI(APIBaseTest):
         unauth_client = Client()
         response = unauth_client.get(self.URL, headers={"Authorization": f"Bearer {token}"})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TestLiveDebuggerSessionAPI(APIBaseTest):
+    def _url(self, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.id}/live_debugger_sessions/{suffix}"
+
+    def test_create_session(self):
+        response = self.client.post(
+            self._url(),
+            data={"title": "Why is X failing?", "description": "Investigating X."},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        body = response.json()
+        self.assertEqual(body["title"], "Why is X failing?")
+        self.assertEqual(body["description"], "Investigating X.")
+        self.assertEqual(body["status"], "open")
+        self.assertIsNone(body["closed_at"])
+        self.assertEqual(body["entries"], [])
+
+    def test_list_sessions_most_recent_first(self):
+        self.client.post(self._url(), data={"title": "First", "description": ""})
+        self.client.post(self._url(), data={"title": "Second", "description": ""})
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        titles = [s["title"] for s in response.json()["results"]]
+        self.assertEqual(titles[:2], ["Second", "First"])
+
+    def test_retrieve_session_includes_entries(self):
+        create = self.client.post(self._url(), data={"title": "T", "description": ""})
+        session_id = create.json()["id"]
+        response = self.client.get(self._url(f"{session_id}/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["entries"], [])
+
+    def test_team_isolation_on_retrieve(self):
+        from posthog.models import Organization
+
+        other_org = Organization.objects.create(name="Other org")
+        other_team = Team.objects.create(organization=other_org, name="Other team")
+        from products.live_debugger.backend.models import LiveDebuggerSession
+
+        their_session = LiveDebuggerSession.objects.create(team=other_team, title="Theirs", description="")
+        response = self.client.get(self._url(f"{their_session.id}/"))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

@@ -3,7 +3,7 @@ import hashlib
 import logging
 from typing import Optional
 
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.http import HttpResponse
 
 from django_filters.rest_framework import DjangoFilterBackend, FilterSet
@@ -20,7 +20,12 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.permissions import ProjectSecretAPITokenPermission
 
 from products.live_debugger.backend._proto import bytecode_pb2 as _pb
-from products.live_debugger.backend.models import LiveDebuggerBreakpoint, LiveDebuggerProgram
+from products.live_debugger.backend.models import (
+    LiveDebuggerBreakpoint,
+    LiveDebuggerProgram,
+    LiveDebuggerSession,
+    LiveDebuggerSessionEntry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -671,3 +676,133 @@ class LiveDebuggerActiveProgramsViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         )
         payload = _build_program_list_bytes(programs)
         return HttpResponse(payload, content_type="application/octet-stream")
+
+
+class LiveDebuggerSessionEntryListItemSerializer(serializers.ModelSerializer):
+    """A single entry in a session's timeline."""
+
+    class Meta:
+        model = LiveDebuggerSessionEntry
+        fields = ["id", "kind", "payload", "created_at"]
+        read_only_fields = fields
+        extra_kwargs = {
+            "id": {"help_text": "Unique identifier for the entry."},
+            "kind": {
+                "help_text": (
+                    "Entry kind discriminator. One of: note, program_install, "
+                    "program_uninstall, event_highlight, conclusion."
+                ),
+            },
+            "payload": {
+                "help_text": (
+                    "Entry payload — shape depends on kind. "
+                    "note/conclusion: {markdown: str}. "
+                    "program_install/program_uninstall: {program_id: uuid}. "
+                    "event_highlight: {event_uuids: list[str], caption: str}."
+                ),
+            },
+            "created_at": {"help_text": "When the entry was appended."},
+        }
+
+
+class LiveDebuggerSessionSerializer(serializers.ModelSerializer):
+    """Full session with its ordered entries timeline."""
+
+    entries = LiveDebuggerSessionEntryListItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = LiveDebuggerSession
+        fields = ["id", "title", "description", "status", "created_at", "closed_at", "entries"]
+        read_only_fields = ["id", "status", "created_at", "closed_at", "entries"]
+        extra_kwargs = {
+            "title": {"help_text": "Short human-readable name for the investigation."},
+            "description": {"help_text": "What the agent is trying to figure out."},
+            "status": {"help_text": "Lifecycle status: 'open' or 'closed'."},
+            "created_at": {"help_text": "When the session was started."},
+            "closed_at": {"help_text": "When the session was closed (null while open)."},
+            "entries": {"help_text": "Ordered list of entries in this session, oldest first."},
+        }
+
+    def create(self, validated_data: dict) -> LiveDebuggerSession:
+        validated_data["team"] = self.context["team"]
+        return super().create(validated_data)
+
+
+class LiveDebuggerSessionListItemSerializer(serializers.ModelSerializer):
+    """Compact session for list views; omits entries."""
+
+    class Meta:
+        model = LiveDebuggerSession
+        fields = ["id", "title", "description", "status", "created_at", "closed_at"]
+        read_only_fields = fields
+        extra_kwargs = {
+            "id": {"help_text": "Unique identifier for the session."},
+            "title": {"help_text": "Short human-readable name for the investigation."},
+            "description": {"help_text": "What the agent is trying to figure out."},
+            "status": {"help_text": "Lifecycle status: 'open' or 'closed'."},
+            "created_at": {"help_text": "When the session was started."},
+            "closed_at": {"help_text": "When the session was closed (null while open)."},
+        }
+
+
+class LiveDebuggerSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """
+    Start, list, inspect, and close debugging sessions.
+
+    A session is the agent's investigation envelope. Every program install/uninstall,
+    note, event highlight, and conclusion is appended to the session's timeline,
+    producing a human-readable record of what the agent tried and what it learned.
+    """
+
+    scope_object = "live_debugger"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["create", "close", "add_entry", "install_program", "uninstall_program"]
+    queryset = LiveDebuggerSession.objects.all()
+    serializer_class = LiveDebuggerSessionSerializer
+    basename = "live_debugger_sessions"
+    http_method_names = ["get", "post", "head", "options"]
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        return queryset.order_by("-created_at").prefetch_related(
+            Prefetch("entries", queryset=LiveDebuggerSessionEntry.objects.order_by("created_at"))
+        )
+
+    def get_serializer_context(self) -> dict:
+        context = super().get_serializer_context()
+        context["team"] = self.team
+        return context
+
+    def get_serializer_class(self) -> type[serializers.Serializer]:
+        if self.action == "list":
+            return LiveDebuggerSessionListItemSerializer
+        return LiveDebuggerSessionSerializer
+
+    @extend_schema(
+        summary="Start a debugging session",
+        request=LiveDebuggerSessionSerializer,
+        responses={
+            201: OpenApiResponse(response=LiveDebuggerSessionSerializer, description="Session started."),
+            400: OpenApiResponse(description="Invalid request body."),
+        },
+    )
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        return super().create(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="List debugging sessions",
+        description="List sessions for the current project, most recently started first.",
+        responses={200: OpenApiResponse(response=LiveDebuggerSessionListItemSerializer(many=True))},
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        return super().list(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="Show a debugging session",
+        description="Retrieve a single session with its full ordered entries timeline.",
+        responses={
+            200: OpenApiResponse(response=LiveDebuggerSessionSerializer),
+            404: OpenApiResponse(description="Session not found."),
+        },
+    )
+    def retrieve(self, request: Request, *args, **kwargs) -> Response:
+        return super().retrieve(request, *args, **kwargs)
