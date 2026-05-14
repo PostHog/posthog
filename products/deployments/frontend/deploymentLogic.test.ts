@@ -142,4 +142,33 @@ describe('deploymentLogic', () => {
             missing.unmount()
         }
     })
+
+    it('deep-link: loads the deployment once projects finish loading', async () => {
+        // Simulate a cold start — the list logic has not been mounted yet, so
+        // selectedProjectId is null when deploymentLogic mounts.
+        listLogic.unmount()
+        initKeaTests()
+        useMocks({
+            get: {
+                '/api/projects/:team/deployment_projects/': () => [
+                    200,
+                    { count: 1, next: null, previous: null, results: [project] },
+                ],
+                '/api/projects/:team/deployment_projects/:project_id/deployments/:id/': (req) => {
+                    const found = deployments.find((d) => d.id === String(req.params.id))
+                    return found ? [200, found] : [404, { detail: 'Not found' }]
+                },
+            },
+        })
+
+        const detail = deploymentLogic({ id: 'dep-current' })
+        detail.mount()
+        try {
+            await expectLogic(detail).toFinishAllListeners()
+            expect(detail.values.deployment?.id).toEqual('dep-current')
+            expect(detail.values.deploymentMissing).toBe(false)
+        } finally {
+            detail.unmount()
+        }
+    })
 })

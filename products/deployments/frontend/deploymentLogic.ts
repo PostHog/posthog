@@ -1,5 +1,6 @@
 import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,8 +22,8 @@ export const deploymentLogic = kea<deploymentLogicType>([
     key(({ id }) => id),
     path((key) => ['products', 'deployments', 'frontend', 'deploymentLogic', key]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], deploymentsLogic, ['selectedProjectId']],
-        actions: [deploymentsLogic, ['redeployDeployment', 'rollbackDeployment']],
+        values: [teamLogic, ['currentTeamId'], deploymentsLogic, ['selectedProjectId', 'deploymentProjects']],
+        actions: [deploymentsLogic, ['loadDeploymentProjects', 'redeployDeployment', 'rollbackDeployment']],
     })),
     loaders(({ values, props }) => ({
         deployment: [
@@ -58,7 +59,23 @@ export const deploymentLogic = kea<deploymentLogicType>([
             ],
         ],
     })),
-    afterMount(({ actions }) => {
-        actions.loadDeployment()
+    // Re-fetch the deployment whenever the project becomes known. On a deep
+    // link the parent `deploymentsLogic` mounts alongside us but its project
+    // list loads async, so `selectedProjectId` is `null` at `afterMount`. The
+    // subscription fires once it lands.
+    subscriptions(({ actions }) => ({
+        selectedProjectId: (id: string | null) => {
+            if (id) {
+                actions.loadDeployment()
+            }
+        },
+    })),
+    afterMount(({ actions, values }) => {
+        if (values.deploymentProjects.length === 0) {
+            actions.loadDeploymentProjects()
+        }
+        if (values.selectedProjectId) {
+            actions.loadDeployment()
+        }
     }),
 ])
