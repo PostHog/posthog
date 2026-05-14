@@ -29,10 +29,10 @@
   - [ ] Gate it behind the `deployments` feature flag.
   - [ ] Consider attaching the deployment detail UI app to the stubbed/created deployment response once the response shape is settled.
 
-- [ ] Fix deployment list MCP/OpenAPI params
-  - [ ] Expose the supported `status` query param.
-  - [ ] Expose the supported `author` query param.
-  - [ ] Regenerate MCP/OpenAPI artifacts.
+- [x] Fix deployment list MCP/OpenAPI params
+  - [x] Expose the supported `status` query param.
+  - [x] Expose the supported `author` query param.
+  - [x] Regenerate MCP/OpenAPI artifacts.
 
 - [ ] Remove bogus params from `deployments-events`
   - [ ] Ensure the generated schema does not expose unsupported `search` or `ordering` params.

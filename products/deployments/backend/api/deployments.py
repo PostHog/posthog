@@ -180,6 +180,25 @@ class DeploymentViewSet(
         # by TeamAndOrgViewSetMixin in initial().
         self._ensure_project_visible()
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="status",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Comma-separated deployment statuses to include.",
+            ),
+            OpenApiParameter(
+                name="author",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Commit author email address to include.",
+            ),
+        ]
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return super().list(request, *args, **kwargs)
+
     # ---- Create -------------------------------------------------------
 
     @extend_schema(

@@ -591,6 +591,10 @@ export type DeploymentProjectsListParams = {
 
 export type DeploymentProjectsDeploymentsListParams = {
     /**
+     * Commit author email address to include.
+     */
+    author?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -606,6 +610,10 @@ export type DeploymentProjectsDeploymentsListParams = {
      * A search term.
      */
     search?: string
+    /**
+     * Comma-separated deployment statuses to include.
+     */
+    status?: string
 }
 
 export type DeploymentProjectsDeploymentsEventsListParams = {
