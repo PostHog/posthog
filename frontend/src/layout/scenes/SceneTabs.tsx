@@ -36,6 +36,17 @@ export function SceneTabs(): JSX.Element {
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+    const activeTab = tabs.find((tab) => tab.active)
+    const tabRowRef = useRef<HTMLDivElement>(null)
+
+    // Scroll active tab into view when it changes (handles keyboard/programmatic activation)
+    useEffect(() => {
+        if (!activeTab || !tabRowRef.current) {
+            return
+        }
+        const activeEl = tabRowRef.current.querySelector(`[data-tab-id="${activeTab.id}"]`)
+        activeEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    }, [activeTab?.id])
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
             return
@@ -85,7 +96,8 @@ export function SceneTabs(): JSX.Element {
                     strategy={horizontalListSortingStrategy}
                 >
                     <div
-                        className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto pr-2"
+                        ref={tabRowRef}
+                        className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto pr-2 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                         onMouseLeave={clearFrozenWidths}
                     >
                         {tabs.map((tab, index) => {
