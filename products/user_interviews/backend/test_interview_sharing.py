@@ -16,7 +16,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
 
 
-class _FeatureFlagEnabledMixin:
+class _FeatureFlagEnabledMixin(APIBaseTest):
     """Auto-mock `posthoganalytics.feature_enabled` so flag-gated viewsets accept calls in tests."""
 
     def setUp(self) -> None:
@@ -26,7 +26,7 @@ class _FeatureFlagEnabledMixin:
         self.addCleanup(patcher.stop)
 
 
-class TestGenerateInterviewLinks(_FeatureFlagEnabledMixin, APIBaseTest):
+class TestGenerateInterviewLinks(_FeatureFlagEnabledMixin):
     def _create_topic(self, **overrides) -> UserInterviewTopic:
         defaults: dict = {
             "team": self.team,
@@ -255,7 +255,7 @@ class TestVapiWebhook(APIBaseTest):
         )
         return SharingConfiguration.objects.create(team=self.team, interviewee_context=ic, enabled=True)
 
-    def _end_of_call_payload(self, access_token: str, call_id: str = "call_abc") -> dict:
+    def _end_of_call_payload(self, access_token: str | None, call_id: str = "call_abc") -> dict:
         return {
             "message": {
                 "type": "end-of-call-report",
@@ -287,6 +287,7 @@ class TestVapiWebhook(APIBaseTest):
         response = self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         interview = UserInterview.objects.get(team=self.team)
+        assert share.interviewee_context is not None
         self.assertEqual(interview.topic, share.interviewee_context.topic)
         self.assertEqual(interview.interviewee_identifier, "alex@example.com")
         self.assertEqual(interview.recording_url, "https://vapi.example/recording.mp3")
@@ -343,7 +344,7 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(UserInterview.objects.filter(team=self.team).count(), 1)
 
 
-class TestSendInterviewInvites(_FeatureFlagEnabledMixin, APIBaseTest):
+class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
     def _create_topic(self, **overrides) -> UserInterviewTopic:
         defaults: dict = {
             "team": self.team,
