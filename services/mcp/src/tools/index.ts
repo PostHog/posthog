@@ -4,6 +4,7 @@ import { hasScopes } from '@/lib/api'
 import createCanvas from './canvases/create'
 import editCanvas from './canvases/edit'
 import generateCanvas from './canvases/generate'
+import getCanvas from './canvases/get'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
@@ -75,6 +76,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'create-canvas': createCanvas,
     'edit-canvas': editCanvas,
     'generate-canvas': generateCanvas,
+    'get-canvas': getCanvas,
 
     // Queries
     'query-generate-hogql-from-question': generateHogQLFromQuestion,

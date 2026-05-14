@@ -491,6 +491,10 @@ export const CreateCanvasSchema = z.object({
         ),
 })
 
+export const GetCanvasSchema = z.object({
+    id: z.string().uuid().describe('UUID of the canvas to fetch.'),
+})
+
 export const EditCanvasSchema = z.object({
     id: z.string().uuid().describe('UUID of the canvas to edit.'),
     name: z.string().min(1).max(200).optional().describe('Updated human-readable name.'),

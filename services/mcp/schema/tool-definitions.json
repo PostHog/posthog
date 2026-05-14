@@ -122,6 +122,22 @@
             "readOnlyHint": false
         }
     },
+    "get-canvas": {
+        "description": "Fetch a single rendering canvas by id. Use this whenever you're about to edit a canvas — read the current `content` (and `name`/`path`/`task`) first so your edit is grounded in the existing source rather than rewriting blind. Returns the full canvas record.",
+        "category": "Canvases",
+        "summary": "Fetch a rendering canvas by id.",
+        "feature": "canvases",
+        "title": "Get canvas",
+        "required_scopes": [],
+        "new_mcp": true,
+        "always_available": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "edit-canvas": {
         "description": "Edit an existing React/TSX rendering canvas. Pass the canvas `id` and any subset of `name`, `content`, `path`, `task` to update. Updates to `content` are re-validated against the canvas safety rules: the module must default-export a single React component, must not perform network or DOM side effects (no fetch/eval/script/etc), and may only read PostHog data through `{{ @api.<dotted.path>(args) }}` template expressions — anything else is rejected with a 400. Pass `task: null` to detach from any task.",
         "category": "Canvases",

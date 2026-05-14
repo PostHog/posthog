@@ -1239,6 +1239,29 @@ export class ApiClient {
                 })
             },
             /**
+             * Fetch a single rendering canvas by id. Use this when the agent needs to
+             * read the existing TSX source before proposing an edit.
+             */
+            get: async ({
+                id,
+            }: {
+                id: string
+            }): Promise<
+                Result<{
+                    id: string
+                    name: string
+                    content: string
+                    path: string
+                    task: string | null
+                    created_at: string
+                    updated_at: string
+                }>
+            > => {
+                return this.fetchJson(`${this.baseUrl}/api/projects/${projectId}/rendering_canvases/${id}/`, {
+                    method: 'GET',
+                })
+            },
+            /**
              * Persist a rendering canvas. The Django serializer re-runs the content
              * safety validation on the way in.
              */
