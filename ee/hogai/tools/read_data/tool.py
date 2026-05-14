@@ -25,6 +25,8 @@ from posthog.hogql.database.database import Database
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
+from products.catalog.backend.facade.api import CatalogAPI
+from products.catalog.backend.facade.contracts import CatalogJoinContextDTO
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.llm_analytics.backend.summarization.llm.call import summarize
 from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
@@ -456,11 +458,38 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             return f"Could not serialize schema for table `{table_name}`."
 
         table = serialized[table_name]
+        catalog_context = CatalogAPI.get_node_context(self._team, table_name)
+        column_descriptions = (
+            {col.name: col.description for col in catalog_context.columns if col.description} if catalog_context else {}
+        )
+
         lines = [f"Table `{table_name}` with fields:"]
+        if catalog_context and catalog_context.description:
+            lines.insert(1, f"Catalog: {catalog_context.description}")
+            lines.insert(2, "")
         for field in table.fields.values():
-            lines.append(f"- {field.name} ({field.type})")
+            description = column_descriptions.get(field.name)
+            suffix = f" — {description}" if description else ""
+            lines.append(f"- {field.name} ({field.type}){suffix}")
+
+        if catalog_context and (catalog_context.outgoing_joins or catalog_context.incoming_joins):
+            lines.append("")
+            lines.append("Known joins:")
+            for join in catalog_context.outgoing_joins:
+                lines.append(self._format_join(table_name, join, direction="out"))
+            for join in catalog_context.incoming_joins:
+                lines.append(self._format_join(table_name, join, direction="in"))
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _format_join(self_table: str, join: CatalogJoinContextDTO, direction: Literal["in", "out"]) -> str:
+        """Format one CatalogJoinContextDTO as a single line for inclusion in tool output."""
+        self_side = f"{self_table}.{join.self_column}" if join.self_column else self_table
+        other_side = f"{join.other_table}.{join.other_column}" if join.other_column else join.other_table
+        arrow = "→" if direction == "out" else "←"
+        reasoning = f" — {join.reasoning}" if join.reasoning else ""
+        return f"- {self_side} {arrow} {other_side} ({join.kind}){reasoning}"
 
     async def _read_dashboard(self, dashboard_id: str, execute: bool) -> tuple[str, ToolMessagesArtifact | None]:
         try:

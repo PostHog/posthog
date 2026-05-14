@@ -218,3 +218,57 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(result_text, "")
         self.assertIsNotNone(artifact_messages)
         self.assertIn("Revenue Trends", artifact_messages.messages[1].content)
+
+    async def test_build_catalog_context_block_includes_seeded_descriptions(self):
+        """The catalog-context block extracts FROM/JOIN tables and emits their descriptions."""
+        from asgiref.sync import sync_to_async
+
+        from posthog.schema import HogQLQuery
+
+        from products.catalog.backend.facade.api import CatalogAPI
+        from products.catalog.backend.facade.contracts import AppendColumnNoteParams, AppendNodeNoteParams
+
+        await sync_to_async(CatalogAPI.append_node_note)(
+            self.team,
+            AppendNodeNoteParams(
+                team_id=self.team.pk,
+                table_name="events",
+                note="excludes staging traffic",
+                attribution="[@alice 2026-05-14]",
+            ),
+        )
+        await sync_to_async(CatalogAPI.append_column_note)(
+            self.team,
+            AppendColumnNoteParams(
+                team_id=self.team.pk,
+                table_name="events",
+                column_name="timestamp",
+                note="UTC",
+                attribution="[@alice 2026-05-14]",
+            ),
+        )
+
+        tool = await self._create_tool()
+        block = await tool._build_catalog_context_block(
+            HogQLQuery(query="SELECT event, timestamp FROM events WHERE event = '$pageview'")
+        )
+        assert "# Catalog context" in block
+        assert "`events`" in block
+        assert "[@alice 2026-05-14] excludes staging traffic" in block
+        assert "timestamp" in block
+
+    async def test_build_catalog_context_block_returns_empty_when_no_catalog_rows(self):
+        """No catalog rows → no context block (so we don't pollute output with a header alone)."""
+        from posthog.schema import HogQLQuery
+
+        tool = await self._create_tool()
+        block = await tool._build_catalog_context_block(HogQLQuery(query="SELECT event FROM events LIMIT 1"))
+        assert block == ""
+
+    async def test_build_catalog_context_block_swallows_parse_errors(self):
+        """A malformed SQL string shouldn't break the SQL result path — return empty."""
+        from posthog.schema import HogQLQuery
+
+        tool = await self._create_tool()
+        block = await tool._build_catalog_context_block(HogQLQuery(query="not even SQL"))
+        assert block == ""

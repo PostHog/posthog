@@ -16,6 +16,7 @@ from .search import SearchTool
 from .switch_mode import SwitchModeTool
 from .task import TaskTool
 from .todo_write import TodoWriteTool
+from .update_catalog import UpdateCatalogTool
 from .upsert_dashboard import UpsertDashboardTool
 
 __all__ = [
@@ -31,6 +32,7 @@ __all__ = [
     "ExecuteSQLTool",
     "SwitchModeTool",
     "CreateInsightTool",
+    "UpdateCatalogTool",
     "UpsertDashboardTool",
     "CreateNotebookTool",
 ]

@@ -1,13 +1,19 @@
 from uuid import UUID
 
+from posthog.models.team.team import Team
+
 from products.catalog.backend import logic
 from products.catalog.backend.facade.contracts import (
+    AppendColumnNoteParams,
+    AppendNodeNoteParams,
     CatalogColumnDTO,
     CatalogGraphDTO,
     CatalogMetricDTO,
+    CatalogNodeContextDTO,
     CatalogNodeDTO,
     CatalogRelationshipDTO,
     ProposeRelationshipParams,
+    RecordJoinParams,
     UpdateColumnParams,
     UpdateMetricParams,
     UpdateNodeParams,
@@ -91,3 +97,35 @@ class CatalogAPI:
     @staticmethod
     def update_relationship(params: UpdateRelationshipParams) -> CatalogRelationshipDTO | None:
         return logic.update_relationship(params)
+
+    # -- Conversation-driven appends -----------------------------------------
+    #
+    # These power the PostHog AI `update_catalog` tool. They resolve the HogQL
+    # kind for `table_name`, upsert any missing node / column rows, and append
+    # the caller-supplied `[attribution] note` line to the existing description
+    # (or to relationship.reasoning, for joins). `team` is passed explicitly so
+    # HogQL kind resolution doesn't require a second Team fetch in the logic
+    # layer.
+
+    @staticmethod
+    def get_node_context(team: Team, table_name: str) -> CatalogNodeContextDTO | None:
+        """Return the catalog's view of `table_name` for read-side injection.
+
+        Returns None when HogQL doesn't recognize the table or when there's no
+        CatalogNode for it yet (traversal hasn't run, or the table is brand new).
+        Callers should treat the absence of a context as "no catalog signal" and
+        fall back to whatever they were already rendering.
+        """
+        return logic.get_node_context(team, table_name)
+
+    @staticmethod
+    def append_node_note(team: Team, params: AppendNodeNoteParams) -> CatalogNodeDTO:
+        return logic.append_node_note(team, params)
+
+    @staticmethod
+    def append_column_note(team: Team, params: AppendColumnNoteParams) -> CatalogColumnDTO:
+        return logic.append_column_note(team, params)
+
+    @staticmethod
+    def record_join(team: Team, params: RecordJoinParams) -> CatalogRelationshipDTO:
+        return logic.record_join(team, params)

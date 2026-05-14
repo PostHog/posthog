@@ -1,6 +1,7 @@
 from typing import Self
 from uuid import uuid4
 
+import structlog
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
@@ -14,10 +15,18 @@ from posthog.schema import (
     ChartSettings,
     DataVisualizationNode,
     HogQLFilters,
+    HogQLQuery,
     VisualizationArtifactContent,
 )
 
+from posthog.hogql.feature_extractor import HogQLFeatureExtractor
+from posthog.hogql.parser import parse_select
+
 from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
+
+from products.catalog.backend.facade.api import CatalogAPI
+from products.catalog.backend.facade.contracts import CatalogNodeContextDTO
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLGeneratorMixin
@@ -40,6 +49,8 @@ from .prompts import (
     EXECUTE_SQL_SYSTEM_PROMPT,
     EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class ExecuteSQLToolArgs(BaseModel):
@@ -159,6 +170,10 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         except Exception:
             return EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT, None
 
+        catalog_block = await self._build_catalog_context_block(source_query)
+        if catalog_block:
+            result = f"{catalog_block}\n\n{result}"
+
         tool_payload: str | dict[str, object]
         if filters is not None:
             tool_payload = source_query.model_dump(mode="json", exclude_none=True)
@@ -176,3 +191,52 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
                 ),
             ]
         )
+
+    async def _build_catalog_context_block(self, source_query: HogQLQuery) -> str:
+        """Extract FROM/JOIN tables from the agent's HogQL query and return a `# Catalog context`
+        block to prepend to the SQL result.
+
+        The agent often hits `execute_sql` without a prior `read_data`, so we surface the
+        catalog's notes (descriptions, declared joins, user annotations) here too. Failures
+        in parsing / lookup never block the SQL result — we just return an empty block.
+        """
+        if not source_query.query:
+            return ""
+        try:
+            ast = parse_select(source_query.query)
+        except Exception as e:
+            logger.debug("execute_sql.catalog_context_parse_failed", error=str(e))
+            return ""
+        extractor = HogQLFeatureExtractor()
+        extractor.visit(ast)
+        if not extractor.tables:
+            return ""
+
+        contexts: list[CatalogNodeContextDTO] = []
+        for table_name in sorted(extractor.tables):
+            ctx = await database_sync_to_async(CatalogAPI.get_node_context)(self._team, table_name)
+            if ctx is not None:
+                contexts.append(ctx)
+        if not contexts:
+            return ""
+
+        lines = ["# Catalog context"]
+        for ctx in contexts:
+            lines.append("")
+            lines.append(f"## `{ctx.name}` ({ctx.kind})")
+            if ctx.description:
+                lines.append(ctx.description)
+            described_columns = [c for c in ctx.columns if c.description]
+            if described_columns:
+                lines.append("Columns:")
+                for col in described_columns:
+                    lines.append(f"- {col.name} — {col.description}")
+            joins = list(ctx.outgoing_joins) + list(ctx.incoming_joins)
+            if joins:
+                lines.append("Known joins:")
+                for join in joins:
+                    self_side = f"{ctx.name}.{join.self_column}" if join.self_column else ctx.name
+                    other_side = f"{join.other_table}.{join.other_column}" if join.other_column else join.other_table
+                    reasoning = f" — {join.reasoning}" if join.reasoning else ""
+                    lines.append(f"- {self_side} ↔ {other_side} ({join.kind}){reasoning}")
+        return "\n".join(lines)

@@ -1,13 +1,17 @@
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import BaseTest
 
 from products.catalog.backend.facade.api import CatalogAPI
 from products.catalog.backend.facade.contracts import (
+    AppendColumnNoteParams,
+    AppendNodeNoteParams,
     CatalogGraphDTO,
     CatalogMetricDTO,
     CatalogNodeDTO,
     ProposeRelationshipParams,
+    RecordJoinParams,
     UpdateColumnParams,
     UpdateMetricParams,
     UpdateNodeParams,
@@ -16,6 +20,8 @@ from products.catalog.backend.facade.contracts import (
     UpsertMetricParams,
     UpsertNodeParams,
 )
+from products.catalog.backend.logic import UnknownTableError, _resolve_node_kind_and_name
+from products.catalog.backend.models import CatalogColumn, CatalogNode, CatalogRelationship
 
 
 class TestCatalogAPIUpsert(BaseTest):
@@ -336,3 +342,280 @@ class TestCatalogAPIMetrics(BaseTest):
             CatalogAPI.update_metric(UpdateMetricParams(team_id=self.team.pk, metric_id=uuid4(), description="x"))
             is None
         )
+
+
+class TestResolveNodeKindAndName(BaseTest):
+    """HogQL-driven kind resolution used by the conversation append + read-context helpers."""
+
+    def test_resolves_posthog_table(self) -> None:
+        kind, name = _resolve_node_kind_and_name(self.team, "events")
+        assert kind == CatalogNode.Kind.POSTHOG_TABLE
+        assert name == "events"
+
+    def test_resolves_system_table_qualified(self) -> None:
+        kind, name = _resolve_node_kind_and_name(self.team, "system.dashboards")
+        assert kind == CatalogNode.Kind.SYSTEM_TABLE
+        # Storage name is the leaf, matching how sync_system_tables_for_team would seed it.
+        assert name == "dashboards"
+
+    def test_raises_for_unknown_table(self) -> None:
+        with pytest.raises(UnknownTableError):
+            _resolve_node_kind_and_name(self.team, "definitely_not_a_real_table_zzz")
+
+
+class TestCatalogAPIAppendNoteAndJoin(BaseTest):
+    """End-to-end behavior of the conversation-driven append facade methods."""
+
+    def test_append_node_note_creates_node_on_miss(self) -> None:
+        dto = CatalogAPI.append_node_note(
+            self.team,
+            AppendNodeNoteParams(
+                team_id=self.team.pk,
+                table_name="events",
+                note="excludes test traffic",
+                attribution="[@alice 2026-05-14]",
+            ),
+        )
+        assert dto.description == "[@alice 2026-05-14] excludes test traffic"
+        # Node was created on the fly with the kind HogQL resolved.
+        node = CatalogNode.objects.get(team=self.team, kind=CatalogNode.Kind.POSTHOG_TABLE, name="events")
+        assert node.synthetic_description == "[@alice 2026-05-14] excludes test traffic"
+
+    def test_append_node_note_appends_on_repeat(self) -> None:
+        params1 = AppendNodeNoteParams(
+            team_id=self.team.pk,
+            table_name="events",
+            note="excludes test traffic",
+            attribution="[@alice 2026-05-14]",
+        )
+        params2 = AppendNodeNoteParams(
+            team_id=self.team.pk,
+            table_name="events",
+            note="$pageview is the most common event",
+            attribution="[@bob 2026-05-20]",
+        )
+        CatalogAPI.append_node_note(self.team, params1)
+        result = CatalogAPI.append_node_note(self.team, params2)
+        assert result.description == (
+            "[@alice 2026-05-14] excludes test traffic\n[@bob 2026-05-20] $pageview is the most common event"
+        )
+
+    def test_append_node_note_preserves_existing_description(self) -> None:
+        CatalogAPI.upsert_node(
+            UpsertNodeParams(
+                team_id=self.team.pk,
+                kind=CatalogNode.Kind.POSTHOG_TABLE,
+                name="events",
+                synthetic_description="Raw event stream from SDKs.",
+            )
+        )
+        result = CatalogAPI.append_node_note(
+            self.team,
+            AppendNodeNoteParams(
+                team_id=self.team.pk,
+                table_name="events",
+                note="excludes staging traffic",
+                attribution="[@carol 2026-05-21]",
+            ),
+        )
+        assert result.description == ("Raw event stream from SDKs.\n[@carol 2026-05-21] excludes staging traffic")
+
+    def test_append_node_note_raises_for_unknown_table(self) -> None:
+        with pytest.raises(UnknownTableError):
+            CatalogAPI.append_node_note(
+                self.team,
+                AppendNodeNoteParams(
+                    team_id=self.team.pk,
+                    table_name="definitely_not_a_real_table_zzz",
+                    note="anything",
+                    attribution="[@alice 2026-05-14]",
+                ),
+            )
+
+    def test_append_column_note_creates_column_on_miss(self) -> None:
+        result = CatalogAPI.append_column_note(
+            self.team,
+            AppendColumnNoteParams(
+                team_id=self.team.pk,
+                table_name="events",
+                column_name="timestamp",
+                note="UTC, not user local time",
+                attribution="[@alice 2026-05-14]",
+            ),
+        )
+        assert result.description == "[@alice 2026-05-14] UTC, not user local time"
+        column = CatalogColumn.objects.get(team=self.team, node__name="events", name="timestamp")
+        assert column.synthetic_description == "[@alice 2026-05-14] UTC, not user local time"
+
+    def test_append_column_note_appends_on_repeat(self) -> None:
+        params1 = AppendColumnNoteParams(
+            team_id=self.team.pk,
+            table_name="events",
+            column_name="timestamp",
+            note="UTC",
+            attribution="[@alice 2026-05-14]",
+        )
+        params2 = AppendColumnNoteParams(
+            team_id=self.team.pk,
+            table_name="events",
+            column_name="timestamp",
+            note="ingestion time, not the user's wall-clock",
+            attribution="[@bob 2026-05-15]",
+        )
+        CatalogAPI.append_column_note(self.team, params1)
+        result = CatalogAPI.append_column_note(self.team, params2)
+        assert result.description == (
+            "[@alice 2026-05-14] UTC\n[@bob 2026-05-15] ingestion time, not the user's wall-clock"
+        )
+
+    def test_record_join_creates_accepted_edge(self) -> None:
+        result = CatalogAPI.record_join(
+            self.team,
+            RecordJoinParams(
+                team_id=self.team.pk,
+                source_table="events",
+                target_table="persons",
+                source_column="distinct_id",
+                target_column=None,
+                note="events.distinct_id maps to a person",
+                attribution="[@alice 2026-05-14]",
+            ),
+        )
+        assert result.kind == CatalogRelationship.Kind.DECLARED_JOIN
+        assert result.status == CatalogRelationship.Status.ACCEPTED
+        assert result.confidence == 1.0
+        assert result.reasoning == "[@alice 2026-05-14] events.distinct_id maps to a person"
+        assert result.source_column == "distinct_id"
+        assert result.target_column is None
+
+    def test_record_join_appends_reasoning_on_repeat(self) -> None:
+        params = RecordJoinParams(
+            team_id=self.team.pk,
+            source_table="events",
+            target_table="persons",
+            source_column="distinct_id",
+            target_column=None,
+            note="distinct_id is the person link",
+            attribution="[@alice 2026-05-14]",
+        )
+        CatalogAPI.record_join(self.team, params)
+        second = RecordJoinParams(
+            team_id=self.team.pk,
+            source_table="events",
+            target_table="persons",
+            source_column="distinct_id",
+            target_column=None,
+            note="overrides apply when person_overrides has a newer mapping",
+            attribution="[@bob 2026-05-15]",
+        )
+        result = CatalogAPI.record_join(self.team, second)
+        assert result.reasoning == (
+            "[@alice 2026-05-14] distinct_id is the person link\n"
+            "[@bob 2026-05-15] overrides apply when person_overrides has a newer mapping"
+        )
+        # Idempotent on edge tuple — single CatalogRelationship row.
+        assert CatalogRelationship.objects.filter(team=self.team).count() == 1
+
+    def test_record_join_upserts_both_nodes_and_columns(self) -> None:
+        CatalogAPI.record_join(
+            self.team,
+            RecordJoinParams(
+                team_id=self.team.pk,
+                source_table="events",
+                target_table="persons",
+                source_column="distinct_id",
+                target_column="id",
+                note="primary person link",
+                attribution="[@alice 2026-05-14]",
+            ),
+        )
+        assert CatalogNode.objects.filter(team=self.team, name="events").exists()
+        assert CatalogNode.objects.filter(team=self.team, name="persons").exists()
+        assert CatalogColumn.objects.filter(team=self.team, node__name="events", name="distinct_id").exists()
+        assert CatalogColumn.objects.filter(team=self.team, node__name="persons", name="id").exists()
+
+
+class TestCatalogAPIGetNodeContext(BaseTest):
+    """Read-side helper used by read_data / execute_sql to inject catalog context into tool output."""
+
+    def test_returns_none_for_unknown_table(self) -> None:
+        assert CatalogAPI.get_node_context(self.team, "definitely_not_a_real_table_zzz") is None
+
+    def test_returns_none_when_no_catalog_node_for_known_table(self) -> None:
+        # `events` resolves via HogQL but the catalog has no row for it yet.
+        assert CatalogAPI.get_node_context(self.team, "events") is None
+
+    def test_returns_descriptions_and_joins(self) -> None:
+        # Seed an annotated node + column.
+        CatalogAPI.append_node_note(
+            self.team,
+            AppendNodeNoteParams(
+                team_id=self.team.pk,
+                table_name="events",
+                note="excludes staging traffic",
+                attribution="[@alice 2026-05-14]",
+            ),
+        )
+        CatalogAPI.append_column_note(
+            self.team,
+            AppendColumnNoteParams(
+                team_id=self.team.pk,
+                table_name="events",
+                column_name="timestamp",
+                note="UTC",
+                attribution="[@alice 2026-05-14]",
+            ),
+        )
+        # Seed a join edge.
+        CatalogAPI.record_join(
+            self.team,
+            RecordJoinParams(
+                team_id=self.team.pk,
+                source_table="events",
+                target_table="persons",
+                source_column="distinct_id",
+                target_column=None,
+                note="events.distinct_id maps to a person",
+                attribution="[@alice 2026-05-14]",
+            ),
+        )
+
+        ctx = CatalogAPI.get_node_context(self.team, "events")
+        assert ctx is not None
+        assert ctx.kind == CatalogNode.Kind.POSTHOG_TABLE
+        assert ctx.name == "events"
+        assert ctx.description == "[@alice 2026-05-14] excludes staging traffic"
+        descriptions_by_col = {c.name: c.description for c in ctx.columns}
+        assert descriptions_by_col["timestamp"] == "[@alice 2026-05-14] UTC"
+        assert len(ctx.outgoing_joins) == 1
+        outgoing = ctx.outgoing_joins[0]
+        assert outgoing.other_table == "persons"
+        assert outgoing.self_column == "distinct_id"
+        assert outgoing.kind == CatalogRelationship.Kind.DECLARED_JOIN
+        assert "events.distinct_id maps to a person" in outgoing.reasoning
+        # No incoming edges (target was persons, not events).
+        assert ctx.incoming_joins == ()
+
+    def test_excludes_rejected_joins(self) -> None:
+        edge = CatalogAPI.record_join(
+            self.team,
+            RecordJoinParams(
+                team_id=self.team.pk,
+                source_table="events",
+                target_table="persons",
+                source_column="distinct_id",
+                target_column=None,
+                note="rejected later",
+                attribution="[@alice 2026-05-14]",
+            ),
+        )
+        CatalogAPI.update_relationship(
+            UpdateRelationshipParams(
+                team_id=self.team.pk,
+                relationship_id=edge.id,
+                status=CatalogRelationship.Status.REJECTED,
+            )
+        )
+        ctx = CatalogAPI.get_node_context(self.team, "events")
+        assert ctx is not None
+        assert ctx.outgoing_joins == ()

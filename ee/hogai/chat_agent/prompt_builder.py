@@ -7,6 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from ee.hogai.chat_agent.prompts import (
     AGENT_PROMPT,
     BASIC_FUNCTIONALITY_PROMPT,
+    CATALOG_PROMPT,
     DOING_TASKS_PROMPT,
     PROACTIVENESS_PROMPT,
     PRODUCT_ADVOCACY_PROMPT,
@@ -77,6 +78,7 @@ class ChatAgentPlanPromptBuilder(AgentPromptBuilderBase):
             tone_and_style=TONE_AND_STYLE_PROMPT,
             writing_style=WRITING_STYLE_PROMPT,
             basic_functionality=BASIC_FUNCTIONALITY_PROMPT,
+            catalog=CATALOG_PROMPT,
             switching_modes=SWITCHING_MODES_PROMPT,
             task_management=TASK_MANAGEMENT_PROMPT,
             onboarding_task=CHAT_ONBOARDING_TASK_PROMPT,
@@ -115,6 +117,7 @@ class ChatAgentPromptBuilder(AgentPromptBuilderBase):
             writing_style=WRITING_STYLE_PROMPT,
             proactiveness=PROACTIVENESS_PROMPT,
             basic_functionality=BASIC_FUNCTIONALITY_PROMPT,
+            catalog=CATALOG_PROMPT,
             switching_modes=SWITCHING_MODES_PROMPT,
             task_management=TASK_MANAGEMENT_PROMPT,
             doing_tasks=DOING_TASKS_PROMPT,

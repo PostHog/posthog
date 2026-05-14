@@ -751,6 +751,71 @@ class TestReadDataTool(BaseTest):
         assert "Table `nonexistent_table` not found" in result
         assert "Available tables include:" in result
 
+    async def test_table_schema_includes_catalog_context_when_present(self):
+        """When a CatalogNode exists for a table, its description + column descriptions + joins
+        are surfaced inline in the read_data output."""
+        from asgiref.sync import sync_to_async
+
+        from products.catalog.backend.facade.api import CatalogAPI
+        from products.catalog.backend.facade.contracts import (
+            AppendColumnNoteParams,
+            AppendNodeNoteParams,
+            RecordJoinParams,
+        )
+
+        await sync_to_async(CatalogAPI.append_node_note)(
+            self.team,
+            AppendNodeNoteParams(
+                team_id=self.team.pk,
+                table_name="events",
+                note="excludes staging traffic",
+                attribution="[@alice 2026-05-14]",
+            ),
+        )
+        await sync_to_async(CatalogAPI.append_column_note)(
+            self.team,
+            AppendColumnNoteParams(
+                team_id=self.team.pk,
+                table_name="events",
+                column_name="timestamp",
+                note="UTC, not user local time",
+                attribution="[@alice 2026-05-14]",
+            ),
+        )
+        await sync_to_async(CatalogAPI.record_join)(
+            self.team,
+            RecordJoinParams(
+                team_id=self.team.pk,
+                source_table="events",
+                target_table="persons",
+                source_column="distinct_id",
+                target_column=None,
+                note="events.distinct_id maps to a person",
+                attribution="[@alice 2026-05-14]",
+            ),
+        )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "events"})
+
+        assert "Catalog: [@alice 2026-05-14] excludes staging traffic" in result
+        # Column-level annotation appears alongside the field line for timestamp.
+        assert "[@alice 2026-05-14] UTC, not user local time" in result
+        # Known join shows up in the joins section.
+        assert "Known joins:" in result
+        assert "events.distinct_id" in result
+        assert "persons" in result
+
     async def test_read_feature_flag_by_id(self):
         """Test reading a feature flag by its numeric ID."""
         flag = await FeatureFlag.objects.acreate(

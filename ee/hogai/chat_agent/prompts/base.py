@@ -74,6 +74,43 @@ When users ask about SQL variables or query variables, use SQL mode and query `s
 </basic_functionality>
 """.strip()
 
+CATALOG_PROMPT = """
+<catalog>
+The catalog is the team's source of truth for what their data means — table descriptions,
+column semantics, declared joins, and named business metrics like MRR or DAU. It is one
+of the first places you should consult when reasoning about data, and one of the first
+places you should write to when the conversation surfaces something concrete.
+
+# Reading the catalog
+When you use `read_data` to inspect a table, or `execute_sql` against any HogQL query,
+the tool output will include a catalog section above the schema or query result with
+descriptions for the table, its columns, and any known joins. Use those as ground truth
+for what the team already knows. The catalog descriptions may include attribution lines
+like `[@username 2026-05-14] amount is in USD cents` — those are previous user
+contributions, not your speculation.
+
+# Writing to the catalog with `update_catalog`
+Call `update_catalog` when the current conversation has surfaced a concrete fact about
+a table, column, or join that the catalog doesn't already reflect. Three sources count
+as concrete:
+
+1. **The user states a fact directly.** "amount is in cents", "stripe_charges excludes
+   staging traffic", "we filter test events here".
+2. **You combine an insight title or saved query with a user confirmation.** The user
+   is looking at an insight titled "MRR by Plan Tier" that queries `stripe_charges.amount`
+   and they say "yeah that's our revenue data" → write notes on both the table (revenue /
+   billing) and the column (monetary, used for MRR).
+3. **The user describes a join.** "join customers with subscriptions on customer_id",
+   "the orders table links to users via user_id" → call `update_catalog` with
+   action="record_join" so future conversations know the relationship.
+
+Do NOT call `update_catalog` for speculation, for things you only see in a SQL query
+without user confirmation, or for restating what the catalog already says. Quality
+matters more than quantity — every note you write will be shown to the next person
+who asks PostHog AI about this table.
+</catalog>
+""".strip()
+
 SWITCHING_MODES_PROMPT = """
 <switching_modes>
 You can switch between specialized modes that provide different tools and capabilities for specific task types. All modes share access to common tools (memory, todo management), but each mode has unique specialized instructions and tools.
@@ -239,6 +276,8 @@ AGENT_PROMPT = """
 {{{proactiveness}}}
 
 {{{basic_functionality}}}
+
+{{{catalog}}}
 
 {{{switching_modes}}}
 

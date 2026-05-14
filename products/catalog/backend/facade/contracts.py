@@ -222,3 +222,95 @@ class ProposeRelationshipParams:
     reasoning: str = ""
     discovered_in_run_id: UUID | None = None
     generator_model: str | None = None
+
+
+@dataclass(frozen=True)
+class CatalogNodeContextDTO:
+    """Compact view of a CatalogNode + its columns + edges, for read-side injection.
+
+    Returned by `CatalogAPI.get_node_context` and surfaced verbatim into
+    `read_data` / `execute_sql` tool output so PostHog AI sees the catalog's
+    description alongside any table it touches.
+    """
+
+    kind: str
+    name: str
+    description: str | None  # CatalogNode.synthetic_description, may contain attribution lines
+    columns: tuple["CatalogColumnContextDTO", ...]
+    outgoing_joins: tuple["CatalogJoinContextDTO", ...]
+    incoming_joins: tuple["CatalogJoinContextDTO", ...]
+
+
+@dataclass(frozen=True)
+class CatalogColumnContextDTO:
+    name: str
+    description: str | None  # CatalogColumn.synthetic_description
+
+
+@dataclass(frozen=True)
+class CatalogJoinContextDTO:
+    """A declared / declared-join CatalogRelationship in one of the two directions
+    (outgoing/incoming) relative to the queried node. Used by read-side injection
+    so the agent can see how a touched table joins to others without a separate
+    catalog query."""
+
+    other_table: str
+    self_column: str | None
+    other_column: str | None
+    kind: str
+    reasoning: str  # full text incl. any attribution lines
+
+
+@dataclass(frozen=True)
+class AppendNodeNoteParams:
+    """Append a user-attributed note to a CatalogNode's synthetic_description.
+
+    Used when PostHog AI learns something about a table during a chat. The tool
+    resolves `table_name` to a HogQL table to determine the catalog `kind`, then
+    appends the formatted attribution + note to whatever description already
+    exists. Idempotent on (team, kind, name) — the node is upserted if missing
+    so notes can land even before the traversal workflow has cataloged the
+    table.
+    """
+
+    team_id: int
+    table_name: str
+    note: str
+    attribution: str  # e.g. "[@aspicer 2026-05-14]" — caller-formatted, embedded verbatim
+
+
+@dataclass(frozen=True)
+class AppendColumnNoteParams:
+    """Append a user-attributed note to a CatalogColumn's synthetic_description.
+
+    Same shape as AppendNodeNoteParams but targeting a specific column on a
+    table. The CatalogColumn row is upserted on the parent CatalogNode if it
+    doesn't exist yet.
+    """
+
+    team_id: int
+    table_name: str
+    column_name: str
+    note: str
+    attribution: str
+
+
+@dataclass(frozen=True)
+class RecordJoinParams:
+    """Record a user-declared join between two catalog tables.
+
+    Writes a CatalogRelationship with kind=declared_join and confidence=1.0
+    (auto-accepts on insert per the existing propose_relationship semantics).
+    The note + attribution land in the `reasoning` field; re-recording the
+    same edge appends a new line to reasoning instead of overwriting it.
+    Source and target tables are upserted as CatalogNodes if missing; column
+    references are optional (null for table-level lineage).
+    """
+
+    team_id: int
+    source_table: str
+    target_table: str
+    note: str
+    attribution: str
+    source_column: str | None = None
+    target_column: str | None = None

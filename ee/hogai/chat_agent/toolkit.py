@@ -30,6 +30,7 @@ from ee.hogai.tools import (
     SwitchModeTool,
     TaskTool,
     TodoWriteTool,
+    UpdateCatalogTool,
 )
 from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
 from ee.hogai.tools.finalize_plan.tool import FinalizePlanTool
@@ -51,6 +52,7 @@ DEFAULT_TOOLS: list[type[MaxTool]] = [
     SwitchModeTool,
     CreateFormTool,
     CreateNotebookTool,
+    UpdateCatalogTool,
 ]
 
 TASK_TOOLS: list[type[MaxTool]] = [

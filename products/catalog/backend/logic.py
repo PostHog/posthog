@@ -6,6 +6,11 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError
+
+from posthog.models.team.team import Team
+
 from products.catalog.backend.facade import contracts
 from products.catalog.backend.models import CatalogColumn, CatalogMetric, CatalogNode, CatalogRelationship
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -13,6 +18,10 @@ from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 if TYPE_CHECKING:
     pass
+
+
+class UnknownTableError(LookupError):
+    """Raised when a table_name passed to the catalog can't be resolved by HogQL."""
 
 
 def to_column_dto(column: CatalogColumn) -> contracts.CatalogColumnDTO:
@@ -389,3 +398,197 @@ def update_relationship(params: contracts.UpdateRelationshipParams) -> contracts
 
     rel.save()
     return to_relationship_dto(rel)
+
+
+# ---------------------------------------------------------------------------
+# Conversation-driven appends
+#
+# PostHog AI calls these when it learns something about a table, column, or
+# join during a chat. Every append is attributed inline ("[@user date]") so
+# the description / reasoning field doubles as an audit trail until proper
+# activity logging is wired backend-side.
+# ---------------------------------------------------------------------------
+
+
+def _resolve_node_kind_and_name(team: Team, table_name: str) -> tuple[str, str]:
+    """Resolve a HogQL table name to its catalog kind + the leaf name stored in the catalog.
+
+    The agent passes the same string it would write in `FROM <name>`. Qualified
+    system table names like "system.tables" are stored in the catalog as the
+    leaf "tables" with kind=system_table — matching the convention in
+    `iter_system_tables`/`sync_system_tables_for_team` which uses children-dict
+    keys (the leaf name) as `CatalogNode.name`. Raises UnknownTableError if
+    HogQL can't resolve the name — prevents typos from creating phantom rows.
+    """
+    chain = table_name.split(".") if "." in table_name else [table_name]
+    db = Database.create_for(team=team)
+    try:
+        db.get_table(chain)
+    except QueryError as e:
+        raise UnknownTableError(str(e)) from e
+
+    leaf = chain[-1]
+    # Qualified `system.<leaf>` always maps to kind=system_table — HogQL's `system`
+    # is the only nested namespace exposed to user queries, and we already know
+    # get_table(chain) succeeded.
+    if len(chain) > 1 and chain[0] == "system":
+        return CatalogNode.Kind.SYSTEM_TABLE, leaf
+    # Otherwise check the per-kind name buckets. get_posthog_table_names() also
+    # contains qualified system entries, so test warehouse / view first.
+    if leaf in set(db.get_warehouse_table_names()):
+        return CatalogNode.Kind.WAREHOUSE_TABLE, leaf
+    if leaf in set(db.get_view_names()):
+        return CatalogNode.Kind.SAVED_QUERY, leaf
+    # Everything else HogQL resolved is a built-in PostHog table.
+    return CatalogNode.Kind.POSTHOG_TABLE, leaf
+
+
+def _append_with_attribution(existing: str | None, attribution: str, note: str) -> str:
+    """Append `[attribution] note` to `existing`, separated by a newline.
+
+    Treats None / empty / whitespace-only as no prior content so the result
+    doesn't start with a blank line.
+    """
+    line = f"{attribution} {note}".rstrip()
+    if not existing or not existing.strip():
+        return line
+    return f"{existing.rstrip()}\n{line}"
+
+
+def _get_or_create_node(team_id: int, kind: str, name: str) -> CatalogNode:
+    node, _ = CatalogNode.objects.get_or_create(
+        team_id=team_id,
+        kind=kind,
+        name=name,
+    )
+    return node
+
+
+def _get_or_create_column(node: CatalogNode, name: str) -> CatalogColumn:
+    column, _ = CatalogColumn.objects.get_or_create(
+        node=node,
+        name=name,
+        defaults={"team_id": node.team_id},
+    )
+    return column
+
+
+def get_node_context(team: Team, table_name: str) -> contracts.CatalogNodeContextDTO | None:
+    """Fetch the CatalogNode + its columns + declared/declared-join edges for `table_name`.
+
+    Returns None when HogQL recognizes the table but the catalog has no row for
+    it yet (the traversal workflow hasn't run, or this kind isn't auto-seeded).
+    Read callers can use this to surface catalog descriptions inline in tool
+    output without needing to know the kind themselves.
+    """
+    try:
+        kind, storage_name = _resolve_node_kind_and_name(team, table_name)
+    except UnknownTableError:
+        return None
+    node = CatalogNode.objects.filter(team_id=team.pk, kind=kind, name=storage_name).prefetch_related("columns").first()
+    if node is None:
+        return None
+    columns = tuple(
+        contracts.CatalogColumnContextDTO(name=c.name, description=c.synthetic_description) for c in node.columns.all()
+    )
+    outgoing = [
+        contracts.CatalogJoinContextDTO(
+            other_table=edge.target_node.name,
+            self_column=edge.source_column.name if edge.source_column else None,
+            other_column=edge.target_column.name if edge.target_column else None,
+            kind=edge.kind,
+            reasoning=edge.reasoning,
+        )
+        for edge in CatalogRelationship.objects.filter(team_id=team.pk, source_node=node)
+        .exclude(status=CatalogRelationship.Status.REJECTED)
+        .select_related("source_column", "target_column", "target_node")
+    ]
+    incoming = [
+        contracts.CatalogJoinContextDTO(
+            other_table=edge.source_node.name,
+            self_column=edge.target_column.name if edge.target_column else None,
+            other_column=edge.source_column.name if edge.source_column else None,
+            kind=edge.kind,
+            reasoning=edge.reasoning,
+        )
+        for edge in CatalogRelationship.objects.filter(team_id=team.pk, target_node=node)
+        .exclude(status=CatalogRelationship.Status.REJECTED)
+        .select_related("source_column", "target_column", "source_node")
+    ]
+    return contracts.CatalogNodeContextDTO(
+        kind=node.kind,
+        name=node.name,
+        description=node.synthetic_description,
+        columns=columns,
+        outgoing_joins=tuple(outgoing),
+        incoming_joins=tuple(incoming),
+    )
+
+
+@transaction.atomic
+def append_node_note(team: Team, params: contracts.AppendNodeNoteParams) -> contracts.CatalogNodeDTO:
+    """Append a user-attributed note to a CatalogNode's synthetic_description.
+
+    Resolves `table_name` to its catalog kind via HogQL. Creates the node row if
+    the traversal hasn't seen it yet. Re-calls with the same table append new
+    lines rather than overwriting prior notes.
+    """
+    kind, storage_name = _resolve_node_kind_and_name(team, params.table_name)
+    node = _get_or_create_node(team_id=params.team_id, kind=kind, name=storage_name)
+    node.synthetic_description = _append_with_attribution(node.synthetic_description, params.attribution, params.note)
+    node.save(update_fields=["synthetic_description"])
+    return to_node_dto(node)
+
+
+@transaction.atomic
+def append_column_note(team: Team, params: contracts.AppendColumnNoteParams) -> contracts.CatalogColumnDTO:
+    """Append a user-attributed note to a CatalogColumn's synthetic_description.
+
+    Both the parent node and the column are upserted on the fly so notes can
+    land even before the traversal workflow has cataloged the table's columns.
+    """
+    kind, storage_name = _resolve_node_kind_and_name(team, params.table_name)
+    node = _get_or_create_node(team_id=params.team_id, kind=kind, name=storage_name)
+    column = _get_or_create_column(node=node, name=params.column_name)
+    column.synthetic_description = _append_with_attribution(
+        column.synthetic_description, params.attribution, params.note
+    )
+    column.save(update_fields=["synthetic_description"])
+    return to_column_dto(column)
+
+
+@transaction.atomic
+def record_join(team: Team, params: contracts.RecordJoinParams) -> contracts.CatalogRelationshipDTO:
+    """Record a user-declared join between two catalog tables.
+
+    Idempotent on (team, source_node, source_column, target_node, target_column,
+    kind=declared_join): re-recording the same edge appends a new line to
+    `reasoning` instead of overwriting it. confidence=1.0 auto-accepts the edge
+    on first insert per the existing propose_relationship semantics.
+    """
+    source_kind, source_name = _resolve_node_kind_and_name(team, params.source_table)
+    target_kind, target_name = _resolve_node_kind_and_name(team, params.target_table)
+
+    source_node = _get_or_create_node(team_id=params.team_id, kind=source_kind, name=source_name)
+    target_node = _get_or_create_node(team_id=params.team_id, kind=target_kind, name=target_name)
+
+    source_column = _get_or_create_column(node=source_node, name=params.source_column) if params.source_column else None
+    target_column = _get_or_create_column(node=target_node, name=params.target_column) if params.target_column else None
+
+    edge, created = CatalogRelationship.objects.get_or_create(
+        team_id=params.team_id,
+        source_node=source_node,
+        source_column=source_column,
+        target_node=target_node,
+        target_column=target_column,
+        kind=CatalogRelationship.Kind.DECLARED_JOIN,
+        defaults={
+            "confidence": 1.0,
+            "reasoning": _append_with_attribution(None, params.attribution, params.note),
+            "status": CatalogRelationship.Status.ACCEPTED,
+        },
+    )
+    if not created:
+        edge.reasoning = _append_with_attribution(edge.reasoning, params.attribution, params.note)
+        edge.save(update_fields=["reasoning"])
+    return to_relationship_dto(edge)

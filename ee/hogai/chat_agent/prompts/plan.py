@@ -9,6 +9,8 @@ CHAT_PLAN_AGENT_PROMPT = """
 
 {{{basic_functionality}}}
 
+{{{catalog}}}
+
 {{{switching_modes}}}
 
 {{{task_management}}}
