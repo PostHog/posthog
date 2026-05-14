@@ -34,6 +34,7 @@ other isolated products.
 import os
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import QuerySet
 
@@ -59,6 +60,7 @@ from products.founder_mode.backend.tasks.tasks import (
     run_validation_task,
 )
 
+from .demo_seed import build_demo_payload
 from .serializers import FounderProjectSerializer
 
 
@@ -408,3 +410,33 @@ class FounderProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         return Response(turn_response.model_dump(), status=status.HTTP_200_OK)
+
+    @extend_schema(
+        responses={201: FounderProjectSerializer, 403: None},
+        description=(
+            "**Debug-only.** Wipe any existing FounderProject for the current team and create a "
+            "fully-populated one with realistic mock data in every stage envelope (ideation, "
+            "validation, gtm, mvp, marketing_page, marketing_steps). Lets a developer skip the "
+            "entire LLM-driven flow and immediately exercise downstream surfaces like the "
+            "workspace and PostHog stack recommendations. Only available when settings.DEBUG."
+        ),
+    )
+    @action(detail=False, methods=["POST"], url_path="seed_demo")
+    def seed_demo(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if not settings.DEBUG:
+            return Response(
+                {"detail": "seed_demo is only available in DEBUG mode."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        payload = build_demo_payload()
+
+        with transaction.atomic():
+            FounderProject.objects.filter(team_id=self.team_id).delete()
+            instance = FounderProject.objects.create(
+                team_id=self.team_id,
+                created_by=request.user,
+                **payload,
+            )
+
+        return Response(self.get_serializer(instance).data, status=status.HTTP_201_CREATED)

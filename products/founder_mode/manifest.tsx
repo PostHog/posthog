@@ -24,7 +24,8 @@ export const manifest: ProductManifest = {
             name: 'Founder workspace',
             import: () => import('./frontend/workspace/FounderModeWorkspace'),
             projectBased: true,
-            layout: 'plain',
+            layout: 'app-raw',
+            iconType: 'notebook',
         },
         FounderModeLandingPreview: {
             name: 'Landing page preview',

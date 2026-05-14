@@ -3,6 +3,8 @@ import * as React from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+import api from 'lib/api'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -11,11 +13,70 @@ import { WorkspaceFolder, WorkspacePage, workspaceLogic } from './workspaceLogic
 const WIKI_RE = /\[\[([^\]]+)\]\]/g
 
 export function FounderModeWorkspace(): JSX.Element {
+    const { projectLoading, project } = useValues(workspaceLogic)
+
+    if (projectLoading && !project) {
+        return (
+            <div className="flex items-center justify-center w-full h-[calc(100vh-3rem)] text-text-secondary">
+                Loading your Founder Mode workspace…
+            </div>
+        )
+    }
+
+    if (!project) {
+        return <EmptyState />
+    }
+
     return (
-        <main className="fixed inset-0 top-[54px] flex bg-bg-light text-text-primary">
+        <div className="flex h-[calc(100vh-3rem)] w-full bg-bg-light text-text-primary">
             <Sidebar />
             <EditorPane />
-        </main>
+        </div>
+    )
+}
+
+function EmptyState(): JSX.Element {
+    const { loadProject } = useActions(workspaceLogic)
+    const [seeding, setSeeding] = React.useState(false)
+    const [error, setError] = React.useState<string | null>(null)
+
+    const handleSeed = async (): Promise<void> => {
+        if (seeding) {
+            return
+        }
+        setSeeding(true)
+        setError(null)
+        try {
+            await api.create('api/projects/@current/founder_projects/seed_demo/', {})
+            loadProject()
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e)
+            setError(msg.includes('403') ? 'seed_demo is only available when DEBUG=true.' : msg)
+        } finally {
+            setSeeding(false)
+        }
+    }
+
+    return (
+        <div className="flex flex-col items-center justify-center w-full h-[calc(100vh-3rem)] gap-3 px-6 text-center">
+            <h2 className="text-lg font-semibold">No founder project yet</h2>
+            <p className="text-sm text-text-secondary max-w-md">
+                The workspace renders everything Founder Mode produces — ideation, validation, GTM, MVP, landing page
+                spec, and marketing plan. Start the flow first, or seed a demo project to see it all immediately.
+            </p>
+            <div className="flex items-center gap-3 mt-2">
+                <Link to="/founder" className="text-sm font-medium">
+                    Start in Founder Mode →
+                </Link>
+                <LemonButton type="secondary" onClick={handleSeed} loading={seeding}>
+                    Seed demo data
+                </LemonButton>
+            </div>
+            {error && <p className="text-xs text-danger mt-2 max-w-md">{error}</p>}
+            <p className="text-[11px] text-text-tertiary mt-1">
+                Seed wipes any existing project for this team and creates one with all 5 stages pre-populated.
+            </p>
+        </div>
     )
 }
 

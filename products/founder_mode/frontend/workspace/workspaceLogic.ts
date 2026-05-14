@@ -1,6 +1,11 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 
+import api from 'lib/api'
+
+import { renderBuildSpecMarkdown } from '../components/buildSpecMarkdown'
+import type { LandingPageBuildSpec } from '../components/founderLandingPageLogic'
 import type { workspaceLogicType } from './workspaceLogicType'
 
 export interface WorkspacePage {
@@ -17,233 +22,304 @@ export interface WorkspaceFolder {
     files: WorkspacePage[]
 }
 
-const SEED_PAGES: WorkspacePage[] = [
-    {
-        path: 'README',
-        name: 'README',
-        folder: '',
-        body: `# Founder workspace
+interface FounderProjectListItem {
+    id: string
+}
 
-Welcome to your workspace — the artifacts produced as you move through Founder Mode all live here as plain markdown files. Edit anything, and link between pages using \`[[Page name]]\` syntax (Obsidian-style).
+interface FounderProjectShape {
+    id: string
+    name: string
+    ideation?: Record<string, unknown> | null
+    validation?: Record<string, unknown> | null
+    gtm?: Record<string, unknown> | null
+    mvp?: Record<string, unknown> | null
+    marketing_page?: Record<string, unknown> | null
+    marketing_steps?: Record<string, unknown> | null
+}
 
-## Phases
+const FOUNDER_PROJECTS_URL = 'api/projects/@current/founder_projects/'
 
-- [[Lean canvas]] — the one-page snapshot of your idea
-- [[Validation report]] — what we learned pressure-testing assumptions
-- [[Landing page spec]] — the build brief for your first page
-- [[GTM plan]] — where and how to launch
-- [[MVP scope]] — what's in v1, what isn't
-- [[Practical steps]] — concrete next actions this week
+const buildReadme = (project: FounderProjectShape): string => {
+    return `# ${project.name || 'Founder workspace'}
+
+Everything Founder Mode produced for this idea, organized as plain markdown pages. Use \`[[Page name]]\` to link between pages.
+
+## What's in here
+
+- [[Idea]] — your starting point from the ideation chat
+- [[Validation report]] — competitors, score, differentiation
+- [[GTM plan]] — positioning, segments, channels, pricing
+- [[MVP spec]] — one-liner, core flow, must-haves
+- [[Landing page spec]] — full build brief: copy, brand, sections, events
+- [[Marketing plan]] — launch playbook with ready-to-post content
 
 ## How to use this
 
 - Click any \`[[wiki link]]\` to jump to that page.
-- Click a **red dashed link** to a missing page to create it.
 - Edit the markdown on the left, see it rendered on the right.
-- Folders organize pages by phase — Discovery, Validation, Launch.
+- Pages are derived from your Founder Mode project — refresh the browser to pull the latest.
+- Folders organize pages by stage.
+`
+}
 
-> This is a mockup. Nothing persists across reloads yet.
-`,
-    },
-    {
-        path: 'Discovery/Lean canvas',
-        name: 'Lean canvas',
-        folder: 'Discovery',
-        body: `# Lean canvas
+const buildIdea = (project: FounderProjectShape): string => {
+    const ideation = project.ideation as Record<string, string> | null | undefined
+    if (!ideation || Object.keys(ideation).length === 0) {
+        return `# Idea\n\n_Not completed yet. Go through the ideation chat to fill this in._`
+    }
+    const lines: string[] = ['# Idea', '']
+    if (ideation.idea || ideation.problem) {
+        lines.push(ideation.idea || ideation.problem, '')
+    }
+    if (ideation.what) {
+        lines.push('## What', '', ideation.what, '')
+    }
+    if (ideation.how) {
+        lines.push('## How', '', ideation.how, '')
+    }
+    if (ideation.who) {
+        lines.push('## Who', '', ideation.who, '')
+    }
+    if (ideation.problem && ideation.idea && ideation.problem !== ideation.idea) {
+        lines.push('## Problem', '', ideation.problem, '')
+    }
+    return lines.join('\n').trim() + '\n'
+}
 
-A one-page snapshot of the idea, generated from your chat with the co-founder agent. Cross-reference: [[Idea notes]], [[Validation report]].
+const buildValidation = (project: FounderProjectShape): string => {
+    const validation = project.validation as Record<string, unknown> | null | undefined
+    const report = validation?.report as Record<string, unknown> | null | undefined
+    if (!report) {
+        return `# Validation report\n\n_Not completed yet. Run the validation pass to fill this in._`
+    }
+    const lines: string[] = ['# Validation report', '']
+    const verdict = report.verdict as Record<string, unknown> | null
+    if (verdict) {
+        lines.push(`**Score:** ${verdict.score}/10  ·  **Confidence:** ${verdict.confidence}`, '')
+        if (verdict.rationale) {
+            lines.push(String(verdict.rationale), '')
+        }
+    }
+    const competitors = report.competitors as Array<Record<string, string>> | null
+    if (competitors?.length) {
+        lines.push('## Competitors', '')
+        for (const c of competitors) {
+            lines.push(`- **${c.name}** — ${c.positioning || c.description || '(no positioning)'}`)
+        }
+        lines.push('')
+        lines.push('See also: [[Competitors]] for the full profiles.')
+        lines.push('')
+    }
+    const diff = report.differentiation as Record<string, string> | null
+    if (diff) {
+        lines.push('## Differentiation', '')
+        if (diff.summary) {
+            lines.push(diff.summary, '')
+        }
+        if (diff.moat) {
+            lines.push(`**Moat:** ${diff.moat}`, '')
+        }
+    }
+    return lines.join('\n').trim() + '\n'
+}
 
-## Problem
-Founders waste weeks shaping vague ideas into something testable. They jump to building before they know what they're building.
+const buildCompetitors = (project: FounderProjectShape): string => {
+    const report = (project.validation as Record<string, unknown> | null | undefined)?.report as
+        | Record<string, unknown>
+        | null
+        | undefined
+    const competitors = report?.competitors as Array<Record<string, string>> | null
+    if (!competitors?.length) {
+        return ''
+    }
+    const lines: string[] = ['# Competitors', '', 'Profiles of the alternatives users would compare against.', '']
+    for (const c of competitors) {
+        lines.push(`## ${c.name}`, '')
+        if (c.positioning) {
+            lines.push(`**Positioning:** ${c.positioning}`, '')
+        }
+        if (c.description) {
+            lines.push(c.description, '')
+        }
+        if (c.url) {
+            lines.push(`[${c.url}](${c.url})`, '')
+        }
+    }
+    return lines.join('\n').trim() + '\n'
+}
 
-## Customer segments
-Early-stage solo founders and small teams in the first 90 days of an idea.
+const buildGTM = (project: FounderProjectShape): string => {
+    const gtm = project.gtm as Record<string, unknown> | null | undefined
+    const result = gtm?.result as Record<string, unknown> | null | undefined
+    if (!result) {
+        return `# GTM plan\n\n_Not completed yet. Run the GTM stage to fill this in._`
+    }
+    const lines: string[] = ['# GTM plan', '']
+    if (result.positioning_statement) {
+        lines.push('## Positioning', '', String(result.positioning_statement), '')
+    }
+    const segment = result.primary_segment as Record<string, string> | null
+    if (segment) {
+        lines.push('## Primary segment', '', `**${segment.name}** — ${segment.description}`, '')
+    }
+    if (result.moat) {
+        lines.push('## Moat', '', String(result.moat), '')
+    }
+    if (result.pricing_philosophy) {
+        lines.push('## Pricing', '', String(result.pricing_philosophy), '')
+    }
+    const channels = [result.primary_channel as string, ...((result.secondary_channels as string[]) || [])].filter(
+        Boolean
+    )
+    if (channels.length) {
+        lines.push('## Channels', '')
+        for (const c of channels) {
+            lines.push(`- ${c}`)
+        }
+        lines.push('')
+    }
+    return lines.join('\n').trim() + '\n'
+}
 
-## Unique value proposition
-A guided cofounder that takes you from messy idea → validated brief → launch artifacts, end-to-end.
+const buildMVP = (project: FounderProjectShape): string => {
+    const mvp = project.mvp as Record<string, unknown> | null | undefined
+    const result = mvp?.result as Record<string, unknown> | null | undefined
+    if (!result) {
+        return `# MVP spec\n\n_Not completed yet. Run the MVP stage to fill this in._`
+    }
+    const lines: string[] = ['# MVP spec', '']
+    if (result.one_liner) {
+        lines.push(String(result.one_liner), '')
+    }
+    const flow = result.core_flow as Array<Record<string, string | number>> | null
+    if (flow?.length) {
+        lines.push('## Core flow', '')
+        for (const s of flow) {
+            lines.push(`${s.step}. **${s.user_action}** → ${s.system_response}  _(✓ ${s.success_signal})_`)
+        }
+        lines.push('')
+    }
+    const mustHaves = result.must_haves as string[] | null
+    if (mustHaves?.length) {
+        lines.push('## Must-haves', '')
+        for (const m of mustHaves) {
+            lines.push(`- ${m}`)
+        }
+        lines.push('')
+    }
+    const excluded = result.deliberately_excluded as string[] | null
+    if (excluded?.length) {
+        lines.push('## Deliberately excluded', '')
+        for (const e of excluded) {
+            lines.push(`- ${e}`)
+        }
+        lines.push('')
+    }
+    return lines.join('\n').trim() + '\n'
+}
 
-## Solution
-Step-by-step chat that fills a lean canvas, runs a validation pass, drafts a landing page spec, and proposes a GTM plan.
+const buildLandingPageSpec = (project: FounderProjectShape): string => {
+    const mp = project.marketing_page as Record<string, unknown> | null | undefined
+    const spec = (mp?.page ?? mp?.result) as LandingPageBuildSpec | null | undefined
+    if (!spec) {
+        return `# Landing page spec\n\n_Not completed yet. Generate the landing page build spec to fill this in._`
+    }
+    try {
+        return renderBuildSpecMarkdown(spec)
+    } catch {
+        return `# Landing page spec\n\n_Build spec data could not be rendered._`
+    }
+}
 
-## Channels
-PostHog community, IndieHackers, founder-focused podcasts, X.
+const PLATFORM_LABELS: Record<string, string> = {
+    product_hunt: 'Product Hunt',
+    producthunt: 'Product Hunt',
+    linkedin: 'LinkedIn',
+    twitter: 'Twitter / X',
+    'twitter/x': 'Twitter / X',
+    reddit: 'Reddit',
+    hacker_news: 'Hacker News',
+    hackernews: 'Hacker News',
+    indie_hackers: 'Indie Hackers',
+}
 
-## Revenue streams
-Bundled with PostHog seat — no separate SKU yet.
+const platformLabel = (raw: string): string => PLATFORM_LABELS[raw.toLowerCase()] ?? raw
 
-## Cost structure
-LLM inference, light infra.
+const buildMarketing = (project: FounderProjectShape): string => {
+    const ms = project.marketing_steps as Record<string, unknown> | null | undefined
+    const result = ms?.result as Record<string, unknown> | null | undefined
+    if (!result) {
+        return `# Marketing plan\n\n_Not completed yet. Generate the marketing plan to fill this in._`
+    }
+    const lines: string[] = ['# Marketing plan', '']
+    if (result.launch_summary) {
+        lines.push(String(result.launch_summary), '')
+    }
+    const communities = result.target_communities as string[] | null
+    if (communities?.length) {
+        lines.push('## Where to post', '')
+        for (const c of communities) {
+            lines.push(`- ${c}`)
+        }
+        lines.push('')
+    }
+    const steps = result.steps as Array<Record<string, unknown>> | null
+    if (steps?.length) {
+        lines.push('## Launch steps', '')
+        for (const step of steps) {
+            lines.push(`### ${step.title}  ·  _${step.channel} · ${step.timeline}_`, '')
+            if (step.description) {
+                lines.push(String(step.description), '')
+            }
+            const posts = step.ready_to_use_content as Array<Record<string, string>> | null
+            if (posts?.length) {
+                for (const post of posts) {
+                    lines.push(`#### ${platformLabel(post.platform)}`, '')
+                    lines.push('```')
+                    lines.push(post.content)
+                    lines.push('```', '')
+                    if (post.tips) {
+                        lines.push(`> 💡 ${post.tips}`, '')
+                    }
+                }
+            }
+        }
+    }
+    return lines.join('\n').trim() + '\n'
+}
 
-## Key metrics
-Founders who reach a published landing page within 7 days.
+const pageAt = (path: string, name: string, folder: string, body: string): WorkspacePage => ({
+    path,
+    name,
+    folder,
+    body: body.trim() + '\n',
+})
 
-## Unfair advantage
-PostHog has the founder audience already — distribution.
-`,
-    },
-    {
-        path: 'Discovery/Idea notes',
-        name: 'Idea notes',
-        folder: 'Discovery',
-        body: `# Idea notes
+export const buildProjectPages = (project: FounderProjectShape | null): Record<string, WorkspacePage> => {
+    if (!project) {
+        return {}
+    }
+    const pages: WorkspacePage[] = [
+        pageAt('README', 'README', '', buildReadme(project)),
+        pageAt('Discovery/Idea', 'Idea', 'Discovery', buildIdea(project)),
+        pageAt('Validation/Validation report', 'Validation report', 'Validation', buildValidation(project)),
+    ]
 
-Loose thoughts that fed into the [[Lean canvas]].
+    const competitorsMd = buildCompetitors(project)
+    if (competitorsMd) {
+        pages.push(pageAt('Validation/Competitors', 'Competitors', 'Validation', competitorsMd))
+    }
 
-- A lot of would-be founders get stuck before the first line of code.
-- The cofounder loop should be **opinionated** — narrow questions, structured artifacts.
-- Risk: this becomes another "AI brainstorm" toy. Mitigation: every step produces a real artifact you can ship.
+    pages.push(
+        pageAt('GTM/GTM plan', 'GTM plan', 'GTM', buildGTM(project)),
+        pageAt('MVP/MVP spec', 'MVP spec', 'MVP', buildMVP(project)),
+        pageAt('Launch/Landing page spec', 'Landing page spec', 'Launch', buildLandingPageSpec(project)),
+        pageAt('Launch/Marketing plan', 'Marketing plan', 'Launch', buildMarketing(project))
+    )
 
-Open questions:
-- How much of the validation pass should be agentic vs. user-driven?
-- Should artifacts live in PostHog or be exportable to Notion / Obsidian?
-`,
-    },
-    {
-        path: 'Validation/Validation report',
-        name: 'Validation report',
-        folder: 'Validation',
-        body: `# Validation report
-
-Output of the validation pass run against the [[Lean canvas]].
-
-## Riskiest assumptions
-1. **Founders will let a chat shape their idea.** Medium risk — many prefer to think alone.
-2. **The artifacts produced are good enough to ship.** High risk — LLM-drafted landing pages are often generic.
-3. **PostHog's existing audience overlaps with first-90-days founders.** Low risk — measurable from existing community.
-
-## Evidence
-- [[Interview notes]] — 5 founders, 30-min sessions.
-- 4/5 said they'd use a "founder cofounder" if it produced real artifacts, not just summaries.
-- 2/5 already use Obsidian for idea capture — strong signal for the workspace concept.
-
-## Next
-- Sharpen [[Landing page spec]] based on objections raised.
-- Tighten [[MVP scope]] to focus on artifact quality.
-`,
-    },
-    {
-        path: 'Validation/Interview notes',
-        name: 'Interview notes',
-        folder: 'Validation',
-        body: `# Interview notes
-
-Raw notes from validation interviews. Synthesized into [[Validation report]].
-
-## Founder A — fintech, pre-PMF
-- Has 3 abandoned Notion docs about idea variants.
-- "I'd pay for something that forces me to commit to one shape."
-- Bounced on the word "co-founder" — felt overpromising.
-
-## Founder B — dev tools
-- Already running PostHog.
-- Wants the GTM plan more than the canvas.
-- "Don't give me a landing page draft — give me a list of 20 places to post."
-
-## Founder C — consumer
-- Skeptical of AI for ideation.
-- Would use it for the **artifact pass** at the end, not for the idea-shaping step.
-`,
-    },
-    {
-        path: 'Launch/Landing page spec',
-        name: 'Landing page spec',
-        folder: 'Launch',
-        body: `# Landing page spec
-
-Build brief for the v1 landing page. Sourced from [[Lean canvas]] and refined by [[Validation report]].
-
-## Hero
-- **Headline:** "From idea to launch artifacts in one afternoon."
-- **Subhead:** Founder Mode walks you through the lean canvas, validation, landing page, and GTM — and gives you the files at the end.
-- **CTA:** Try the cofounder
-
-## Sections
-1. The 4 artifacts you walk away with
-2. How the cofounder chat works (3-step explainer)
-3. What other founders said ([[Interview notes]] excerpts)
-4. Pricing — bundled with PostHog seat
-5. Footer CTA + waitlist
-
-## Out of scope for v1
-- Video hero
-- Live demo embed
-- Comparison table
-
-See [[GTM plan]] for where this lands first.
-`,
-    },
-    {
-        path: 'Launch/GTM plan',
-        name: 'GTM plan',
-        folder: 'Launch',
-        body: `# GTM plan
-
-How we get the first 100 founders onto [[Landing page spec]].
-
-## Launch channels (ordered)
-1. **PostHog community Slack** — soft launch, gather feedback.
-2. **IndieHackers** — long-form post about the [[Validation report]] process.
-3. **X** — thread from PostHog founder accounts.
-4. **HackerNews "Show HN"** — once landing page polished.
-
-## Messaging
-- Lead with the artifacts, not the AI.
-- Show the workspace screenshot — this page!
-- Cross-link to [[MVP scope]] for what's actually shipped.
-
-## Success metrics
-- 100 signups in week 1
-- 30 walk the full flow
-- 10 produce a landing page they actually publish
-`,
-    },
-    {
-        path: 'Launch/MVP scope',
-        name: 'MVP scope',
-        folder: 'Launch',
-        body: `# MVP scope
-
-What's in v1. What's not. Constrains [[Landing page spec]] and [[GTM plan]].
-
-## In
-- Cofounder chat producing [[Lean canvas]]
-- Validation pass producing [[Validation report]]
-- Landing page spec generation
-- GTM plan generation
-- Workspace for viewing artifacts (you're in it)
-
-## Not in v1
-- Multi-project per user
-- Exporting workspace to Obsidian / Notion
-- Collaboration / sharing
-- Real persistence of workspace edits (currently in-memory only)
-- Programmatic publishing of the landing page
-
-## Stretch
-- Embed live PostHog analytics into the workspace for the launched page.
-`,
-    },
-    {
-        path: 'Launch/Practical steps',
-        name: 'Practical steps',
-        folder: 'Launch',
-        body: `# Practical steps
-
-Concrete actions this week. Pulled from [[GTM plan]] and [[MVP scope]].
-
-- [ ] Polish workspace (this thing) — wiki links, sidebar, edit
-- [ ] Finalize [[Landing page spec]] copy
-- [ ] Draft the IndieHackers post
-- [ ] Schedule 5 more validation calls — see [[Interview notes]] for what's worked
-- [ ] Cut a 60-second screen recording of the cofounder flow
-`,
-    },
-]
-
-const seedPageMap = (): Record<string, WorkspacePage> => {
     const map: Record<string, WorkspacePage> = {}
-    for (const page of SEED_PAGES) {
-        map[page.path] = page
+    for (const p of pages) {
+        map[p.path] = p
     }
     return map
 }
@@ -291,10 +367,27 @@ export const workspaceLogic = kea<workspaceLogicType>([
         renamePage: (pagePath: string, newName: string) => ({ pagePath, newName }),
     }),
 
+    loaders(() => ({
+        project: [
+            null as FounderProjectShape | null,
+            {
+                loadProject: async () => {
+                    const list = await api.get<{ results: FounderProjectListItem[] }>(FOUNDER_PROJECTS_URL)
+                    const first = list.results?.[0]
+                    if (!first) {
+                        return null
+                    }
+                    return await api.get<FounderProjectShape>(`${FOUNDER_PROJECTS_URL}${first.id}/`)
+                },
+            },
+        ],
+    })),
+
     reducers({
         pages: [
-            seedPageMap(),
+            {} as Record<string, WorkspacePage>,
             {
+                loadProjectSuccess: (_, { project }) => buildProjectPages(project),
                 updateBody: (state, { pagePath, body }) => {
                     if (!state[pagePath]) {
                         return state
@@ -374,6 +467,7 @@ export const workspaceLogic = kea<workspaceLogicType>([
                 return map
             },
         ],
+        hasProject: [(s) => [s.project, s.projectLoading], (project, loading) => !!project || loading],
     }),
 
     actionToUrl(({ values }) => ({
@@ -391,4 +485,8 @@ export const workspaceLogic = kea<workspaceLogicType>([
             }
         },
     })),
+
+    afterMount(({ actions }) => {
+        actions.loadProject()
+    }),
 ])

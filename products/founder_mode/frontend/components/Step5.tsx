@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconArrowLeft, IconCopy, IconDocument, IconRefresh } from '@posthog/icons'
+import { IconArrowLeft, IconCopy, IconNotebook, IconRefresh } from '@posthog/icons'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -29,16 +29,9 @@ function platformLabel(raw: string): string {
 }
 
 export function Step5(): JSX.Element {
-    const {
-        currentProjectId,
-        marketingResult,
-        marketingStatus,
-        marketingIsRunning,
-        marketingError,
-        marketingLoaded,
-        exporting,
-    } = useValues(founderLogic)
-    const { triggerMarketing, advanceStep, exportToNotebook } = useActions(founderLogic)
+    const { currentProjectId, marketingResult, marketingStatus, marketingIsRunning, marketingError, marketingLoaded } =
+        useValues(founderLogic)
+    const { triggerMarketing, advanceStep } = useActions(founderLogic)
 
     const autoFired = useRef(false)
     useEffect(() => {
@@ -100,13 +93,8 @@ export function Step5(): JSX.Element {
                     <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={() => advanceStep('mvp')}>
                         Back to MVP
                     </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        icon={<IconDocument />}
-                        onClick={() => exportToNotebook()}
-                        loading={exporting}
-                    >
-                        Export all to notebook
+                    <LemonButton type="primary" icon={<IconNotebook />} to="/founder/workspace">
+                        Open in workspace
                     </LemonButton>
                 </div>
             )}

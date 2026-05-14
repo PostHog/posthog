@@ -1,8 +1,10 @@
 import { useActions, useValues, BindLogic } from 'kea'
+import { router } from 'kea-router'
 import * as React from 'react'
 
 import { Button, cn, Spinner } from '@posthog/quill'
 
+import api from 'lib/api'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import {
@@ -53,6 +55,25 @@ export function FounderModeLayout(): JSX.Element {
 function DebugMenu(): JSX.Element {
     const { currentStepKey } = useValues(cofounderFlowLogic)
     const { goToStep } = useActions(cofounderFlowLogic)
+    const [seeding, setSeeding] = React.useState(false)
+
+    const handleSeed = async (): Promise<void> => {
+        if (seeding) {
+            return
+        }
+        setSeeding(true)
+        try {
+            await api.create('api/projects/@current/founder_projects/seed_demo/', {})
+            router.actions.push('/founder/workspace')
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.error('Seed demo failed', e)
+            window.alert('Seed demo failed — check the console. Only works in DEBUG mode.')
+        } finally {
+            setSeeding(false)
+        }
+    }
+
     return (
         <div className="absolute top-2 right-3 z-50 flex items-center gap-2 text-[10px] uppercase tracking-wide text-text-secondary">
             <span className="px-1.5 py-0.5 rounded bg-bg-3000 border border-border">{currentStepKey}</span>
@@ -67,6 +88,15 @@ function DebugMenu(): JSX.Element {
                     </option>
                 ))}
             </select>
+            <button
+                type="button"
+                onClick={handleSeed}
+                disabled={seeding}
+                className="text-[10px] px-2 py-0.5 rounded border border-border bg-white hover:bg-fill-highlight-100 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Wipe + seed a fully-populated FounderProject so you can test downstream surfaces"
+            >
+                {seeding ? 'Seeding…' : 'Seed demo'}
+            </button>
         </div>
     )
 }
@@ -769,6 +799,18 @@ function DoneStep(): JSX.Element {
             <p className="text-text-primary leading-relaxed">
                 Idea, validation, positioning, happy path, marketing. Go build the smallest version and put it in front
                 of someone today.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-2">
+                <Button variant="primary" onClick={() => router.actions.push('/founder/workspace')}>
+                    Open your workspace →
+                </Button>
+                <Button variant="outline" onClick={() => router.actions.push('/founder/posthog-stack')}>
+                    See your PostHog stack
+                </Button>
+            </div>
+            <p className="text-xs text-text-secondary mt-3">
+                Everything you produced — idea, validation, GTM, MVP, landing page spec, marketing plan — is in your
+                workspace as markdown pages.
             </p>
         </div>
     )

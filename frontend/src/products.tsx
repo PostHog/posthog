@@ -408,7 +408,7 @@ export const productConfiguration: Record<string, any> = {
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     FounderMode: { name: 'Founder mode', projectBased: true, layout: 'plain' },
     FounderModeLayout: { name: 'Founder mode', projectBased: true, layout: 'plain' },
-    FounderModeWorkspace: { name: 'Founder workspace', projectBased: true, layout: 'plain' },
+    FounderModeWorkspace: { name: 'Founder workspace', projectBased: true, layout: 'app-raw', iconType: 'notebook' },
     FounderModeLandingPreview: { name: 'Landing page preview', projectBased: true, layout: 'plain' },
     FounderModePostHogStack: { name: 'Your PostHog stack', projectBased: true, layout: 'plain' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
