@@ -126,6 +126,7 @@ export async function initPostHogMcpAnalytics(
             apiKey: posthogApiKey,
             context: options.contextEnabled,
             enableAITracing: true,
+            enableConversationId: true,
             enableTracing: true,
             host: posthogHost,
             identify: async () => identifyResult,
