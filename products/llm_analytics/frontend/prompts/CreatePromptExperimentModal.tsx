@@ -51,20 +51,20 @@ export function CreatePromptExperimentModal(): JSX.Element | null {
                 <h3>Create experiment{promptName ? ` for "${promptName}"` : ''}</h3>
             </LemonModalHeader>
 
-            <LemonModalContent className="space-y-4">
+            <LemonModalContent className="space-y-6">
                 {promptVersions.length < 2 ? (
                     <LemonBanner type="warning">
                         This prompt has fewer than two versions. Publish another version before creating an experiment.
                     </LemonBanner>
                 ) : null}
 
-                <div className="space-y-2">
+                <div className="space-y-3">
                     <label className="text-sm font-medium">Prompt versions</label>
                     <p className="text-secondary text-xs">
                         Pick the versions to compare. The first version is the control variant. The metric template is
                         applied to events tagged with this prompt name.
                     </p>
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-3">
                         {versionSlots.map((value, index) => {
                             const disabled = disabledVersionsByIndex[index] ?? new Set<number>()
                             const options = promptVersions.map((v) => ({
@@ -80,14 +80,16 @@ export function CreatePromptExperimentModal(): JSX.Element | null {
                                     className="flex items-center gap-2"
                                     data-attr={`llma-prompt-experiment-version-row-${index}`}
                                 >
-                                    <div className="flex items-center gap-2 w-20 text-xs">
+                                    <span className="flex items-center min-w-0 w-20">
                                         <span
                                             className="w-2 h-2 rounded-full shrink-0"
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={{ backgroundColor: getSeriesColor(index) }}
                                         />
-                                        <span>{variantLabel(index, versionSlots.length)}</span>
-                                    </div>
+                                        <span className="ml-2 text-xs font-semibold truncate text-secondary">
+                                            {variantLabel(index, versionSlots.length)}
+                                        </span>
+                                    </span>
                                     <LemonSelect<number | null>
                                         className="flex-1"
                                         value={value}
@@ -111,7 +113,10 @@ export function CreatePromptExperimentModal(): JSX.Element | null {
                             )
                         })}
                     </div>
-                    <div>
+                    {/* Spacer matches the variant-label column width (w-20) plus the row gap (gap-2)
+                        so the "Add variant" button visually aligns with the version-select column. */}
+                    <div className="flex items-center gap-2">
+                        <span className="w-20 shrink-0" />
                         <LemonButton
                             icon={<IconPlus />}
                             type="secondary"
@@ -131,7 +136,7 @@ export function CreatePromptExperimentModal(): JSX.Element | null {
                     </div>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-3">
                     <label className="text-sm font-medium">Metrics</label>
                     <p className="text-secondary text-xs">
                         Pick one or more metric templates to attach as primary metrics. Each becomes a separate metric
@@ -140,7 +145,7 @@ export function CreatePromptExperimentModal(): JSX.Element | null {
                     {templatesLoading ? (
                         <p className="text-secondary text-xs">Loading templates…</p>
                     ) : (
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-3">
                             {templates.map((t) => {
                                 const key = t.key as TemplatesEnumApi
                                 return (

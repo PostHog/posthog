@@ -35,6 +35,7 @@ export const createPromptExperimentModalLogic = kea<createPromptExperimentModalL
         addVersionSlot: true,
         removeVersionSlot: (index: number) => ({ index }),
         toggleTemplate: (template: TemplatesEnumApi) => ({ template }),
+        setSelectedTemplates: (templates: TemplatesEnumApi[]) => ({ templates }),
         submitCreate: true,
         submitCreateSuccess: (experimentId: number) => ({ experimentId }),
         submitCreateFailure: (error: string) => ({ error }),
@@ -81,6 +82,7 @@ export const createPromptExperimentModalLogic = kea<createPromptExperimentModalL
                 closeModal: () => [] as TemplatesEnumApi[],
                 toggleTemplate: (selected, { template }) =>
                     selected.includes(template) ? selected.filter((t) => t !== template) : [...selected, template],
+                setSelectedTemplates: (_, { templates }) => templates,
             },
         ],
         isSubmitting: [
@@ -149,6 +151,15 @@ export const createPromptExperimentModalLogic = kea<createPromptExperimentModalL
         openModal: () => {
             if (values.templates.length === 0) {
                 actions.loadTemplates()
+            } else if (values.selectedTemplates.length === 0) {
+                actions.setSelectedTemplates(values.templates.map((t) => t.key as TemplatesEnumApi))
+            }
+        },
+        loadTemplatesSuccess: () => {
+            // Pre-select every template by default — users typically want all of them on a
+            // new prompt experiment and can uncheck the ones they don't want.
+            if (values.isModalOpen && values.selectedTemplates.length === 0) {
+                actions.setSelectedTemplates(values.templates.map((t) => t.key as TemplatesEnumApi))
             }
         },
         submitCreate: async () => {
