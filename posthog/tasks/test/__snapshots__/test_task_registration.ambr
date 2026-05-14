@@ -56,6 +56,7 @@
     'posthog.tasks.email.send_project_deleted_email',
     'posthog.tasks.email.send_project_secret_api_key_exposed',
     'posthog.tasks.email.send_provisioning_welcome',
+    'posthog.tasks.email.send_social_referral_shopify_reward_email',
     'posthog.tasks.email.send_team_hog_functions_digest',
     'posthog.tasks.email.send_team_matview_failure_digest',
     'posthog.tasks.email.send_two_factor_auth_backup_code_used_email',
