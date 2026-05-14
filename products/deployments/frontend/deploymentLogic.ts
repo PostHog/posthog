@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { Scene } from 'scenes/sceneTypes'
@@ -10,8 +10,8 @@ import { Breadcrumb } from '~/types'
 import type { deploymentLogicType } from './deploymentLogicType'
 import { deploymentProjectLogic } from './deploymentProjectLogic'
 import { Deployment } from './fixtures'
-import { deploymentProjectsDeploymentsRetrieve } from './generated/api'
-import type { DeploymentProjectApi } from './generated/api.schemas'
+import { deploymentProjectsDeploymentsLogsRetrieve, deploymentProjectsDeploymentsRetrieve } from './generated/api'
+import type { DeploymentLogsResponseApi, DeploymentProjectApi } from './generated/api.schemas'
 
 export interface DeploymentLogicProps {
     projectId: string
@@ -31,6 +31,9 @@ export const deploymentLogic = kea<deploymentLogicType>([
         ],
         actions: [deploymentProjectLogic({ projectId: props.projectId }), ['redeployDeployment', 'rollbackDeployment']],
     })),
+    actions({
+        refreshDeploymentLogs: true,
+    }),
     loaders(({ values, props }) => ({
         deployment: [
             null as Deployment | null,
@@ -44,6 +47,26 @@ export const deploymentLogic = kea<deploymentLogicType>([
                 },
             },
         ],
+        // Logs are fetched separately so a slow/failing logs call doesn't
+        // block the deployment header from rendering. The backend caps the
+        // payload at `row_limit` and surfaces `has_more` for truncation.
+        deploymentLogs: [
+            null as DeploymentLogsResponseApi | null,
+            {
+                loadDeploymentLogs: async (): Promise<DeploymentLogsResponseApi | null> => {
+                    const teamId = values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    return deploymentProjectsDeploymentsLogsRetrieve(String(teamId), props.projectId, props.id)
+                },
+            },
+        ],
+    })),
+    listeners(({ actions }) => ({
+        refreshDeploymentLogs: () => {
+            actions.loadDeploymentLogs()
+        },
     })),
     selectors(({ props }) => ({
         deploymentMissing: [
@@ -68,5 +91,6 @@ export const deploymentLogic = kea<deploymentLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadDeployment()
+        actions.loadDeploymentLogs()
     }),
 ])

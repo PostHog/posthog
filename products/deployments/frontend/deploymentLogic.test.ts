@@ -44,6 +44,29 @@ describe('deploymentLogic', () => {
                     const found = deployments.find((d) => d.id === String(req.params.id))
                     return found ? [200, found] : [404, { detail: 'Not found' }]
                 },
+                '/api/projects/:team/deployment_projects/:project_id/deployments/:id/logs/': () => [
+                    200,
+                    {
+                        results: [
+                            {
+                                timestamp: '2026-05-13T12:00:00Z',
+                                level: 'info',
+                                step: 'clone',
+                                line: 'Cloning into source/',
+                                exit_code: null,
+                            },
+                            {
+                                timestamp: '2026-05-13T12:00:01Z',
+                                level: 'info',
+                                step: 'clone',
+                                line: null,
+                                exit_code: 0,
+                            },
+                        ],
+                        has_more: false,
+                        row_limit: 1000,
+                    },
+                ],
             },
         })
 
@@ -115,6 +138,52 @@ describe('deploymentLogic', () => {
         }
     })
 
+    it('loads deployment logs on mount via the logs endpoint', async () => {
+        const detail = deploymentLogic({ projectId: project.id, id: 'dep-current' })
+        detail.mount()
+        try {
+            await expectLogic(detail).toFinishAllListeners()
+            expect(detail.values.deploymentLogs?.results).toHaveLength(2)
+            expect(detail.values.deploymentLogs?.results[0]).toMatchObject({
+                step: 'clone',
+                level: 'info',
+                line: 'Cloning into source/',
+            })
+            expect(detail.values.deploymentLogs?.has_more).toBe(false)
+            expect(detail.values.deploymentLogs?.row_limit).toBe(1000)
+            expect(detail.values.deploymentLogsLoading).toBe(false)
+        } finally {
+            detail.unmount()
+        }
+    })
+
+    it('refreshDeploymentLogs re-fires the logs loader', async () => {
+        let logsRequestCount = 0
+        useMocks({
+            get: {
+                '/api/projects/:team/deployment_projects/:project_id/deployments/:id/logs/': () => {
+                    logsRequestCount += 1
+                    return [200, { results: [], has_more: false, row_limit: 1000 }]
+                },
+            },
+        })
+
+        const detail = deploymentLogic({ projectId: project.id, id: 'dep-current' })
+        detail.mount()
+        try {
+            await expectLogic(detail).toFinishAllListeners()
+            const initialCount = logsRequestCount
+
+            await expectLogic(detail, () => {
+                detail.actions.refreshDeploymentLogs()
+            }).toFinishAllListeners()
+
+            expect(logsRequestCount).toEqual(initialCount + 1)
+        } finally {
+            detail.unmount()
+        }
+    })
+
     it('deep-link: loads the deployment without waiting on a project list mount', async () => {
         // Simulate a cold start — neither the list logic nor the project logic
         // have been mounted yet. The detail logic should still fetch via its
@@ -132,6 +201,10 @@ describe('deploymentLogic', () => {
                     const found = deployments.find((d) => d.id === String(req.params.id))
                     return found ? [200, found] : [404, { detail: 'Not found' }]
                 },
+                '/api/projects/:team/deployment_projects/:project_id/deployments/:id/logs/': () => [
+                    200,
+                    { results: [], has_more: false, row_limit: 1000 },
+                ],
             },
         })
 

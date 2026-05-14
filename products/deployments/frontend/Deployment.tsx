@@ -7,12 +7,10 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
-
-import { LogsViewer } from 'products/logs/frontend/components/LogsViewer/LogsViewer'
 
 import { CurrentDeploymentCard } from './components/CurrentDeploymentCard'
 import { openRedeployDialog, openRollbackDialog } from './components/deploymentActions'
+import { DeploymentLogs } from './components/DeploymentLogs'
 import { deploymentLogic, DeploymentLogicProps } from './deploymentLogic'
 import { deploymentProjectLogic } from './deploymentProjectLogic'
 
@@ -77,36 +75,7 @@ function DeploymentInner({ projectId, id }: DeploymentLogicProps): JSX.Element {
                 }
             />
             <CurrentDeploymentCard deployment={d} />
-            <div className="flex flex-col gap-2">
-                <h3 className="text-lg font-semibold">Logs</h3>
-                <p className="text-secondary text-sm">
-                    Filtered to this deployment via the <code>deployment_id</code> attribute. Once ingestion stamps that
-                    attribute, real entries will show here.
-                </p>
-                <LogsViewer
-                    id={`deployment-${id}`}
-                    initialFilters={{
-                        filterGroup: {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
-                                    type: FilterLogicalOperator.And,
-                                    values: [
-                                        {
-                                            key: 'deployment_id',
-                                            type: PropertyFilterType.LogAttribute,
-                                            operator: PropertyOperator.Exact,
-                                            value: id,
-                                        } as any,
-                                    ],
-                                },
-                            ],
-                        },
-                    }}
-                    showFullScreenButton={false}
-                    showSavedViewsButton={false}
-                />
-            </div>
+            <DeploymentLogs projectId={projectId} id={id} />
         </SceneContent>
     )
 }

@@ -139,6 +139,14 @@ const meta: Meta = {
                 },
                 '/api/projects/:team_id/deployment_projects/:project_id/deployments/d-current/': currentDeployment,
                 '/api/projects/:team_id/deployment_projects/:project_id/deployments/d-docs/': docsCurrent,
+                // Default to an empty logs response so the detail page renders
+                // its empty state. Individual stories override this with
+                // realistic rows.
+                '/api/projects/:team_id/deployment_projects/:project_id/deployments/:id/logs/': {
+                    results: [],
+                    has_more: false,
+                    row_limit: 1000,
+                },
             },
         }),
     ],
@@ -246,4 +254,106 @@ export const DeploymentDetail: Story = {
     parameters: {
         pageUrl: urls.deployment(baseProject.id, currentDeployment.id),
     },
+}
+
+// Detail page with a populated logs table — mixed levels, a warn, an error,
+// and a step-completion row carrying an exit_code.
+export const DeploymentDetailWithLogs: Story = {
+    parameters: {
+        pageUrl: urls.deployment(baseProject.id, currentDeployment.id),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/deployment_projects/:project_id/deployments/:id/logs/': {
+                    results: [
+                        {
+                            timestamp: '2026-05-13T12:00:00Z',
+                            level: 'info',
+                            step: 'clone',
+                            line: 'Cloning github.com/acme/site into /workspace/source',
+                            exit_code: null,
+                        },
+                        {
+                            timestamp: '2026-05-13T12:00:01Z',
+                            level: 'info',
+                            step: 'clone',
+                            line: null,
+                            exit_code: 0,
+                        },
+                        {
+                            timestamp: '2026-05-13T12:00:02Z',
+                            level: 'info',
+                            step: 'install',
+                            line: 'Installing dependencies with pnpm',
+                            exit_code: null,
+                        },
+                        {
+                            timestamp: '2026-05-13T12:00:12Z',
+                            level: 'warn',
+                            step: 'install',
+                            line: 'WARN deprecated lodash.merge@4.6.2',
+                            exit_code: null,
+                        },
+                        {
+                            timestamp: '2026-05-13T12:00:25Z',
+                            level: 'info',
+                            step: 'install',
+                            line: null,
+                            exit_code: 0,
+                        },
+                        {
+                            timestamp: '2026-05-13T12:00:26Z',
+                            level: 'info',
+                            step: 'build',
+                            line: '> vite build',
+                            exit_code: null,
+                        },
+                        {
+                            timestamp: '2026-05-13T12:00:48Z',
+                            level: 'error',
+                            step: 'build',
+                            line: 'src/utils.ts:42 TypeError: cannot read property of undefined',
+                            exit_code: null,
+                        },
+                        {
+                            timestamp: '2026-05-13T12:00:48Z',
+                            level: 'error',
+                            step: 'build',
+                            line: null,
+                            exit_code: 1,
+                        },
+                    ],
+                    has_more: false,
+                    row_limit: 1000,
+                },
+            },
+        }),
+    ],
+}
+
+// Detail page where the logs payload was truncated to the row_limit.
+export const DeploymentDetailLogsTruncated: Story = {
+    parameters: {
+        pageUrl: urls.deployment(baseProject.id, currentDeployment.id),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/deployment_projects/:project_id/deployments/:id/logs/': {
+                    results: [
+                        {
+                            timestamp: '2026-05-13T12:00:00Z',
+                            level: 'info',
+                            step: 'build',
+                            line: '… (older lines truncated)',
+                            exit_code: null,
+                        },
+                    ],
+                    has_more: true,
+                    row_limit: 1000,
+                },
+            },
+        }),
+    ],
 }
