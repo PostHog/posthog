@@ -845,6 +845,13 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         team = self.team
+
+        if not team.conversations_enabled:
+            return Response(
+                {"detail": "Conversations is not enabled."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
         settings = team.conversations_settings or {}
 
         if not settings.get("email_enabled"):
