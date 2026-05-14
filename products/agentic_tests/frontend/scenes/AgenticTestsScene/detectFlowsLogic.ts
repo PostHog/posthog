@@ -254,7 +254,7 @@ export const detectFlowsLogic = kea<detectFlowsLogicType>([
         step: [
             (s) => [s.runStatus, s.isTerminal],
             (runStatus, isTerminal): 1 | 2 | 3 => {
-                if (isTerminal) {
+                if (isTerminal || runStatus === ('proposing_tests' as TaskRunStatus)) {
                     return 3
                 }
                 if (runStatus === TaskRunStatus.IN_PROGRESS) {
@@ -428,13 +428,15 @@ export const detectFlowsLogic = kea<detectFlowsLogicType>([
                                         updatedEntriesById.set(updatedEntry.id, updatedEntry)
                                     })
                                     if (entry) {
-                                        // Structured output = agent is done proposing flows
-                                        if (
-                                            entry.type === 'tool' &&
-                                            entry.toolName === 'StructuredOutput' &&
-                                            entry.toolStatus === 'done'
-                                        ) {
-                                            actions.setRunStatus(TaskRunStatus.COMPLETED)
+                                        if (entry.type === 'tool' && entry.toolName === 'StructuredOutput') {
+                                            if (entry.toolStatus === 'completed') {
+                                                actions.setRunStatus(TaskRunStatus.COMPLETED)
+                                            } else if (
+                                                entry.toolStatus === 'pending' ||
+                                                entry.toolStatus === 'running'
+                                            ) {
+                                                actions.setRunStatus('proposing_tests' as TaskRunStatus)
+                                            }
                                         }
 
                                         const last = batch[batch.length - 1]
