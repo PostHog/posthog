@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconArrowRight, IconBell, IconGithub, IconLinear } from '@posthog/icons'
+import { IconArrowRight, IconBell, IconGithub, IconLinear, IconWarning } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { RecordingsUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconSlack } from 'lib/lemon-ui/icons'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -144,20 +145,24 @@ export function SourcesList(): JSX.Element {
         githubIssuesConfig,
         linearIssuesConfig,
         zendeskTicketsConfig,
+        cspReportingConfig,
         errorTrackingIsFullyEnabled,
         isSessionAnalysisToggling,
         isGithubIssuesToggling,
         isLinearIssuesToggling,
         isZendeskTicketsToggling,
+        isCspReportingToggling,
         isErrorTrackingToggling,
     } = useValues(signalSourcesLogic)
     const {
         toggleSessionAnalysis,
+        toggleCspReporting,
         openSessionAnalysisSetup,
         clearSessionAnalysisFilters,
         initiateDataWarehouseSourceToggle,
         toggleErrorTracking,
     } = useActions(signalSourcesLogic)
+    const cspReportingFlagEnabled = useFeatureFlag('CSP_REPORTING_SIGNAL_SOURCE')
 
     const recordingFilters = sessionAnalysisConfig?.config?.recording_filters
     const hasNonEmptyFilters = isNonEmptyFilters(recordingFilters)
@@ -237,6 +242,18 @@ export function SourcesList(): JSX.Element {
                 requiresSetup
                 onToggle={() => initiateDataWarehouseSourceToggle('Github')}
             />
+
+            {cspReportingFlagEnabled && (
+                <Source
+                    icon={<IconWarning className="size-5" />}
+                    title="CSP violations"
+                    description="Content Security Policy violation reports from real browsers → Signals"
+                    variant="available"
+                    checked={!!cspReportingConfig?.enabled}
+                    loading={isCspReportingToggling}
+                    onToggle={() => toggleCspReporting()}
+                />
+            )}
 
             <Source
                 icon={<IconSlack className="size-5 grayscale" />}

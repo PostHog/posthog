@@ -117,6 +117,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         openSessionAnalysisSetup: true,
         closeSessionAnalysisSetup: true,
         toggleSessionAnalysis: true,
+        toggleCspReporting: true,
         toggleDataWarehouseSource: (dwSource: DataWarehouseSource) => ({ dwSource }),
         initiateDataWarehouseSourceToggle: (dwSource: DataWarehouseSource) => ({ dwSource }),
         openDataSourceSetup: (product: ExternalDataSourceType) => ({ product }),
@@ -242,6 +243,15 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     (c) => c.source_product === SignalSourceProduct.ZENDESK && c.source_type === SignalSourceType.TICKET
                 ) ?? null,
         ],
+        cspReportingConfig: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.CSP_REPORTING &&
+                        c.source_type === SignalSourceType.VIOLATION
+                ) ?? null,
+        ],
         isSessionAnalysisToggling: [
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean =>
@@ -258,6 +268,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         isZendeskTicketsToggling: [
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.ZENDESK}_${SignalSourceType.TICKET}`),
+        ],
+        isCspReportingToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean =>
+                keys.has(`${SignalSourceProduct.CSP_REPORTING}_${SignalSourceType.VIOLATION}`),
         ],
         isErrorTrackingToggling: [
             (s) => [s.togglingSourceKeys],
@@ -420,6 +435,15 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 actions.toggleSignalSource({
                     sourceProduct: SignalSourceProduct.SESSION_REPLAY,
                     sourceType: SignalSourceType.SESSION_ANALYSIS_CLUSTER,
+                    enabled: desiredEnabled,
+                })
+            },
+            toggleCspReporting: () => {
+                const config = values.cspReportingConfig
+                const desiredEnabled = !(config?.enabled === true)
+                actions.toggleSignalSource({
+                    sourceProduct: SignalSourceProduct.CSP_REPORTING,
+                    sourceType: SignalSourceType.VIOLATION,
                     enabled: desiredEnabled,
                 })
             },
