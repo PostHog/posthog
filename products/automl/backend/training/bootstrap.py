@@ -1,19 +1,22 @@
 """Enqueue bootstrap training tasks for AutoML pipelines.
 
-Builds an orchestration brief + pipeline spec and hands them to the `tasks`
-product via ``Task.create_and_run``. The real ML runs inside
-``ProcessTaskWorkflow``'s sandbox; this module is just the bridge that
-constructs the prompt and the spec the agent operates on.
+Builds the task description handed to the `tasks` product via
+``Task.create_and_run``. The real ML runs inside ``ProcessTaskWorkflow``'s
+sandbox; this module is just the bridge that constructs the per-pipeline
+payload the agent operates on.
 
-The brief itself lives in ``bootstrap_brief.md`` (alongside this file) so the
-prose stays editable without wrestling Python triple-quoted escapes.
+The workflow content lives in the ``automl-bootstrap`` agent skill
+(``products/automl/skills/automl-bootstrap/SKILL.md``) which gets baked into
+the sandbox image. We only stamp the per-pipeline data here: the pipeline
+spec, the promotion gates, and the training-population HogQL — everything
+else (workflow steps, CLI surface, pitfalls, failure-recovery framework)
+lives in the skill so the agent can iterate on errors using its own loop
+instead of following a frozen contract.
 """
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from string import Template
 from typing import Any
 
 from posthog.models import Team
@@ -23,11 +26,6 @@ from products.tasks.backend.services.sandbox import SandboxTemplate
 
 from ..facade.enums import TaskType
 from ..models import AutoMLPipeline
-
-# Where the markdown template lives. Loaded fresh per call so edits to the
-# brief don't require restarting any long-lived process during development.
-_BRIEF_TEMPLATE_PATH = Path(__file__).parent / "bootstrap_brief.md"
-
 
 # Per-task-type fallback gates used when the pipeline's config doesn't carry
 # its own ``success_criteria``. These are deliberately permissive — the goal
@@ -88,26 +86,57 @@ def enqueue_bootstrap_training(*, pipeline: AutoMLPipeline, user_id: int) -> Tas
 
 
 def _build_orchestration_brief(pipeline: AutoMLPipeline) -> str:
-    """Build the markdown brief passed as the Task description.
+    """Build the task description handed to the bootstrap agent.
 
-    Uses ``string.Template`` substitution rather than ``str.format`` so JSON
-    code samples in the brief (which contain literal ``{`` / ``}``) don't
-    require escaping. Substitution keys use ``$placeholder``; literal ``$``
-    in the template is ``$$``.
+    The description is intentionally thin: a pointer to the
+    ``automl-bootstrap`` skill (which carries the workflow, CLI reference,
+    pitfalls, and recovery framework) plus the per-pipeline payload the agent
+    consumes (spec, gates, training query). The skill is loaded by the
+    agent's normal skill-discovery mechanism inside the sandbox.
+
+    Keeping the dynamic content small keeps the prompt cheap and lets the
+    skill evolve without rebuilding image artifacts or re-substituting
+    Python templates.
     """
-    template = Template(_BRIEF_TEMPLATE_PATH.read_text(encoding="utf-8"))
     spec_json = json.dumps(_build_pipeline_spec(pipeline), indent=2, default=str)
     gates_json = json.dumps(_build_gate_config(pipeline), indent=2, default=str)
-    return template.substitute(
-        pipeline_name=pipeline.name,
-        task_type=pipeline.task_type,
-        pipeline_spec=spec_json,
-        gates=gates_json,
-        # Inlined so the agent doesn't have to parse JSON to recover the HogQL
-        # in step 2's heredoc. Falls back to an empty string when the population
-        # isn't a HogQL kind — the agent will hit `snapshot_fetch_failed` in
-        # that case, which is the right failure mode.
-        training_query=_extract_training_query(pipeline),
+    training_query = _extract_training_query(pipeline)
+
+    return (
+        f"# AutoML bootstrap: {pipeline.name}\n"
+        "\n"
+        "Run the `automl-bootstrap` skill. The skill carries the workflow, the\n"
+        "`automl` CLI surface, the common-pitfalls catalog, and the failure-\n"
+        "recovery framework. Iterate on recoverable errors; don't bail at the\n"
+        "first non-zero exit.\n"
+        "\n"
+        "## Pipeline spec\n"
+        "\n"
+        "Treat every field as authoritative; do not edit the config.\n"
+        "\n"
+        "```json\n"
+        f"{spec_json}\n"
+        "```\n"
+        "\n"
+        "## Promotion gates\n"
+        "\n"
+        "Apply per step 5 of the skill. Bootstrap never auto-displaces an\n"
+        "existing champion; see step 6 for the precondition check.\n"
+        "\n"
+        "```json\n"
+        f"{gates_json}\n"
+        "```\n"
+        "\n"
+        "## Training-population HogQL\n"
+        "\n"
+        "Write this to a file in step 2 (the skill shows the heredoc pattern).\n"
+        "If `prepare-from-hogql` rejects it with a parse / type error, read\n"
+        "the response body and fix the query — see the skill's common-pitfalls\n"
+        "reference for known gotchas (especially `AND ... BETWEEN ...` precedence).\n"
+        "\n"
+        "```hogql\n"
+        f"{training_query}\n"
+        "```\n"
     )
 
 
