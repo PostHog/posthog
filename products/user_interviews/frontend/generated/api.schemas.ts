@@ -113,6 +113,47 @@ export interface PatchedUserInterviewTopicApi {
     questions?: string[]
 }
 
+export interface IntervieweeContextApi {
+    readonly id: string
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /**
+     * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+     * @maxLength 400
+     */
+    interviewee_identifier: string
+    /**
+     * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+     * @maxLength 10000
+     */
+    agent_context: string
+}
+
+export interface PaginatedIntervieweeContextListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: IntervieweeContextApi[]
+}
+
+export interface PatchedIntervieweeContextApi {
+    readonly id?: string
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /**
+     * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+     * @maxLength 400
+     */
+    interviewee_identifier?: string
+    /**
+     * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+     * @maxLength 10000
+     */
+    agent_context?: string
+}
+
 export interface UserInterviewApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -155,6 +196,17 @@ export type UserInterviewTopicsListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type UserInterviewTopicsIntervieweesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type UserInterviewsListParams = {

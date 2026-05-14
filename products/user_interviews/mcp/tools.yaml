@@ -37,6 +37,24 @@ tools:
     user-interview-topics-destroy:
         operation: user_interview_topics_destroy
         enabled: false
+    user-interview-topics-interviewees-create:
+        operation: user_interview_topics_interviewees_create
+        enabled: false
+    user-interview-topics-interviewees-destroy:
+        operation: user_interview_topics_interviewees_destroy
+        enabled: false
+    user-interview-topics-interviewees-list:
+        operation: user_interview_topics_interviewees_list
+        enabled: false
+    user-interview-topics-interviewees-partial-update:
+        operation: user_interview_topics_interviewees_partial_update
+        enabled: false
+    user-interview-topics-interviewees-retrieve:
+        operation: user_interview_topics_interviewees_retrieve
+        enabled: false
+    user-interview-topics-interviewees-update:
+        operation: user_interview_topics_interviewees_update
+        enabled: false
     user-interview-topics-list:
         operation: user_interview_topics_list
         enabled: true

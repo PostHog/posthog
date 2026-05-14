@@ -91,7 +91,41 @@ Once you have the pieces:
 }
 ```
 
-After creation, show the new topic ID so it can be handed off to the voice agent.
+After creation, capture the returned topic ID — you'll need it for Step 4 and for handing off to the voice agent.
+
+## Step 4: Optionally attach per-interviewee context
+
+The topic-level `agent_context` applies to every interviewee. If the user knows something specific about individual interviewees that should shape that one conversation, attach it as a per-interviewee row via `user-interview-topic-interviewees-create`. This is optional — most topics won't need it.
+
+Each row pairs an `interviewee_identifier` (must match one of the emails or distinct IDs in the parent topic's targeting) with an `agent_context` string. At most one row per (topic, interviewee). A user can have zero rows.
+
+Good per-interviewee context looks like:
+
+- "uses the replay product but has never used summarization"
+- "churned from Scale plan last month — be empathetic, don't pitch"
+- "founder, very technical, skip basic product explanations"
+
+After Step 3 succeeds, ask the user: _"Want to add per-interviewee context? Useful when individual people have very different backgrounds. You can either dictate the rows or paste a CSV."_
+
+### Accepting CSV input
+
+If the user pastes a CSV, expect two columns: `identifier,context`. Either with or without a header row. Examples:
+
+```csv
+paul@acme.com,uses replay but never summarization
+steve@apple.com,founder; very technical; skip product basics
+```
+
+Or with a header:
+
+```csv
+identifier,context
+abc-distinct-id-1,churned from Scale last month — be empathetic
+```
+
+Parse the CSV, then call `user-interview-topic-interviewees-create` once per row with the captured `topic_id`. Skip blank lines. Quote-escape commas inside the context cell — standard CSV rules.
+
+If a row's identifier isn't present in the parent topic's `interviewee_emails` or `interviewee_distinct_ids`, warn the user before creating — the voice agent looks up context by exact string match, so a mismatched identifier just gets ignored at runtime.
 
 ## What this skill is not for
 
