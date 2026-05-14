@@ -10,15 +10,15 @@ packages:
     - packages/quill
     - packages/quill/apps/*
     - packages/quill/packages/*
-    - packages/agent-core
-    - packages/agent-ingress
-    - packages/agent-runner
     - frontend
     - playwright
     - nodejs
     - nodejs/src/scripts
     - products/*
     - docs/onboarding
+    - services/agent-core
+    - services/agent-ingress
+    - services/agent-runner
     - services/oauth-proxy
     - services/mcp
     - services/stripe-app
