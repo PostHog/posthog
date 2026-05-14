@@ -106,6 +106,8 @@ export enum NodeKind {
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
     TraceSpansQuery = 'TraceSpansQuery',
+    TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
+    TraceSpansTreeQuery = 'TraceSpansTreeQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -230,6 +232,8 @@ export type AnyDataNode =
     | LogAttributesQuery
     | LogValuesQuery
     | TraceSpansQuery
+    | TraceSpansAggregationQuery
+    | TraceSpansTreeQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | CalendarHeatmapQuery
@@ -329,6 +333,8 @@ export type QuerySchema =
 
     // Tracing
     | TraceSpansQuery
+    | TraceSpansAggregationQuery
+    | TraceSpansTreeQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -387,6 +393,8 @@ export type AnyResponseType =
     | LogAttributesQueryResponse
     | LogValuesQueryResponse
     | TraceSpansQueryResponse
+    | TraceSpansAggregationQueryResponse
+    | TraceSpansTreeQueryResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -1239,6 +1247,10 @@ interface DataTableNodeViewProps {
     showSavedFilters?: boolean
     /** Show table views feature for this table (requires uniqueKey) */
     showTableViews?: boolean
+    /** Render date-time columns (timestamp, created_at, last_seen, last_seen_at, session_start,
+     *  session_end) as absolute date+time instead of relative ("X ago"). The toggle is exposed
+     *  in the column header menu only on EventsQuery / ActorsQuery sources. */
+    showAbsoluteTime?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
     /** Link properties via the URL (default: false) */
@@ -1643,9 +1655,9 @@ export type RetentionFilter = {
     aggregationType?: 'count' | 'sum' | 'avg'
     /** @description The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string
-    /** @description The type of property to aggregate on (event or person). Defaults to event.
+    /** @description The type of property to aggregate on (event, person or data_warehouse). Defaults to event.
      * @default event */
-    aggregationPropertyType?: 'event' | 'person'
+    aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
     /** For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups. */
     customAggregationTarget?: boolean
 
@@ -3035,6 +3047,82 @@ export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedTraceSpansQueryResponse = CachedQueryResponse<TraceSpansQueryResponse>
 
+/** One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view. */
+export interface AggregatedSpanRow {
+    service_name: string
+    name: string
+    count: integer
+    total_duration_nano: number
+    avg_duration_nano: number
+    p50_duration_nano: number
+    p95_duration_nano: number
+    error_count: integer
+}
+
+export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregationQueryResponse> {
+    kind: NodeKind.TraceSpansAggregationQuery
+    dateRange: DateRange
+    /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+    compareFilter?: CompareFilter
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+}
+
+export interface TraceSpansAggregationQueryResponse extends AnalyticsQueryResponseBase {
+    results: AggregatedSpanRow[]
+    /** Result rows for the comparison period when `compareFilter.compare` is true. */
+    compare?: AggregatedSpanRow[]
+}
+
+export type CachedTraceSpansAggregationQueryResponse = CachedQueryResponse<TraceSpansAggregationQueryResponse>
+
+/**
+ * One node in an aggregated span call tree. The `(service_name, name)` pair identifies
+ * the node; `(parent_service, parent_name)` links it to its parent. Spans without a
+ * matching parent in the window get `parent_name = '<ROOT>'` so orphans surface explicitly.
+ */
+export interface SpanTreeNode {
+    parent_service: string
+    parent_name: string
+    service_name: string
+    name: string
+    count: integer
+    total_duration_nano: number
+    avg_duration_nano: number
+    p50_duration_nano: number
+    p95_duration_nano: number
+    error_count: integer
+    /**
+     * Average nanoseconds from the parent span's start to this span's start. Zero for
+     * root spans. Used to order children left-to-right by typical start time in the
+     * flame graph.
+     */
+    avg_start_offset_nano: number
+}
+
+export interface TraceSpansTreeQuery extends DataNode<TraceSpansTreeQueryResponse> {
+    kind: NodeKind.TraceSpansTreeQuery
+    dateRange: DateRange
+    /**
+     * Span name to scope the matched trace set. Required because the
+     * `(trace_id, parent_span_id)` self-join is prohibitive without bounding the
+     * matched traces — at high name cardinality the query becomes unsafe to run.
+     */
+    spanName: string
+    /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+    compareFilter?: CompareFilter
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+}
+
+export interface TraceSpansTreeQueryResponse extends AnalyticsQueryResponseBase {
+    results: SpanTreeNode[]
+    /** Result rows for the comparison period when `compareFilter.compare` is true. */
+    compare?: SpanTreeNode[]
+}
+
+export type CachedTraceSpansTreeQueryResponse = CachedQueryResponse<TraceSpansTreeQueryResponse>
+
 export interface FileSystemCount {
     count: number
     entries: FileSystemEntry[]
@@ -3145,6 +3233,7 @@ export type FileSystemIconType =
     | 'llm_prompts'
     | 'llm_clusters'
     | 'exports'
+    | 'deployments'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -3387,7 +3476,7 @@ export interface ExperimentApiMetric {
 }
 
 export interface ExperimentVariant {
-    /** Variant key, e.g. 'control', 'test', 'variant_a'. */
+    /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
     key: string
     /** Human-readable variant name. */
     name?: string
@@ -3398,7 +3487,7 @@ export interface ExperimentVariant {
 }
 
 export interface ExperimentParameters {
-    /** Experiment variants. If not specified, defaults to a 50/50 control/test split. */
+    /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
     feature_flag_variants?: ExperimentVariant[]
     /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
     minimum_detectable_effect?: number
@@ -3526,11 +3615,20 @@ export type ExperimentMetricTypeProps =
     | ExperimentRatioMetricTypeProps
     | ExperimentRetentionMetricTypeProps
 
-export type ExperimentMetric =
+// Named separately from `ExperimentMetric` so the JSDoc `@discriminator` tag below
+// can attach without colliding with the `NodeKind.ExperimentMetric` enum value
+// (which trips ts-json-schema-generator's deduplication). The alias is the public
+// type — callers continue to use `ExperimentMetric`.
+/**
+ * @discriminator metric_type
+ */
+export type ExperimentMetricUnion =
     | ExperimentMeanMetric
     | ExperimentFunnelMetric
     | ExperimentRatioMetric
     | ExperimentRetentionMetric
+
+export type ExperimentMetric = ExperimentMetricUnion
 
 export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     kind: NodeKind.ExperimentQuery
@@ -5979,6 +6077,10 @@ export enum InfinityValue {
     NEGATIVE_INFINITY_VALUE = -999999,
 }
 
+export enum DashboardAutoRefreshInterval {
+    SECONDS = 1800,
+}
+
 export type UsageMetricFormat = 'numeric' | 'currency'
 
 export type UsageMetricDisplay = 'number' | 'sparkline'
@@ -6185,6 +6287,7 @@ export enum ProductKey {
     CUSTOMER_ANALYTICS = 'customer_analytics',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
+    DEPLOYMENTS = 'deployments',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     ENDPOINTS = 'endpoints',
     ERROR_TRACKING = 'error_tracking',

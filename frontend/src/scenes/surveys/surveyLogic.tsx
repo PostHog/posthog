@@ -17,9 +17,12 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { Scene } from 'scenes/sceneTypes'
 import {
     branchingConfigToDropdownValue,
+    buildDeleteIndexMap,
+    buildReorderIndexMap,
     canQuestionHaveResponseBasedBranching,
     createBranchingConfig,
     getDefaultBranchingType,
+    remapBranchingIndices,
 } from 'scenes/surveys/components/question-branching/utils'
 import { getDemoDataForSurvey } from 'scenes/surveys/utils/demoDataGenerator'
 import { teamLogic } from 'scenes/teamLogic'
@@ -47,6 +50,7 @@ import {
     ChoiceQuestionProcessedResponses,
     ChoiceQuestionResponseData,
     ConsolidatedSurveyResults,
+    CyclotronJobFiltersType,
     EventPropertyFilter,
     FeatureFlagFilters,
     HogFunctionType,
@@ -154,6 +158,32 @@ type TranslationFieldCheck<T extends string> = {
 
 const SURVEY_QUERY_TAG_BASE = { scene: 'Survey' as const, productKey: 'surveys' as const }
 const DRAFT_TRANSLATION_QUESTION_ID_PREFIX = '__draft_question_'
+const SURVEY_NOTIFICATION_LIST_LIMIT = 100
+
+function getSurveyIdsFromNotificationFilters(filters?: CyclotronJobFiltersType | null): Set<string> {
+    const surveyIds = new Set<string>()
+
+    for (const event of filters?.events ?? []) {
+        for (const property of event.properties ?? []) {
+            if (property.key !== SurveyEventProperties.SURVEY_ID) {
+                continue
+            }
+
+            const value = property.value
+            if (Array.isArray(value)) {
+                value.forEach((surveyId) => {
+                    if (typeof surveyId === 'string') {
+                        surveyIds.add(surveyId)
+                    }
+                })
+            } else if (typeof value === 'string') {
+                surveyIds.add(value)
+            }
+        }
+    }
+
+    return surveyIds
+}
 
 function getTranslationDraftQuestionId(question: SurveyQuestion, index: number): string {
     return question.id || `${DRAFT_TRANSLATION_QUESTION_ID_PREFIX}${index}`
@@ -245,6 +275,7 @@ export type SurveyDemoData = ReturnType<typeof getDemoDataForSurvey>
 export enum SurveyTab {
     SUMMARY = 'summary',
     RESPONSES = 'responses',
+    NOTIFICATIONS = 'notifications',
     HISTORY = 'history',
 }
 
@@ -515,6 +546,7 @@ export function processOpenEndedResults(
     const numCols = Object.keys(columnMap).length
     const distinctIdIdx = numCols
     const timestampIdx = numCols + 1
+    const sessionIdIdx = numCols + 2
     const result: ResponsesByQuestion = {}
 
     for (const [questionId, { columnIndex, type }] of Object.entries(columnMap)) {
@@ -529,6 +561,7 @@ export function processOpenEndedResults(
                     distinctId: row[distinctIdIdx] as string,
                     response: value,
                     timestamp: row[timestampIdx] as string,
+                    sessionId: (row[sessionIdIdx] as string) || undefined,
                 })
             }
             result[questionId] = { type: SurveyQuestionType.Open, data, totalResponses: data.length }
@@ -636,6 +669,8 @@ export const surveyLogic = kea<surveyLogicType>([
         }),
         resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
         deleteBranchingLogic: true,
+        moveQuestion: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
+        removeQuestion: (questionIndex: number) => ({ questionIndex }),
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSelectedPageIndex: (idx: number | null) => ({ idx }),
@@ -657,6 +692,8 @@ export const surveyLogic = kea<surveyLogicType>([
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
+        setResponseExpanded: (uuid: string, expanded: boolean) => ({ uuid, expanded }),
+        toggleResponseExpansion: (uuid: string) => ({ uuid }),
         setBaseStatsResults: (results: SurveyBaseStatsResult) => ({ results }),
         setDismissedAndSentCount: (count: DismissedAndSentCountResult) => ({ count }),
         setShowArchivedResponses: (show: boolean) => ({ show }),
@@ -1040,6 +1077,36 @@ export const surveyLogic = kea<surveyLogicType>([
                     })
 
                     return response.results
+                },
+            },
+        ],
+        reusableSurveyNotifications: [
+            [] as HogFunctionType[],
+            {
+                loadReusableSurveyNotifications: async (): Promise<HogFunctionType[]> => {
+                    if (props.id === NEW_SURVEY.id) {
+                        return []
+                    }
+
+                    const response = await api.hogFunctions.list({
+                        filter_groups: [
+                            {
+                                events: [{ id: SurveyEventName.SENT, type: 'events' }],
+                            },
+                        ],
+                        types: ['destination'],
+                        limit: SURVEY_NOTIFICATION_LIST_LIMIT,
+                        full: true,
+                    })
+
+                    return response.results.filter((notification) => {
+                        if (notification.deleted) {
+                            return false
+                        }
+
+                        const surveyIds = getSurveyIdsFromNotificationFilters(notification.filters)
+                        return !surveyIds.has(props.id)
+                    })
                 },
             },
         ],
@@ -1456,6 +1523,32 @@ export const surveyLogic = kea<surveyLogicType>([
                 setPersonNames: (state, { personNames }) => ({ ...state, ...personNames }),
             },
         ],
+        expandedResponseUuids: [
+            new Set<string>(),
+            {
+                setResponseExpanded: (state, { uuid, expanded }) => {
+                    if (expanded === state.has(uuid)) {
+                        return state
+                    }
+                    const next = new Set(state)
+                    if (expanded) {
+                        next.add(uuid)
+                    } else {
+                        next.delete(uuid)
+                    }
+                    return next
+                },
+                toggleResponseExpansion: (state, { uuid }) => {
+                    const next = new Set(state)
+                    if (next.has(uuid)) {
+                        next.delete(uuid)
+                    } else {
+                        next.add(uuid)
+                    }
+                    return next
+                },
+            },
+        ],
         editingLanguage: [
             null as string | null,
             {
@@ -1723,6 +1816,27 @@ export const surveyLogic = kea<surveyLogicType>([
                     return {
                         ...state,
                         questions: newQuestions,
+                    }
+                },
+                moveQuestion: (state, { oldIndex, newIndex }) => {
+                    if (oldIndex === newIndex) {
+                        return state
+                    }
+                    const reordered = [...state.questions]
+                    const [moved] = reordered.splice(oldIndex, 1)
+                    reordered.splice(newIndex, 0, moved)
+                    const indexMap = buildReorderIndexMap(state.questions.length, oldIndex, newIndex)
+                    return {
+                        ...state,
+                        questions: remapBranchingIndices(reordered, indexMap),
+                    }
+                },
+                removeQuestion: (state, { questionIndex }) => {
+                    const filtered = state.questions.filter((_, i) => i !== questionIndex)
+                    const indexMap = buildDeleteIndexMap(state.questions.length, questionIndex)
+                    return {
+                        ...state,
+                        questions: remapBranchingIndices(filtered, indexMap),
                     }
                 },
             },
@@ -2107,9 +2221,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     }),
                     'timestamp',
                     'person',
-                    `coalesce(JSONExtractString(properties, '$lib_version')) -- Library Version`,
-                    `coalesce(JSONExtractString(properties, '$lib')) -- Library`,
-                    `coalesce(JSONExtractString(properties, '$current_url')) -- URL`,
                 ]
 
                 return {
@@ -2135,7 +2246,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     propertiesViaUrl: true,
                     showExport: true,
                     showReload: true,
-                    showRecordingColumn: true,
+                    showRecordingColumn: false,
                     showEventFilter: false,
                     showPropertyFilter: false,
                     showTimings: false,
@@ -3102,6 +3213,7 @@ export const surveyLogic = kea<surveyLogicType>([
         if (props.id !== 'new' && !shouldPreserveLocalChanges) {
             actions.loadSurvey()
             actions.loadSurveyNotifications()
+            actions.loadReusableSurveyNotifications()
         }
         if (props.id === 'new' && !shouldPreserveLocalChanges) {
             actions.resetSurvey()

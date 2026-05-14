@@ -106,8 +106,6 @@ export enum ProductTab {
 
 export type DeviceType = 'Desktop' | 'Mobile'
 
-export type BotTrafficFilter = 'regular' | 'bot' | 'all'
-
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
 
 export const tabSplitIndicesMap: Partial<Record<TileId, number[]>> = {

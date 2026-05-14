@@ -260,6 +260,12 @@ def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
     )
 
 
+def signal_task_followup_message(workflow_id: str, message: str | None, artifact_ids: list[str]) -> None:
+    client = sync_connect()
+    handle = client.get_workflow_handle(workflow_id)
+    asyncio.run(handle.signal("send_followup_message", args=[message, artifact_ids]))
+
+
 def execute_posthog_code_agent_relay_workflow(
     run_id: str,
     text: str,

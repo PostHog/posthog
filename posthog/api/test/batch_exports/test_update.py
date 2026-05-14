@@ -33,6 +33,23 @@ pytestmark = [
 ]
 
 
+@pytest.fixture
+def bigquery_integration(team, user):
+    """Create a Google Cloud Service Account integration for BigQuery."""
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+        integration_id="test-bigquery-service-account",
+        config={"project_id": "test", "service_account_email": "email"},
+        sensitive_config={
+            "private_key": "pkey",
+            "private_key_id": "pkey_id",
+            "token_uri": "token",
+        },
+        created_by=user,
+    )
+
+
 def test_can_put_config(client: HttpClient, temporal, organization, team, user):
     destination_data: dict[str, t.Any] = {
         "type": "S3",
@@ -533,6 +550,7 @@ def test_patch_different_type_resets_config(
     organization,
     team,
     user,
+    bigquery_integration,
 ):
     """Assert patching a config with a different type resets it.
 
@@ -567,10 +585,10 @@ def test_patch_different_type_resets_config(
 
     new_destination_data = {
         "type": "BigQuery",
+        "integration_id": bigquery_integration.id,
         "config": {
             "table_id": "test",
             "dataset_id": "test",
-            "project_id": "test",
         },
     }
 
@@ -587,8 +605,8 @@ def test_patch_different_type_resets_config(
     assert batch_export_data["destination"]["config"].get("bucket_name") is None
     assert batch_export_data["destination"]["config"].get("aws_secret_access_key") is None
     assert batch_export_data["destination"]["config"]["dataset_id"] == "test"
-    assert batch_export_data["destination"]["config"]["project_id"] == "test"
     assert batch_export_data["destination"]["config"]["table_id"] == "test"
+    assert batch_export_data["destination"]["integration"] == bigquery_integration.id
 
     # validate the underlying temporal schedule has been updated
     codec = EncryptionCodec(settings=settings)

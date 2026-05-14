@@ -91,6 +91,9 @@ rules:
                               |DataWarehouseSavedQueryDraft
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
+                              |Deployment
+                              |DeploymentEvent
+                              |DeploymentProject
                               |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
@@ -141,6 +144,10 @@ rules:
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
+                              |IntervieweeContext
+                              |KnowledgeChunk
+                              |KnowledgeDocument
+                              |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
@@ -169,6 +176,8 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |ReplayLens
+                              |ReplayObservation
                               |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
@@ -212,6 +221,7 @@ rules:
                               |TraceReviewScore
                               |UploadedMedia
                               |UserInterview
+                              |UserInterviewTopic
                               |UserRepoPreference
                               |WebAnalyticsFilterPreset
                           )$
@@ -302,6 +312,9 @@ rules:
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
+                        |Deployment
+                        |DeploymentEvent
+                        |DeploymentProject
                         |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping
@@ -352,6 +365,10 @@ rules:
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
+                        |IntervieweeContext
+                        |KnowledgeChunk
+                        |KnowledgeDocument
+                        |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration
@@ -376,6 +393,8 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |ReplayLens
+                        |ReplayObservation
                         |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
@@ -419,6 +438,7 @@ rules:
                         |TraceReviewScore
                         |UploadedMedia
                         |UserInterview
+                        |UserInterviewTopic
                         |UserRepoPreference
                         |WebAnalyticsFilterPreset
                     )$
@@ -505,7 +525,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              LegalDocument
+                              CIMDVerificationToken
+                              |LegalDocument
                               |OrganizationMembership
                               |OrganizationDomain
                               |OrganizationIntegration
@@ -568,7 +589,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        LegalDocument
+                        CIMDVerificationToken
+                        |LegalDocument
                         |OrganizationMembership
                         |OrganizationDomain
                         |OrganizationIntegration
@@ -668,6 +690,7 @@ rules:
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
+                              |UserPushToken
                               |WebauthnCredential
                           )$
                 - focus-metavariable: $SINK
@@ -719,6 +742,7 @@ rules:
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig
+                        |UserPushToken
                         |WebauthnCredential
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ...)

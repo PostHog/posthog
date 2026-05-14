@@ -22,6 +22,10 @@ def get_generated_imports_in_frontend(frontend_dir: Path) -> set[str]:
 
     Scans all .ts/.tsx files in the product's frontend/ directory, excluding the
     generated/ subdirectory itself. Returns the set of imported function names.
+
+    Recognizes both named and namespace imports:
+        import { funcA, funcB } from '../generated/api'
+        import * as api from '../generated/api'   // then any `api.funcA` usage
     """
     generated_dir = frontend_dir / "generated"
     imported: set[str] = set()
@@ -45,6 +49,19 @@ def get_generated_imports_in_frontend(frontend_dir: Path) -> set[str]:
         ):
             names = [n.strip().split(" as ")[0].strip() for n in match.group(1).split(",")]
             imported.update(n for n in names if n and not n.startswith("type "))
+
+        # Match: import * as <alias> from '...generated/api'
+        # Tree-shaken namespace imports — collect every `<alias>.<member>`
+        # access. Non-endpoint members (e.g. URL helpers) are filtered later
+        # against the known endpoint names.
+        for match in re.finditer(
+            r"import\s*\*\s*as\s+(\w+)\s*from\s*['\"][^'\"]*generated/api['\"]",
+            collapsed,
+        ):
+            alias = match.group(1)
+            usage_re = re.compile(rf"\b{re.escape(alias)}\.(\w+)")
+            for usage in usage_re.finditer(content):
+                imported.add(usage.group(1))
 
         # Also match: import type { ... } from '...generated/api.schemas'
         # These are type-only imports and don't count as endpoint usage.

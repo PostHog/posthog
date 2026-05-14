@@ -11,14 +11,12 @@ configuration.
 import io
 import gzip
 import json
-from collections.abc import AsyncIterator, Iterable
-from contextlib import asynccontextmanager
+from collections.abc import Iterable
 from typing import Any
 
 from django.conf import settings
 
 import structlog
-from asgiref.sync import sync_to_async
 
 from posthog.storage import object_storage
 from posthog.temporal.usage_report.types import WorkflowContext
@@ -81,85 +79,32 @@ def read_json(key: str) -> Any:
     return json.loads(raw)
 
 
-# Encoded JSONL bytes are buffered up to this size before being handed
-# to `gzip.GzipFile.write`. The per-call overhead of gzip.write is small
-# but non-zero, so batching ~256KB at a time noticeably trims the cost
-# of writing 10k lines per chunk without growing memory pressure.
-_GZIP_FLUSH_THRESHOLD_BYTES = 256 * 1024
+def write_jsonl_chunk_gzip(key: str, lines: Iterable[dict[str, Any]]) -> int:
+    """Stream-encode `lines` as JSONL straight into gzip, then PUT the
+    compressed body to S3 in a single `put_object` call.
 
-
-class JsonlGzipWriter:
-    """Buffer used by `streamed_jsonl_gzip_writer`. Encodes JSONL lines
-    into an in-memory `bytearray`, flushes to the gzip stream in
-    `_GZIP_FLUSH_THRESHOLD_BYTES`-sized batches, and the gzip stream
-    then flushes to S3 on context-manager exit.
+    Per-line: one encoded `bytes` is fed to `gzip.GzipFile.write` and
+    immediately compressed into the underlying `BytesIO`. We never hold
+    the whole uncompressed payload — peak memory per chunk is roughly
+    `compressed_size` plus gzip's 32 KB window and one in-flight encoded
+    line. That matters when several chunks are written concurrently, since
+    a naive `b"\\n".join(...)` would double-allocate ~25–50 MB per chunk.
     """
-
-    def __init__(self, flush_threshold_bytes: int = _GZIP_FLUSH_THRESHOLD_BYTES) -> None:
-        self._buffer = io.BytesIO()
-        self._gz = gzip.GzipFile(fileobj=self._buffer, mode="wb")
-        self._pending = bytearray()
-        self._flush_threshold = flush_threshold_bytes
-        self.line_count = 0
-
-    def write(self, line: dict[str, Any]) -> None:
-        self._pending += json.dumps(line, separators=(",", ":"), default=str).encode("utf-8")
-        self._pending += b"\n"
-        self.line_count += 1
-        if len(self._pending) >= self._flush_threshold:
-            self._flush_pending()
-
-    def write_lines(self, lines: Iterable[dict[str, Any]]) -> None:
+    line_count = 0
+    buffer = io.BytesIO()
+    with gzip.GzipFile(fileobj=buffer, mode="wb") as gz:
         for line in lines:
-            self.write(line)
+            gz.write(json.dumps(line, separators=(",", ":"), default=str).encode("utf-8"))
+            gz.write(b"\n")
+            line_count += 1
 
-    def _flush_pending(self) -> None:
-        if not self._pending:
-            return
-        self._gz.write(bytes(self._pending))
-        self._pending.clear()
-
-    def _finalize(self) -> bytes:
-        self._flush_pending()
-        self._gz.close()
-        return self._buffer.getvalue()
-
-
-@asynccontextmanager
-async def streamed_jsonl_gzip_writer(key: str) -> AsyncIterator[JsonlGzipWriter]:
-    """Async context manager that yields a `JsonlGzipWriter`. On clean exit
-    the gzipped JSONL bytes are streamed to S3 at `key` with the
-    `application/x-ndjson` + `gzip` headers billing's reader expects. If
-    the body raises, nothing gets uploaded.
-
-        async with streamed_jsonl_gzip_writer(key) as w:
-            w.write_lines(lines)
-            # or w.write({...}) per line
-    """
-    writer = JsonlGzipWriter()
-    yield writer
-    body = writer._finalize()
-    await sync_to_async(_upload_gzipped_jsonl)(key, body)
-
-
-def _upload_gzipped_jsonl(key: str, body: bytes) -> None:
-    object_storage.write_stream(
+    object_storage.write(
         key,
-        io.BytesIO(body),
+        buffer.getvalue(),
         extras={"ContentType": "application/x-ndjson", "ContentEncoding": "gzip"},
         bucket=bucket(),
     )
-
-
-def write_jsonl_chunk_gzip(key: str, lines: Iterable[dict[str, Any]]) -> int:
-    """Sync one-shot variant of `streamed_jsonl_gzip_writer` for callers
-    (tests, scripts) that just want to gzip-and-upload a list of lines.
-    """
-    writer = JsonlGzipWriter()
-    writer.write_lines(lines)
-    body = writer._finalize()
-    _upload_gzipped_jsonl(key, body)
-    return writer.line_count
+    return line_count
 
 
 def delete_keys(keys: Iterable[str]) -> int:

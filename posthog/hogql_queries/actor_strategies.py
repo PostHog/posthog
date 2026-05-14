@@ -1,8 +1,11 @@
-from typing import Literal, Optional, cast
+import uuid as uuid_mod
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Literal, Optional, cast
 
 from django.db import connections
 
 import orjson as json
+import structlog
 
 from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
 
@@ -16,6 +19,18 @@ from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Team
 from posthog.models.person import Person, PersonDistinctId
 from posthog.person_db_router import PERSONS_DB_FOR_READ
+from posthog.personhog_client.metrics import (
+    PERSONHOG_ROUTING_ERRORS_TOTAL,
+    PERSONHOG_ROUTING_TOTAL,
+    PERSONHOG_TEAM_MISMATCH_TOTAL,
+    get_client_name,
+)
+from posthog.personhog_client.proto import GetDistinctIdsForPersonsRequest, GetPersonsByUuidsRequest
+
+if TYPE_CHECKING:
+    from posthog.personhog_client.client import PersonHogClient
+
+logger = structlog.get_logger(__name__)
 
 # Use centralized database routing constant
 READ_DB_FOR_PERSONS = PERSONS_DB_FOR_READ
@@ -55,8 +70,83 @@ class PersonStrategy(ActorStrategy):
     # batching is needed to prevent timeouts when reading from Postgres
     BATCH_SIZE = 1000
 
-    # This is hand written instead of using the ORM because the ORM was blowing up the memory on exports and taking forever
     def get_actors(self, actor_ids, sort_by_created_at_descending: bool = False) -> dict[str, dict]:
+        from posthog.personhog_client.client import get_personhog_client
+
+        client = get_personhog_client()
+        if client is not None:
+            try:
+                result = self._get_actors_via_personhog(client, actor_ids, sort_by_created_at_descending)
+                PERSONHOG_ROUTING_TOTAL.labels(
+                    operation="get_actors", source="personhog", client_name=get_client_name()
+                ).inc()
+                return result
+            except Exception:
+                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                    operation="get_actors", source="personhog", error_type="grpc_error", client_name=get_client_name()
+                ).inc()
+                logger.warning("personhog_get_actors_failure", team_id=self.team.pk, exc_info=True)
+
+        PERSONHOG_ROUTING_TOTAL.labels(operation="get_actors", source="raw_sql", client_name=get_client_name()).inc()
+        return self._get_actors_via_raw_sql(actor_ids, sort_by_created_at_descending)
+
+    def _get_actors_via_personhog(
+        self,
+        client: "PersonHogClient",
+        actor_ids,
+        sort_by_created_at_descending: bool,
+    ) -> dict[str, dict]:
+        actor_ids_list = [str(uid) for uid in actor_ids]
+        team_id = self.team.pk
+
+        all_persons = []
+        for i in range(0, len(actor_ids_list), self.BATCH_SIZE):
+            batch = actor_ids_list[i : i + self.BATCH_SIZE]
+            resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=batch))
+
+            present = [p for p in resp.persons if p.id]
+            valid = [p for p in present if p.team_id == team_id]
+
+            mismatched = len(present) - len(valid)
+            if mismatched:
+                PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation="get_actors", client_name=get_client_name()).inc(
+                    mismatched
+                )
+                logger.warning("personhog_team_mismatch", operation="get_actors", team_id=team_id, dropped=mismatched)
+
+            all_persons.extend(valid)
+
+        if sort_by_created_at_descending:
+            all_persons.sort(key=lambda p: (-p.created_at, p.uuid))
+
+        person_ids = [p.id for p in all_persons]
+        distinct_ids_by_person: dict[int, list[str]] = {}
+        for i in range(0, len(person_ids), self.BATCH_SIZE):
+            did_batch = person_ids[i : i + self.BATCH_SIZE]
+            did_resp = client.get_distinct_ids_for_persons(
+                GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=did_batch)
+            )
+            for pd in did_resp.person_distinct_ids:
+                distinct_ids_by_person[pd.person_id] = [d.distinct_id for d in pd.distinct_ids]
+
+        return {
+            p.uuid: {
+                "id": uuid_mod.UUID(p.uuid),
+                "properties": json.loads(p.properties) if p.properties else {},
+                "is_identified": p.is_identified,
+                "created_at": datetime.fromtimestamp(p.created_at / 1000, tz=UTC) if p.created_at else None,
+                "last_seen_at": datetime.fromtimestamp(p.last_seen_at / 1000, tz=UTC) if p.last_seen_at else None,
+                "distinct_ids": distinct_ids_by_person.get(p.id, []),
+            }
+            for p in all_persons
+        }
+
+    # Hand-written SQL instead of ORM because the ORM was blowing up memory on exports
+    def _get_actors_via_raw_sql(
+        self,
+        actor_ids,
+        sort_by_created_at_descending: bool,
+    ) -> dict[str, dict]:
         person_table = Person._meta.db_table
         pdi_table = PersonDistinctId._meta.db_table
         conn = connections[READ_DB_FOR_PERSONS]
@@ -76,9 +166,9 @@ class PersonStrategy(ActorStrategy):
                 all_people.extend(cursor.fetchall())
 
             if sort_by_created_at_descending:
-                from datetime import datetime
+                from datetime import datetime as _datetime
 
-                min_dt = datetime.min
+                min_dt = _datetime.min
                 all_people.sort(key=lambda p: (-(p[4] or min_dt).timestamp(), str(p[1])))
 
             person_ids = [x[0] for x in all_people]

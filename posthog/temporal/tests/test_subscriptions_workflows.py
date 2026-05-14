@@ -1,6 +1,4 @@
-import json
 import uuid
-import dataclasses
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -15,6 +13,7 @@ from django.conf import settings
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from slack_sdk.errors import SlackApiError
 from temporalio.client import Client
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -43,7 +42,6 @@ from posthog.temporal.subscriptions.activities import (
 from posthog.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
-    CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliveryStatus,
     FetchDueSubscriptionsActivityInputs,
@@ -314,12 +312,18 @@ async def test_handle_subscription_value_change_email(
 
     # SLO events emitted exactly once (child only, not parent)
     started_calls = [
-        c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_started"
+        c
+        for c in mock_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_started"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(started_calls) == 1
 
     completed_calls = [
-        c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+        c
+        for c in mock_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(completed_calls) == 1
     assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS
@@ -711,6 +715,134 @@ async def test_validate_subscription_for_delivery(
     assert subscription.enabled is expected_final_enabled
 
 
+@pytest.mark.asyncio
+async def test_deliver_subscription_short_circuits_when_already_disabled(team, user):
+    """Activity retries that fire after the subscription is disabled must return
+    cleanly — re-entering the missing-integration branch would re-fire the
+    auto-disable side effects (event capture, email notification).
+    """
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="dis02", name="Already Disabled")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        insight=insight,
+        export_format="image/png",
+        content_location="s3://bucket/already-disabled.png",
+    )
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+        enabled=False,
+    )
+
+    env = ActivityEnvironment()
+
+    with patch("posthog.temporal.subscriptions.activities.disable_invalid_subscription") as disable_mock:
+        result = await env.run(
+            deliver_subscription,
+            DeliverSubscriptionInputs(
+                subscription_id=subscription.id,
+                exported_asset_ids=[asset.id],
+                total_insight_count=1,
+            ),
+        )
+
+    assert result.recipient_results == []
+    disable_mock.assert_not_called()
+
+
+async def _setup_slack_delivery_test_case(
+    team, user, slack_error_code: str
+) -> tuple[Subscription, DeliverSubscriptionInputs, MagicMock, SlackApiError]:
+    insight = await sync_to_async(Insight.objects.create)(
+        team=team, short_id=f"slk-{slack_error_code[:5]}", name=slack_error_code
+    )
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        insight=insight,
+        export_format="image/png",
+        content_location=f"s3://bucket/{slack_error_code}.png",
+    )
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+        enabled=True,
+    )
+    mock_integration = MagicMock()
+    mock_integration.kind = "slack"
+    slack_error = SlackApiError("Slack API error", response={"error": slack_error_code, "ok": False})
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id,
+        exported_asset_ids=[asset.id],
+        total_insight_count=1,
+    )
+    return subscription, inputs, mock_integration, slack_error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "slack_error_code, expect_auto_disable",
+    [
+        # User-config errors won't self-heal without user action — auto-disable.
+        ("invalid_auth", True),
+        ("account_inactive", True),
+        ("token_revoked", True),
+        ("is_archived", True),
+        ("channel_not_found", True),
+        ("not_in_channel", True),
+        # Transient errors propagate so Temporal retries.
+        ("internal_error", False),
+        ("rate_limited", False),
+    ],
+)
+async def test_deliver_subscription_handles_slack_api_errors(team, user, slack_error_code, expect_auto_disable):
+    subscription, inputs, mock_integration, slack_error = await _setup_slack_delivery_test_case(
+        team, user, slack_error_code
+    )
+
+    with (
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch(
+            "posthog.temporal.subscriptions.activities.get_slack_integration_for_team",
+            return_value=mock_integration,
+        ),
+        patch(
+            "posthog.temporal.subscriptions.activities.send_slack_message_with_integration_async",
+            new_callable=AsyncMock,
+            side_effect=slack_error,
+        ),
+        patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
+    ):
+        if expect_auto_disable:
+            result = await ActivityEnvironment().run(deliver_subscription, inputs)
+        else:
+            with pytest.raises(SlackApiError):
+                await ActivityEnvironment().run(deliver_subscription, inputs)
+            result = None
+
+    await sync_to_async(subscription.refresh_from_db)()
+    if expect_auto_disable:
+        # Two captures: the real SlackApiError, and the synthetic Exception from the auto-disable helper.
+        assert capture_mock.call_count == 2
+        assert subscription.enabled is False
+        send_mock.assert_called_once()
+        assert result is not None
+        assert result.recipient_results[0].status == "failed"
+        assert result.recipient_results[0].error == {
+            "message": "PostHog can no longer post to this Slack channel",
+            "type": "slack_permission_revoked",
+        }
+    else:
+        capture_mock.assert_called_once()
+        assert subscription.enabled is True
+        send_mock.assert_not_called()
+
+
 @patch("posthog.slo.events.posthoganalytics")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
@@ -737,8 +869,18 @@ async def test_create_export_assets_creates_exported_assets(
     assert asset.insight_id == insight.id
     assert asset.export_format == "image/png"
 
-    # SLO started is emitted by the interceptor, not this activity
-    mock_analytics.capture.assert_not_called()
+    # SLO started is emitted by the interceptor, not this activity. Internal QueryRunner.run()
+    # calls during snapshot build emit query_service SLO events — those are unrelated.
+    subscription_slo_calls = [
+        c
+        for c in mock_analytics.capture.call_args_list
+        if c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
+    ]
+    assert subscription_slo_calls == []
+    assert any(
+        c.kwargs.get("properties", {}).get("operation") == SloOperation.QUERY_SERVICE
+        for c in mock_analytics.capture.call_args_list
+    )
 
 
 @patch("posthog.temporal.subscriptions.activities.build_insight_delivery_snapshot")
@@ -884,65 +1026,34 @@ async def test_update_delivery_record_patches_status_and_results_without_touchin
     assert row.content_snapshot == initial_content_snapshot
     assert row.finished_at is not None
 
-
-@freeze_time("2022-02-02T08:55:00.000Z")
-@pytest.mark.asyncio
-async def test_update_delivery_record_merges_content_snapshot_for_legacy_replay(team, user):
-    # Rolling-deploy compat path: when a pre-patch workflow replays Phase 2.5
-    # on a new worker, it re-issues update_delivery_record with a populated
-    # content_snapshot. The activity must shallow-merge so that earlier keys
-    # (e.g. dashboard metadata written by create_delivery_record, or insights
-    # already written to Postgres by the new create_export_assets activity)
-    # are preserved, not overwritten, when the replayed payload only covers a
-    # subset of keys.
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="lgcy01", name="Legacy replay")
-    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
-
-    env = ActivityEnvironment()
-    delivery_id = await env.run(
-        create_delivery_record,
-        CreateDeliveryRecordInputs(
-            subscription_id=subscription.id,
-            team_id=team.id,
-            trigger_type=SubscriptionTriggerType.MANUAL,
-            temporal_workflow_id="wf-lgcy",
-            idempotency_key="idem-lgcy",
-            scheduled_at=None,
-        ),
-    )
-
-    # Simulate "create_export_assets already wrote insights to DB" — this is
-    # the state on a pre-patch workflow retry where the new activity persisted
-    # the snapshot before the workflow reaches the legacy Phase 2.5 replay.
+    # Rolling-deploy compat: the shallow-merge branch in update_delivery_record
+    # is still live for any pre-rollout workflow whose replay re-issues the old
+    # Phase 2.5 update_delivery_record command with a populated content_snapshot.
+    # Pin the merge semantics here (partial input preserves pre-existing keys,
+    # overwrites overlapping keys) until the content_snapshot field is removed
+    # in the subscriptions-patched-cleanup step-2 PR.
     await sync_to_async(
         SubscriptionDelivery.objects.filter(pk=delivery_id).update,
     )(content_snapshot={"id": 1, "short_id": "abc", "insights": [{"id": 99, "name": "inline-write"}]})
 
-    # Legacy replay with insights set should overwrite the insights key but
-    # preserve id/short_id set by create_delivery_record.
     await env.run(
         update_delivery_record,
         UpdateDeliveryRecordInputs(
             delivery_id=delivery_id,
             status=DeliveryStatus.STARTING,
-            content_snapshot={
-                "total_insight_count": 1,
-                "insights": [{"id": 99, "name": "replayed-insights"}],
-            },
+            content_snapshot={"total_insight_count": 1, "insights": [{"id": 99, "name": "replayed"}]},
         ),
     )
 
-    row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
-    # Top-level merge preserved id/short_id from the pre-existing content_snapshot.
-    assert row.content_snapshot["id"] == 1
-    assert row.content_snapshot["short_id"] == "abc"
-    # Replay's keys took precedence for the keys it included.
-    assert row.content_snapshot["total_insight_count"] == 1
-    assert row.content_snapshot["insights"] == [{"id": 99, "name": "replayed-insights"}]
+    merged = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert merged.content_snapshot["id"] == 1  # preserved
+    assert merged.content_snapshot["short_id"] == "abc"  # preserved
+    assert merged.content_snapshot["total_insight_count"] == 1  # added
+    assert merged.content_snapshot["insights"] == [{"id": 99, "name": "replayed"}]  # overwritten
 
-    # Legacy replay without the `insights` key (new activity returned
-    # insight_snapshots=None) must NOT wipe the insights already persisted by
-    # the new activity.
+    # Second replay whose payload omits `insights` must NOT wipe the key — a
+    # plain-assignment regression would clobber it, which is the failure mode
+    # the DO-NOT-change comment warns against.
     await env.run(
         update_delivery_record,
         UpdateDeliveryRecordInputs(
@@ -951,12 +1062,9 @@ async def test_update_delivery_record_merges_content_snapshot_for_legacy_replay(
             content_snapshot={"total_insight_count": 2},  # no insights key
         ),
     )
-
-    row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
-    # insights from the previous replay are preserved.
-    assert row.content_snapshot["insights"] == [{"id": 99, "name": "replayed-insights"}]
-    # total_insight_count was updated.
-    assert row.content_snapshot["total_insight_count"] == 2
+    merged2 = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert merged2.content_snapshot["insights"] == [{"id": 99, "name": "replayed"}]  # preserved
+    assert merged2.content_snapshot["total_insight_count"] == 2  # updated
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")
@@ -1074,8 +1182,18 @@ async def test_create_export_assets_dashboard_with_multiple_insights(
     )
 
     assert len(result.exported_asset_ids) == 3
-    # SLO started is emitted by the interceptor, not this activity
-    mock_analytics.capture.assert_not_called()
+    # SLO started is emitted by the interceptor, not this activity. Internal QueryRunner.run()
+    # calls during snapshot build emit query_service SLO events — those are unrelated.
+    subscription_slo_calls = [
+        c
+        for c in mock_analytics.capture.call_args_list
+        if c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
+    ]
+    assert subscription_slo_calls == []
+    assert any(
+        c.kwargs.get("properties", {}).get("operation") == SloOperation.QUERY_SERVICE
+        for c in mock_analytics.capture.call_args_list
+    )
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")
@@ -1241,12 +1359,18 @@ async def test_deliver_subscription_workflow_end_to_end(
 
     # Both started and completed events flow through posthog.slo.events
     started_calls = [
-        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_started"
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_started"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(started_calls) == 1
 
     completed_calls = [
-        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(completed_calls) == 1
     assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS
@@ -1521,7 +1645,10 @@ async def test_export_error_slo_outcome(
     assert state["calls"] == expected_calls
 
     completed_calls = [
-        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(completed_calls) == 1
     assert completed_calls[0].kwargs["properties"]["outcome"] == expected_outcome
@@ -1620,7 +1747,10 @@ async def test_partial_export_failure_delivers_successful_assets(
         assert len(delivered_assets) == 3
 
     completed_calls = [
-        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(completed_calls) == 1
     props = completed_calls[0].kwargs["properties"]
@@ -1638,50 +1768,6 @@ async def test_partial_export_failure_delivers_successful_assets(
     else:
         assert "error_type" not in props
         assert props["asset_errors"] == []
-
-
-def test_create_export_assets_result_fields_stable_reminder():
-    # Reminder-style guard: fails if a field is added to CreateExportAssetsResult
-    # without the author noticing. Temporal activity payloads are capped at
-    # ~2 MiB (TMPRL1103), so any new field must be size-bounded by construction
-    # — primitives, IDs, short strings, or small lists of primitives. Multi-MB
-    # data must be persisted from inside the activity (e.g. SubscriptionDelivery
-    # .content_snapshot via Postgres), not returned.
-    #
-    # Only the field name set is checked here — the test can't catch field
-    # *type* bloat (e.g. someone changing `target_type: str` to
-    # `target_type: dict[str, Any]`). That risk is caught at review time by the
-    # AGENTS.md rule on activity payload size.
-    small_metadata_fields = {
-        "exported_asset_ids",
-        "total_insight_count",
-        "team_id",
-        "distinct_id",
-        "target_type",
-    }
-    # Kept on the dataclass for rolling-deploy replay compatibility. New code
-    # does not populate them. Remove from this set when the fields are removed
-    # from types.py (after the subscriptions task queue has drained).
-    deprecated_fields = {"insight_snapshots"}
-    expected_fields = small_metadata_fields | deprecated_fields
-    actual_fields = {f.name for f in dataclasses.fields(CreateExportAssetsResult)}
-    assert actual_fields == expected_fields, (
-        f"CreateExportAssetsResult fields changed: added={actual_fields - expected_fields}, "
-        f"removed={expected_fields - actual_fields}. If adding a field, confirm it is "
-        f"size-bounded — Temporal activity payloads are capped at ~2 MiB (TMPRL1103). "
-        f"Persist multi-MB data from within the activity rather than returning it."
-    )
-
-    # Byte-ceiling sanity check: an empty result instance with default values
-    # stays well under any plausible payload concern. Catches accidental large
-    # defaults on new fields (e.g. a mutable default factory that pulls data).
-    empty = CreateExportAssetsResult(exported_asset_ids=[], total_insight_count=0)
-
-    encoded_size = len(json.dumps(dataclasses.asdict(empty), default=str).encode("utf-8"))
-    assert encoded_size < 1024, (
-        f"Empty CreateExportAssetsResult serialized to {encoded_size} bytes — larger than expected. "
-        f"New fields should not carry non-trivial default values."
-    )
 
 
 @patch("posthog.temporal.exports.activities.exporter")

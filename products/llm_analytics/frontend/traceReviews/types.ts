@@ -26,6 +26,7 @@ export interface TraceReviewScore {
 export interface TraceReview {
     id: string
     trace_id: string
+    trace_url: string
     comment: string | null
     created_at: string
     updated_at: string | null

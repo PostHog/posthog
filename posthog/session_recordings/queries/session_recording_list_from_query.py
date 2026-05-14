@@ -263,18 +263,31 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = []
 
+        # When both distinct_ids and person_uuid are provided (e.g. person profile
+        # replay tab), OR them together so we find:
+        #   - sessions recorded under the known distinct_ids (covers replay-only
+        #     sessions with no product analytics events), AND
+        #   - sessions linked via person_id on the events table through POE (covers
+        #     anonymous distinct IDs that aren't in person.distinct_ids yet)
+        person_subexprs: list[ast.Expr] = []
+
         if self._query.distinct_ids:
-            exprs.append(
+            person_subexprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["distinct_id"]),
                     right=ast.Constant(value=self._query.distinct_ids),
                 )
             )
-        else:
-            person_id_compare_operation = PersonsIdCompareOperation(self._team, self._query).get_operation()
-            if person_id_compare_operation:
-                exprs.append(person_id_compare_operation)
+
+        person_id_compare_operation = PersonsIdCompareOperation(self._team, self._query).get_operation()
+        if person_id_compare_operation:
+            person_subexprs.append(person_id_compare_operation)
+
+        if len(person_subexprs) == 1:
+            exprs.append(person_subexprs[0])
+        elif len(person_subexprs) > 1:
+            exprs.append(ast.Or(exprs=person_subexprs))
 
         # we check for session_ids type not for truthiness since we want to allow empty lists
         if isinstance(self._query.session_ids, list):

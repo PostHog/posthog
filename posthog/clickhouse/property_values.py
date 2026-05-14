@@ -49,7 +49,7 @@ SETTINGS
         table_name=TABLE_NAME,
         engine=AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED),
         extra_fields=""",
-    INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3)) GRANULARITY 1""",
+    INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3), preprocessor = lower(property_value)) GRANULARITY 1""",
     )
 
 

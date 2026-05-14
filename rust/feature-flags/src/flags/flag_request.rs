@@ -86,6 +86,8 @@ pub struct FlagRequest {
     pub evaluation_contexts: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evaluation_runtime: Option<EvaluationRuntime>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub override_flags_definitions: Option<HashMap<String, Value>>,
 }
 
 impl FlagRequest {

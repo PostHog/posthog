@@ -31,6 +31,11 @@ export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'd
     insightNumericId: QueryBasedInsightModel['id'] | 'new'
     dates: string[]
     ticks: { value: number }[]
+    /** Disambiguator for charts that mount more than one overlay against the same insight
+     *  (e.g. compare-against-previous renders one layer per period). Without it, both layers
+     *  would share the same kea instance and the second mount's `dates`/`ticks` would
+     *  overwrite the first. */
+    kind?: string
 }
 
 /** Week/month charts bucket annotations by day so distinct dates don't collapse into one badge. */
@@ -70,7 +75,7 @@ function hasPersonPropertyFiltersOrBreakdown(
 export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     path((key) => ['lib', 'components', 'Annotations', 'annotationsOverlayLogic', key]),
     props({ dashboardId: undefined } as AnnotationsOverlayLogicProps),
-    key(({ insightNumericId }) => insightNumericId),
+    key(({ insightNumericId, kind }) => (kind ? `${insightNumericId}::${kind}` : insightNumericId)),
     connect(() => ({
         values: [
             insightLogic,

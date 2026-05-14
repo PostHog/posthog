@@ -941,6 +941,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             lemonToast.error('Could not determine team')
                             return
                         }
+                        // nosemgrep: prefer-codegen-api
                         const fetchedEvaluation = await api.get<EvaluationConfig>(
                             `/api/environments/${teamId}/evaluations/${payload.sourceEvaluationId}/`
                         )
@@ -1118,6 +1119,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.update(`/api/environments/${teamId}/evaluations/${linkedSource.evaluationId}/`, {
                     evaluation_config: { prompt: prompt.systemPrompt },
                     ...(modelConfig ? { model_configuration: modelConfig } : {}),
@@ -1197,6 +1199,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
+                // nosemgrep: prefer-codegen-api
                 const created = await api.create<EvaluationConfig>(`/api/environments/${teamId}/evaluations/`, {
                     name,
                     evaluation_type: 'llm_judge',
