@@ -1,20 +1,13 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconExternal, IconGithub } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDialog,
-    LemonTable,
-    LemonTableColumns,
-    LemonTag,
-    PaginationManual,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTag, PaginationManual } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -23,6 +16,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CurrentDeploymentCard } from './components/CurrentDeploymentCard'
+import { openRedeployDialog, openRollbackDialog } from './components/deploymentActions'
 import { DeploymentsFilters } from './components/DeploymentsFilters'
 import { DeploymentStatusTag } from './components/DeploymentStatusTag'
 import { deploymentProjectLogic, DeploymentProjectLogicProps } from './deploymentProjectLogic'
@@ -64,33 +58,6 @@ function DeploymentProjectInner({ projectId }: DeploymentProjectLogicProps): JSX
         )
     }
 
-    const confirmRedeploy = (d: Deployment): void => {
-        LemonDialog.open({
-            title: 'Redeploy?',
-            description: `This will start a new deployment based on ${d.commit_sha || d.id}. It will run through the build pipeline before becoming current.`,
-            primaryButton: {
-                children: 'Redeploy',
-                type: 'primary',
-                onClick: () => redeployDeployment(d.id),
-            },
-            secondaryButton: { children: 'Cancel', type: 'secondary' },
-        })
-    }
-
-    const confirmRollback = (d: Deployment): void => {
-        LemonDialog.open({
-            title: 'Roll back to this deployment?',
-            description: `This will immediately make ${d.commit_message || d.id} current.`,
-            primaryButton: {
-                children: 'Roll back',
-                type: 'primary',
-                status: 'danger',
-                onClick: () => rollbackDeployment(d.id),
-            },
-            secondaryButton: { children: 'Cancel', type: 'secondary' },
-        })
-    }
-
     const columns: LemonTableColumns<Deployment> = [
         {
             title: 'Deployment',
@@ -111,20 +78,22 @@ function DeploymentProjectInner({ projectId }: DeploymentProjectLogicProps): JSX
         {
             title: 'Status',
             dataIndex: 'status',
-            sorter: (a, b) => a.status.localeCompare(b.status),
             render: (status) => <DeploymentStatusTag status={status as DeploymentStatus} />,
         },
         {
             title: 'Duration',
             dataIndex: 'duration_seconds',
-            sorter: (a, b) => (a.duration_seconds ?? -1) - (b.duration_seconds ?? -1),
             render: (_, d) => formatDuration(d.duration_seconds),
         },
-        createdAtColumn<Deployment>() as LemonTableColumns<Deployment>[number],
+        // Override the column's client-side sorter (`createdAtColumn` ships one)
+        // with `sorter: true`, then drive ordering from `filters.order` via the
+        // controlled `sorting`/`onSort` props on `LemonTable`. The list is
+        // server-paginated, so per-page sorts would silently misrepresent the
+        // full dataset.
+        { ...createdAtColumn<Deployment>(), sorter: true } as LemonTableColumns<Deployment>[number],
         {
             title: 'Author',
             dataIndex: 'commit_author_name',
-            sorter: (a, b) => (a.commit_author_name ?? '').localeCompare(b.commit_author_name ?? ''),
             render: (_, d) => (
                 <ProfilePicture
                     user={{
@@ -142,12 +111,12 @@ function DeploymentProjectInner({ projectId }: DeploymentProjectLogicProps): JSX
                 <More
                     overlay={
                         <>
-                            <LemonButton fullWidth onClick={() => confirmRedeploy(d)}>
+                            <LemonButton fullWidth onClick={() => openRedeployDialog(d, redeployDeployment)}>
                                 Redeploy
                             </LemonButton>
                             <LemonButton
                                 fullWidth
-                                onClick={() => confirmRollback(d)}
+                                onClick={() => openRollbackDialog(d, rollbackDeployment)}
                                 disabledReason={d.is_current ? 'Already current' : undefined}
                             >
                                 Rollback
@@ -179,6 +148,24 @@ function DeploymentProjectInner({ projectId }: DeploymentProjectLogicProps): JSX
         entryCount: deploymentsCount,
         onForward: () => setFilters({ page: filters.page + 1 }),
         onBackward: () => setFilters({ page: Math.max(1, filters.page - 1) }),
+    }
+
+    // Translate the backend `ordering` string (`field` or `-field`) into the
+    // LemonTable's controlled-sort shape, and back again on click. The backend
+    // only supports `created_at` / `started_at` / `finished_at` today, so
+    // only the Created column is marked sortable.
+    const sorting: Sorting | null = filters.order
+        ? {
+              columnKey: filters.order.startsWith('-') ? filters.order.slice(1) : filters.order,
+              order: filters.order.startsWith('-') ? -1 : 1,
+          }
+        : null
+    const handleSort = (next: Sorting | null): void => {
+        if (!next) {
+            setFilters({ order: '-created_at' })
+            return
+        }
+        setFilters({ order: `${next.order === -1 ? '-' : ''}${next.columnKey}` })
     }
 
     const repoLabel = deploymentProject?.repo_url?.replace('https://github.com/', '')
@@ -232,6 +219,9 @@ function DeploymentProjectInner({ projectId }: DeploymentProjectLogicProps): JSX
                         pagination={pagination}
                         rowKey="id"
                         data-attr="deployments-table"
+                        sorting={sorting}
+                        onSort={handleSort}
+                        useURLForSorting={false}
                     />
                 </>
             )}

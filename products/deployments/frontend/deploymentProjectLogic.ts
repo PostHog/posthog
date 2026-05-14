@@ -91,7 +91,7 @@ export const deploymentProjectLogic = kea<deploymentProjectLogicType>([
     key((p) => p.projectId),
     path((projectId) => ['products', 'deployments', 'frontend', 'deploymentProjectLogic', projectId]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], deploymentsLogic, ['deploymentProjects']],
+        values: [teamLogic, ['currentTeamId'], deploymentsLogic, ['deploymentProjects', 'deploymentProjectsLoading']],
         actions: [deploymentsLogic, ['loadDeploymentProjects']],
     })),
     actions({
@@ -206,22 +206,6 @@ export const deploymentProjectLogic = kea<deploymentProjectLogicType>([
             (response: PaginatedDeploymentListApi | null): number => response?.count ?? 0,
         ],
         deploymentsLoading: [(s) => [s.deploymentsResponseLoading], (loading: boolean): boolean => loading],
-        authorOptions: [
-            (s) => [s.deployments],
-            (rows: DeploymentApi[]): { label: string; value: string }[] => {
-                const seen = new Map<string, string>()
-                rows.forEach((d) => {
-                    const email = d.commit_author_email ?? ''
-                    const name = d.commit_author_name ?? ''
-                    if (email && !seen.has(email)) {
-                        seen.set(email, name || email)
-                    }
-                })
-                return Array.from(seen.entries())
-                    .map(([email, name]) => ({ label: name, value: email }))
-                    .sort((a, b) => a.label.localeCompare(b.label))
-            },
-        ],
         hasActiveFilters: [
             (s) => [s.filters],
             (filters: DeploymentsFilters): boolean => !!filters.search || !!filters.author || filters.status.length > 0,
@@ -263,7 +247,11 @@ export const deploymentProjectLogic = kea<deploymentProjectLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
-        if (values.deploymentProjects.length === 0) {
+        // `deploymentsLogic` mounts first via `connect()`, and its own
+        // `afterMount` already triggers `loadDeploymentProjects`. Without
+        // the loading guard this `afterMount` would issue a redundant
+        // parallel request on cold start.
+        if (values.deploymentProjects.length === 0 && !values.deploymentProjectsLoading) {
             actions.loadDeploymentProjects()
         }
         actions.loadDeployments()

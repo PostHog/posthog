@@ -22,6 +22,18 @@ describe('deploymentsLogic (grid)', () => {
                     200,
                     { count: 2, next: null, previous: null, results: [projectA, projectB] },
                 ],
+                // Each fixture project has a `current_deployment` set by
+                // `makeProject`, so the grid's fan-out takes the
+                // retrieve-by-id path. List is the fallback for
+                // never-deployed projects — mocked too so tests that null
+                // out `current_deployment` still resolve.
+                '/api/projects/:team/deployment_projects/:project_id/deployments/:id/': (req) => [
+                    200,
+                    makeDeployment(String(req.params.id), {
+                        project: String(req.params.project_id),
+                        is_current: true,
+                    }),
+                ],
                 '/api/projects/:team/deployment_projects/:project_id/deployments/': (req) => [
                     200,
                     {
