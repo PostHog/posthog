@@ -102,6 +102,8 @@ SESSION_INTENTS: list[str] = [
     "Replay the signup session where the user got stuck so we can file a precise bug report.",
     "Pull the latest exception issue tied to the deploy so on-call can triage the regression.",
 ]
+
+
 class Command(BaseCommand):
     help = "Seed mcp_tool_call events into ClickHouse for local testing of MCP analytics."
 
