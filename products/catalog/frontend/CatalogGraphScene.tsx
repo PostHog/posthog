@@ -22,6 +22,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { CatalogGraphNode } from './CatalogGraphNode'
 import { catalogGraphSceneLogic } from './catalogGraphSceneLogic'
 import { CatalogGraphSidePanel } from './CatalogGraphSidePanel'
+import { CatalogPageTabs } from './CatalogPageTabs'
 
 const FIT_VIEW_OPTIONS = { padding: 0.15 }
 
@@ -60,10 +61,11 @@ function CatalogGraphSceneContent(): JSX.Element {
         return (
             <SceneContent>
                 <SceneTitleSection
-                    name="Graph"
-                    description="The catalog as a graph — nodes are tables, edges are proposed or accepted relationships."
+                    name="Catalog"
+                    description="Tables, saved queries, and system tables tracked by the semantic layer."
                     resourceType={{ type: 'data_warehouse' }}
                 />
+                <CatalogPageTabs activeTab="graph" />
                 <div className="text-secondary text-sm border rounded p-6 text-center">
                     No catalog nodes yet. Run the traversal workflow to populate the graph.
                 </div>
@@ -74,11 +76,12 @@ function CatalogGraphSceneContent(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Graph"
+                name="Catalog"
                 description={`${graph.nodes.length} nodes · ${graph.relationships.length} relationships`}
                 resourceType={{ type: 'data_warehouse' }}
             />
-            <div className="relative border rounded" style={{ height: 'calc(100vh - 220px)', minHeight: 480 }}>
+            <CatalogPageTabs activeTab="graph" />
+            <div className="relative border rounded" style={{ height: 'calc(100vh - 280px)', minHeight: 480 }}>
                 <ReactFlow
                     nodes={reactFlowNodes}
                     edges={reactFlowEdges}

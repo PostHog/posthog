@@ -4,7 +4,6 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
@@ -165,13 +164,7 @@ export const catalogGraphSceneLogic = kea<catalogGraphSceneLogicType>([
                 })
             },
         ],
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
-                { key: 'catalog', name: 'Catalog', path: urls.catalog() },
-                { key: 'graph', name: 'Graph' },
-            ],
-        ],
+        breadcrumbs: [() => [], (): Breadcrumb[] => [{ key: 'catalog', name: 'Catalog' }]],
     }),
 
     listeners(({ actions }) => ({

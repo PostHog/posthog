@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconGraph } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -15,6 +14,7 @@ import type { CatalogNodeDTOApi } from 'products/catalog/frontend/generated/api.
 
 import { STATUS_COLOR, STATUS_LABEL } from './catalogConstants'
 import { catalogListSceneLogic } from './catalogListSceneLogic'
+import { CatalogPageTabs } from './CatalogPageTabs'
 
 export const scene: SceneExport = {
     component: CatalogListScene,
@@ -79,12 +79,8 @@ export function CatalogListScene(): JSX.Element {
                 name="Catalog"
                 description="Tables, saved queries, and system tables tracked by the semantic layer."
                 resourceType={{ type: 'data_warehouse' }}
-                actions={
-                    <LemonButton type="secondary" icon={<IconGraph />} to={urls.catalogGraph()}>
-                        Graph view
-                    </LemonButton>
-                }
             />
+            <CatalogPageTabs activeTab="list" />
             <LemonTable
                 dataSource={nodes}
                 columns={tableColumns}
