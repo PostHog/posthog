@@ -30,7 +30,7 @@ export function CatalogProposalsScene(): JSX.Element {
     const isRejectedView = activeCategory === 'rejected_relationships'
 
     return (
-        <SceneContent>
+        <SceneContent className="min-h-[calc(100vh-var(--scene-layout-header-height)-var(--scene-padding)-var(--scene-padding-bottom))]">
             <SceneTitleSection
                 name="Semantic layer"
                 description="Review AI-generated proposals — new definitions, drift alerts, and relationships — before they reach your semantic layer."
@@ -38,7 +38,7 @@ export function CatalogProposalsScene(): JSX.Element {
             />
             <CatalogPageTabs activeTab="proposals" />
 
-            <div className="flex gap-4 h-[calc(100vh-280px)] min-h-[480px] items-stretch">
+            <div className="flex gap-4 flex-1 min-h-[480px] items-stretch">
                 <ProposalCategoryRail />
 
                 <div className="flex flex-col gap-2 w-96 shrink-0">
