@@ -31172,6 +31172,20 @@ export namespace Schemas {
       max_proxy_records: number;
     }
 
+    /**
+     * * `ios` - iOS
+    * `android` - Android
+    * `web` - Web
+     */
+    export type PushTokenPlatformEnum = typeof PushTokenPlatformEnum[keyof typeof PushTokenPlatformEnum];
+
+
+    export const PushTokenPlatformEnum = {
+      Ios: 'ios',
+      Android: 'android',
+      Web: 'web',
+    } as const;
+
     export interface QuarantineInput {
       /** @maxLength 512 */
       identifier: string;
@@ -35012,6 +35026,43 @@ export namespace Schemas {
       install_url: string;
       /** OAuth or install flow used for this GitHub connection. */
       connect_flow: string;
+    }
+
+    export interface UserPushTokenItem {
+      /** PostHog UserPushToken row id. */
+      id: string;
+      /** Device platform the token was issued for.
+
+      * `ios` - iOS
+      * `android` - Android
+      * `web` - Web */
+      platform: PushTokenPlatformEnum;
+      /** When this token was first registered. */
+      created_at: string;
+      /** Last time the mobile app re-registered this token. */
+      last_seen_at: string;
+    }
+
+    export interface UserPushTokenRegisterRequest {
+      /**
+         * Opaque push token issued by the device's platform push service (e.g. an Expo push token).
+         * @maxLength 512
+         */
+      token: string;
+      /** Device platform the token was issued for. One of `ios`, `android`, or `web`.
+
+      * `ios` - iOS
+      * `android` - Android
+      * `web` - Web */
+      platform: PushTokenPlatformEnum;
+    }
+
+    export interface UserPushTokenUnregisterRequest {
+      /**
+         * The opaque push token to remove for the authenticated user.
+         * @maxLength 512
+         */
+      token: string;
     }
 
     export interface UtmEvent {
