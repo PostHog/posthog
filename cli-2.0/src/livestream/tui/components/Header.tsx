@@ -1,6 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import { colors } from '../colors.js'
+import { sanitize } from '../sanitize.js'
 
 type HeaderProps = {
   teamName: string
@@ -58,7 +59,7 @@ export const Header = ({
         {eventFilter && (
           <Box gap={1}>
             <Text color={colors.textMuted}>event:</Text>
-            <Text color={colors.blue}>{eventFilter}</Text>
+            <Text color={colors.blue}>{sanitize(eventFilter)}</Text>
             <Text color={colors.textDim}>[f]</Text>
           </Box>
         )}
@@ -66,13 +67,13 @@ export const Header = ({
         {distinctIdFilter && (
           <Box gap={1}>
             <Text color={colors.textMuted}>id:</Text>
-            <Text color={colors.blue}>{distinctIdFilter}</Text>
+            <Text color={colors.blue}>{sanitize(distinctIdFilter)}</Text>
             <Text color={colors.textDim}>[d]</Text>
           </Box>
         )}
       </Box>
 
-      <Text color={colors.textMuted}>{teamName}</Text>
+      <Text color={colors.textMuted}>{sanitize(teamName)}</Text>
     </Box>
   )
 }

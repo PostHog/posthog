@@ -1,6 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import { colors, getEventColor } from '../colors.js'
+import { sanitize } from '../sanitize.js'
 import type { EventMsg } from '../../types.js'
 
 type EventsTableProps = {
@@ -43,21 +44,23 @@ const EventRow = ({
   const timeWidth = 8
   const urlWidth = Math.max(20, width - eventWidth - distinctIdWidth - timeWidth - 10)
 
-  // Get URL from properties
-  const url = (event.properties?.$current_url as string) || ''
+  // Get URL from properties - sanitize all user-controlled fields
+  const url = sanitize(event.properties?.$current_url ?? '')
   const displayUrl = url.replace(/^https?:\/\//, '').replace(/\/$/, '')
+  const eventName = sanitize(event.event)
+  const distinctId = sanitize(event.distinct_id)
 
   return (
     <Box>
       <Text color={isSelected ? colors.orange : colors.textDim}>{prefix} </Text>
       <Box width={eventWidth}>
         <Text color={eventColor} bold={isSelected}>
-          {truncate(event.event, eventWidth - 1)}
+          {truncate(eventName, eventWidth - 1)}
         </Text>
       </Box>
       <Box width={distinctIdWidth}>
         <Text color={isSelected ? colors.text : colors.textMuted}>
-          {truncate(event.distinct_id, distinctIdWidth - 1)}
+          {truncate(distinctId, distinctIdWidth - 1)}
         </Text>
       </Box>
       <Box width={urlWidth}>
@@ -78,8 +81,9 @@ export const EventsTable = ({ events, selectedIndex, height }: EventsTableProps)
   // Get terminal width (default to 120 if not available)
   const width = process.stdout.columns || 120
 
-  // Calculate visible window
-  const visibleEvents = events.slice(0, height)
+  // Calculate visible window anchored to selected index
+  const startIndex = Math.max(0, Math.min(selectedIndex, events.length - height))
+  const visibleEvents = events.slice(startIndex, startIndex + height)
 
   return (
     <Box flexDirection="column" borderStyle="single" borderColor={colors.border} borderTop={false}>
@@ -111,7 +115,7 @@ export const EventsTable = ({ events, selectedIndex, height }: EventsTableProps)
             <EventRow
               key={event.uuid}
               event={event}
-              isSelected={index === selectedIndex}
+              isSelected={index + startIndex === selectedIndex}
               width={width - 4}
             />
           ))

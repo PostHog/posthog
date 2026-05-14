@@ -1,6 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import { colors } from '../colors.js'
+import { sanitize, sanitizeJson } from '../sanitize.js'
 import type { EventMsg } from '../../types.js'
 
 type EventDetailProps = {
@@ -12,21 +13,21 @@ type EventDetailProps = {
 const formatValue = (value: unknown): string => {
   if (value === null) return 'null'
   if (value === undefined) return 'undefined'
-  if (typeof value === 'string') return `"${value}"`
-  if (typeof value === 'object') return JSON.stringify(value, null, 2)
-  return String(value)
+  if (typeof value === 'string') return `"${sanitize(value)}"`
+  if (typeof value === 'object') return sanitizeJson(value)
+  return sanitize(value)
 }
 
 export const EventDetail = ({ event, scrollOffset, height }: EventDetailProps) => {
   const width = (process.stdout.columns || 120) - 8
 
-  // Build content lines
+  // Build content lines - sanitize all user-controlled fields
   const lines: Array<{ label?: string; value: string; color?: string }> = [
-    { label: 'UUID', value: event.uuid, color: colors.textMuted },
-    { label: 'Event', value: event.event, color: colors.orange },
+    { label: 'UUID', value: sanitize(event.uuid), color: colors.textMuted },
+    { label: 'Event', value: sanitize(event.event), color: colors.orange },
     { label: 'Timestamp', value: new Date(event.timestamp as string).toISOString(), color: colors.text },
-    { label: 'Distinct ID', value: event.distinct_id, color: colors.blue },
-    { label: 'Person ID', value: event.person_id || '(none)', color: colors.textMuted },
+    { label: 'Distinct ID', value: sanitize(event.distinct_id), color: colors.blue },
+    { label: 'Person ID', value: sanitize(event.person_id) || '(none)', color: colors.textMuted },
     { value: '' }, // Spacer
     { label: 'Properties', value: '', color: colors.yellow },
   ]
@@ -39,7 +40,7 @@ export const EventDetail = ({ event, scrollOffset, height }: EventDetailProps) =
 
     // Handle multi-line values
     const valueLines = formattedValue.split('\n')
-    lines.push({ label: `  ${key}`, value: valueLines[0], color: colors.text })
+    lines.push({ label: `  ${sanitize(key)}`, value: valueLines[0], color: colors.text })
     for (let i = 1; i < valueLines.length; i++) {
       lines.push({ value: `    ${valueLines[i]}`, color: colors.textDim })
     }
