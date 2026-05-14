@@ -1,35 +1,43 @@
 ---
 name: diagnosing-sourcemap-symbolication
 description: >
-  Help users debug PostHog Error Tracking source map and symbol set setup. Works either from inside a JavaScript or
-  TypeScript app repo, or with PostHog MCP access alone when the repo is unavailable. Use when stack traces stay
-  minified after source maps are uploaded, PostHog symbol sets show last_used but frames are not readable, chunk IDs
-  do not match, "Token not found" appears, uploaded maps look empty, or Vite/Rollup/Webpack/Next/Nuxt sourcemap
-  configuration needs troubleshooting.
+  Help users debug PostHog Error Tracking symbolication setup for any supported platform — JavaScript/TypeScript web,
+  React Native (Hermes), Android (Proguard/R8), or iOS/macOS (dSYM). The symbol-set lookup flow is universal across
+  platforms; build-tool and artifact details live in per-platform references (JavaScript is fleshed out, others come
+  as we encounter them). Use when stack traces stay minified after symbols are uploaded, PostHog symbol sets show
+  last_used but frames are not readable, chunk IDs do not match, "Token not found" appears, uploaded maps look empty,
+  or bundler/sourcemap configuration needs troubleshooting.
 ---
 
 # Diagnosing sourcemap symbolication
 
-Work through the user's app build and PostHog symbol sets as one pipeline: build config -> generated JS and `.map`
-files -> uploaded symbol set -> captured error frame. Most failures become obvious once those four pieces are checked
-in order.
+Work through the user's build and PostHog symbol sets as one pipeline: build config -> generated symbol artifacts
+(JavaScript source maps, Hermes maps, Proguard mappings, or dSYM bundles) -> uploaded symbol set in PostHog ->
+captured error frame. Most failures become obvious once those four pieces are checked in order.
+
+## Platforms
+
+| Platform                    | Symbol-data type | Reference                                   |
+| --------------------------- | ---------------- | ------------------------------------------- |
+| JavaScript / TypeScript web | source-and-map   | [javascript.md](./references/javascript.md) |
+| React Native (Hermes)       | hermes           | _coming soon_                               |
+| Android (Proguard / R8)     | proguard         | _coming soon_                               |
+| iOS / macOS (dSYM)          | apple-dsym       | _coming soon_                               |
+
+Step 3 of the workflow (symbol-set lookup in PostHog) is identical across platforms — `posthog-cli symbol-sets
+extract` handles all four container types. Steps 1, 2, and the platform-specific failure modes live in the
+per-platform reference.
 
 ## Workflow
 
-### Step 1 - Find how source maps are produced and uploaded
+### Step 1 - Find how symbol data is produced and uploaded
 
-Start in the app repo. Inspect `package.json` scripts and the relevant build config:
+Look at the app repo's build scripts and PostHog upload config. Confirm which PostHog package handles the upload
+(`@posthog/rollup-plugin`, `@posthog/webpack-plugin`, `@posthog/nextjs-config`, `@posthog/nuxt`, or direct
+`posthog-cli`) and which directory or asset it processes. See the platform reference for build-tool-specific
+config inspection.
 
-- Vite/Rollup: `vite.config.*`, `rollup.config.*`
-- Webpack: `webpack.config.*`
-- Next.js: `next.config.*`
-- Nuxt: `nuxt.config.*`
-
-Check which PostHog package uploads maps (`@posthog/rollup-plugin`, `@posthog/webpack-plugin`,
-`@posthog/nextjs-config`, `@posthog/nuxt`, or direct `posthog-cli`) and which directory it processes. Confirm the
-configured `projectId`, `host`, release fields, and `deleteAfterUpload` behavior.
-
-For debugging, prefer a build where maps remain on disk:
+For debugging, prefer a build where symbol artifacts remain on disk:
 
 ```ts
 sourcemaps: {
@@ -40,49 +48,12 @@ sourcemaps: {
 
 ### Step 2 - Build and inspect local artifacts
 
-Run the same production build that uploads maps. Use the repo's package manager and existing scripts.
+Run the production build that uploads symbols, then inspect the emitted files locally. The exact files and helper
+invocation differ per platform — see the platform reference for the helper command, expected file shape, and common
+build-time pitfalls (notably empty-mappings false positives that look like upload bugs but are actually bundler
+config issues).
 
-Then inspect the generated files:
-
-```bash
-python3 <skill_dir>/scripts/inspect_sourcemaps.py dist
-```
-
-Resolve `scripts/inspect_sourcemaps.py` relative to this skill directory. The helper accepts individual JS/map
-files, directories, and glob patterns. For PostHog symbol-data containers downloaded from the API, extract them
-with `posthog-cli symbol-sets extract` first (see Step 3) and then point the helper at the extracted directory.
-
-Look for:
-
-- JS files contain a `chunkId` marker or `_posthogChunkIds` registration.
-- `.map` files are valid JSON.
-- `.map` files have non-empty `mappings`.
-- `.map` files have plausible `sources`; `sourcesContent` is strongly preferred for source context.
-- The files inspected locally are the files deployed to production.
-
-If local maps already have empty `mappings` or empty `sources`, fix the build config before debugging PostHog upload.
-
-### Step 2.5 - Smoking gun: empty `mappings`
-
-If `inspect_sourcemaps.py` reports `"empty_mappings": true` on a `.map` file (and `sources_length: 0`,
-`names_length: 0`), the bundler emitted a structurally valid but data-less source map. This is the single
-strongest signal that the bug is upstream of PostHog upload — the CLI faithfully uploads whatever is on disk.
-
-For Vite/Rollup this can happen when `config.build.sourcemap` was unset and a Vite-internal plugin
-(`vite:css-post`, `vite:build-import-analysis`) skipped sourcemap generation during `renderChunk` because it reads
-`config.build.sourcemap` directly rather than the Rollup output option. This is reproducible in Vite 7/Rollup builds
-with CSS/IIFE/import-analysis paths. Check the build log for:
-
-```text
-[plugin vite:css-post] Sourcemap is likely to be incorrect: a plugin (vite:css-post) was used to transform files,
-but didn't generate a sourcemap for the transformation
-```
-
-Workaround: set `build.sourcemap: 'hidden'` (or `true`) in `vite.config.*`. Hidden maps still get uploaded but are
-not advertised via `sourceMappingURL` in the served JS.
-
-For other bundlers, the same class of bug shows up when a transform/plugin returns a sourcemap object with empty
-fields instead of `null`. Inspect the local artifact first, before suspecting upload or processing.
+If local artifacts already look wrong, fix the build before debugging the PostHog upload.
 
 ### Step 3 - Check symbol sets in PostHog
 
@@ -104,44 +75,67 @@ Interpret the row:
 - `has_uploaded_file: false` means the upload did not complete.
 - A non-null `failure_reason` means PostHog could not parse or load the uploaded symbol data.
 
-The downloaded file is a PostHog symbol-data container (compressed Rust-encoded payload with embedded minified
-source plus source map), not plain JSON. Extract it with `posthog-cli`, then summarize:
+The downloaded file is a PostHog symbol-data container (compressed Rust-encoded payload), not plain JSON. Extract
+it with `posthog-cli`:
 
 ```bash
 posthog-cli symbol-sets extract symbolset.bin -o ./extracted
 # or, without installing globally:
 #   npx @posthog/cli symbol-sets extract symbolset.bin -o ./extracted
 #   bunx @posthog/cli symbol-sets extract symbolset.bin -o ./extracted
-
-python3 <skill_dir>/scripts/inspect_sourcemaps.py ./extracted
 ```
 
 `posthog-cli symbol-sets extract` handles all four symbol-set types (source-and-map, hermes, proguard, dSYM) and
-writes the extracted files into the output directory.
+writes the extracted files into the output directory. Once extracted, summarize using the platform reference's
+helper.
 
 ### Step 4 - Compare local, uploaded, and served files
 
 Use the failure location to decide what to compare:
 
-- Local map empty and uploaded map empty: build tool emitted an unusable map.
-- Local map valid but uploaded map empty: upload processing selected or packed the wrong data.
-- Uploaded map valid but production stack stays minified: compare deployed JS bytes to the JS that was uploaded with the
-  map.
-- `Token not found`: PostHog loaded the map, but the captured generated line/column did not match any token in that map.
-  This usually points to changed JS after upload, wrong line/column capture, or a source-map coverage bug.
+- Local artifact empty and uploaded artifact empty: build tool emitted unusable symbols.
+- Local artifact valid but uploaded artifact empty: upload processing selected or packed the wrong data.
+- Uploaded artifact valid but production stack stays minified: compare deployed binary bytes to the binary that was
+  uploaded with the symbols.
+- `Token not found`: PostHog loaded the map, but the captured generated position did not match any token. Usually
+  points to changed binary after upload, wrong line/column capture, or a symbol-coverage bug.
 
 ### Step 5 - Fix the most likely layer
 
-Common fixes:
+Platform-neutral fixes:
 
-- Enable production source maps in the bundler (`build.sourcemap: true` or `hidden` for Vite/Rollup).
-- Move the PostHog plugin later so it sees final emitted JS chunks.
-- Remove post-build minification, CDN rewrites, asset transforms, or compression steps that change JS after upload.
-- Upload after the final build output exists, not before a later build step rewrites it.
+- Upload symbols after the final build output exists, not before a later step rewrites it.
 - Use the latest PostHog build plugin and `posthog-cli`.
-- Re-upload changed assets intentionally when the same `chunk_id` was previously uploaded with different content.
+- Re-upload changed assets intentionally when the same `ref` was previously uploaded with different content.
+- Remove deployment-time transforms (CDN minify, edge rewrites, compression) that change the served binary after
+  upload.
 
-## Reference
+Platform-specific fixes live in the platform reference.
 
-For exact commands, MCP tool usage, and a failure matrix, read
-[sourcemap-debugging.md](./references/sourcemap-debugging.md).
+## Captured frame checks
+
+From an affected PostHog error event, collect one minified application frame:
+
+- `filename`
+- `line` or `lineno`
+- `column` or `colno`
+- `function`
+- `chunk_id` (or platform-equivalent symbol-set ref)
+- any `resolve_failure`, especially `Token not found`
+
+The frame `filename` should match the deployed binary URL. The `chunk_id` should match the symbol set `ref`. The
+captured generated position should point into the same binary that was uploaded with the symbol data.
+
+## Failure matrix (cross-platform)
+
+| Evidence                                         | Likely cause                                                            | Next check                                                            |
+| ------------------------------------------------ | ----------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| No `chunk_id` on frames                          | Chunk ID injection missing or SDK frame parser did not map the filename | Inspect deployed binary and raw frame filenames.                      |
+| Symbol set row missing                           | Upload went to another PostHog project/host or skipped this asset       | Compare plugin `projectId`, `host`, and `ref`.                        |
+| `has_uploaded_file: false`                       | Upload did not finish                                                   | Check build logs; compare `posthog-cli` output to the symbol set row. |
+| Non-null `failure_reason`                        | PostHog could not parse the uploaded symbol data                        | Download via Step 3 and inspect the extracted contents.               |
+| Uploaded artifact valid, deployed binary differs | Deployment/CDN/post-build transform changed the binary after upload     | Compare deployed bytes to local build output.                         |
+| `Token not found`                                | Captured position has no token in the uploaded map                      | Verify captured position, deployed binary identity, and map coverage. |
+
+Platform-specific failure modes (empty `mappings`, missing `sourcesContent`, Hermes function-offset mismatch,
+Proguard class-name drift, dSYM UUID mismatch) live in the platform reference.

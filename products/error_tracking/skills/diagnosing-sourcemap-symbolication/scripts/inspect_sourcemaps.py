@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Summarize JavaScript source maps and emitted JS chunks for PostHog symbolication debugging.
 
+JavaScript-only. Hermes, Proguard, and dSYM symbolication are handled by other tools — see the
+parent skill (../SKILL.md) and the per-platform references for those.
+
 Operates on plain `.js` / `.map` files only. To inspect a PostHog symbol-data container downloaded
 from the API, extract it first with `posthog-cli symbol-sets extract <file> -o <dir>` (or
 `npx @posthog/cli ...` / `bunx @posthog/cli ...`) and point this script at the resulting directory.
