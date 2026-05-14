@@ -3,6 +3,7 @@
         "target": "ES2020", // Target a recent version of ECMAScript.
         "module": "nodenext", // Module format inferred from package.json `type` (CJS when absent).
         "outDir": "./dist", // Output directory for the compiled JavaScript files.
+        "rootDir": "./src", // TS 6.0 requires explicit rootDir when outDir is set (TS5011).
         "strict": true, // Enable all strict type-checking options.
         "esModuleInterop": true, // Allows default imports from modules with no default export.
         "skipLibCheck": true, // Skip type checking of declaration files.
