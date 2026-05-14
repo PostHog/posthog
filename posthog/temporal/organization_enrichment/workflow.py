@@ -142,6 +142,17 @@ async def enrich_organization_chunk(inputs: EnrichOrganizationChunkInputs) -> di
     from ee.billing.salesforce_enrichment.harmonic_client import AsyncHarmonicClient
 
     capture_client = _build_capture_client()
+    # Org enrichment's only persistence path is the PostHog capture client
+    # (no local DB write — groups live in the target project). Fail loudly
+    # rather than spinning up Harmonic, paying for the lookup, and then
+    # silently dropping every result while still reporting `enriched: N`.
+    if capture_client is None:
+        raise RuntimeError(
+            "Cannot run organization enrichment without a capture client — "
+            "set PEOPLE_ENRICHMENT_POSTHOG_API_KEY so the workflow has somewhere "
+            "to write `$groupidentify` + `organization_enriched` events."
+        )
+
     enriched_count = 0
     no_match_count = 0
     errors: list[str] = []
@@ -164,8 +175,6 @@ async def enrich_organization_chunk(inputs: EnrichOrganizationChunkInputs) -> di
         results = await asyncio.gather(*(_enrich_one(t) for t in inputs.targets))
 
     def _emit(target: OrganizationTarget, fields: dict[str, typing.Any]) -> None:
-        if not capture_client:
-            return
         non_null_fields = {k: v for k, v in fields.items() if v is not None}
         # `$groupidentify` updates the group's properties via the ingestion
         # pipeline (equivalent to `posthog.set` but for groups).

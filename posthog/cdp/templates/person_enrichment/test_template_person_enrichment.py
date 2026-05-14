@@ -53,8 +53,9 @@ class TestTemplatePersonEnrichment(BaseHogFunctionTemplateTest):
         assert self.get_mock_fetch_calls() == []
 
     def test_emits_set_with_curated_fields_on_match(self):
+        # The hog template URL-encodes the email, so `@` becomes `%40`.
         self.fetch_responses = {
-            "https://api.peopledatalabs.com/v5/person/enrich?email=abhischek@posthog.com&min_likelihood=4": GOOD_PDL_RESPONSE,
+            "https://api.peopledatalabs.com/v5/person/enrich?email=abhischek%40posthog.com&min_likelihood=4": GOOD_PDL_RESPONSE,
         }
         self.run_function(inputs=self._inputs())
 
@@ -62,7 +63,9 @@ class TestTemplatePersonEnrichment(BaseHogFunctionTemplateTest):
         assert len(fetch_calls) == 1
         url, options = fetch_calls[0]
         assert url.startswith(PDL_URL_PREFIX)
-        assert "email=abhischek@posthog.com" in url
+        # Email is URL-encoded to prevent query-parameter injection.
+        assert "email=abhischek%40posthog.com" in url
+        assert "email=abhischek@posthog.com" not in url
         # API key must be in the header, not the URL query string.
         assert "api_key=" not in url
         assert options == {"method": "GET", "headers": {"X-Api-Key": "PDL_KEY"}}
@@ -85,7 +88,7 @@ class TestTemplatePersonEnrichment(BaseHogFunctionTemplateTest):
 
     def test_no_match_when_pdl_404s(self):
         self.fetch_responses = {
-            "https://api.peopledatalabs.com/v5/person/enrich?email=abhischek@posthog.com&min_likelihood=4": {
+            "https://api.peopledatalabs.com/v5/person/enrich?email=abhischek%40posthog.com&min_likelihood=4": {
                 "status": 404,
                 "body": {},
             },
@@ -95,7 +98,7 @@ class TestTemplatePersonEnrichment(BaseHogFunctionTemplateTest):
 
     def test_exits_cleanly_on_pdl_402(self):
         self.fetch_responses = {
-            "https://api.peopledatalabs.com/v5/person/enrich?email=abhischek@posthog.com&min_likelihood=4": {
+            "https://api.peopledatalabs.com/v5/person/enrich?email=abhischek%40posthog.com&min_likelihood=4": {
                 "status": 402,
                 "body": {},
             },

@@ -64,7 +64,10 @@ if (empty(pdl_api_key)) {
 // appear verbatim in server-side access logs on both sides of the connection,
 // so embedding the credential there is a needless exposure surface. The email
 // has to stay in the URL — PDL's `/person/enrich` requires it there.
-let pdl_url := f'https://api.peopledatalabs.com/v5/person/enrich?email={email}&min_likelihood=4'
+//
+// Encode the email — values like `a@example.com&profile=...` could otherwise
+// inject extra PDL query parameters into a request made with our API key.
+let pdl_url := f'https://api.peopledatalabs.com/v5/person/enrich?email={encodeURLComponent(email)}&min_likelihood=4'
 let response := fetch(pdl_url, {'method': 'GET', 'headers': {'X-Api-Key': pdl_api_key}})
 
 if (response.status == 404) {
