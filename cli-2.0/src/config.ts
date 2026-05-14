@@ -28,6 +28,10 @@ export interface CLIConfig {
     projectId?: string
 }
 
+export interface EnsureAuthOptions {
+    projectId?: string
+}
+
 const DEFAULT_HOST = 'https://us.posthog.com'
 const TOKEN_EXPIRY_SKEW_MS = 60_000
 
@@ -224,26 +228,34 @@ export class ConfigManager {
         }
     }
 
-    async ensureAuth(): Promise<CLIConfig> {
+    async ensureAuth(options: EnsureAuthOptions = {}): Promise<CLIConfig> {
+        const projectIdOverride = this.normalizeProjectIdOverride(options.projectId)
         const currentConfig = this.getAll()
 
         const refreshedConfig = await this.refreshIfNeeded(currentConfig)
-        if (refreshedConfig.accessToken) {
-            return this.ensureProject(refreshedConfig)
+        const commandConfig = projectIdOverride ? { ...refreshedConfig, projectId: projectIdOverride } : refreshedConfig
+        if (commandConfig.accessToken) {
+            return projectIdOverride ? commandConfig : this.ensureProject(commandConfig)
         }
 
         if (currentConfig.apiKey) {
-            return this.ensureProject({ ...currentConfig, accessToken: undefined })
+            const apiKeyConfig = { ...commandConfig, accessToken: undefined }
+            return projectIdOverride ? apiKeyConfig : this.ensureProject(apiKeyConfig)
         }
 
-        return this.login()
+        return this.login(projectIdOverride)
     }
 
-    async login(): Promise<CLIConfig> {
+    async login(projectIdOverride?: string): Promise<CLIConfig> {
         console.log(chalk.yellow('\n🔐 Authentication required'))
         console.log('Opening PostHog OAuth login in your browser...')
 
         const oauthConfig = await this.loginWithOAuth()
+        const normalizedProjectIdOverride = this.normalizeProjectIdOverride(projectIdOverride)
+        if (normalizedProjectIdOverride) {
+            return { ...oauthConfig, projectId: normalizedProjectIdOverride }
+        }
+
         return this.ensureProject(oauthConfig)
     }
 
@@ -251,6 +263,11 @@ export class ConfigManager {
         this.conf.clear()
         this.secrets.clear()
         console.log(chalk.green('✅ Configuration cleared!'))
+    }
+
+    private normalizeProjectIdOverride(projectId: string | undefined): string | undefined {
+        const normalizedProjectId = projectId?.trim()
+        return normalizedProjectId && normalizedProjectId.length > 0 ? normalizedProjectId : undefined
     }
 
     private async refreshIfNeeded(config: CLIConfig): Promise<CLIConfig> {

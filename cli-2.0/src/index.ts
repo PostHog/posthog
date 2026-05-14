@@ -5,6 +5,7 @@ import ora from 'ora'
 import yargs from 'yargs'
 import { hideBin } from 'yargs/helpers'
 
+import { getProjectIdOverride, buildCommandParams } from './cli-args.js'
 import { config } from './config.js'
 import { commands, executeToolCall } from './generated/commands.js'
 import { createMCPContext, type AuthenticatedConfig, type Context } from './mcp-context.js'
@@ -29,10 +30,15 @@ async function main() {
         .help()
         .version('0.1.0')
         .wrap(120)
+        .strictCommands()
         .option('json', {
             type: 'boolean',
             describe: 'Output raw JSON without terminal formatting',
             default: false,
+        })
+        .option('project-id', {
+            type: 'string',
+            describe: 'PostHog project ID to use for this command instead of the stored project',
         })
         .demandCommand(1, 'You need at least one command before moving on')
         .fail((msg, err, yargs) => {
@@ -52,7 +58,8 @@ async function main() {
                 return
             }
 
-            const authConfig = await config.ensureAuth()
+            const projectIdOverride = getProjectIdOverride(argv)
+            const authConfig = await config.ensureAuth({ projectId: projectIdOverride })
 
             if ((!authConfig.accessToken && !authConfig.apiKey) || !authConfig.projectId || !authConfig.host) {
                 console.error(chalk.red('Missing configuration. Run: ph auth login'))
@@ -125,16 +132,10 @@ async function main() {
                                     describe: 'Resource ID',
                                     demandOption: requiresId,
                                 })
-                                .strict(false) // Allow additional parameters
+                                .strictOptions(false) // Allow additional API parameters
                         },
                         async (argv) => {
-                            const params: any = {}
-                            // Pass through all arguments except the internal ones
-                            for (const [key, value] of Object.entries(argv)) {
-                                if (key !== '_' && key !== '$0' && key !== 'mcpContext') {
-                                    params[key] = value
-                                }
-                            }
+                            const params = buildCommandParams(argv)
                             await executeGeneratedTool(argv, subcommand.mcp_tool, params)
                         }
                     )
