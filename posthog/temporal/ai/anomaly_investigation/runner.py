@@ -26,11 +26,14 @@ from posthog.temporal.ai.anomaly_investigation.prompts import SYSTEM_PROMPT
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.tools import (
     FetchMetricSeriesArgs,
+    GetLiveDebuggerEventsArgs,
+    InstallLiveDebuggerProgramArgs,
     InvestigationToolkit,
     RecentEventsArgs,
     RunHogQLQueryArgs,
     SimulateDetectorArgs,
     TopBreakdownArgs,
+    UninstallLiveDebuggerProgramArgs,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,6 +82,15 @@ async def run_investigation(
         "recent_events": lambda raw: toolkit.recent_events(RecentEventsArgs.model_validate(raw)),
         "fetch_metric_series": lambda raw: toolkit.fetch_metric_series(FetchMetricSeriesArgs.model_validate(raw)),
         "simulate_detector": lambda raw: toolkit.simulate_detector(SimulateDetectorArgs.model_validate(raw)),
+        "install_live_debugger_program": lambda raw: toolkit.install_live_debugger_program(
+            InstallLiveDebuggerProgramArgs.model_validate(raw)
+        ),
+        "get_live_debugger_events": lambda raw: toolkit.get_live_debugger_events(
+            GetLiveDebuggerEventsArgs.model_validate(raw)
+        ),
+        "uninstall_live_debugger_program": lambda raw: toolkit.uninstall_live_debugger_program(
+            UninstallLiveDebuggerProgramArgs.model_validate(raw)
+        ),
     }
 
     tools_spec: list[tuple[str, str, type[BaseModel]]] = [
@@ -114,6 +126,32 @@ async def run_investigation(
                 "current fire is an isolated spike or part of a recurring pattern."
             ),
             SimulateDetectorArgs,
+        ),
+        (
+            "install_live_debugger_program",
+            (
+                "Install a hogtrace program that emits $data_breakpoint_hit events when its probes fire. "
+                "Returns the program_id — save it to fetch events and uninstall later. "
+                "Use when you need to observe live runtime behaviour to investigate the anomaly."
+            ),
+            InstallLiveDebuggerProgramArgs,
+        ),
+        (
+            "get_live_debugger_events",
+            (
+                "Fetch probe-hit events emitted by a live debugger program. Returns captured local "
+                "variables and the stack trace at the time each probe fired. "
+                "Call this after installing a program and giving it time to collect data."
+            ),
+            GetLiveDebuggerEventsArgs,
+        ),
+        (
+            "uninstall_live_debugger_program",
+            (
+                "Soft-uninstall a live debugger program by ID. Always call this when you are done "
+                "investigating — programs consume resources and should not be left running."
+            ),
+            UninstallLiveDebuggerProgramArgs,
         ),
     ]
 
