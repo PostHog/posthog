@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
  * Generates CLI commands from MCP tool definitions.
- * 
+ *
  * Reads tool-definitions-all.json and generates CLI command handlers
  * for each tool with proper command grouping.
  */
@@ -20,87 +20,96 @@ const COMMAND_MAPPINGS_FILE = path.resolve(CLI_ROOT, 'schema/command-mappings.js
 const GENERATED_DIR = path.resolve(CLI_ROOT, 'src/generated')
 
 interface ToolDefinition {
-  description: string
-  category: string
-  feature: string
-  summary: string
-  title: string
-  required_scopes: string[]
-  new_mcp: boolean
-  annotations: {
-    destructiveHint: boolean
-    idempotentHint: boolean
-    openWorldHint: boolean
-    readOnlyHint: boolean
-  }
+    description: string
+    category: string
+    feature: string
+    summary: string
+    title: string
+    required_scopes: string[]
+    new_mcp: boolean
+    annotations: {
+        destructiveHint: boolean
+        idempotentHint: boolean
+        openWorldHint: boolean
+        readOnlyHint: boolean
+    }
 }
 
 interface CommandMapping {
-  commands: Record<string, {
-    aliases: string[]
-    description: string
-    subcommands: Record<string, {
-      mcp_tool: string
-      description: string
-      aliases?: string[]
-    }>
-  }>
-  product_groups: Record<string, {
-    name: string
-    description: string
-    commands: string[]
-  }>
+    commands: Record<
+        string,
+        {
+            aliases: string[]
+            description: string
+            subcommands: Record<
+                string,
+                {
+                    mcp_tool: string
+                    description: string
+                    aliases?: string[]
+                }
+            >
+        }
+    >
+    product_groups: Record<
+        string,
+        {
+            name: string
+            description: string
+            commands: string[]
+        }
+    >
 }
 
 // No longer needed - MCP tools handle their own API mappings
 
 function loadDefinitions(): Record<string, ToolDefinition> {
-  const content = fs.readFileSync(SCHEMA_FILE, 'utf8')
-  return JSON.parse(content)
+    const content = fs.readFileSync(SCHEMA_FILE, 'utf8')
+    return JSON.parse(content)
 }
 
 function loadCommandMappings(): CommandMapping {
-  const content = fs.readFileSync(COMMAND_MAPPINGS_FILE, 'utf8')
-  return JSON.parse(content)
+    const content = fs.readFileSync(COMMAND_MAPPINGS_FILE, 'utf8')
+    return JSON.parse(content)
 }
 
 function loadEnhancedMappings(): any {
-  const enhancedFile = path.resolve(CLI_ROOT, 'schema/command-mappings-enhanced.json')
-  if (!fs.existsSync(enhancedFile)) {
-    throw new Error('Enhanced mappings not found. Run: pnpm generate:commands')
-  }
-  const content = fs.readFileSync(enhancedFile, 'utf8')
-  return JSON.parse(content)
+    const enhancedFile = path.resolve(CLI_ROOT, 'schema/command-mappings-enhanced.json')
+    if (!fs.existsSync(enhancedFile)) {
+        throw new Error('Enhanced mappings not found. Run: pnpm generate:commands')
+    }
+    const content = fs.readFileSync(enhancedFile, 'utf8')
+    return JSON.parse(content)
 }
 
 // This function is no longer needed - we import MCP tools directly
 
 function generateCommandsFile(): void {
-  const definitions = loadDefinitions()
-  const enhancedMappings = loadEnhancedMappings()
-  
-  // Create generated directory
-  if (!fs.existsSync(GENERATED_DIR)) {
-    fs.mkdirSync(GENERATED_DIR, { recursive: true })
-  }
-  
-  // Validate that all mapped MCP tools exist
-  const missingTools: string[] = []
-  for (const [commandName, command] of Object.entries(enhancedMappings.commands)) {
-    for (const [subcommandName, subcommand] of Object.entries(command.subcommands)) {
-      if (!definitions[subcommand.mcp_tool]) {
-        missingTools.push(`${commandName}.${subcommandName} -> ${subcommand.mcp_tool}`)
-      }
+    const definitions = loadDefinitions()
+    const enhancedMappings = loadEnhancedMappings()
+
+    // Create generated directory
+    if (!fs.existsSync(GENERATED_DIR)) {
+        fs.mkdirSync(GENERATED_DIR, { recursive: true })
     }
-  }
-  
-  if (missingTools.length > 0) {
-    console.warn('⚠️  Warning: Some mapped MCP tools do not exist:')
-    missingTools.forEach(tool => console.warn(`   ${tool}`))
-  }
-  
-  // Generate the commands file
-  const commandsContent = `// Auto-generated CLI commands from command mappings
+
+    // Validate that all mapped MCP tools exist
+    const missingTools: string[] = []
+    for (const [commandName, command] of Object.entries(enhancedMappings.commands)) {
+        for (const [subcommandName, subcommand] of Object.entries(command.subcommands)) {
+            if (!definitions[subcommand.mcp_tool]) {
+                missingTools.push(`${commandName}.${subcommandName} -> ${subcommand.mcp_tool}`)
+            }
+        }
+    }
+
+    if (missingTools.length > 0) {
+        console.warn('⚠️  Warning: Some mapped MCP tools do not exist:')
+        missingTools.forEach((tool) => console.warn(`   ${tool}`))
+    }
+
+    // Generate the commands file
+    const commandsContent = `// Auto-generated CLI commands from command mappings
 // Do not edit manually - run 'npm run generate:commands' to regenerate
 
 import type { Context } from '../mcp-context.js'
@@ -228,24 +237,27 @@ function buildAPICallFromMapping(toolInfo: any, projectId: string, params: any) 
 
 `
 
-  fs.writeFileSync(path.join(GENERATED_DIR, 'commands.ts'), commandsContent)
-  console.log('✅ Generated commands.ts')
-  console.log('📊 Commands:', Object.keys(enhancedMappings.commands).join(', '))
-  console.log('📋 Enhanced mappings version:', enhancedMappings.version)
-  console.log('🔗 Total MCP tool mappings:', Object.values(enhancedMappings.commands).reduce((acc, cmd) => acc + Object.keys(cmd.subcommands).length, 0))
+    fs.writeFileSync(path.join(GENERATED_DIR, 'commands.ts'), commandsContent)
+    console.log('✅ Generated commands.ts')
+    console.log('📊 Commands:', Object.keys(enhancedMappings.commands).join(', '))
+    console.log('📋 Enhanced mappings version:', enhancedMappings.version)
+    console.log(
+        '🔗 Total MCP tool mappings:',
+        Object.values(enhancedMappings.commands).reduce((acc, cmd) => acc + Object.keys(cmd.subcommands).length, 0)
+    )
 }
 
 function main() {
-  console.log('🔧 Generating CLI commands from MCP tool definitions...')
-  try {
-    generateCommandsFile()
-    console.log('🎉 Done!')
-  } catch (error) {
-    console.error('❌ Failed to generate commands:', error.message)
-    process.exit(1)
-  }
+    console.log('🔧 Generating CLI commands from MCP tool definitions...')
+    try {
+        generateCommandsFile()
+        console.log('🎉 Done!')
+    } catch (error) {
+        console.error('❌ Failed to generate commands:', error.message)
+        process.exit(1)
+    }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main()
+    main()
 }
