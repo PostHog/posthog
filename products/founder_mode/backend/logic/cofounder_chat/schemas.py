@@ -22,16 +22,21 @@ from pydantic import BaseModel, Field
 # one — the cofounder complements them. Assigned 50/50 on the frontend (no picker for v1).
 FounderMode = Literal["technical_cofounder", "commercial_cofounder"]
 
-# Reaction key the cofounder picks per turn — drives a GIF reaction in the UI. Keep this
-# short and tied to the cofounder's posture, not the founder's answer. The frontend maps
-# the key to a GIF URL; the LLM picks the key under constrained decoding so it can never
-# return an unknown value.
+# Reaction key the cofounder may pick per turn — drives a GIF reaction in the UI. Keep
+# short and tied to the cofounder's posture / the GIF's flavor, not the founder's answer.
+# The frontend maps the key to a GIF URL; the LLM picks the key under constrained decoding
+# so it can never return an unknown value. New keys are added as new GIFs land — each key
+# names the GIF itself (e.g. "illegal" for the "it's illegal for you to ask me that" GIF),
+# not an abstract emotion. Reactions are sparing — most turns return null.
 ReactionKey = Literal[
     "excited",
     "skeptical",
     "thinking",
     "satisfied",
     "dismissive",
+    "illegal",
+    "michael_no",
+    "wtf",
 ]
 
 
@@ -67,6 +72,14 @@ class TurnRequest(BaseModel):
             "Which half of the founding team the cofounder plays. Selects the mode block "
             "injected into the system prompt. Defaults to commercial so older clients still "
             "get a coherent persona."
+        ),
+    )
+    used_reaction_keys: list[ReactionKey] = Field(
+        default_factory=list,
+        description=(
+            "Reaction keys the cofounder has already used earlier in this thread. The model "
+            "MUST NOT pick any key in this list — reactions are one-shot per thread to keep "
+            "them feeling intentional."
         ),
     )
 
@@ -106,10 +119,12 @@ class TurnResponse(BaseModel):
             "satisfied), 1-2 sentences. Not shown to the founder; logged for prompt tuning."
         )
     )
-    reaction_key: ReactionKey = Field(
+    reaction_key: ReactionKey | None = Field(
+        default=None,
         description=(
-            "The cofounder's posture on this turn, used to drive a GIF reaction in the UI. "
-            "Pick the single key that best matches the *tone* of `agent_message`. "
+            "Optional GIF reaction for this turn — null on most turns. Only set when the "
+            "reaction genuinely adds something (a sharp moment, a real pushback, wrapping up). "
+            "MUST NOT repeat any key already in the request's `used_reaction_keys`. "
             "See the system prompt's 'Reactions' section for when to pick each."
-        )
+        ),
     )

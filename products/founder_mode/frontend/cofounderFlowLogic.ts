@@ -82,7 +82,7 @@ interface TurnResponse {
     satisfied: boolean
     crystallized_value: Record<string, string> | null
     reasoning: string
-    reaction_key: ReactionKey
+    reaction_key: ReactionKey | null
 }
 
 const COFOUNDER_TURN_URL = 'api/projects/@current/founder_projects/cofounder_turn/'
@@ -254,12 +254,19 @@ export const cofounderFlowLogic = kea<cofounderFlowLogicType>([
                 // The reducer appended the user message already — exclude it from the
                 // payload's `messages` (the backend gets it via `user_answer`).
                 const priorMessages = values.ideaMessages.slice(0, -1)
+                // Reactions are one-shot per thread — tell the backend what we've already
+                // used so the LLM can't repeat. Plain `.value` access; older messages
+                // (pre-feature) have no reactionKey, filtered out.
+                const usedReactionKeys = values.ideaMessages
+                    .map((m) => m.reactionKey)
+                    .filter((k): k is ReactionKey => !!k)
                 const turn = await api.create<TurnResponse>(COFOUNDER_TURN_URL, {
                     topic: 'idea',
                     goal: IDEA_GOAL,
                     user_answer: answer,
                     messages: priorMessages,
                     founder_mode: values.founderMode,
+                    used_reaction_keys: usedReactionKeys,
                 })
                 breakpoint()
                 actions.appendIdeaMessage('agent', turn.agent_message, turn.reaction_key)
