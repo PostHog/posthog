@@ -183,7 +183,10 @@ export function MCPEventView({ properties }: MCPEventViewProps): JSX.Element {
         displayName = String(mcpProps['$mcp_resource_name'])
         displayKind = 'Resource'
     }
-    const isError = mcpProps['$mcp_is_error']
+    const rawIsError = mcpProps['$mcp_is_error']
+    // Normalise — ingestion can flatten booleans to strings, and "false" is truthy in JS.
+    const hasErrorStatus = rawIsError !== undefined && rawIsError !== null
+    const isError = rawIsError === true || rawIsError === 'true'
     const durationMs = mcpProps['$mcp_duration_ms']
     const clientName = mcpProps['$mcp_client_name']
     const serverName = mcpProps['$mcp_server_name']
@@ -236,7 +239,7 @@ export function MCPEventView({ properties }: MCPEventViewProps): JSX.Element {
     return (
         <div className="mx-3 flex flex-col gap-3">
             <div className="border-border bg-surface-secondary flex flex-wrap items-start gap-x-6 gap-y-3 rounded border p-3">
-                {isError !== undefined ? (
+                {hasErrorStatus ? (
                     <Stat label="Status">
                         <LemonTag type={isError ? 'danger' : 'success'}>{isError ? 'Error' : 'Success'}</LemonTag>
                     </Stat>
@@ -253,7 +256,7 @@ export function MCPEventView({ properties }: MCPEventViewProps): JSX.Element {
                 {clientName ? <Stat label="Client">{String(clientName)}</Stat> : null}
                 {serverName ? <Stat label="Server">{String(serverName)}</Stat> : null}
                 {intent ? (
-                    <Stat label={intentSource ? `Intent (${String(intentSource).replace('_', ' ')})` : 'Intent'}>
+                    <Stat label={intentSource ? `Intent (${String(intentSource).replace(/_/g, ' ')})` : 'Intent'}>
                         <Tooltip title={String(intent)}>
                             <span className="line-clamp-1 max-w-[40ch]">{String(intent)}</span>
                         </Tooltip>
