@@ -833,6 +833,18 @@ tools:
     users-scene-personalisation-create:
         operation: users_scene_personalisation_create
         enabled: false
+    users-sms-destroy:
+        operation: users_sms_destroy
+        enabled: false
+    users-sms-list:
+        operation: users_sms_list
+        enabled: false
+    users-sms-start-verification-create:
+        operation: users_sms_start_verification_create
+        enabled: false
+    users-sms-verify-create:
+        operation: users_sms_verify_create
+        enabled: false
     users-start-2fa-setup-retrieve:
         operation: users_start_2fa_setup_retrieve
         enabled: false
