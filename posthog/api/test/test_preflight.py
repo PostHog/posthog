@@ -51,6 +51,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "email_service_available": False,
             "slack_service": {"available": False, "client_id": None},
             "posthog_code_slack_service": {"available": False, "client_id": None},
+            "posthog_code_discord_service": {"available": False, "client_id": None},
             "object_storage": False,
             "public_egress_ip_addresses": [],
             **options,
@@ -66,6 +67,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "can_create_org": False,
             "instance_preferences": {"debug_queries": True, "disable_paid_fs": False},
             "object_storage": False,
+            "posthog_code_discord_service": {"available": False, "client_id": None},
             "buffer_conversion_seconds": 60,
             # we calculate this here because otherwise it is non-deterministic when running locally
             # it can be overridden in tests by passing in options
