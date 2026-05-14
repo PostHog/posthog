@@ -1,6 +1,5 @@
-import { useState } from 'react'
-
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
@@ -144,6 +143,7 @@ export function NotificationRow({
                 <ConciergeModal
                     isOpen={conciergeOpen}
                     onClose={() => setConciergeOpen(false)}
+                    notificationId={notification.id}
                     title={notification.title}
                     body={notification.body}
                 />

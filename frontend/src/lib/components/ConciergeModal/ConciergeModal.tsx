@@ -1,8 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconX } from '@posthog/icons'
-
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
@@ -27,9 +26,26 @@ interface ConciergePayload {
     notification_style?: string
 }
 
+function wizardCommandFor(notificationId: string): string {
+    return `npx @posthog/wizard concierge --id=${notificationId}`
+}
+
+function modeForStyle(style: string | undefined): DeliveryMode {
+    switch (style) {
+        case 'pirate':
+            return 'scroll'
+        case 'star_wars':
+            return 'galactic'
+        case 'royal':
+        default:
+            return 'envelope'
+    }
+}
+
 export interface ConciergeModalProps {
     isOpen: boolean
     onClose: () => void
+    notificationId: string
     title?: string
     body?: string
 }
@@ -392,28 +408,19 @@ function GalacticMode({ message }: { message: string }): JSX.Element {
 
 // -- Main modal --
 
-function isDeliveryMode(value: string | undefined): value is DeliveryMode {
-    return value === 'envelope' || value === 'scroll' || value === 'galactic'
-}
-
-export function ConciergeModal({ isOpen, onClose, title, body }: ConciergeModalProps): JSX.Element {
+export function ConciergeModal({ isOpen, onClose, notificationId, title, body }: ConciergeModalProps): JSX.Element {
     const payload = parsePayload(body)
     const message = payload.body || title || ''
-    const cta = payload.call_to_action
-    const mode: DeliveryMode = isDeliveryMode(payload.notification_style) ? payload.notification_style : 'envelope'
+    const mode = modeForStyle(payload.notification_style)
+    const wizardCommand = wizardCommandFor(notificationId)
 
     return (
         <>
             {/* Load Caveat font for envelope + scroll modes */}
             <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap" />
 
-            <LemonModal isOpen={isOpen} onClose={onClose} simple closable hideCloseButton>
+            <LemonModal isOpen={isOpen} onClose={onClose} simple closable>
                 <div className="flex flex-col" style={{ width: '85vw', maxWidth: 960, height: '80vh', maxHeight: 720 }}>
-                    {/* Header: close button */}
-                    <div className="flex items-center justify-end gap-2 p-3 border-b border-border">
-                        <LemonButton icon={<IconX />} size="small" onClick={onClose} tooltip="Close" />
-                    </div>
-
                     {/* Art area */}
                     <div className="flex-1 relative overflow-hidden">
                         <AnimatePresence mode="wait">
@@ -432,19 +439,11 @@ export function ConciergeModal({ isOpen, onClose, title, body }: ConciergeModalP
                         </AnimatePresence>
                     </div>
 
-                    {/* CTA button */}
-                    <div className="p-3 border-t border-border flex justify-center">
-                        <LemonButton
-                            type="primary"
-                            onClick={() => {
-                                // TODO(concierge): Add CTA functionality — this could navigate
-                                // to a URL, open a resource, or trigger an action based on the
-                                // notification payload. For now it just closes the modal.
-                                onClose()
-                            }}
-                        >
-                            {cta || 'Run this skill'}
-                        </LemonButton>
+                    {/* CTA: copyable wizard command */}
+                    <div className="p-3 border-t border-border">
+                        <CodeSnippet language={Language.Bash} thing="command" compact>
+                            {wizardCommand}
+                        </CodeSnippet>
                     </div>
                 </div>
             </LemonModal>
@@ -469,6 +468,7 @@ export function ConciergeModalTest(): JSX.Element {
             <ConciergeModal
                 isOpen={open}
                 onClose={() => setOpen(false)}
+                notificationId="test-notification-id"
                 title="A note from your CSM"
                 body={TEST_BODY}
             />
