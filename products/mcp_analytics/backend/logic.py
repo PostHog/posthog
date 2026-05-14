@@ -233,6 +233,7 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
 
 
 def _to_cluster_dto(item: dict[str, Any]) -> contracts.IntentCluster:
+    journey_raw = item.get("journey")
     return contracts.IntentCluster(
         id=int(item.get("id", 0)),
         label=str(item.get("label", "")),
@@ -254,7 +255,7 @@ def _to_cluster_dto(item: dict[str, Any]) -> contracts.IntentCluster:
             if isinstance(entry, dict)
         ],
         sample_intents=[str(s) for s in item.get("sample_intents", []) if isinstance(s, str)],
-        journey=_to_journey_dto(item.get("journey")) if isinstance(item.get("journey"), dict) else None,
+        journey=_to_journey_dto(journey_raw) if isinstance(journey_raw, dict) else None,
     )
 
 

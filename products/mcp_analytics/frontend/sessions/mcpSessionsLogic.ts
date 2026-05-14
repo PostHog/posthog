@@ -40,6 +40,10 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         values: [teamLogic, ['currentProjectId']],
     })),
     actions({
+        // Declared explicitly so kea-typegen emits a no-arg signature for the loader
+        // action below — without this, the `(_, breakpoint)` loader signature forces
+        // every call site to pass a placeholder argument.
+        loadSessions: true,
         setFilters: (filters: Partial<MCPSessionsFilters>) => ({ filters }),
         setSorting: (sorting: MCPSessionSorting | null) => ({ sorting }),
         selectSession: (sessionId: string | null) => ({ sessionId }),
