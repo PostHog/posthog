@@ -375,7 +375,11 @@ class LiveDebuggerProgramListItemSerializer(serializers.ModelSerializer):
 
 
 class ProgramEventSerializer(serializers.Serializer):
-    """A single event emitted by a probe in a live debugger program."""
+    """A single event emitted by a probe in a live debugger program.
+
+    Mirrors the property shape libdebugger emits for the `$hogtrace_capture`
+    event — see `libdebugger/instrumentation.py::_enqueue_message`.
+    """
 
     id = serializers.UUIDField(help_text="Unique identifier for this event.")
     timestamp = serializers.DateTimeField(help_text="Wall-clock time at which the probe fired.")
@@ -385,23 +389,23 @@ class ProgramEventSerializer(serializers.Serializer):
         required=False,
         help_text="Identifier of the specific probe within the program that fired (may be null).",
     )
-    line_number = serializers.IntegerField(
+    probe_spec = serializers.DictField(
         allow_null=True,
         required=False,
-        help_text="Source line where the probe fired (may be null if not applicable).",
+        help_text="Probe specification — at minimum `specifier` (e.g. `myapp.users.create_user`) and `target` (`entry`/`exit`).",
     )
-    filename = serializers.CharField(
+    captures = serializers.DictField(
+        help_text="User-named captures from the probe body, as a key/value map (whatever the program wrote in `capture(name=...)`).",
+    )
+    thread_id = serializers.IntegerField(
         allow_null=True,
         required=False,
-        help_text="Source file where the probe fired (may be null if not applicable).",
+        help_text="OS thread id of the request that hit the probe.",
     )
-    function_name = serializers.CharField(help_text="Function containing the probe at the time it fired.")
-    locals = serializers.DictField(
-        help_text="Snapshot of local variables captured at the probe site, as a key/value map.",
-    )
-    stack_trace = serializers.ListField(
-        child=serializers.DictField(),
-        help_text="Stack trace at the time the probe fired; each frame is a dict with at least 'function' and source info.",
+    thread_name = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Thread name of the request that hit the probe.",
     )
 
 

@@ -981,19 +981,21 @@ class TestLiveDebuggerProgramAPI(ClickhouseTestMixin, APIBaseTest):
         program_id: str,
         probe_id: str = "probe-1",
         distinct_id: str = "user-1",
-        function_name: str = "foo",
+        specifier: str = "myapp.foo",
+        target: str = "entry",
+        captures: dict | None = None,
     ) -> None:
         _create_event(
             team=self.team,
-            event="$data_breakpoint_hit",
+            event="$hogtrace_capture",
             distinct_id=distinct_id,
             properties={
-                "$program_id": program_id,
-                "$probe_id": probe_id,
-                "$line_number": 42,
-                "$file_path": "app.py",
-                "$locals_variables": {"x": 1},
-                "$stack_trace": [{"function": function_name}],
+                "program_id": program_id,
+                "probe_id": probe_id,
+                "probe_spec": {"specifier": specifier, "target": target},
+                "captures": captures if captures is not None else {"x": 1},
+                "thread_id": 1,
+                "thread_name": "MainThread",
             },
             timestamp=datetime.now(tz=UTC),
         )
@@ -1137,8 +1139,8 @@ class TestLiveDebuggerProgramAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_events_returns_hits_for_this_program(self) -> None:
         program = self._create_program()
-        self._emit_hit(program_id=str(program.id), probe_id="p1", function_name="foo")
-        self._emit_hit(program_id=str(program.id), probe_id="p2", function_name="bar")
+        self._emit_hit(program_id=str(program.id), probe_id="p1", specifier="myapp.foo")
+        self._emit_hit(program_id=str(program.id), probe_id="p2", specifier="myapp.bar")
         flush_persons_and_events()
 
         response = self.client.get(self._url(f"{program.id}/events/"))
@@ -1146,13 +1148,13 @@ class TestLiveDebuggerProgramAPI(ClickhouseTestMixin, APIBaseTest):
         body = response.json()
         self.assertEqual(body["count"], 2)
         self.assertFalse(body["has_more"])
-        function_names = {event["function_name"] for event in body["results"]}
-        self.assertEqual(function_names, {"foo", "bar"})
+        specifiers = {event["probe_spec"]["specifier"] for event in body["results"]}
+        self.assertEqual(specifiers, {"myapp.foo", "myapp.bar"})
         for event in body["results"]:
             self.assertEqual(event["program_id"], str(program.id))
-            self.assertEqual(event["filename"], "app.py")
-            self.assertEqual(event["line_number"], 42)
-            self.assertEqual(event["locals"], {"x": 1})
+            self.assertEqual(event["probe_spec"]["target"], "entry")
+            self.assertEqual(event["captures"], {"x": 1})
+            self.assertEqual(event["thread_name"], "MainThread")
 
     def test_events_excludes_hits_from_other_programs(self) -> None:
         program = self._create_program()
