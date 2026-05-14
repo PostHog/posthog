@@ -129,6 +129,8 @@ function HandwrittenText({
                 color: '#3B2B26',
                 lineHeight: 1.5,
                 whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                overflowWrap: 'break-word',
                 textAlign: 'left',
             }}
         >
@@ -409,8 +411,8 @@ function ScrollMode({ message }: { message: string }): JSX.Element {
                         className="absolute overflow-y-auto z-10"
                         style={{
                             top: '16%',
-                            left: '14%',
-                            right: '14%',
+                            left: '18%',
+                            right: '18%',
                             bottom: '16%',
                             scrollbarWidth: 'none',
                         }}
