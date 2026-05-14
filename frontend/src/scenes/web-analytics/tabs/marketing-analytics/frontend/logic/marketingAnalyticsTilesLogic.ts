@@ -113,8 +113,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         kind: 'query',
                         tileId: TileId.MARKETING_OVERVIEW,
                         layout: {
-                            colSpanClassName: 'md:col-span-2 xxl:col-span-3' as `md:col-span-${number}`,
-                            orderWhenLargeClassName: 'xxl:order-0',
+                            colSpanClassName: 'md:col-span-2 2xl:col-span-3' as `md:col-span-${number}`,
+                            orderWhenLargeClassName: '2xl:order-0',
                         },
                         query: {
                             kind: NodeKind.MarketingAnalyticsAggregatedQuery,
@@ -135,7 +135,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         tileId: TileId.MARKETING,
                         layout: {
                             colSpanClassName: 'md:col-span-2',
-                            orderWhenLargeClassName: 'xxl:order-1',
+                            orderWhenLargeClassName: '2xl:order-1',
                         },
                         title: `Marketing ${tileColumnSelectionName}`,
                         query: {
@@ -193,7 +193,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                               tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
                               layout: {
                                   colSpanClassName: 'md:col-span-2',
-                                  orderWhenLargeClassName: 'xxl:order-2',
+                                  orderWhenLargeClassName: '2xl:order-2',
                               },
                               title: `${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias} breakdown`,
                               query: campaignCostsBreakdown,
