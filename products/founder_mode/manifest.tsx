@@ -32,6 +32,12 @@ export const manifest: ProductManifest = {
             projectBased: true,
             layout: 'plain',
         },
+        FounderModePostHogStack: {
+            name: 'Your PostHog stack',
+            import: () => import('./frontend/scenes/FounderModePostHogStack'),
+            projectBased: true,
+            layout: 'plain',
+        },
     },
     routes: {
         '/init': ['FounderMode', 'founderMode'],
@@ -39,6 +45,7 @@ export const manifest: ProductManifest = {
         '/founder/workspace': ['FounderModeWorkspace', 'founderModeWorkspace'],
         '/founder/workspace/:path': ['FounderModeWorkspace', 'founderModeWorkspace'],
         '/founder/landing-preview': ['FounderModeLandingPreview', 'founderModeLandingPreview'],
+        '/founder/posthog-stack': ['FounderModePostHogStack', 'founderModePostHogStack'],
     },
     redirects: {},
     urls: {
@@ -47,6 +54,7 @@ export const manifest: ProductManifest = {
         founderModeWorkspace: (path?: string): string =>
             path ? `/founder/workspace/${encodeURIComponent(path)}` : '/founder/workspace',
         founderModeLandingPreview: (): string => '/founder/landing-preview',
+        founderModePostHogStack: (): string => '/founder/posthog-stack',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

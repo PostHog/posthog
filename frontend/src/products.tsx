@@ -84,6 +84,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     FounderModeLayout: () => import('../../products/founder_mode/frontend/FounderModeLayout'),
     FounderModeWorkspace: () => import('../../products/founder_mode/frontend/workspace/FounderModeWorkspace'),
     FounderModeLandingPreview: () => import('../../products/founder_mode/frontend/scenes/FounderModeLandingPreview'),
+    FounderModePostHogStack: () => import('../../products/founder_mode/frontend/scenes/FounderModePostHogStack'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
     LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
@@ -188,6 +189,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/founder/workspace': ['FounderModeWorkspace', 'founderModeWorkspace'],
     '/founder/workspace/:path': ['FounderModeWorkspace', 'founderModeWorkspace'],
     '/founder/landing-preview': ['FounderModeLandingPreview', 'founderModeLandingPreview'],
+    '/founder/posthog-stack': ['FounderModePostHogStack', 'founderModePostHogStack'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/legal': ['LegalDocuments', 'legalDocuments'],
@@ -408,6 +410,7 @@ export const productConfiguration: Record<string, any> = {
     FounderModeLayout: { name: 'Founder mode', projectBased: true, layout: 'plain' },
     FounderModeWorkspace: { name: 'Founder workspace', projectBased: true, layout: 'plain' },
     FounderModeLandingPreview: { name: 'Landing page preview', projectBased: true, layout: 'plain' },
+    FounderModePostHogStack: { name: 'Your PostHog stack', projectBased: true, layout: 'plain' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
     LegalDocuments: {
@@ -816,6 +819,7 @@ export const productUrls = {
     founderModeWorkspace: (path?: string): string =>
         path ? `/founder/workspace/${encodeURIComponent(path)}` : '/founder/workspace',
     founderModeLandingPreview: (): string => '/founder/landing-preview',
+    founderModePostHogStack: (): string => '/founder/posthog-stack',
     game368hedgehogs: (): string => `/games/368hedgehogs`,
     flappyHog: (): string => `/games/flappyhog`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
