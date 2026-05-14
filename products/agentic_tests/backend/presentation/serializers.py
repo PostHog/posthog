@@ -41,6 +41,8 @@ class AgenticTestSerializer(serializers.ModelSerializer):
             "prompt",
             "status",
             "assertions",
+            "schedule_cron",
+            "next_run_at",
             "source_replay_id",
             "created_by",
             "created_at",
@@ -50,6 +52,7 @@ class AgenticTestSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "next_run_at",
             "created_by",
             "created_at",
             "updated_at",

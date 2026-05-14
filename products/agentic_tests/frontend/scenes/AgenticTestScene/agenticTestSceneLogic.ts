@@ -30,6 +30,7 @@ export interface AgenticTestDraft {
     status: AgenticTestApi['status']
     assertions: AgenticTestAssertion[]
     source_replay_id?: string | null
+    schedule_cron: string
 }
 
 export interface AgenticTestSceneProps {
@@ -45,6 +46,7 @@ const emptyDraft: AgenticTestDraft = {
     prompt: '',
     status: 'proposed',
     assertions: [],
+    schedule_cron: '',
 }
 
 export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
@@ -63,6 +65,7 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
         runNow: true,
         activate: true,
         pause: true,
+        clearChanges: true,
         addAssertion: (assertionType: AgenticTestAssertionType) => ({ assertionType }),
         updateAssertion: (index: number, patch: Partial<AgenticTestAssertion>) => ({ index, patch }),
         removeAssertion: (index: number) => ({ index }),
@@ -126,7 +129,7 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
             if (!test) {
                 return
             }
-            actions.setTestFormValues({
+            actions.resetTestForm({
                 name: test.name,
                 description: test.description,
                 target_url: test.target_url,
@@ -134,8 +137,26 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                 status: test.status,
                 assertions: test.assertions ?? [],
                 source_replay_id: test.source_replay_id,
+                schedule_cron: (test as any).schedule_cron ?? '',
             })
             actions.loadRuns()
+        },
+        clearChanges: () => {
+            const test = values.test
+            if (!test) {
+                actions.resetTestForm()
+                return
+            }
+            actions.resetTestForm({
+                name: test.name,
+                description: test.description,
+                target_url: test.target_url,
+                prompt: test.prompt,
+                status: test.status,
+                assertions: test.assertions ?? [],
+                source_replay_id: test.source_replay_id,
+                schedule_cron: (test as any).schedule_cron ?? '',
+            })
         },
         addAssertion: ({ assertionType }) => {
             const current = values.testForm.assertions ?? []
@@ -185,6 +206,17 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                     return null
                 }
                 return `/logs?q=${encodeURIComponent(`agentic_test_id:"${id}"`)}`
+            },
+        ],
+        willChangeEnabledOnSave: [
+            (s) => [s.testForm, s.test],
+            (testForm, test) => {
+                if (!test) {
+                    return false
+                }
+                const draftEnabled = testForm.status === 'active'
+                const persistedEnabled = test.status === 'active'
+                return draftEnabled !== persistedEnabled
             },
         ],
     }),

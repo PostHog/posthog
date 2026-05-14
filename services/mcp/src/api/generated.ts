@@ -3606,6 +3606,16 @@ export namespace Schemas {
       /** List of post-run checks the test must satisfy in addition to the agent's own self-evaluation. Each item: {type, ...config}. Supported types: url_contains, event_captured. */
       assertions?: unknown;
       /**
+         * Cron expression (5 fields, UTC) describing the run cadence. Empty means manual-only — no automatic runs.
+         * @maxLength 128
+         */
+      schedule_cron?: string;
+      /**
+         * When the next scheduled run is due. Null when the test is not on a schedule.
+         * @nullable
+         */
+      readonly next_run_at: string | null;
+      /**
          * @maxLength 255
          * @nullable
          */
@@ -24732,6 +24742,16 @@ export namespace Schemas {
       status?: AgenticTestStatusEnum;
       /** List of post-run checks the test must satisfy in addition to the agent's own self-evaluation. Each item: {type, ...config}. Supported types: url_contains, event_captured. */
       assertions?: unknown;
+      /**
+         * Cron expression (5 fields, UTC) describing the run cadence. Empty means manual-only — no automatic runs.
+         * @maxLength 128
+         */
+      schedule_cron?: string;
+      /**
+         * When the next scheduled run is due. Null when the test is not on a schedule.
+         * @nullable
+         */
+      readonly next_run_at?: string | null;
       /**
          * @maxLength 255
          * @nullable

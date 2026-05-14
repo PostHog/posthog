@@ -458,6 +458,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="process scheduled changes",
     )
 
+    from products.agentic_tests.backend.tasks.tasks import run_due_agentic_tests
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        run_due_agentic_tests.s(),
+        name="run due agentic tests",
+    )
+
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
             clear_clickhouse_crontab,

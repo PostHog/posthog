@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.agentic_tests.backend.logic.execution import execute_agentic_test
+from products.agentic_tests.backend.logic.scheduling import refresh_next_run_at
 from products.agentic_tests.backend.models import AgenticTest, AgenticTestRun
 
 from .serializers import AgenticTestRunSerializer, AgenticTestSerializer
@@ -27,10 +28,15 @@ class AgenticTestViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.filter(team_id=self.team_id).order_by("-created_at")
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
-        serializer.save(
+        test = serializer.save(
             team_id=self.team_id,
             created_by=self.request.user if self.request.user.is_authenticated else None,
         )
+        refresh_next_run_at(test)
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        test = serializer.save()
+        refresh_next_run_at(test)
 
     @extend_schema(
         request=None,
@@ -53,6 +59,7 @@ class AgenticTestViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         test: AgenticTest = self.get_object()
         test.status = AgenticTest.Status.ACTIVE
         test.save(update_fields=["status", "updated_at"])
+        refresh_next_run_at(test)
         return Response(self.get_serializer(test).data)
 
     @extend_schema(
@@ -64,7 +71,8 @@ class AgenticTestViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def pause(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         test: AgenticTest = self.get_object()
         test.status = AgenticTest.Status.PAUSED
-        test.save(update_fields=["status", "updated_at"])
+        test.next_run_at = None
+        test.save(update_fields=["status", "next_run_at", "updated_at"])
         return Response(self.get_serializer(test).data)
 
     @extend_schema(
@@ -76,7 +84,8 @@ class AgenticTestViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def reject(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         test: AgenticTest = self.get_object()
         test.status = AgenticTest.Status.REJECTED
-        test.save(update_fields=["status", "updated_at"])
+        test.next_run_at = None
+        test.save(update_fields=["status", "next_run_at", "updated_at"])
         return Response(self.get_serializer(test).data)
 
 

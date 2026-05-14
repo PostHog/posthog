@@ -81,6 +81,8 @@ def register_all_admin():
     from posthog.models.file_system.user_product_list import UserProductList
     from posthog.models.oauth import OAuthApplication
 
+    from products.agentic_tests.backend.admin import AgenticTestAdmin, AgenticTestRunAdmin
+    from products.agentic_tests.backend.models import AgenticTest, AgenticTestRun
     from products.dashboards.backend.models.dashboard import Dashboard
     from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
     from products.dashboards.backend.models.dashboard_tile import Text
@@ -175,6 +177,9 @@ def register_all_admin():
     admin.site.register(UserProductList, UserProductListAdmin)
 
     admin.site.register(MCPServerTemplate, MCPServerTemplateAdmin)
+
+    admin.site.register(AgenticTest, AgenticTestAdmin)
+    admin.site.register(AgenticTestRun, AgenticTestRunAdmin)
 
 
 # :KRUDGE: OAuth models live in the `posthog` app, so by default they appear

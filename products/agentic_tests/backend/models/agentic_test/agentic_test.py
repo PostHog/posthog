@@ -36,6 +36,21 @@ class AgenticTest(UUIDModel):
     source_replay_id = models.CharField(max_length=255, null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
 
+    schedule_cron = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text=(
+            "Cron expression (5 fields, UTC) describing the run cadence. Empty means manual-only — no automatic runs."
+        ),
+    )
+    next_run_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="When the next scheduled run is due. Null when the test is not on a schedule.",
+    )
+
     assertions = models.JSONField(
         default=list,
         blank=True,

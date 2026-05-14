@@ -13,6 +13,8 @@ export const agenticTestsCreateBodyNameMax = 255
 
 export const agenticTestsCreateBodyTargetUrlMax = 2048
 
+export const agenticTestsCreateBodyScheduleCronMax = 128
+
 export const agenticTestsCreateBodySourceReplayIdMax = 255
 
 export const AgenticTestsCreateBody = /* @__PURE__ */ zod.object({
@@ -30,12 +32,21 @@ export const AgenticTestsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "List of post-run checks the test must satisfy in addition to the agent's own self-evaluation. Each item: {type, ...config}. Supported types: url_contains, event_captured."
         ),
+    schedule_cron: zod
+        .string()
+        .max(agenticTestsCreateBodyScheduleCronMax)
+        .optional()
+        .describe(
+            'Cron expression (5 fields, UTC) describing the run cadence. Empty means manual-only — no automatic runs.'
+        ),
     source_replay_id: zod.string().max(agenticTestsCreateBodySourceReplayIdMax).nullish(),
 })
 
 export const agenticTestsUpdateBodyNameMax = 255
 
 export const agenticTestsUpdateBodyTargetUrlMax = 2048
+
+export const agenticTestsUpdateBodyScheduleCronMax = 128
 
 export const agenticTestsUpdateBodySourceReplayIdMax = 255
 
@@ -54,12 +65,21 @@ export const AgenticTestsUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "List of post-run checks the test must satisfy in addition to the agent's own self-evaluation. Each item: {type, ...config}. Supported types: url_contains, event_captured."
         ),
+    schedule_cron: zod
+        .string()
+        .max(agenticTestsUpdateBodyScheduleCronMax)
+        .optional()
+        .describe(
+            'Cron expression (5 fields, UTC) describing the run cadence. Empty means manual-only — no automatic runs.'
+        ),
     source_replay_id: zod.string().max(agenticTestsUpdateBodySourceReplayIdMax).nullish(),
 })
 
 export const agenticTestsPartialUpdateBodyNameMax = 255
 
 export const agenticTestsPartialUpdateBodyTargetUrlMax = 2048
+
+export const agenticTestsPartialUpdateBodyScheduleCronMax = 128
 
 export const agenticTestsPartialUpdateBodySourceReplayIdMax = 255
 
@@ -77,6 +97,13 @@ export const AgenticTestsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "List of post-run checks the test must satisfy in addition to the agent's own self-evaluation. Each item: {type, ...config}. Supported types: url_contains, event_captured."
+        ),
+    schedule_cron: zod
+        .string()
+        .max(agenticTestsPartialUpdateBodyScheduleCronMax)
+        .optional()
+        .describe(
+            'Cron expression (5 fields, UTC) describing the run cadence. Empty means manual-only — no automatic runs.'
         ),
     source_replay_id: zod.string().max(agenticTestsPartialUpdateBodySourceReplayIdMax).nullish(),
 })
