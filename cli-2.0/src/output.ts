@@ -1,8 +1,7 @@
-// @ts-expect-error — asciichart ships no type declarations
-import asciichart from 'asciichart'
 import chalk from 'chalk'
 import { highlight } from 'cli-highlight'
 import Table from 'cli-table3'
+import { createRequire } from 'node:module'
 
 import {
     buildLabelRow,
@@ -20,6 +19,133 @@ import {
 type TableColumn = {
     header: string
     render: (item: JsonRecord) => string
+}
+
+type AsciiChart = {
+    blue: string
+    green: string
+    yellow: string
+    magenta: string
+    cyan: string
+    red: string
+    plot: (
+        series: number[] | number[][],
+        options: { height: number; colors: string[]; format: (value: number) => string }
+    ) => string
+}
+
+type Chartscii = {
+    new (data: number[], options?: { 
+        width?: number
+        height?: number
+        color?: string
+        sort?: boolean
+        reverse?: boolean
+        naked?: boolean
+        colorIndex?: number
+        theme?: any
+    }): {
+        create(): string
+    }
+}
+
+const require = createRequire(import.meta.url)
+let cachedAsciichart: AsciiChart | null | undefined
+let cachedChartscii: Chartscii | null | undefined
+
+function getAsciichart(): AsciiChart | undefined {
+    if (cachedAsciichart !== undefined) {
+        return cachedAsciichart ?? undefined
+    }
+
+    try {
+        // asciichart is a CommonJS module, use it directly
+        const module = require('asciichart') as AsciiChart
+        cachedAsciichart = module
+    } catch {
+        cachedAsciichart = null
+    }
+
+    return cachedAsciichart ?? undefined
+}
+
+function getChartscii(): Chartscii | undefined {
+    if (cachedChartscii !== undefined) {
+        return cachedChartscii ?? undefined
+    }
+
+    try {
+        const module = require('chartscii') as { Chartscii: Chartscii } | { default: { Chartscii: Chartscii } }
+        cachedChartscii = 'Chartscii' in module ? module.Chartscii : module.default.Chartscii
+    } catch {
+        cachedChartscii = null
+    }
+
+    return cachedChartscii ?? undefined
+}
+
+function isBarChartData(result: unknown): boolean {
+    if (!isRecord(result)) return false
+    
+    // Check if this is explicitly a bar chart visualization
+    if (isRecord(result.query) && isRecord(result.query.source) && isRecord(result.query.source.trendsFilter)) {
+        const display = result.query.source.trendsFilter.display
+        return display === 'ActionsBarValue' || display === 'ActionsBar'
+    }
+    
+    return false
+}
+
+function convertToBarChartSeries(result: unknown): ChartSeries[] {
+    if (!isRecord(result) || !Array.isArray(result.result)) {
+        return []
+    }
+    
+    const data: number[] = []
+    const labels: string[] = []
+    
+    // Extract aggregated values and labels from the result
+    for (const item of result.result) {
+        if (isRecord(item) && typeof item.aggregated_value === 'number' && item.label) {
+            data.push(item.aggregated_value)
+            labels.push(stringify(item.label))
+        }
+    }
+    
+    if (data.length === 0 || labels.length === 0) {
+        return []
+    }
+    
+    // Create a single series with all the bar data
+    return [{
+        data,
+        labels,
+        label: stringify(result.name) || stringify(result.derived_name) || 'Bar Chart',
+        count: data.reduce((sum, val) => sum + val, 0)
+    }]
+}
+
+function shouldUseBarChart(series: ChartSeries[]): boolean {
+    if (series.length === 0) return false
+    
+    // Use bar charts for categorical data with fewer data points
+    const firstSeries = series[0]
+    const points = firstSeries.data.length
+    
+    // If there are relatively few data points (≤ 10), consider using bar chart
+    // Also check if labels look like categories rather than time series
+    if (points <= 10) {
+        const labels = firstSeries.labels.map(l => stringify(l).toLowerCase())
+        // Check if labels look like categories (not dates/times)
+        const hasDateLike = labels.some(label => 
+            /\d{4}-\d{2}-\d{2}/.test(label) || // ISO date
+            /\d{1,2}[-\/]\d{1,2}/.test(label) || // MM/DD or DD/MM
+            /jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/.test(label) // month names
+        )
+        return !hasDateLike
+    }
+    
+    return false
 }
 
 function getListItems(result: unknown): JsonRecord[] {
@@ -705,59 +831,203 @@ function printKnownList(toolName: string, result: unknown): boolean {
     return true
 }
 
-// PostHog's exact data colors from frontend/src/styles/base.scss
-// These match the --data-color-1 through --data-color-15 CSS variables
+// asciichart wants raw SGR strings on its `colors` config; chalk 5 doesn't
+// expose `.open`, so we keep two parallel constants — one for asciichart, one
+// for legend bullets. Same ordering in both.
+// PostHog's exact color palette (from frontend/src/styles/base.scss)
 const POSTHOG_COLORS = [
     '#1d4aff', // data-color-1
     '#621da6', // data-color-2  
     '#42827e', // data-color-3
-    '#ce0e74', // data-color-4
-    '#f14f58', // data-color-5
-    '#7c440e', // data-color-6
-    '#529a0a', // data-color-7
-    '#0476fb', // data-color-8
-    '#fe729e', // data-color-9
-    '#35416b', // data-color-10
-    '#41cbc4', // data-color-11
-    '#b64b02', // data-color-12
-    '#e4a604', // data-color-13
-    '#a56eff', // data-color-14
+    '#ce7c00', // data-color-4
+    '#de4916', // data-color-5
+    '#8b0014', // data-color-6
+    '#b64b94', // data-color-7
+    '#487968', // data-color-8
+    '#8b4513', // data-color-9
+    '#4682b4', // data-color-10
+    '#191970', // data-color-11
+    '#008b8b', // data-color-12
+    '#b8860b', // data-color-13
+    '#ff6347', // data-color-14
     '#30d5c8', // data-color-15
 ]
 
-// Map PostHog hex colors to closest available terminal colors for asciichart and chalk
-function hexToTerminalColor(hex: string): { ansi: string, fn: typeof chalk.blue } {
-    // Simple mapping of PostHog colors to closest terminal equivalents
-    switch (hex) {
-        case '#1d4aff': // blue
-        case '#0476fb': // blue
-            return { ansi: asciichart.blue, fn: chalk.blue }
-        case '#621da6': // purple
-        case '#a56eff': // purple  
-            return { ansi: asciichart.magenta, fn: chalk.magenta }
-        case '#42827e': // teal
-        case '#41cbc4': // cyan
-        case '#30d5c8': // cyan
-            return { ansi: asciichart.cyan, fn: chalk.cyan }
-        case '#ce0e74': // pink/red
-        case '#f14f58': // red
-            return { ansi: asciichart.red, fn: chalk.red }
-        case '#529a0a': // green
-            return { ansi: asciichart.green, fn: chalk.green }
-        case '#7c440e': // brown
-        case '#b64b02': // orange
-        case '#e4a604': // yellow
-            return { ansi: asciichart.yellow, fn: chalk.yellow }
-        case '#fe729e': // pink
-            return { ansi: asciichart.red, fn: chalk.red }
-        case '#35416b': // dark blue
-            return { ansi: asciichart.blue, fn: chalk.blue }
-        default:
-            return { ansi: asciichart.blue, fn: chalk.blue }
+function hexToTerminalColor(hex: string): { ansi: string; fn: (text: string) => string } {
+    // Map PostHog hex colors to closest terminal colors
+    const colorMap: Record<string, { ansi: string; fn: (text: string) => string }> = {
+        '#1d4aff': { ansi: '\x1b[34m', fn: chalk.blue },        // blue
+        '#621da6': { ansi: '\x1b[35m', fn: chalk.magenta },     // magenta
+        '#42827e': { ansi: '\x1b[36m', fn: chalk.cyan },        // cyan
+        '#ce7c00': { ansi: '\x1b[33m', fn: chalk.yellow },      // yellow
+        '#de4916': { ansi: '\x1b[31m', fn: chalk.red },         // red
+        '#8b0014': { ansi: '\x1b[91m', fn: chalk.redBright },   // bright red
+        '#b64b94': { ansi: '\x1b[95m', fn: chalk.magentaBright }, // bright magenta
+        '#487968': { ansi: '\x1b[32m', fn: chalk.green },       // green
+        '#8b4513': { ansi: '\x1b[93m', fn: chalk.yellowBright }, // bright yellow
+        '#4682b4': { ansi: '\x1b[94m', fn: chalk.blueBright },  // bright blue
+        '#191970': { ansi: '\x1b[34m', fn: chalk.blue },        // blue
+        '#008b8b': { ansi: '\x1b[96m', fn: chalk.cyanBright },  // bright cyan
+        '#b8860b': { ansi: '\x1b[33m', fn: chalk.yellow },      // yellow
+        '#ff6347': { ansi: '\x1b[91m', fn: chalk.redBright },   // bright red
+        '#30d5c8': { ansi: '\x1b[96m', fn: chalk.cyanBright },  // bright cyan
+    }
+    
+    return colorMap[hex] || { ansi: '\x1b[37m', fn: chalk.white }
+}
+
+function hexToChartsciiColor(hex: string): string {
+    // Map PostHog hex colors to supported chartscii color names
+    const colorMap: Record<string, string> = {
+        '#1d4aff': 'blue',      // blue
+        '#621da6': 'blue',      // magenta -> blue (closest)
+        '#42827e': 'cyan',      // cyan
+        '#ce7c00': 'yellow',    // yellow
+        '#de4916': 'red',       // red
+        '#8b0014': 'red',       // bright red -> red
+        '#b64b94': 'red',       // bright magenta -> red (closest)
+        '#487968': 'green',     // green
+        '#8b4513': 'yellow',    // bright yellow -> yellow
+        '#4682b4': 'blue',      // bright blue -> blue
+        '#191970': 'blue',      // blue
+        '#008b8b': 'cyan',      // bright cyan -> cyan
+        '#b8860b': 'yellow',    // yellow
+        '#ff6347': 'red',       // bright red -> red
+        '#30d5c8': 'cyan',      // bright cyan -> cyan
+    }
+    
+    return colorMap[hex] || 'white'
+}
+
+function getPostHogColor(index: number): { 
+    hex: string; 
+    terminal: { ansi: string; fn: (text: string) => string };
+    chartscii: string;
+} {
+    const colorIndex = (index % 15) + 1
+    const hex = POSTHOG_COLORS[colorIndex - 1]
+    return {
+        hex,
+        terminal: hexToTerminalColor(hex),
+        chartscii: hexToChartsciiColor(hex)
     }
 }
 
+function getChartColors(asciichart: AsciiChart): Array<{ ansi: string; fn: (text: string) => string }> {
+    return [
+        { ansi: asciichart.blue, fn: chalk.blue },
+        { ansi: asciichart.green, fn: chalk.green },
+        { ansi: asciichart.yellow, fn: chalk.yellow },
+        { ansi: asciichart.magenta, fn: chalk.magenta },
+        { ansi: asciichart.cyan, fn: chalk.cyan },
+        { ansi: asciichart.red, fn: chalk.red },
+    ]
+}
+
+function plotBarChart(series: ChartSeries[]): void {
+    const Chartscii = getChartscii()
+    if (!Chartscii) {
+        console.log(chalk.gray('Bar chart rendering is unavailable because chartscii is not installed.'))
+        return
+    }
+    
+    if (series.length === 0) {
+        console.log(chalk.gray('Not enough data to plot.'))
+        return
+    }
+    
+    const termWidth = Math.max(60, Math.min(process.stdout.columns ?? 100, 120))
+    
+    series.forEach((s, seriesIndex) => {
+        const data = s.data.map((v) => Number(v) || 0)
+        const labels = s.labels.map((l) => stringify(l))
+        
+        // Use PostHog's color system for each data point/category
+        const categoryColors = data.map((_, categoryIndex) => {
+            return getPostHogColor(categoryIndex)
+        })
+        
+        if (data.length === 0) return
+        
+        const action = isRecord(s.action) ? s.action : null
+        const name = stringify(s.label) || (action ? stringify(action.name) : '') || `Series ${seriesIndex + 1}`
+        const total = typeof s.count === 'number' ? chalk.gray(`  total: ${s.count}`) : ''
+        
+        // Use the first category's color for the series header
+        const seriesColor = categoryColors[0]?.terminal || { fn: chalk.white }
+        console.log(`${seriesColor.fn('●')} ${name}${total}`)
+        console.log('')
+        
+        try {
+            // Create individual colored charts for each bar
+            const maxValue = Math.max(...data)
+            const chartWidth = Math.min(termWidth - 20, 60)
+            
+            // Find the width needed for all value labels
+            const valueLabels = data.map(v => formatYValue(v))
+            const maxLabelWidth = Math.max(...valueLabels.map(label => label.length))
+            
+            data.forEach((value, index) => {
+                if (value === 0) return
+                
+                const color = categoryColors[index]
+                const label = labels[index]
+                const normalizedData = [value] // Single value for this bar
+                
+                try {
+                    const miniChart = new Chartscii(normalizedData, {
+                        width: Math.floor((value / maxValue) * chartWidth),
+                        height: 2,
+                        naked: true,
+                        color: color.chartscii
+                    })
+                    
+                    // Extract just the bar part (without numbers) from chartscii output
+                    const fullOutput = miniChart.create()
+                    const lines = fullOutput.split('\n').filter(line => line.trim() !== '')
+                    // Get the first line and split by space to separate number from bar
+                    const firstLine = lines[0] || ''
+                    const parts = firstLine.split(' ')
+                    // Skip the first part (the number) and join the rest (the bar)
+                    const barPart = parts.slice(1).join(' ')
+                    const valueStr = formatYValue(value).padEnd(maxLabelWidth, ' ')
+                    
+                    console.log(`${valueStr} ╢${barPart}`)
+                } catch (error) {
+                    // Fallback to simple text display
+                    const barLength = Math.floor((value / maxValue) * chartWidth)
+                    const bar = '█'.repeat(Math.max(1, barLength))
+                    const valueStr = formatYValue(value).padEnd(maxLabelWidth, ' ')
+                    console.log(`${valueStr} ╢${color.terminal.fn(bar)}`)
+                }
+            })
+            
+            // Add spacing and labels
+            console.log('')
+            labels.forEach((label, i) => {
+                if (data[i] === 0) return
+                const value = data[i]
+                const categoryColor = categoryColors[i]
+                // Show full unrounded numbers in the legend
+                console.log(`  ${categoryColor.terminal.fn('●')} ${label}: ${value}`)
+            })
+        } catch (error) {
+            console.log(chalk.gray(`Failed to render bar chart: ${error instanceof Error ? error.message : 'Unknown error'}`))
+        }
+        
+        if (seriesIndex < series.length - 1) {
+            console.log('')
+        }
+    })
+}
+
 function plotTrendsSeries(series: ChartSeries[]): void {
+    const asciichart = getAsciichart()
+    if (!asciichart) {
+        console.log(chalk.gray('Chart rendering is unavailable because asciichart is not installed.'))
+        return
+    }
+
     if (series.length === 0) {
         console.log(chalk.gray('Not enough data points to plot.'))
         return
@@ -850,6 +1120,17 @@ function printInsightDetail(result: unknown): void {
     console.log(chalk.gray(meta.join('  ·  ')))
     console.log('')
 
+    // Check if this is a bar chart data structure
+    if (isBarChartData(result)) {
+        const barChartSeries = convertToBarChartSeries(result)
+        if (barChartSeries.length > 0) {
+            plotBarChart(barChartSeries)
+            console.log('')
+            return
+        }
+    }
+
+    // Fallback to regular trends chart logic
     const seriesData = Array.isArray(result.result) ? result.result : []
     const plottable = seriesData.filter(isChartSeries)
 
@@ -860,7 +1141,11 @@ function printInsightDetail(result: unknown): void {
         return
     }
 
-    plotTrendsSeries(plottable)
+    if (shouldUseBarChart(plottable)) {
+        plotBarChart(plottable)
+    } else {
+        plotTrendsSeries(plottable)
+    }
     console.log('')
 }
 

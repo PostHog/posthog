@@ -5,6 +5,7 @@ import ora from 'ora'
 import yargs from 'yargs'
 import { hideBin } from 'yargs/helpers'
 
+import { getProjectIdOverride, buildCommandParams } from './cli-args.js'
 import { config } from './config.js'
 import { commands, executeToolCall } from './generated/commands.js'
 import { createMCPContext, type AuthenticatedConfig, type Context } from './mcp-context.js'
@@ -29,10 +30,15 @@ async function main() {
         .help()
         .version('0.1.0')
         .wrap(120)
+        .strictCommands()
         .option('json', {
             type: 'boolean',
             describe: 'Output raw JSON without terminal formatting',
             default: false,
+        })
+        .option('project-id', {
+            type: 'string',
+            describe: 'PostHog project ID to use for this command instead of the stored project',
         })
         .demandCommand(1, 'You need at least one command before moving on')
         .fail((msg, err, yargs) => {
@@ -42,17 +48,25 @@ async function main() {
             process.exit(1)
         })
         .middleware(async (argv: any & { mcpContext?: Context }) => {
-            // Skip setup for help/version/auth commands and bare command groups that show help.
+            // Skip setup for help/version/auth/livestream commands and bare command groups that show help.
             const isHelpCommand = argv.help || argv.h || argv._.includes('help')
             const isVersionCommand = argv.version || argv.v
             const isAuthCommand = argv._[0] === 'auth'
+            const isLivestreamCommand = argv._[0] === 'livestream'
             const isCommandGroupHelpRequest = isTopLevelCommandGroupHelpRequest(argv)
 
-            if (isHelpCommand || isVersionCommand || isAuthCommand || isCommandGroupHelpRequest) {
+            if (
+                isHelpCommand ||
+                isVersionCommand ||
+                isAuthCommand ||
+                isLivestreamCommand ||
+                isCommandGroupHelpRequest
+            ) {
                 return
             }
 
-            const authConfig = await config.ensureAuth()
+            const projectIdOverride = getProjectIdOverride(argv)
+            const authConfig = await config.ensureAuth({ projectId: projectIdOverride })
 
             if ((!authConfig.accessToken && !authConfig.apiKey) || !authConfig.projectId || !authConfig.host) {
                 console.error(chalk.red('Missing configuration. Run: ph auth login'))
@@ -93,6 +107,37 @@ async function main() {
             }
         )
 
+        // Livestream command (uses separate auth flow)
+        .command(
+            'livestream',
+            'Stream live events (interactive TUI or JSON)',
+            (yargs) => {
+                return yargs
+                    .option('token', { type: 'string', describe: 'JWT token (for scripting)' })
+                    .option('host', { type: 'string', describe: 'PostHog host (default: https://app.posthog.com)' })
+                    .option('livestream-host', {
+                        type: 'string',
+                        describe: 'Livestream service host (for self-hosted)',
+                    })
+                    .option('event-type', { type: 'string', describe: 'Filter by event type(s), comma-separated' })
+                    .option('distinct-id', { type: 'string', describe: 'Filter by distinct ID' })
+                    .option('geo', { type: 'boolean', describe: 'Stream geo events instead' })
+                    .option('json', { type: 'boolean', describe: 'Output JSON lines instead of interactive TUI' })
+            },
+            async (argv) => {
+                const { runLivestream } = await import('./livestream/index.js')
+                await runLivestream({
+                    token: argv.token,
+                    host: argv.host,
+                    livestreamHost: argv.livestreamHost,
+                    eventType: argv.eventType,
+                    distinctId: argv.distinctId,
+                    geo: argv.geo,
+                    json: argv.json,
+                })
+            }
+        )
+
     // Add human-readable commands from the new command mappings
 
     for (const [commandName, command] of Object.entries(commands)) {
@@ -125,16 +170,10 @@ async function main() {
                                     describe: 'Resource ID',
                                     demandOption: requiresId,
                                 })
-                                .strict(false) // Allow additional parameters
+                                .strictOptions(false) // Allow additional API parameters
                         },
                         async (argv) => {
-                            const params: any = {}
-                            // Pass through all arguments except the internal ones
-                            for (const [key, value] of Object.entries(argv)) {
-                                if (key !== '_' && key !== '$0' && key !== 'mcpContext') {
-                                    params[key] = value
-                                }
-                            }
+                            const params = buildCommandParams(argv)
                             await executeGeneratedTool(argv, subcommand.mcp_tool, params)
                         }
                     )

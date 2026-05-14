@@ -6,9 +6,10 @@ The package provides a `ph` binary with semantic command names that reflect actu
 
 ```bash
 ph auth login
+ph feature-flags list
 ph feature-flags status --id 660245
 ph cohorts list
-ph cohorts add-persons --id 123
+ph cohorts get --id 123
 ph insights list
 ph dashboards list
 ```
@@ -159,14 +160,22 @@ ph auth logout
 
 Help commands and bare command groups, such as `ph auth` or `ph feature-flags`, do not require login and show their available subcommands.
 
+To run a command against a different project without changing the stored project, pass `--project-id`.
+The stored access token or API key must already have access to that project, otherwise the API request will fail.
+
+```bash
+ph --project-id 12345 feature-flags list
+ph insights list --project-id 12345
+```
+
 ## Available Commands
 
 The CLI provides 40+ command groups with 312+ subcommands:
 
 **Core Resources:**
 
-- `ph feature-flags` - Feature flag management (status, list, create, etc.)
-- `ph cohorts` - Cohort operations (list, add-persons, remove-persons, etc.)
+- `ph feature-flags` - Feature flag management (list, get, status, create, etc.)
+- `ph cohorts` - Cohort operations (list, get, create, update, etc.)
 - `ph insights` - Insight and query management
 - `ph dashboards` - Dashboard operations
 - `ph experiments` - A/B test management
@@ -187,6 +196,7 @@ The CLI provides 40+ command groups with 312+ subcommands:
 - `ph roles` - Access control
 
 Run `ph --help` to see all available command groups, or `ph <group> --help` for subcommands.
+Subcommands use the generated human-readable names shown in help output, not raw MCP tool names; for example use `ph feature-flags list`, not `ph flags feature-flag-get-all`.
 
 ## Adding or changing commands
 
