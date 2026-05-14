@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Full representation of a live debugger program, including its code.",
+    "properties": {
+        "code": {
+            "description": "The hogtrace program source code to install. This is executed by the client-side runtime to instrument production code with probes.",
+            "type": "string"
+        },
+        "description": {
+            "description": "Human-readable description of what this program does and why it was installed.",
+            "type": "string"
+        }
+    },
+    "required": ["code"],
+    "type": "object"
+}
