@@ -1,11 +1,7 @@
-"""tools.yaml schema, parsing, persistence, and compose-override generation.
-
-Owns everything that touches the user's ``tools.yaml`` (at
-``~/.posthog-sandboxes/tools.yaml``) and the checked-in catalog file
-(``bin/sandbox-tools.yaml``). Pure data layer: no docker calls, no
-interactive prompts, no side effects at import.
-
-Callers wrap ``ToolsError`` with their own error reporter (e.g. ``fatal``).
+"""Pure data layer for tools.yaml: schema, parsing, persistence, and the
+generated artifacts (compose override + user Dockerfile). No docker calls,
+no interactive prompts, no side effects at import. Callers wrap ToolsError
+with their own error reporter.
 """
 
 from __future__ import annotations
@@ -31,14 +27,8 @@ class ToolsError(Exception):
 
 @dataclass
 class ToolCopy:
-    """Resolved host -> sandbox path pair for a single host-to-sandbox copy.
-
-    ``source`` is a host absolute path. ``target`` is an absolute path under
-    the in-sandbox $HOME (``SANDBOX_HOME_IN_CONTAINER``). Transport is a bind
-    mount under /tmp/sandbox-tool-auth/N; the entrypoint copies from there to
-    ``target`` at boot. Runtime semantics are snapshot copy, not live mount.
-    """
-
+    # Transport is a bind mount under /tmp/sandbox-tool-auth/N; the entrypoint
+    # copies from there to `target` at boot — snapshot copy, not live mount.
     source: str
     target: str
 
@@ -54,10 +44,8 @@ class Tool:
 
 
 class _BlockLiteralDumper(yaml.SafeDumper):
-    """SafeDumper variant that emits multi-line strings as block literals (``|``).
-
-    Scoped to this module so we don't mutate ``yaml.SafeDumper`` globally.
-    """
+    # Scoped subclass so the str representer below doesn't mutate yaml.SafeDumper globally.
+    pass
 
 
 def _block_literal_str(dumper: yaml.SafeDumper, data: str) -> yaml.ScalarNode:
@@ -70,12 +58,8 @@ _BlockLiteralDumper.add_representer(str, _block_literal_str)
 
 
 def parse_tool_copy(entry: object, *, source_label: str) -> ToolCopy:
-    """Resolve a tools.yaml copy[] entry to a ToolCopy.
-
-    Accepts short form (``"~/path"``) or long form (``{source, target}``).
-    Raises ToolsError for the genuinely-ambiguous user inputs: short form
-    not under $HOME, ``~user`` targets, or targets outside sandbox $HOME.
-    """
+    # Short form ("~/path") or long form ({source, target}). ToolsError on
+    # short form not under $HOME, ~user targets, or targets outside sandbox $HOME.
     host_home = str(Path.home())
     if isinstance(entry, str):
         source = str(Path(entry).expanduser().resolve(strict=False))
@@ -144,20 +128,16 @@ def _load_tools(path: Path) -> list[Tool]:
 
 
 def load_user_tools() -> list[Tool]:
-    """Parse ~/.posthog-sandboxes/tools.yaml, or return [] if missing."""
     return _load_tools(TOOLS_FILE)
 
 
 def load_catalog(catalog_file: Path) -> dict[str, Tool]:
-    """Parse the checked-in catalog file into a {name: tool} mapping.
-
-    Catalog entries are `Tool` instances with `description` set.
-    """
+    # Catalog Tool instances have `description` set; user tools.yaml does not.
     return {t.name: t for t in _load_tools(catalog_file)}
 
 
 def _format_copy(c: ToolCopy, host_home: Path) -> str | dict[str, str]:
-    """Round-trip a ToolCopy back to YAML, preferring short form."""
+    # Prefer short form when source is under $HOME and target is the default.
     try:
         rel = Path(c.source).relative_to(host_home)
     except ValueError:
@@ -174,7 +154,6 @@ def _format_copy(c: ToolCopy, host_home: Path) -> str | dict[str, str]:
 
 
 def save_user_tools(tools: list[Tool]) -> None:
-    """Write tools.yaml, preferring short-form copy entries when possible."""
     host_home = Path.home()
     entries: list[dict] = []
     for t in tools:
@@ -197,18 +176,12 @@ def save_user_tools(tools: list[Tool]) -> None:
 
 
 def write_user_dockerfile(tools: list[Tool], *, base_dockerfile: Path, out: Path = USER_DOCKERFILE) -> Path:
-    """Generate a Dockerfile that layers tool installs on top of the base.
-
-    Appends one RUN block per tool's install snippet to the base Dockerfile's
-    contents. Docker's BuildKit layer cache shares the base content across
-    all generated user dockerfiles automatically, so there is no separate
-    base-image tag to manage.
-
-    The personal layers create the sandbox user at build time so commands
-    like ``npm install -g`` resolve against /home/sandbox; the entrypoint's
-    create_sandbox_user is idempotent and short-circuits if the user already
-    exists.
-    """
+    # Inlines the base Dockerfile and appends a RUN block per tool. Docker's
+    # BuildKit layer cache shares the base content across users by content,
+    # so there is no separate base-image tag to manage.
+    #
+    # Creates the sandbox user at build time so `npm install -g` etc. resolve
+    # against /home/sandbox; the entrypoint's create_sandbox_user is idempotent.
     parts = [
         base_dockerfile.read_text().rstrip(),
         "\n\n# --- Personal tool layers (generated from ~/.posthog-sandboxes/tools.yaml) ---\n",
@@ -236,16 +209,10 @@ def write_user_dockerfile(tools: list[Tool], *, base_dockerfile: Path, out: Path
 
 
 def write_tool_auth_compose(tools: list[Tool], *, dockerfile: Path | None) -> Path:
-    """Generate a compose override that wires up tool auth mounts and (when
-    ``dockerfile`` is set) points the app build at the generated user
-    Dockerfile.
-
-    Rewritten before every ``docker compose`` call: tools.yaml is the source
-    of truth and the override is just a view of it, so there is no cache to
-    invalidate. Missing host sources are skipped entirely (no mount, no
-    target), letting tools that initialize their own state on first run
-    (e.g. ``gh auth login``) keep working.
-    """
+    # Rewritten before every `docker compose` call; tools.yaml is the source
+    # of truth so there's no cache to invalidate. Missing host sources are
+    # skipped entirely, letting tools that initialize their own state on
+    # first run (e.g. `gh auth login`) keep working.
     volumes: list[str] = []
     targets: list[str] = []
     for c in (c for t in tools for c in t.copy):

@@ -700,13 +700,10 @@ def compose(
     env_overrides: dict[str, str] | None = None,
     use_tools: bool = True,
 ) -> subprocess.CompletedProcess:
-    """Run `docker compose` with sandbox env vars.
-
-    When `use_tools` is set and the user has tools.yaml entries, a personal
-    Dockerfile and compose override are regenerated and stacked under the
-    base compose files. Cache-init style callers that need a tool-free
-    image set `use_tools=False`.
-    """
+    # When tools.yaml has entries and use_tools is set, a Dockerfile.user and
+    # compose override are regenerated and stacked under the base compose
+    # files. Cache-init style callers that need a tool-free image set
+    # use_tools=False.
     env = {
         **_host_compose_env(),
         "SANDBOX_PORT": str(port),
@@ -1729,7 +1726,6 @@ def cmd_rebuild_cache() -> None:
 
 
 def _prompt_lines(prompt_text: str, prompt_help: str, *, strip: bool = False) -> list[str]:
-    """Read lines from stdin until blank or EOF; return them as a list."""
     print(prompt_text)
     print(prompt_help)
     lines: list[str] = []
@@ -1747,7 +1743,6 @@ def _prompt_lines(prompt_text: str, prompt_help: str, *, strip: bool = False) ->
 
 
 def _run_install_test(name: str, install: str) -> None:
-    """Throw-away build of a single install snippet; fatal on failure."""
     info("Building a throwaway test layer on top of the current base image...")
     if not _test_install_snippet(install):
         fatal(f"Install snippet for '{name}' failed; not added to {TOOLS_FILE}.")
@@ -1755,12 +1750,8 @@ def _run_install_test(name: str, install: str) -> None:
 
 
 def _test_install_snippet(install: str) -> bool:
-    """Build a single-tool throwaway image to verify the install snippet.
-
-    Returns True on success. Failure leaves docker's streamed build log on
-    the terminal so the user can see exactly which step blew up. The
-    generated Dockerfile and the test tag are always cleaned up.
-    """
+    # Failure leaves docker's streamed build log on the terminal so the user
+    # can see which step blew up; cleanup runs in finally either way.
     test_tag = f"posthog-sandbox-tools-test:{int(time.time())}-{os.getpid()}"
     with tempfile.NamedTemporaryFile(prefix="Dockerfile.test-", delete=False) as f:
         dockerfile_path = Path(f.name)
@@ -1789,16 +1780,12 @@ def _test_install_snippet(install: str) -> bool:
 
 def _print_tool_summary(tool: Tool, *, indent: str = "  ") -> None:
     print(f"{indent}{tool.name}")
-    if tool.install:
-        snippet_lines = tool.install.strip().splitlines()
-        if snippet_lines:
-            print(f"{indent}  install:")
-            for line in snippet_lines:
-                print(f"{indent}    {line}")
+    if tool.install and (snippet := tool.install.strip()):
+        print(f"{indent}  install:")
+        for line in snippet.splitlines():
+            print(f"{indent}    {line}")
     for c in tool.copy:
         print(f"{indent}  copy: {c.source} -> {c.target}")
-    if not tool.install and not tool.copy:
-        print(f"{indent}  (no install or copy paths defined)")
 
 
 def _tools_list() -> None:
