@@ -103,7 +103,7 @@ export const catalogDefinitionSceneLogic = kea<catalogDefinitionSceneLogicType>(
         breadcrumbs: [
             (s) => [s.definition],
             (definition): Breadcrumb[] => [
-                { key: 'catalog', name: 'Catalog', path: urls.catalog() },
+                { key: 'catalog', name: 'Semantic layer', path: urls.catalog() },
                 { key: 'definition', name: definition?.name ?? 'Definition' },
             ],
         ],

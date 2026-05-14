@@ -4,9 +4,9 @@ import { urls } from 'scenes/urls'
 export type CatalogPageTab = 'proposals' | 'list' | 'graph'
 
 const TABS: LemonTab<CatalogPageTab>[] = [
-    { key: 'proposals', label: 'Proposals', link: urls.catalog() },
-    { key: 'list', label: 'List', link: urls.catalogList() },
-    { key: 'graph', label: 'Graph', link: urls.catalogGraph() },
+    { key: 'proposals', label: 'Inbox', link: urls.catalog() },
+    { key: 'list', label: 'Nodes', link: urls.catalogList() },
+    { key: 'graph', label: 'Lineage', link: urls.catalogGraph() },
 ]
 
 /** Tabs shared between /catalog (list view) and /catalog/graph (graph view). */

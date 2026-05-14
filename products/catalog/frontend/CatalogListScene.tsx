@@ -76,7 +76,7 @@ export function CatalogListScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Catalog"
+                name="Semantic layer"
                 description="Tables, saved queries, and system tables tracked by the semantic layer."
                 resourceType={{ type: 'data_warehouse' }}
             />

@@ -10,10 +10,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { AcceptRateBanner } from './AcceptRateBanner'
 import { CatalogPageTabs } from './CatalogPageTabs'
+import { catalogProposalsLogic } from './catalogProposalsLogic'
 import { ProposalCategoryRail } from './ProposalCategoryRail'
 import { ProposalDetail } from './ProposalDetail'
 import { ProposalListItem } from './ProposalListItem'
-import { catalogProposalsLogic } from './catalogProposalsLogic'
 import { PROPOSAL_CATEGORIES } from './proposalTypes'
 
 export const scene: SceneExport = {
@@ -33,7 +33,7 @@ export function CatalogProposalsScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Catalog"
+                name="Semantic layer"
                 description="Review AI-generated proposals — new definitions, drift alerts, duplicates and schema sync — before they reach your semantic layer."
                 resourceType={{ type: 'data_warehouse' }}
             />
@@ -111,11 +111,15 @@ function useKeyboardNav(): void {
             if (e.key === 'j' || e.key === 'ArrowDown') {
                 e.preventDefault()
                 const next = visibleProposals[Math.min(idx + 1, visibleProposals.length - 1)]
-                if (next) {setSelectedProposalId(next.id)}
+                if (next) {
+                    setSelectedProposalId(next.id)
+                }
             } else if (e.key === 'k' || e.key === 'ArrowUp') {
                 e.preventDefault()
                 const prev = visibleProposals[Math.max(idx - 1, 0)]
-                if (prev) {setSelectedProposalId(prev.id)}
+                if (prev) {
+                    setSelectedProposalId(prev.id)
+                }
             } else if (e.key === 'a' && selectedProposal && selectedProposal.status === 'open') {
                 e.preventDefault()
                 approveProposal(selectedProposal.id)
