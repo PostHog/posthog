@@ -13,6 +13,7 @@ import {
     agenticTestsCreate,
     agenticTestsPartialUpdate,
     agenticTestsPauseCreate,
+    agenticTestsRejectCreate,
     agenticTestsRetrieve,
     agenticTestsRunNowCreate,
 } from '../../generated/api'
@@ -63,6 +64,7 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
         runNow: true,
         activate: true,
         pause: true,
+        reject: true,
         addAssertion: (assertionType: AgenticTestAssertionType) => ({ assertionType }),
         updateAssertion: (index: number, patch: Partial<AgenticTestAssertion>) => ({ index, patch }),
         removeAssertion: (index: number) => ({ index }),
@@ -165,6 +167,7 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
             if (!props.id || props.id === 'new') {
                 return
             }
+            await agenticTestsPartialUpdate(projectId(), props.id, values.testForm as any)
             await agenticTestsActivateCreate(projectId(), props.id)
             actions.loadTest()
         },
@@ -174,6 +177,14 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
             }
             await agenticTestsPauseCreate(projectId(), props.id)
             actions.loadTest()
+        },
+        reject: async () => {
+            if (!props.id || props.id === 'new') {
+                return
+            }
+            await agenticTestsRejectCreate(projectId(), props.id)
+            lemonToast.success('Proposal rejected')
+            router.actions.push('/agentic_tests')
         },
     })),
     selectors({

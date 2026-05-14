@@ -17,7 +17,7 @@ export type AgenticTest = AgenticTestApi
 export type AgenticTestStatus = AgenticTestStatusEnumApi
 import type { agenticTestsSceneLogicType } from './agenticTestsSceneLogicType'
 
-export type StatusFilter = 'all' | 'active' | 'paused' | 'rejected'
+export type StatusFilter = 'all' | 'proposed' | 'active' | 'paused' | 'rejected'
 
 const STATUS_ORDER: Record<AgenticTestStatus, number> = {
     active: 0,
@@ -86,9 +86,6 @@ export const agenticTestsSceneLogic = kea<agenticTestsSceneLogicType>([
             (tests: AgenticTest[], searchTerm: string, statusFilter: StatusFilter): AgenticTest[] => {
                 const search = searchTerm.trim().toLowerCase()
                 const matches = tests.filter((t: AgenticTest) => {
-                    if (t.status === 'proposed') {
-                        return false
-                    }
                     if (statusFilter !== 'all' && t.status !== (statusFilter as AgenticTestStatus)) {
                         return false
                     }

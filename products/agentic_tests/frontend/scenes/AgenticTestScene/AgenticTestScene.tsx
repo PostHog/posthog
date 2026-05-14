@@ -123,6 +123,7 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
         runNow,
         activate,
         pause,
+        reject,
         submitTestForm,
         setTestFormValue,
         addAssertion,
@@ -153,16 +154,6 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                                 Resume
                             </LemonButton>
                         )}
-                        {!isNew && test?.status === 'proposed' && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={activate}
-                                data-attr="agentic-test-accept-detail"
-                            >
-                                Accept proposal
-                            </LemonButton>
-                        )}
                         {!isNew && (
                             <LemonButton
                                 type="secondary"
@@ -173,9 +164,35 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                                 Run now
                             </LemonButton>
                         )}
-                        <LemonButton type="primary" size="small" onClick={submitTestForm} data-attr="agentic-test-save">
-                            {isNew ? 'Create test' : 'Save changes'}
-                        </LemonButton>
+                        {!isNew && test?.status === 'proposed' && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={reject}
+                                data-attr="agentic-test-reject-detail"
+                            >
+                                Reject proposal
+                            </LemonButton>
+                        )}
+                        {!isNew && test?.status === 'proposed' ? (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={activate}
+                                data-attr="agentic-test-accept-detail"
+                            >
+                                Accept proposal
+                            </LemonButton>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={submitTestForm}
+                                data-attr="agentic-test-save"
+                            >
+                                {isNew ? 'Create test' : 'Save changes'}
+                            </LemonButton>
+                        )}
                     </>
                 }
             />
