@@ -99,7 +99,7 @@ class DeploymentProjectViewSet(
                     repo_url=serializer.validated_data["repo_url"],
                     default_branch=serializer.validated_data.get("default_branch", "main"),
                     github_pat=serializer.validated_data.get("github_pat"),
-                    build_command=serializer.validated_data.get("build_command", "pnpm install && pnpm build"),
+                    build_command=serializer.validated_data.get("build_command"),
                     output_dir=serializer.validated_data.get("output_dir", "dist"),
                     framework=serializer.validated_data.get("framework"),
                     inject_posthog_snippet=serializer.validated_data.get("inject_posthog_snippet", False),

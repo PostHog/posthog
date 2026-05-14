@@ -34,7 +34,7 @@ class ProvisionInput:
     repo_url: str
     default_branch: str
     github_pat: str | None
-    build_command: str
+    build_command: str | None
     output_dir: str
     framework: str | None
     inject_posthog_snippet: bool

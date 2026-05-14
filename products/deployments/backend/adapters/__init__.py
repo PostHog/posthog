@@ -12,7 +12,7 @@ paths without standing up external services.
 """
 
 from .cloudflare import CloudflareAdapter, CloudflareError, NullCloudflareAdapter, get_cloudflare_adapter
-from .github import GitHubAdapter, NullGitHubAdapter, get_github_adapter
+from .github import GitHubAdapter, GitHubError, NullGitHubAdapter, get_github_adapter
 from .microlink import NullScreenshotAdapter, ScreenshotAdapter, get_screenshot_adapter
 from .temporal import NullWorkflowAdapter, WorkflowAdapter, WorkflowError, get_workflow_adapter
 
@@ -20,6 +20,7 @@ __all__ = [
     "CloudflareAdapter",
     "CloudflareError",
     "GitHubAdapter",
+    "GitHubError",
     "NullCloudflareAdapter",
     "NullGitHubAdapter",
     "NullScreenshotAdapter",

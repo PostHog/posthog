@@ -59,7 +59,7 @@ class Migration(migrations.Migration):
                     "github_pat",
                     posthog.helpers.encrypted_fields.EncryptedTextField(blank=True, max_length=500, null=True),
                 ),
-                ("build_command", models.TextField(default="pnpm install && pnpm build")),
+                ("build_command", models.TextField(blank=True, default=None, null=True)),
                 ("output_dir", models.CharField(default="dist", max_length=255)),
                 ("framework", models.CharField(blank=True, max_length=50, null=True)),
                 ("inject_posthog_snippet", models.BooleanField(default=False)),

@@ -12083,8 +12083,11 @@ export namespace Schemas {
          * @nullable
          */
       github_pat?: string | null;
-      /** Shell command run inside the build container. Defaults to `pnpm install && pnpm build`. */
-      build_command?: string;
+      /**
+         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+         * @nullable
+         */
+      build_command?: string | null;
       /**
          * Directory containing the built static site, relative to the repository root.
          * @maxLength 255
@@ -23169,7 +23172,8 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `daily` - Daily
+     * * `hourly` - Hourly
+    * `daily` - Daily
     * `weekly` - Weekly
     * `monthly` - Monthly
     * `yearly` - Yearly
@@ -23178,6 +23182,7 @@ export namespace Schemas {
 
 
     export const SubscriptionFrequencyEnum = {
+      Hourly: 'hourly',
       Daily: 'daily',
       Weekly: 'weekly',
       Monthly: 'monthly',
@@ -23235,8 +23240,9 @@ export namespace Schemas {
       target_type: TargetTypeEnum;
       /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value: string;
-      /** How often to deliver: daily, weekly, monthly, or yearly.
+      /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
 
+      * `hourly` - Hourly
       * `daily` - Daily
       * `weekly` - Weekly
       * `monthly` - Monthly
@@ -25538,8 +25544,11 @@ export namespace Schemas {
          * @nullable
          */
       github_pat?: string | null;
-      /** Shell command run inside the build container. Defaults to `pnpm install && pnpm build`. */
-      build_command?: string;
+      /**
+         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+         * @nullable
+         */
+      build_command?: string | null;
       /**
          * Directory containing the built static site, relative to the repository root.
          * @maxLength 255
@@ -28806,8 +28815,9 @@ export namespace Schemas {
       target_type?: TargetTypeEnum;
       /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value?: string;
-      /** How often to deliver: daily, weekly, monthly, or yearly.
+      /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
 
+      * `hourly` - Hourly
       * `daily` - Daily
       * `weekly` - Weekly
       * `monthly` - Monthly

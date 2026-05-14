@@ -29,7 +29,6 @@ export const deploymentProjectsCreateBodyDefaultBranchMax = 255
 
 export const deploymentProjectsCreateBodyGithubPatMax = 500
 
-export const deploymentProjectsCreateBodyBuildCommandDefault = `pnpm install && pnpm build`
 export const deploymentProjectsCreateBodyOutputDirDefault = `dist`
 export const deploymentProjectsCreateBodyOutputDirMax = 255
 
@@ -65,8 +64,10 @@ export const DeploymentProjectsCreateBody = /* @__PURE__ */ zod.object({
         ),
     build_command: zod
         .string()
-        .default(deploymentProjectsCreateBodyBuildCommandDefault)
-        .describe('Shell command run inside the build container. Defaults to `pnpm install && pnpm build`.'),
+        .nullish()
+        .describe(
+            'Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).'
+        ),
     output_dir: zod
         .string()
         .max(deploymentProjectsCreateBodyOutputDirMax)
@@ -134,7 +135,6 @@ export const deploymentProjectsUpdateBodyDefaultBranchMax = 255
 
 export const deploymentProjectsUpdateBodyGithubPatMax = 500
 
-export const deploymentProjectsUpdateBodyBuildCommandDefault = `pnpm install && pnpm build`
 export const deploymentProjectsUpdateBodyOutputDirDefault = `dist`
 export const deploymentProjectsUpdateBodyOutputDirMax = 255
 
@@ -170,8 +170,10 @@ export const DeploymentProjectsUpdateBody = /* @__PURE__ */ zod.object({
         ),
     build_command: zod
         .string()
-        .default(deploymentProjectsUpdateBodyBuildCommandDefault)
-        .describe('Shell command run inside the build container. Defaults to `pnpm install && pnpm build`.'),
+        .nullish()
+        .describe(
+            'Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).'
+        ),
     output_dir: zod
         .string()
         .max(deploymentProjectsUpdateBodyOutputDirMax)
@@ -210,7 +212,6 @@ export const deploymentProjectsPartialUpdateBodyDefaultBranchMax = 255
 
 export const deploymentProjectsPartialUpdateBodyGithubPatMax = 500
 
-export const deploymentProjectsPartialUpdateBodyBuildCommandDefault = `pnpm install && pnpm build`
 export const deploymentProjectsPartialUpdateBodyOutputDirDefault = `dist`
 export const deploymentProjectsPartialUpdateBodyOutputDirMax = 255
 
@@ -249,8 +250,10 @@ export const DeploymentProjectsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     build_command: zod
         .string()
-        .default(deploymentProjectsPartialUpdateBodyBuildCommandDefault)
-        .describe('Shell command run inside the build container. Defaults to `pnpm install && pnpm build`.'),
+        .nullish()
+        .describe(
+            'Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).'
+        ),
     output_dir: zod
         .string()
         .max(deploymentProjectsPartialUpdateBodyOutputDirMax)

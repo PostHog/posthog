@@ -48,7 +48,9 @@ class DeploymentProject(ModelActivityMixin, ProductTeamModel, DeletedMetaFields)
     github_pat = EncryptedTextField(max_length=500, null=True, blank=True)
 
     # Build config
-    build_command = models.TextField(default="pnpm install && pnpm build")
+    # Null = build worker infers the command from `framework` (or auto-detects
+    # if framework is also null). Users can pin an explicit command via PATCH.
+    build_command = models.TextField(null=True, blank=True, default=None)
     output_dir = models.CharField(max_length=255, default="dist")
     framework = models.CharField(max_length=50, null=True, blank=True)
     inject_posthog_snippet = models.BooleanField(default=False)

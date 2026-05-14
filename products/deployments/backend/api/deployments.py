@@ -27,6 +27,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
+from ..adapters import GitHubError
 from ..domain.trigger import TriggerKind
 from ..models import Deployment, DeploymentEvent, DeploymentProject
 from ..serializers import DeploymentEventSerializer, DeploymentSerializer
@@ -161,7 +162,9 @@ class DeploymentViewSet(
         responses={
             status.HTTP_201_CREATED: DeploymentSerializer,
             status.HTTP_409_CONFLICT: OpenApiResponse(response=DeploymentConflictResponseSerializer),
-            status.HTTP_502_BAD_GATEWAY: OpenApiResponse(description="Build workflow dispatch failed."),
+            status.HTTP_502_BAD_GATEWAY: OpenApiResponse(
+                description="Upstream (GitHub commit lookup or build workflow dispatch) failed."
+            ),
         },
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -186,6 +189,11 @@ class DeploymentViewSet(
                 },
                 status=status.HTTP_409_CONFLICT,
             )
+        except GitHubError as exc:
+            # The github adapter's contract is to bubble GitHubError up here;
+            # we honour the docstring ("Translated to 502 by callers"). No DB
+            # row was created — the failure happened before the atomic block.
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
         except create_deployment.WorkflowDispatchFailed as exc:
             # Row has already been marked ERROR by the service; surface
             # the orphan id so operators / clients can audit.
@@ -202,7 +210,9 @@ class DeploymentViewSet(
         responses={
             status.HTTP_201_CREATED: DeploymentSerializer,
             status.HTTP_409_CONFLICT: OpenApiResponse(response=DeploymentConflictResponseSerializer),
-            status.HTTP_502_BAD_GATEWAY: OpenApiResponse(description="Build workflow dispatch failed."),
+            status.HTTP_502_BAD_GATEWAY: OpenApiResponse(
+                description="Upstream (GitHub commit lookup or build workflow dispatch) failed."
+            ),
         },
     )
     @action(detail=True, methods=["post"])
@@ -226,6 +236,8 @@ class DeploymentViewSet(
                 },
                 status=status.HTTP_409_CONFLICT,
             )
+        except GitHubError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
         except create_deployment.WorkflowDispatchFailed as exc:
             return Response(
                 {"detail": str(exc), "deployment_id": exc.deployment_id},
@@ -238,7 +250,9 @@ class DeploymentViewSet(
         responses={
             status.HTTP_201_CREATED: DeploymentSerializer,
             status.HTTP_409_CONFLICT: OpenApiResponse(response=DeploymentConflictResponseSerializer),
-            status.HTTP_502_BAD_GATEWAY: OpenApiResponse(description="Build workflow dispatch failed."),
+            status.HTTP_502_BAD_GATEWAY: OpenApiResponse(
+                description="Upstream (GitHub commit lookup or build workflow dispatch) failed."
+            ),
         },
     )
     @action(detail=True, methods=["post"])
@@ -258,6 +272,8 @@ class DeploymentViewSet(
                 },
                 status=status.HTTP_409_CONFLICT,
             )
+        except GitHubError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
         except create_deployment.WorkflowDispatchFailed as exc:
             return Response(
                 {"detail": str(exc), "deployment_id": exc.deployment_id},

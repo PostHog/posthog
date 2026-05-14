@@ -137,7 +137,8 @@ class Command(BaseCommand):
             "name": name,
             "repo_url": repo_url,
             "default_branch": "main",
-            "build_command": "pnpm install && pnpm build",
+            # build_command left null — the framework hint below is the
+            # canonical way to tell the worker how to build a Vite app.
             "output_dir": "dist",
             "framework": "vite",
             "inject_posthog_snippet": False,

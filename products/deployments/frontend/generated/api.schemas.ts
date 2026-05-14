@@ -37,8 +37,11 @@ export interface DeploymentProjectApi {
      * @nullable
      */
     github_pat?: string | null
-    /** Shell command run inside the build container. Defaults to `pnpm install && pnpm build`. */
-    build_command?: string
+    /**
+     * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+     * @nullable
+     */
+    build_command?: string | null
     /**
      * Directory containing the built static site, relative to the repository root.
      * @maxLength 255
@@ -342,8 +345,11 @@ export interface PatchedDeploymentProjectApi {
      * @nullable
      */
     github_pat?: string | null
-    /** Shell command run inside the build container. Defaults to `pnpm install && pnpm build`. */
-    build_command?: string
+    /**
+     * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+     * @nullable
+     */
+    build_command?: string | null
     /**
      * Directory containing the built static site, relative to the repository root.
      * @maxLength 255

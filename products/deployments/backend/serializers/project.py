@@ -45,8 +45,12 @@ class DeploymentProjectSerializer(serializers.ModelSerializer):
 
     build_command = serializers.CharField(
         required=False,
-        default="pnpm install && pnpm build",
-        help_text="Shell command run inside the build container. Defaults to `pnpm install && pnpm build`.",
+        allow_null=True,
+        allow_blank=True,
+        help_text=(
+            "Optional shell command run inside the build container. Null = the build worker "
+            "infers it from `framework` (or auto-detection if framework is also null)."
+        ),
     )
     output_dir = serializers.CharField(
         max_length=255,
