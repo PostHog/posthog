@@ -145,9 +145,10 @@ jobs:
               timeout-minutes: 15
               run: |
                   set -euo pipefail
-                  url="$HOBBYCTL_URL/posthog/tasks/$TASK_ID/runs/$RUN_ID/stream"
+                  url="$HOBBYCTL_URL/posthog/tasks/$TASK_ID/runs/$RUN_ID/stream?stop_on=end_turn"
                   echo "Streaming $url"
                   # -N disables buffering so SSE events surface immediately;
-                  # curl returns when the server closes the stream.
+                  # hobbyctl closes the stream itself once an event matches
+                  # stop_on (server emits `event: closed` with stop_pattern_matched).
                   curl -fsSL -N -H 'accept: text/event-stream' "$url"
                   echo "Stream closed"
