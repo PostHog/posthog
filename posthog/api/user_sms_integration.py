@@ -183,6 +183,9 @@ class UserSMSIntegrationViewSet(viewsets.GenericViewSet):
         try:
             client.send_message(to=phone, body=f"Your PostHog verification code is {code}")
         except SendBlueError as exc:
+            # An unsent code must not linger for the full TTL — a later retry could
+            # otherwise verify against a challenge the user never received.
+            cache.delete(_verification_cache_key(user))
             logger.warning("user_sms.start_verification.send_failed", user_id=user.pk, error=str(exc))
             raise exceptions.ValidationError("Could not send the verification code. Try again in a moment.")
 

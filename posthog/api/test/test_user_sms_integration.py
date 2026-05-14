@@ -78,10 +78,14 @@ class TestUserSMSIntegrationEndpoints(APIBaseTest):
         response = self.client.post(START_URL, {"phone_number": "+14155552671"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_start_verification_returns_400_when_send_fails(self):
+    def test_start_verification_clears_cache_when_send_fails(self):
         self.mock_client.send_message.side_effect = SendBlueError("boom")
         response = self.client.post(START_URL, {"phone_number": "+14155552671"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIsNone(
+            cache.get(_verification_cache_key(self.user)),
+            "an unsent code must not linger in the cache after a SendBlue failure",
+        )
 
     def test_verify_creates_integration_on_correct_code(self):
         self._seed_verification(phone="+14155552671", code="123456")
