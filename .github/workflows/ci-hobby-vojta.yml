@@ -45,6 +45,18 @@ jobs:
         timeout-minutes: 45
         needs: wait-for-docker-image
         steps:
+            - name: Stop hobby before switch
+              run: |
+                  set -euo pipefail
+                  resp=$(curl -fsSL -X POST "$HOBBYCTL_URL/stop")
+                  echo "Stop response:"
+                  echo "$resp" | jq .
+                  exit_code=$(echo "$resp" | jq -r '.exit_code')
+                  if [ "$exit_code" != "0" ]; then
+                    echo "Stop returned non-zero exit_code: $exit_code"
+                    exit 1
+                  fi
+
             - name: Trigger async switch
               id: switch
               env:
