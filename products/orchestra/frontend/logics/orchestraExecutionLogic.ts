@@ -1,6 +1,7 @@
-import { afterMount, kea, key, path, props } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import type { orchestraExecutionLogicType } from './orchestraExecutionLogicType'
 
@@ -33,6 +34,10 @@ export const orchestraExecutionLogic = kea<orchestraExecutionLogicType>([
     props({} as OrchestraExecutionLogicProps),
     key((props) => props.executionId),
 
+    actions({
+        retryExecution: true,
+    }),
+
     loaders(({ props }) => ({
         execution: [
             null as OrchestraExecutionDetail | null,
@@ -44,6 +49,21 @@ export const orchestraExecutionLogic = kea<orchestraExecutionLogicType>([
                 },
             },
         ],
+    })),
+
+    listeners(({ props, actions }) => ({
+        retryExecution: async () => {
+            try {
+                await api.create(
+                    `api/projects/@current/orchestra/executions/${props.executionId}/retry/`
+                )
+                lemonToast.success('Retry queued — reloading…')
+                actions.loadExecution()
+            } catch (err: any) {
+                const detail = err?.data?.detail ?? err?.detail ?? 'Retry failed'
+                lemonToast.error(String(detail))
+            }
+        },
     })),
 
     afterMount(({ actions }) => {

@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft } from '@posthog/icons'
+import { IconArrowLeft, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -192,6 +192,7 @@ export const scene: SceneExport = {
 
 function OrchestraExecutionScene(): JSX.Element {
     const { execution, executionLoading } = useValues(orchestraExecutionLogic)
+    const { retryExecution } = useActions(orchestraExecutionLogic)
 
     if (executionLoading || !execution) {
         return (
@@ -213,7 +214,26 @@ function OrchestraExecutionScene(): JSX.Element {
         {
             title: 'Type',
             dataIndex: 'event_type',
-            render: (_, record) => <LemonTag>{record.event_type}</LemonTag>,
+            render: (_, record) => {
+                const attrs = record.attributes as Record<string, unknown>
+                const carriedOver = typeof attrs?.carried_over_from_run_id === 'string'
+                return (
+                    <div className="flex items-center gap-1">
+                        <LemonTag>{record.event_type}</LemonTag>
+                        {carriedOver && (
+                            <Tooltip
+                                title={`Reused from prior run ${String(
+                                    attrs.carried_over_from_run_id
+                                )} — this step was not re-executed.`}
+                            >
+                                <LemonTag type="muted" size="small">
+                                    reused
+                                </LemonTag>
+                            </Tooltip>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             title: 'Time',
@@ -249,6 +269,17 @@ function OrchestraExecutionScene(): JSX.Element {
             />
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                 <LemonTag type={statusType}>{execution.status}</LemonTag>
+                {execution.status === 'FAILED' && (
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        icon={<IconRefresh />}
+                        onClick={retryExecution}
+                        tooltip="Fork a new run from the completed-step history. Prior step outputs are reused."
+                    >
+                        Retry
+                    </LemonButton>
+                )}
                 <span>
                     <span className="text-muted mr-1">Started</span>
                     <TZLabel time={execution.started_at} timestampStyle="absolute" />

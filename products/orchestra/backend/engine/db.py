@@ -22,7 +22,7 @@ from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
-from .types import Event, ExecutionStatus, Task
+from .types import Event, EventType, ExecutionStatus, Task, TaskType
 
 
 def _row_to_event(row: dict[str, Any]) -> Event:
@@ -218,6 +218,90 @@ class Database:
                 (str(int(retry_in.total_seconds())), task_id),
             )
 
+    async def retry_failed_execution(
+        self,
+        *,
+        execution_id: str,
+        team_id: int,
+    ) -> UUID:
+        """Fork a new run for a failed execution, seeded from the successful prefix of its history.
+
+        Returns the new run_id. The new run inherits EXECUTION_STARTED plus every
+        STEP_SCHEDULED/STEP_COMPLETED and TIMER_SCHEDULED/TIMER_FIRED pair whose
+        completion event exists in the source run. STEP_FAILED, EXECUTION_FAILED,
+        and any in-flight scheduled events are dropped. Carried events are tagged
+        with `carried_over_from_run_id` so the UI can distinguish reused state
+        from freshly produced state.
+        """
+        async with self.pool.connection() as conn:
+            cur = conn.cursor(row_factory=dict_row)
+            await cur.execute(
+                "SELECT run_id, status, step_queue FROM orchestra_execution "
+                "WHERE execution_id=%s AND team_id=%s "
+                "ORDER BY started_at DESC LIMIT 1",
+                (execution_id, team_id),
+            )
+            source = await cur.fetchone()
+            if source is None:
+                raise LookupError(f"execution {execution_id} not found")
+            if source["status"] != ExecutionStatus.FAILED:
+                raise ValueError(
+                    f"execution {execution_id} is in status {source['status']!r}, only FAILED runs can be retried"
+                )
+            source_run_id: UUID = source["run_id"]
+            step_queue: str = source["step_queue"]
+
+            history = await self._load_history_on_conn(conn, execution_id, source_run_id)
+            seed_events = _build_retry_seed(history, source_run_id)
+            new_run_id = uuid4()
+            execution_started = next(
+                (ev for ev in history if ev.event_type == EventType.EXECUTION_STARTED), None
+            )
+            if execution_started is None:
+                raise RuntimeError(f"execution {execution_id}/{source_run_id} missing EXECUTION_STARTED")
+            execution_type = execution_started.attributes["execution_type"]
+            execution_input = execution_started.attributes.get("input")
+
+            async with conn.transaction():
+                await self.create_execution(
+                    conn,
+                    execution_id=execution_id,
+                    run_id=new_run_id,
+                    execution_type=execution_type,
+                    step_queue=step_queue,
+                    input=execution_input,
+                    team_id=team_id,
+                )
+                await self.lock_execution(conn, execution_id, new_run_id)
+                await self.append_events(
+                    conn,
+                    execution_id,
+                    new_run_id,
+                    seed_events,
+                    team_id=team_id,
+                )
+                await self.enqueue_task(
+                    conn,
+                    task_queue=step_queue,
+                    task_type=TaskType.EXECUTION_TASK,
+                    execution_id=execution_id,
+                    run_id=new_run_id,
+                    team_id=team_id,
+                )
+        return new_run_id
+
+    async def _load_history_on_conn(
+        self, conn: AsyncConnection[Any], execution_id: str, run_id: UUID
+    ) -> list[Event]:
+        cur = conn.cursor(row_factory=dict_row)
+        await cur.execute(
+            "SELECT execution_id, run_id, event_id, event_type, timestamp, attributes "
+            "FROM orchestra_event WHERE execution_id=%s AND run_id=%s ORDER BY event_id",
+            (execution_id, run_id),
+        )
+        rows = await cur.fetchall()
+        return [_row_to_event(r) for r in rows]
+
     async def load_history(self, execution_id: str, run_id: UUID) -> list[Event]:
         async with self.pool.connection() as conn:
             cur = conn.cursor(row_factory=dict_row)
@@ -232,3 +316,40 @@ class Database:
 
 def utcnow() -> datetime:
     return datetime.now(tz=UTC)
+
+
+def _build_retry_seed(history: list[Event], source_run_id: UUID) -> list[tuple[str, dict[str, Any]]]:
+    """Filter a failed run's history down to the successful prefix that should seed a retry run.
+
+    Keeps EXECUTION_STARTED, plus matched STEP_SCHEDULED+STEP_COMPLETED and
+    TIMER_SCHEDULED+TIMER_FIRED pairs. Drops STEP_FAILED, EXECUTION_FAILED, and
+    any *_SCHEDULED whose completion event is missing. Adds
+    `carried_over_from_run_id` to every carried attribute set so the UI can tell
+    reused state apart from freshly produced state.
+    """
+    completed_step_ids: set[int] = set()
+    fired_timer_ids: set[int] = set()
+    for ev in history:
+        if ev.event_type == EventType.STEP_COMPLETED:
+            completed_step_ids.add(int(ev.attributes["step_id"]))
+        elif ev.event_type == EventType.TIMER_FIRED:
+            fired_timer_ids.add(int(ev.attributes["timer_id"]))
+
+    seed: list[tuple[str, dict[str, Any]]] = []
+    marker = {"carried_over_from_run_id": str(source_run_id)}
+    for ev in history:
+        attrs = {**ev.attributes, **marker}
+        match ev.event_type:
+            case EventType.EXECUTION_STARTED:
+                seed.append((ev.event_type, attrs))
+            case EventType.STEP_SCHEDULED if int(ev.attributes["step_id"]) in completed_step_ids:
+                seed.append((ev.event_type, attrs))
+            case EventType.STEP_COMPLETED:
+                seed.append((ev.event_type, attrs))
+            case EventType.TIMER_SCHEDULED if int(ev.attributes["timer_id"]) in fired_timer_ids:
+                seed.append((ev.event_type, attrs))
+            case EventType.TIMER_FIRED:
+                seed.append((ev.event_type, attrs))
+            case _:
+                pass
+    return seed

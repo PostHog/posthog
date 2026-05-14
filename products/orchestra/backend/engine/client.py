@@ -50,3 +50,6 @@ class Client:
                     team_id=team_id,
                 )
         return run_id
+
+    async def retry_execution(self, *, execution_id: str, team_id: int) -> UUID:
+        return await self.db.retry_failed_execution(execution_id=execution_id, team_id=team_id)

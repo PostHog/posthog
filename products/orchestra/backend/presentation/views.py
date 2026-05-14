@@ -51,6 +51,29 @@ class ExecutionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ExecutionDetailSerializer(detail).data, status=status.HTTP_200_OK)
 
     @extend_schema(
+        request=None,
+        responses={200: TriggeredExecutionResponseSerializer, 404: None, 409: None},
+        description=(
+            "Retry a previously failed execution by forking a new run. The new run is "
+            "seeded from the failed run's completed-step history, so prior step outputs "
+            "are reused and only the steps that did not complete (or were not reached) "
+            "run again."
+        ),
+    )
+    @action(detail=True, methods=["post"], required_scopes=["orchestra:write"])
+    def retry(self, request: Request, pk: str = "", **kwargs) -> Response:
+        try:
+            execution_id = api.retry_execution(team_id=self.team_id, execution_id=pk)
+        except LookupError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
+        return Response(
+            TriggeredExecutionResponseSerializer({"execution_id": execution_id}).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
         request=TriggerExecutionSerializer,
         responses={201: TriggeredExecutionResponseSerializer},
         description="Trigger a workflow execution against the team's active deployment.",

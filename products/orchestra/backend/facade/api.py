@@ -64,11 +64,26 @@ def list_executions(
         qs = qs.filter(started_at__gte=relative_date_parse(date_from, tz))
     if date_to:
         qs = qs.filter(started_at__lte=relative_date_parse(date_to, tz, increase=True))
-    return [_to_summary(obj) for obj in qs[offset : offset + limit]]
+    seen: set[str] = set()
+    deduped: list[contracts.ExecutionSummary] = []
+    for obj in qs.iterator():
+        if obj.execution_id in seen:
+            continue
+        seen.add(obj.execution_id)
+        if len(deduped) >= offset + limit:
+            break
+        deduped.append(_to_summary(obj))
+    return deduped[offset : offset + limit]
 
 
 def get_execution(execution_id: str, *, team_id: int) -> contracts.ExecutionDetail:
-    obj = Execution.all_teams.get(execution_id=execution_id, team_id=team_id)
+    obj = (
+        Execution.all_teams.filter(execution_id=execution_id, team_id=team_id)
+        .order_by("-started_at")
+        .first()
+    )
+    if obj is None:
+        raise Execution.DoesNotExist(f"execution {execution_id} not found")
     events = (
         Event.objects.using(READER_DB)
         .filter(execution_id=obj.execution_id, run_id=obj.run_id, team_id=team_id)
@@ -261,6 +276,27 @@ def trigger_execution(
                 team_id=team_id,
                 step_queue=active.task_queue,
             )
+        finally:
+            await db.close()
+
+    asyncio.run(_run())
+    return execution_id
+
+
+def retry_execution(*, team_id: int, execution_id: str) -> str:
+    """Fork a new run for a previously failed execution, reusing its completed step state.
+
+    Returns the same `execution_id` (a retry shares the execution_id; only the
+    `run_id` changes). Raises `LookupError` if no such execution exists for the
+    team. Raises `ValueError` if the latest run is not in FAILED status.
+    """
+    if not Execution.all_teams.filter(execution_id=execution_id, team_id=team_id).exists():
+        raise LookupError(f"execution {execution_id} not found")
+
+    async def _run() -> None:
+        db = await Database.connect(settings.ORCHESTRA_DSN)
+        try:
+            await Client(db).retry_execution(execution_id=execution_id, team_id=team_id)
         finally:
             await db.close()
 
