@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 
+import { getSeriesColor } from 'lib/colors'
 import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 
@@ -79,8 +80,13 @@ export function CreatePromptExperimentModal(): JSX.Element | null {
                                     className="flex items-center gap-2"
                                     data-attr={`llma-prompt-experiment-version-row-${index}`}
                                 >
-                                    <div className="w-24 text-sm font-medium">
-                                        {variantLabel(index, versionSlots.length)}
+                                    <div className="flex items-center gap-2 w-20 text-xs">
+                                        <span
+                                            className="w-2 h-2 rounded-full shrink-0"
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={{ backgroundColor: getSeriesColor(index) }}
+                                        />
+                                        <span>{variantLabel(index, versionSlots.length)}</span>
                                     </div>
                                     <LemonSelect<number | null>
                                         className="flex-1"
@@ -109,7 +115,7 @@ export function CreatePromptExperimentModal(): JSX.Element | null {
                         <LemonButton
                             icon={<IconPlus />}
                             type="secondary"
-                            size="small"
+                            size="xsmall"
                             onClick={addVersionSlot}
                             disabledReason={
                                 versionSlots.length >= MAX_VERSIONS

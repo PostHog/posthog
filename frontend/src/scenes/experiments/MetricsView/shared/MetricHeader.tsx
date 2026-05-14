@@ -227,6 +227,11 @@ export const MetricHeader = ({
                     <LemonTag type="muted" size="small">
                         {getMetricTag(metric)}
                     </LemonTag>
+                    {experiment.parameters?.prompt_metadata && (
+                        <LemonTag type="completion" size="small">
+                            LLM
+                        </LemonTag>
+                    )}
                     {metric.goal === 'decrease' && (
                         <LemonTag type="highlight" size="small">
                             Goal: Decrease

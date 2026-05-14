@@ -5,6 +5,7 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     ExperimentMeanMetric,
+    ExperimentMetricGoal,
     ExperimentMetricMathType,
     ExperimentRatioMetric,
     HogQLPropertyFilter,
@@ -31,6 +32,7 @@ def _prompt_filter(prompt_name: str) -> EventPropertyFilter:
 def build_cost_metric(prompt_name: str) -> ExperimentMeanMetric:
     return ExperimentMeanMetric(
         name="Cost",
+        goal=ExperimentMetricGoal.DECREASE,
         source=EventsNode(
             event="$ai_generation",
             math=ExperimentMetricMathType.SUM,
@@ -43,6 +45,7 @@ def build_cost_metric(prompt_name: str) -> ExperimentMeanMetric:
 def build_latency_metric(prompt_name: str) -> ExperimentMeanMetric:
     return ExperimentMeanMetric(
         name="Latency",
+        goal=ExperimentMetricGoal.DECREASE,
         source=EventsNode(
             event="$ai_generation",
             math=ExperimentMetricMathType.SUM,
@@ -89,15 +92,15 @@ _TEMPLATES: dict[str, Callable[[str], LLMMetric]] = {
 _TEMPLATE_METADATA: dict[str, dict[str, str]] = {
     "cost": {
         "label": "Cost",
-        "description": "Compares total $ai_total_cost_usd from $ai_generation events tagged with this prompt.",
+        "description": "Compares LLM cost per user across prompt versions.",
     },
     "latency": {
         "label": "Latency",
-        "description": "Compares total $ai_latency from $ai_generation events tagged with this prompt.",
+        "description": "Compares LLM response time per user across prompt versions.",
     },
     "eval_pass_rate": {
         "label": "Eval pass rate",
-        "description": "Ratio of passing $ai_evaluation events for this prompt.",
+        "description": "Compares the share of evaluations that pass across prompt versions.",
     },
 }
 
