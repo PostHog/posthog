@@ -1,4 +1,5 @@
 import json
+import math
 import typing
 import asyncio
 import datetime as dt
@@ -7,6 +8,7 @@ import dataclasses
 from django.conf import settings
 from django.db import close_old_connections
 
+from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -42,24 +44,37 @@ FIELD_TWITTER_FOLLOWERS = "$enriched_org_twitter_followers"
 
 
 @dataclasses.dataclass
-class OrganizationTarget:
+class _OrganizationRow:
+    """Loaded from `posthog_organization` joined with the picked
+    `posthog_organizationdomain` row."""
+
     organization_id: str
+    name: str | None
     domain: str
-    # Optional context fields that can come from the source list. Not required
-    # for enrichment but carried through so the emitted event can reference them.
-    name: str | None = None
 
 
 @dataclasses.dataclass
 class OrganizationEnrichmentInputs:
-    targets: list[OrganizationTarget]
+    """Workflow inputs for org enrichment.
+
+    Mirrors the people workflow: the workflow pulls candidates from the local
+    `posthog_organization` table directly. There's no `$enriched_at`-style
+    dedupe field on the `Organization` model, so re-runs over the same offset
+    will re-enrich already-enriched orgs and burn Harmonic credits. Until a
+    dedupe column exists, callers should bound runs with `max_chunks`."""
+
     chunk_size: int = DEFAULT_CHUNK_SIZE
-    max_targets: int | None = None  # Optional cap for testing.
+    max_chunks: int | None = None
+    # Optional explicit allow-list. When provided, only orgs whose UUID is in
+    # this list get enriched (handy for ad-hoc re-runs or scoped backfills).
+    organization_ids: list[str] | None = None
 
 
 @dataclasses.dataclass
 class EnrichOrganizationChunkInputs:
-    targets: list[OrganizationTarget]
+    offset: int
+    chunk_size: int
+    organization_ids: list[str] | None = None
 
 
 def _str_or_none(value: typing.Any) -> str | None:
@@ -131,12 +146,42 @@ def _build_capture_client() -> typing.Any | None:
     return Posthog(cloud_token, host=settings.PEOPLE_ENRICHMENT_POSTHOG_HOST, sync_mode=True)
 
 
-async def enrich_organization_chunk(inputs: EnrichOrganizationChunkInputs) -> dict[str, typing.Any]:
-    """Enrich one chunk of organizations via Harmonic and emit events to PostHog.
+def _build_orgs_queryset(organization_ids: list[str] | None) -> typing.Any:
+    """`Organization`s with a domain attached, deterministically ordered.
 
-    Pure async helper with no Temporal runtime dependency so it can be invoked
-    from management commands and tests in addition to the wrapping activity.
-    """
+    Each Organization can have several `OrganizationDomain` rows; we pick one
+    via a `Subquery` that prefers verified domains (most recent verification
+    wins) and falls back to whichever row sorts first by id. Orgs with no
+    domain at all are filtered out — there's nothing to enrich without one."""
+    from django.db.models import OuterRef, Subquery
+
+    from posthog.models import Organization
+    from posthog.models.organization_domain import OrganizationDomain
+
+    domain_subquery = (
+        OrganizationDomain.objects.filter(organization=OuterRef("pk"))
+        .order_by("-verified_at", "id")
+        .values("domain")[:1]
+    )
+    qs = Organization.objects.annotate(picked_domain=Subquery(domain_subquery)).filter(picked_domain__isnull=False)
+    if organization_ids:
+        qs = qs.filter(id__in=organization_ids)
+    return qs.order_by("id")
+
+
+@activity.defn
+async def count_organizations_activity(organization_ids: list[str] | None = None) -> int:
+    """Count org-table rows that the workflow would enrich (mirrors `_load_page`)."""
+    close_old_connections()
+    qs = _build_orgs_queryset(organization_ids)
+    return await sync_to_async(qs.count)()
+
+
+async def enrich_organization_chunk(inputs: EnrichOrganizationChunkInputs) -> dict[str, typing.Any]:
+    """Enrich one page of `posthog_organization` rows via Harmonic and emit
+    events to PostHog. Pure async helper with no Temporal runtime dependency
+    so it can be invoked from management commands and tests in addition to the
+    wrapping activity."""
     close_old_connections()
 
     from ee.billing.salesforce_enrichment.harmonic_client import AsyncHarmonicClient
@@ -153,6 +198,14 @@ async def enrich_organization_chunk(inputs: EnrichOrganizationChunkInputs) -> di
             "to write `$groupidentify` + `organization_enriched` events."
         )
 
+    def _load_page() -> list[_OrganizationRow]:
+        qs = _build_orgs_queryset(inputs.organization_ids)[inputs.offset : inputs.offset + inputs.chunk_size]
+        return [_OrganizationRow(organization_id=str(org.id), name=org.name, domain=org.picked_domain) for org in qs]
+
+    rows = await sync_to_async(_load_page)()
+    if not rows:
+        return {"processed": 0, "enriched": 0, "no_match": 0, "errors": []}
+
     enriched_count = 0
     no_match_count = 0
     errors: list[str] = []
@@ -161,44 +214,44 @@ async def enrich_organization_chunk(inputs: EnrichOrganizationChunkInputs) -> di
         semaphore = asyncio.Semaphore(ENRICHMENT_CONCURRENCY)
 
         async def _enrich_one(
-            target: OrganizationTarget,
-        ) -> tuple[OrganizationTarget, dict[str, typing.Any] | None, str | None]:
+            row: _OrganizationRow,
+        ) -> tuple[_OrganizationRow, dict[str, typing.Any] | None, str | None]:
             async with semaphore:
                 try:
-                    data = await harmonic.enrich_company_by_domain(target.domain)
+                    data = await harmonic.enrich_company_by_domain(row.domain)
                 except Exception as e:
-                    return target, None, str(e)
+                    return row, None, str(e)
                 if data is None:
-                    return target, None, None
-                return target, _extract_harmonic_fields(data), None
+                    return row, None, None
+                return row, _extract_harmonic_fields(data), None
 
-        results = await asyncio.gather(*(_enrich_one(t) for t in inputs.targets))
+        results = await asyncio.gather(*(_enrich_one(r) for r in rows))
 
-    def _emit(target: OrganizationTarget, fields: dict[str, typing.Any]) -> None:
+    def _emit(row: _OrganizationRow, fields: dict[str, typing.Any]) -> None:
         non_null_fields = {k: v for k, v in fields.items() if v is not None}
         # `$groupidentify` updates the group's properties via the ingestion
         # pipeline (equivalent to `posthog.set` but for groups).
         capture_client.group_identify(
             group_type=ENRICHED_GROUP_TYPE,
-            group_key=target.organization_id,
+            group_key=row.organization_id,
             properties=non_null_fields,
         )
         # An `organization_enriched` event keyed to the group via `$groups` so
         # the enrichment is queryable in product analytics breakdowns/funnels.
         capture_client.capture(
-            distinct_id=target.organization_id,
+            distinct_id=row.organization_id,
             event=ENRICHED_EVENT_NAME,
             properties={
                 "enriched_fields": sorted(non_null_fields.keys()),
-                "$groups": {ENRICHED_GROUP_TYPE: target.organization_id},
-                "organization_domain": target.domain,
+                "$groups": {ENRICHED_GROUP_TYPE: row.organization_id},
+                "organization_domain": row.domain,
                 **non_null_fields,
             },
         )
 
-    for target, fields, err in results:
+    for row, fields, err in results:
         if err is not None:
-            errors.append(f"{target.organization_id} ({target.domain}): {err}")
+            errors.append(f"{row.organization_id} ({row.domain}): {err}")
             continue
         if fields is None:
             no_match_count += 1
@@ -206,22 +259,21 @@ async def enrich_organization_chunk(inputs: EnrichOrganizationChunkInputs) -> di
         # `_emit` issues two synchronous HTTP calls via the PostHog SDK
         # (`sync_mode=True`). Running it directly here would block the asyncio
         # event loop for ~2 round-trips per matched org; offload to a thread.
-        await asyncio.to_thread(_emit, target, fields)
+        await asyncio.to_thread(_emit, row, fields)
         enriched_count += 1
 
-    if capture_client is not None:
-        await asyncio.to_thread(capture_client.shutdown)
+    await asyncio.to_thread(capture_client.shutdown)
 
     LOGGER.info(
         "Enriched organization chunk",
-        processed=len(inputs.targets),
+        processed=len(rows),
         enriched=enriched_count,
         no_match=no_match_count,
         errors=len(errors),
     )
 
     return {
-        "processed": len(inputs.targets),
+        "processed": len(rows),
         "enriched": enriched_count,
         "no_match": no_match_count,
         "errors": errors,
@@ -236,47 +288,78 @@ async def enrich_organization_chunk_activity(inputs: EnrichOrganizationChunkInpu
 
 @workflow.defn(name="organization-enrichment-harmonic")
 class OrganizationEnrichmentWorkflow(PostHogWorkflow):
-    """Bulk-enrich PostHog organizations via Harmonic, writing the curated set
-    onto the corresponding group (keyed by `organization_id`) and emitting an
-    `organization_enriched` event per match."""
+    """Bulk-enrich PostHog organizations from `posthog_organization` via
+    Harmonic. Writes the curated set onto the corresponding group (keyed by
+    `organization_id`) and emits an `organization_enriched` event per match.
+
+    Pagination is offset-based against a deterministically-ordered query of
+    orgs that have a domain attached. The candidate set does NOT shrink across
+    chunks (no `$enriched_at` field exists on `Organization`), so callers
+    should cap iteration with `max_chunks` to avoid re-enrichment on subsequent
+    runs."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> OrganizationEnrichmentInputs:
         loaded = json.loads(inputs[0])
-        raw_targets = loaded.pop("targets", [])
-        targets = [OrganizationTarget(**t) for t in raw_targets]
-        return OrganizationEnrichmentInputs(targets=targets, **loaded)
+        return OrganizationEnrichmentInputs(**loaded)
 
     @workflow.run
     async def run(self, inputs: OrganizationEnrichmentInputs) -> dict[str, typing.Any]:
-        logger = LOGGER.bind(target_count=len(inputs.targets))
-        logger.info("Starting organization enrichment workflow", chunk_size=inputs.chunk_size)
+        logger = LOGGER.bind()
+        logger.info(
+            "Starting organization enrichment workflow",
+            chunk_size=inputs.chunk_size,
+            max_chunks=inputs.max_chunks,
+            organization_ids=len(inputs.organization_ids) if inputs.organization_ids else None,
+        )
 
-        targets = inputs.targets
-        if inputs.max_targets is not None:
-            targets = targets[: inputs.max_targets]
+        total = await workflow.execute_activity(
+            count_organizations_activity,
+            inputs.organization_ids,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+        estimated_chunks = math.ceil(total / inputs.chunk_size) if total else 0
+        logger.info("Found enrichment targets", total=total, estimated_chunks=estimated_chunks)
 
+        offset = 0
+        chunks_completed = 0
         totals = {"processed": 0, "enriched": 0, "no_match": 0, "errors": 0}
         sample_errors: list[str] = []
 
-        for chunk_start in range(0, len(targets), inputs.chunk_size):
-            chunk = targets[chunk_start : chunk_start + inputs.chunk_size]
+        while True:
+            if inputs.max_chunks is not None and chunks_completed >= inputs.max_chunks:
+                break
+
             result = await workflow.execute_activity(
                 enrich_organization_chunk_activity,
-                EnrichOrganizationChunkInputs(targets=chunk),
+                EnrichOrganizationChunkInputs(
+                    offset=offset,
+                    chunk_size=inputs.chunk_size,
+                    organization_ids=inputs.organization_ids,
+                ),
                 start_to_close_timeout=dt.timedelta(minutes=15),
                 retry_policy=RetryPolicy(initial_interval=dt.timedelta(seconds=5), maximum_attempts=3),
                 heartbeat_timeout=dt.timedelta(minutes=2),
             )
 
-            totals["processed"] += result.get("processed", 0)
+            processed = result.get("processed", 0)
+            totals["processed"] += processed
             totals["enriched"] += result.get("enriched", 0)
             totals["no_match"] += result.get("no_match", 0)
             chunk_errors = result.get("errors", []) or []
             totals["errors"] += len(chunk_errors)
             sample_errors.extend(chunk_errors[: max(0, 10 - len(sample_errors))])
 
+            chunks_completed += 1
+
+            if processed < inputs.chunk_size:
+                break
+
+            offset += inputs.chunk_size
+
         return {
+            "chunks_processed": chunks_completed,
             **totals,
             "sample_errors": sample_errors,
         }
