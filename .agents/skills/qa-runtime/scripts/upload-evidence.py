@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Upload qa-runtime evidence files to the posthog.com Strapi CMS.
+"""Upload qa-runtime evidence files directly to Cloudinary.
 
-Reads credentials from POSTHOG_COM_EMAIL and POSTHOG_COM_PASSWORD. Caches the
-issued JWT at ~/.cache/posthog-cdn-jwt with mode 0600 and re-mints once on a
-401. Renames each file to the qa-runtime convention before upload and writes a
-JSON manifest mapping local paths to public URLs.
+Reads credentials from `CLOUDINARY_URL` in the form
+`cloudinary://<api_key>:<api_secret>@<cloud_name>`. Renames each file to the
+qa-runtime convention, signs a Cloudinary `/image/upload` POST, and writes a
+JSON manifest mapping local paths to the returned `secure_url`.
 
-If credentials are missing, exits with code 2 and prints a non-blocking warning
-so the calling skill can degrade to local-path evidence in the PR comment.
+If `CLOUDINARY_URL` is missing, exits with code 2 and prints a non-blocking
+warning so the calling skill can degrade to local-path evidence in the PR
+comment.
 """
 
 from __future__ import annotations
@@ -16,7 +17,9 @@ import os
 import re
 import sys
 import json
+import time
 import uuid
+import hashlib
 import argparse
 import mimetypes
 import subprocess
@@ -25,17 +28,36 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
-STRAPI_BASE_URL = "https://better-animal-d658c56969.strapiapp.com"
-JWT_CACHE_PATH = Path.home() / ".cache" / "posthog-cdn-jwt"
 EXIT_NO_CREDENTIALS = 2
 EXIT_FATAL = 3
 MAX_DESCRIPTION_LEN = 60
+
+# Repo root is four parents up: scripts -> qa-runtime -> skills -> .agents -> repo.
+REPO_ROOT = Path(__file__).resolve().parents[4]
+
+
+def _load_repo_dotenv() -> None:
+    """Load `<repo>/.env` so the script works from a non-interactive shell.
+
+    Mirrors the pattern in `products/query_performance_ai/orchestrator/coordinator.py`:
+    lazy `python-dotenv` import so the script still runs in environments where
+    the package is unavailable. `override=False` means anything already in
+    `os.environ` wins.
+    """
+    env_path = REPO_ROOT / ".env"
+    if not env_path.is_file():
+        return
+    try:
+        from dotenv import load_dotenv  # noqa: PLC0415 - keeps the dep on the optional path
+    except ImportError:
+        return
+    load_dotenv(env_path, override=False)
 
 
 @dataclass
 class UploadResult:
     local: str
-    remote_name: str
+    public_id: str
     url: str | None = None
     error: str | None = None
 
@@ -77,82 +99,68 @@ def repo_slug_from_origin() -> str:
     return match.group(2)
 
 
-def load_cached_jwt() -> str | None:
-    if not JWT_CACHE_PATH.exists():
-        return None
-    try:
-        token = JWT_CACHE_PATH.read_text().strip()
-        return token or None
-    except OSError:
-        return None
+def parse_cloudinary_url(url: str) -> tuple[str, str, str]:
+    # Returns (cloud_name, api_key, api_secret).
+    m = re.match(r"^cloudinary://([^:]+):([^@]+)@(.+)$", url)
+    if not m:
+        raise RuntimeError("CLOUDINARY_URL must be cloudinary://<key>:<secret>@<cloud>")
+    return m.group(3), m.group(1), m.group(2)
 
 
-def store_jwt(token: str) -> None:
-    JWT_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    JWT_CACHE_PATH.write_text(token)
-    try:
-        os.chmod(JWT_CACHE_PATH, 0o600)
-    except OSError:
-        pass
+def cloudinary_signature(params: dict[str, str], api_secret: str) -> str:
+    # SHA1 of alphabetized "k=v" pairs joined by "&", plus api_secret appended.
+    # Standard Cloudinary signing rule for upload params.
+    payload = "&".join(f"{k}={params[k]}" for k in sorted(params))
+    return hashlib.sha1((payload + api_secret).encode("utf-8")).hexdigest()
 
 
-def mint_jwt(email: str, password: str) -> str:
-    body = json.dumps({"identifier": email, "password": password}).encode("utf-8")
-    req = urllib.request.Request(
-        f"{STRAPI_BASE_URL}/api/auth/local",
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"auth failed: HTTP {exc.code}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"auth failed: {exc.reason}") from exc
-    token = payload.get("jwt")
-    if not token:
-        raise RuntimeError("auth response missing jwt")
-    store_jwt(token)
-    return token
-
-
-def build_multipart(file_path: Path, remote_name: str) -> tuple[bytes, str]:
+def build_multipart(fields: dict[str, str], file_path: Path) -> tuple[bytes, str]:
     boundary = f"----qa-runtime-{uuid.uuid4().hex}"
-    mime_type = mimetypes.guess_type(remote_name)[0] or "application/octet-stream"
-    body_parts: list[bytes] = []
-    body_parts.append(f"--{boundary}\r\n".encode())
-    body_parts.append(
+    parts: list[bytes] = []
+    for k, v in fields.items():
+        parts.append(f"--{boundary}\r\n".encode())
+        parts.append(f'Content-Disposition: form-data; name="{k}"\r\n\r\n'.encode())
+        parts.append(str(v).encode("utf-8"))
+        parts.append(b"\r\n")
+    mime_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+    parts.append(f"--{boundary}\r\n".encode())
+    parts.append(
         (
-            f'Content-Disposition: form-data; name="files"; filename="{remote_name}"\r\n'
+            f'Content-Disposition: form-data; name="file"; filename="{file_path.name}"\r\n'
             f"Content-Type: {mime_type}\r\n\r\n"
         ).encode()
     )
-    body_parts.append(file_path.read_bytes())
-    body_parts.append(f"\r\n--{boundary}--\r\n".encode())
-    return b"".join(body_parts), boundary
+    parts.append(file_path.read_bytes())
+    parts.append(f"\r\n--{boundary}--\r\n".encode())
+    return b"".join(parts), boundary
 
 
-def upload_one(file_path: Path, remote_name: str, jwt: str) -> tuple[int, str]:
+def upload_one(cloud_name: str, api_key: str, api_secret: str, file_path: Path, public_id: str) -> tuple[int, str]:
     # Returns (http_status, body). For non-HTTP failures (DNS, connection
     # refused, socket timeout) returns (0, "<error description>") so the
     # caller records a failed manifest entry instead of crashing the run.
-    body, boundary = build_multipart(file_path, remote_name)
+    timestamp = str(int(time.time()))
+    sign_params = {"public_id": public_id, "timestamp": timestamp}
+    signature = cloudinary_signature(sign_params, api_secret)
+    fields = {
+        "api_key": api_key,
+        "timestamp": timestamp,
+        "public_id": public_id,
+        "signature": signature,
+    }
+    body, boundary = build_multipart(fields, file_path)
     req = urllib.request.Request(
-        f"{STRAPI_BASE_URL}/api/upload",
+        f"https://api.cloudinary.com/v1_1/{cloud_name}/image/upload",
         data=body,
-        headers={
-            "Authorization": f"Bearer {jwt}",
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
-        },
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
         method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             return resp.status, resp.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
-        return exc.code, exc.read().decode("utf-8", errors="replace")
+        # Don't echo response body - may contain hints. Caller logs HTTP <code>.
+        return exc.code, ""
     except urllib.error.URLError as exc:
         return 0, f"network error: {exc.reason}"
     except (TimeoutError, OSError) as exc:
@@ -161,13 +169,9 @@ def upload_one(file_path: Path, remote_name: str, jwt: str) -> tuple[int, str]:
 
 def extract_url(response_body: str) -> str:
     payload = json.loads(response_body)
-    if not isinstance(payload, list) or not payload:
-        raise RuntimeError("upload response not a non-empty array")
-    url = payload[0].get("url")
+    url = payload.get("secure_url")
     if not url:
-        raise RuntimeError("upload response missing url")
-    if url.startswith("/"):
-        url = STRAPI_BASE_URL.rstrip("/") + url
+        raise RuntimeError("upload response missing secure_url")
     return url
 
 
@@ -185,8 +189,8 @@ def parse_file_arg(raw: str) -> tuple[Path, str]:
     return path, description
 
 
-def remote_filename(repo: str, pr: int, sha: str, index: int, description: str, suffix: str) -> str:
-    return f"qa-{kebab(repo)}-pr{pr}-{sha}-{index:03d}-{kebab(description)}{suffix}"
+def public_id_for(repo: str, pr: int, sha: str, index: int, description: str) -> str:
+    return f"qa-{kebab(repo)}-pr{pr}-{sha}-{index:03d}-{kebab(description)}"
 
 
 def main() -> int:
@@ -207,13 +211,12 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    email = os.environ.get("POSTHOG_COM_EMAIL")
-    password = os.environ.get("POSTHOG_COM_PASSWORD")
-    if not email or not password:
+    _load_repo_dotenv()
+    cloudinary_url = os.environ.get("CLOUDINARY_URL")
+    if not cloudinary_url:
         manifest = Manifest(skipped_no_env=True)
         sys.stderr.write(
-            "qa-runtime upload: POSTHOG_COM_EMAIL/POSTHOG_COM_PASSWORD not set; "
-            "skipping upload. PR comment will use local paths.\n"
+            "qa-runtime upload: CLOUDINARY_URL not set; skipping upload. PR comment will use local paths.\n"
         )
         if args.output:
             args.output.write_text(manifest.to_json())
@@ -221,43 +224,29 @@ def main() -> int:
         return EXIT_NO_CREDENTIALS
 
     try:
+        cloud_name, api_key, api_secret = parse_cloudinary_url(cloudinary_url)
         repo = repo_slug_from_origin()
         sha = git_short_sha()
     except (subprocess.CalledProcessError, RuntimeError) as exc:
-        sys.stderr.write(f"qa-runtime upload: git inspection failed: {exc}\n")
+        sys.stderr.write(f"qa-runtime upload: setup failed: {exc}\n")
         return EXIT_FATAL
 
-    jwt = load_cached_jwt()
     manifest = Manifest()
 
     for index, (local_path, description) in enumerate(args.files, start=1):
-        remote_name = remote_filename(repo, args.pr, sha, index, description, local_path.suffix)
-        result = UploadResult(local=str(local_path), remote_name=remote_name)
+        pid = public_id_for(repo, args.pr, sha, index, description)
+        result = UploadResult(local=str(local_path), public_id=pid)
 
-        for attempt in (1, 2):
-            if not jwt:
-                try:
-                    jwt = mint_jwt(email, password)
-                except RuntimeError as exc:
-                    result.error = str(exc)
-                    break
-            status, body = upload_one(local_path, remote_name, jwt)
-            if status == 200 or status == 201:
-                try:
-                    result.url = extract_url(body)
-                except (RuntimeError, json.JSONDecodeError) as exc:
-                    result.error = f"parse upload response: {exc}"
-                break
-            if status == 401 and attempt == 1:
-                jwt = None  # force re-mint and retry once
-                continue
-            if status == 0:
-                # Network failure already described in body (no token/HTML risk).
-                result.error = body
-                break
-            # Don't echo response body verbatim - it can be HTML or include hints.
+        status, body = upload_one(cloud_name, api_key, api_secret, local_path, pid)
+        if status in (200, 201):
+            try:
+                result.url = extract_url(body)
+            except (RuntimeError, json.JSONDecodeError) as exc:
+                result.error = f"parse upload response: {exc}"
+        elif status == 0:
+            result.error = body  # already a redacted network-error string
+        else:
             result.error = f"HTTP {status}"
-            break
 
         if result.url:
             manifest.uploaded.append(result)

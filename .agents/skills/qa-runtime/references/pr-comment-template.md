@@ -74,10 +74,10 @@ Fix status: auto-fixed in `<commit>` and re-verified with the same MCP flow.
 
 Evidence URLs come from `upload-manifest.json` produced by
 `scripts/upload-evidence.py`. Use the `url` field from each `uploaded` entry
-verbatim - Strapi proxies uploads to Cloudinary, so the returned URL is on
-`res.cloudinary.com` with dashes rewritten to underscores and a hash suffix
-appended. The local filename in `remote_name` is for traceability only; the
-embeddable URL is always the `url` field.
+verbatim. The script uploads directly to Cloudinary, so the URL lives on
+`res.cloudinary.com/<cloud_name>/image/upload/v.../<public_id>.<ext>` with
+dashes preserved. The local filename in `public_id` is for traceability only;
+the embeddable URL is always the `url` field.
 
 Embed images and GIFs using markdown image syntax (`![alt](url)`) so they
 render inline in the PR thread. Use one or two key visuals - the GIF for the
@@ -139,10 +139,9 @@ Before posting, scrub console excerpts for:
 - secret-looking keys
 - long encoded values near credential labels
 
-Never include the upload JWT, the user's `POSTHOG_COM_*` credentials, or raw
-auth/upload response bodies. The upload script does not log these by default;
-if you copy any script output into the comment, double-check the line you
-paste.
+Never include `CLOUDINARY_URL`, the Cloudinary API key/secret, or raw upload
+response bodies. The upload script does not log these by default; if you copy
+any script output into the comment, double-check the line you paste.
 
 Screenshots from local stacks should be embedded only when small and safe.
 Prefer secret gist links for the full bundle.

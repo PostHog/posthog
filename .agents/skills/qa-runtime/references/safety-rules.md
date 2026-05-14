@@ -55,11 +55,12 @@ runtime QA on forks and stay in comment-only static-review mode.
 
 ## Evidence Upload Approval
 
-Evidence upload publishes local-stack screenshots and GIFs to the
-posthog.com CDN. Once uploaded, they are reachable by anyone with the URL and
-will be embedded in a public PR comment. Pixels are not scrubbed: a screenshot
-can include emails, workspace names, dashboard contents, rendered tokens, or
-admin UI not intended for public viewing.
+Evidence upload publishes local-stack screenshots and GIFs directly to
+Cloudinary via the credentials in `CLOUDINARY_URL`. Once uploaded, they are
+reachable by anyone with the URL and will be embedded in a public PR comment.
+Pixels are not scrubbed: a screenshot can include emails, workspace names,
+dashboard contents, rendered tokens, or admin UI not intended for public
+viewing.
 
 Get explicit approval for the upload set in the same gate as the PR comment.
 Show the user the list of files about to be uploaded and the kebab

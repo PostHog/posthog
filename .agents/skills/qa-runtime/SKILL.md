@@ -341,19 +341,23 @@ suggested patch in the final comment.
 ## Evidence Upload
 
 PR mode only. After the QA loop completes and findings are settled, upload the
-final human-facing evidence to the posthog.com CDN so the PR comment can embed
+final human-facing evidence directly to Cloudinary so the PR comment can embed
 external image/GIF URLs instead of local `.qa-runtime/...` paths.
 
-Required environment variables:
+Required environment variable:
 
 ```bash
-POSTHOG_COM_EMAIL
-POSTHOG_COM_PASSWORD
+CLOUDINARY_URL=cloudinary://<api_key>:<api_secret>@<cloud_name>
 ```
 
-If either variable is missing, tell the user up front that evidence cannot be
-uploaded and the PR comment will reference local paths only. Continue the QA
-run regardless - upload is a courtesy, not a blocker.
+This is the standard Cloudinary credential format and lives in the repo's
+`.env` (see `bin/start`). The upload script loads it via `python-dotenv`, so
+no manual sourcing is needed - just invoke through `uv run` so the project
+venv is on `PYTHONPATH`.
+
+If `CLOUDINARY_URL` is missing, tell the user up front that evidence cannot
+be uploaded and the PR comment will reference local paths only. Continue the
+QA run regardless - upload is a courtesy, not a blocker.
 
 Pick only the human-facing evidence to upload:
 
@@ -368,7 +372,7 @@ multi-MB file.
 Invoke:
 
 ```bash
-python3 .agents/skills/qa-runtime/scripts/upload-evidence.py \
+uv run python .agents/skills/qa-runtime/scripts/upload-evidence.py \
   --pr "$PR_NUMBER" \
   --output ".qa-runtime/runs/<run-id>/upload-manifest.json" \
   --file ".qa-runtime/runs/<run-id>/runtime-qa.gif:flow-overview" \
@@ -380,20 +384,21 @@ The script emits a manifest JSON with `uploaded`, `failed`, and
 
 - `0` - at least one file uploaded, none failed
 - `1` - partial failure, some files uploaded
-- `2` - credentials missing, nothing attempted
-- `3` - fatal error (git inspection, etc.)
+- `2` - `CLOUDINARY_URL` missing, nothing attempted
+- `3` - fatal error (git inspection, malformed credential, etc.)
 
 Substitute uploaded URLs into the PR comment for each matched local path,
-reading the `url` field from each `uploaded` entry verbatim. Strapi proxies the
-file to Cloudinary, so the returned URL lives on `res.cloudinary.com` with
-dashes rewritten to underscores and a hash suffix appended - this is expected.
-Do not try to reconstruct the URL from `remote_name`.
+reading the `url` field from each `uploaded` entry verbatim. The URL lives on
+`res.cloudinary.com/<cloud_name>/image/upload/v.../<public_id>.<ext>` and
+preserves the public_id verbatim (dashes intact). Do not try to reconstruct
+the URL from `public_id`.
 
 For any file that failed or was skipped, fall back to the local path and note
 `(upload failed)` next to it. Never block the run on upload failure.
 
-Do not pass tokens, passwords, response bodies, or credential hints into PR
-comments. The script already strips response bodies from error output.
+Never echo `CLOUDINARY_URL`, the API secret, or raw upload response bodies
+into evidence files or PR comments. The script does not log them by default;
+if you copy any script output into the comment, double-check the line.
 
 ## Output
 
