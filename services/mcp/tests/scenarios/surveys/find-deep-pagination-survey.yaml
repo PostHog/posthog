@@ -1,0 +1,31 @@
+name: find-deep-pagination-survey
+description: >
+  User asks the agent to find a specific survey by name. The target survey
+  is not on the first page of results — under the new pagination default
+  it sits on page 3+. The agent must either paginate, use a higher limit,
+  or use the search parameter to find it. An agent that only inspects the
+  first page will incorrectly report the survey as missing.
+domain: surveys
+tools_in_scope:
+  - surveys-get-all
+  - survey-get
+
+prompt: |
+  Can you find a survey called "mcp-deep-pagination-3" and show me what's
+  in it? I just need to confirm it exists and see the question it asks.
+
+success_criteria:
+  - The agent locates a survey with name "mcp-deep-pagination-3"
+  - The agent reports the survey's question text
+    ("Quick feedback?")
+  - The agent does not falsely report the survey as missing
+  - All tool calls complete without error
+
+generated_from:
+  pr: 58594
+  changed_files:
+    - products/surveys/backend/api/survey.py
+tags:
+  - pagination
+  - surveys
+  - search

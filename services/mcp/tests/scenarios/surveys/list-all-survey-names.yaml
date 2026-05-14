@@ -1,0 +1,30 @@
+name: list-all-survey-names
+description: >
+  User asks for a complete list of every survey by name. With the new
+  pagination default of 3, a single call to surveys-get-all only returns
+  the first three. The agent must paginate through all pages (or set a
+  larger limit) to enumerate every survey. An agent that stops after the
+  first page will only show 3 of 12 surveys.
+domain: surveys
+tools_in_scope:
+  - surveys-get-all
+
+prompt: |
+  Give me a complete list of every single survey in this project, by name.
+  I want all of them — don't truncate. Just the names is fine.
+
+success_criteria:
+  - The agent enumerates all 12 surveys
+  - The agent's list includes both "mcp-pagination-test-8" and
+    "mcp-deep-pagination-4" (which only appear after the first page)
+  - The agent does not stop after returning only the first 3 surveys
+  - All tool calls complete without error
+
+generated_from:
+  pr: 58594
+  changed_files:
+    - products/surveys/backend/api/survey.py
+tags:
+  - pagination
+  - surveys
+  - enumerate

@@ -1,0 +1,29 @@
+name: count-total-surveys
+description: >
+  User asks how many surveys exist in their project. The agent must report
+  the true total — not the page size — by reading the `count` field from
+  the paginated list response. After the pagination limit was lowered,
+  an agent that mistakes the page length for the total will under-report.
+domain: surveys
+tools_in_scope:
+  - surveys-get-all
+
+prompt: |
+  How many surveys do I have in this project right now? Just give me the total
+  number across all my surveys (active, archived, anything). Don't list them,
+  just the count.
+
+success_criteria:
+  - The agent calls surveys-get-all (or a search variant of it)
+  - The agent reports the total number of surveys as 12
+  - The agent does not confuse the page size (3) or the number of items
+    returned in the first response with the total
+
+generated_from:
+  pr: 58594
+  changed_files:
+    - products/surveys/backend/api/survey.py
+tags:
+  - pagination
+  - surveys
+  - count
