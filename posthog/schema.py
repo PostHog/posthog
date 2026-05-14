@@ -8633,7 +8633,8 @@ class TeamTaxonomyItem(BaseModel):
     )
     count: int
     count_24h: int | None = Field(
-        default=None, description="Number of occurrences of this event within the last 24 hours."
+        default=None,
+        description="Number of occurrences of this event within the last 24 hours.",
     )
     event: str
     last_seen_at: str | None = Field(

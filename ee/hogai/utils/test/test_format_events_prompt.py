@@ -1,14 +1,21 @@
 import datetime
 import xml.etree.ElementTree as ET
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import ANY, Mock, patch
+
+from parameterized import parameterized
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, MaxEventContext, TeamTaxonomyItem, TeamTaxonomyQuery
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from ee.hogai.utils.helpers import _format_event_recency, _format_relative_time, format_events_xml, format_events_yaml
+
+# Fixed reference instant used by relative-time parameterised tests so the
+# `now=` injection produces deterministic output regardless of wall-clock.
+_REF_NOW = datetime.datetime(2026, 5, 14, 12, 0, 0, tzinfo=datetime.UTC)
 
 # Mock CORE_FILTER_DEFINITIONS_BY_GROUP for consistent testing
 MOCK_CORE_FILTER_DEFINITIONS = {
@@ -393,40 +400,66 @@ class TestFormatEventsPrompt(BaseTest):
             analytics_props=ANY,
         )
 
-    def test_format_relative_time(self):
-        now = datetime.datetime(2026, 5, 14, 12, 0, 0, tzinfo=datetime.UTC)
-        self.assertEqual(_format_relative_time(now - datetime.timedelta(seconds=5), now=now), "5s ago")
-        self.assertEqual(_format_relative_time(now - datetime.timedelta(minutes=38), now=now), "38m ago")
-        self.assertEqual(_format_relative_time(now - datetime.timedelta(hours=3), now=now), "3h ago")
-        self.assertEqual(_format_relative_time(now - datetime.timedelta(days=8), now=now), "8d ago")
-        # ISO 8601 string input is accepted
-        self.assertEqual(_format_relative_time("2026-05-14T11:59:55+00:00", now=now), "5s ago")
-        # Z suffix and naive timestamps fall back to UTC
-        self.assertEqual(_format_relative_time("2026-05-14T11:59:55Z", now=now), "5s ago")
-        # None / invalid inputs return None
-        self.assertIsNone(_format_relative_time(None))
-        self.assertIsNone(_format_relative_time("not-a-date"))
+    @parameterized.expand(
+        [
+            ("seconds", datetime.timedelta(seconds=5), "5s ago"),
+            ("minutes", datetime.timedelta(minutes=38), "38m ago"),
+            ("hours", datetime.timedelta(hours=3), "3h ago"),
+            ("days", datetime.timedelta(days=8), "8d ago"),
+        ]
+    )
+    def test_format_relative_time_datetime_buckets(self, _name, delta, expected):
+        self.assertEqual(_format_relative_time(_REF_NOW - delta, now=_REF_NOW), expected)
 
-    def test_format_event_recency(self):
-        now = datetime.datetime(2026, 5, 14, 12, 0, 0, tzinfo=datetime.UTC)
-        five_mins_ago = (now - datetime.timedelta(minutes=5)).isoformat()
-        # Both fields populated
-        self.assertEqual(
-            _format_event_recency({"last_seen_at": five_mins_ago, "count_24h": 12}),
-            "last seen 5m ago, 12 in 24h",
-        )
-        # count_24h == 0 with a recent last_seen
-        self.assertEqual(
-            _format_event_recency({"last_seen_at": five_mins_ago, "count_24h": 0}),
-            "no events in 24h, last seen 5m ago",
-        )
-        # count_24h == 0 with no last_seen_at
-        self.assertEqual(
-            _format_event_recency({"last_seen_at": None, "count_24h": 0}),
-            "no events in 24h",
-        )
-        # Neither field present → None (event predates the enrichment)
-        self.assertIsNone(_format_event_recency({"name": "some_event"}))
+    @parameterized.expand(
+        [
+            ("iso_with_offset", "2026-05-14T11:59:55+00:00", "5s ago"),
+            ("iso_with_z_suffix", "2026-05-14T11:59:55Z", "5s ago"),
+            ("iso_naive_falls_back_to_utc", "2026-05-14T11:59:55", "5s ago"),
+        ]
+    )
+    def test_format_relative_time_string_input(self, _name, value, expected):
+        self.assertEqual(_format_relative_time(value, now=_REF_NOW), expected)
+
+    @parameterized.expand(
+        [
+            ("none", None),
+            ("invalid_string", "not-a-date"),
+            ("unsupported_type", 12345),
+        ]
+    )
+    def test_format_relative_time_invalid_returns_none(self, _name, value):
+        self.assertIsNone(_format_relative_time(value))
+
+    @parameterized.expand(
+        [
+            (
+                "both_fields_populated",
+                {"last_seen_at": (_REF_NOW - datetime.timedelta(minutes=5)).isoformat(), "count_24h": 12},
+                "last seen 5m ago, 12 in 24h",
+            ),
+            (
+                "count_zero_with_recent_last_seen",
+                {"last_seen_at": (_REF_NOW - datetime.timedelta(minutes=5)).isoformat(), "count_24h": 0},
+                "no events in 24h, last seen 5m ago",
+            ),
+            (
+                "count_zero_no_last_seen",
+                {"last_seen_at": None, "count_24h": 0},
+                "no events in 24h",
+            ),
+            (
+                "neither_field_present",
+                {"name": "some_event"},
+                None,
+            ),
+        ]
+    )
+    def test_format_event_recency(self, _name, event_data, expected):
+        # `last_seen_at` deltas are anchored to _REF_NOW; the helper internally calls datetime.now(UTC),
+        # so freeze time to keep "5m ago" stable regardless of wall-clock at test time.
+        with freeze_time(_REF_NOW):
+            self.assertEqual(_format_event_recency(event_data), expected)
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_yaml_includes_recency_fields(self, mock_runner_class):
