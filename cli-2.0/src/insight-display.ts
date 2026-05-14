@@ -14,10 +14,47 @@ export type ChartSeries = JsonRecord & { data: unknown[]; labels: unknown[] }
 export const CHARTABLE_INSIGHT_TOOLS: ReadonlySet<string> = new Set(['insight-get'])
 
 export const Y_AXIS_PAD = 7
-const MAX_STEP = 12
+const MAX_STEP = 20
 
 export function isRecord(value: unknown): value is JsonRecord {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+// Sync with frontend/src/scenes/insights/utils.tsx — the API ships sentinel
+// strings for the catch-all "Other" / "None" breakdown buckets, and the web
+// translates them at render time. Same translation here keeps CLI output in
+// line with what users see in the app.
+export const BREAKDOWN_OTHER_STRING_LABEL = '$$_posthog_breakdown_other_$$'
+export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
+export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991
+export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990
+export const BREAKDOWN_OTHER_DISPLAY = 'Other (i.e. all remaining values)'
+export const BREAKDOWN_NULL_DISPLAY = 'None (i.e. no value)'
+
+export function isOtherBreakdownLabel(value: unknown): boolean {
+    return (
+        value === BREAKDOWN_OTHER_STRING_LABEL ||
+        value === BREAKDOWN_OTHER_NUMERIC_LABEL ||
+        String(value) === String(BREAKDOWN_OTHER_NUMERIC_LABEL)
+    )
+}
+
+export function isNullBreakdownLabel(value: unknown): boolean {
+    return (
+        value === BREAKDOWN_NULL_STRING_LABEL ||
+        value === BREAKDOWN_NULL_NUMERIC_LABEL ||
+        String(value) === String(BREAKDOWN_NULL_NUMERIC_LABEL)
+    )
+}
+
+export function friendlyBreakdownLabel(value: unknown): string {
+    if (isOtherBreakdownLabel(value)) {
+        return BREAKDOWN_OTHER_DISPLAY
+    }
+    if (isNullBreakdownLabel(value)) {
+        return BREAKDOWN_NULL_DISPLAY
+    }
+    return stringify(value)
 }
 
 export function stringify(value: unknown): string {
@@ -97,12 +134,109 @@ export function formatYValue(x: number): string {
     return x.toFixed(0)
 }
 
+// Legend / total formatter. Bar heights already use `formatYValue` for the
+// abbreviated axis labels ("2.0k"); this one is for the exact value shown
+// next to each legend entry — trims floating-point noise like
+// `1964.1382819000005` down to `1,964.14`.
+export function formatLegendValue(x: number): string {
+    if (!Number.isFinite(x)) {
+        return '0'
+    }
+    if (Number.isInteger(x)) {
+        return x.toLocaleString('en-US')
+    }
+    return x.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+}
+
 export function pickStep(points: number, termWidth: number): number {
     const widthBudget = termWidth - Y_AXIS_PAD - 2
     let step = Math.floor(widthBudget / Math.max(1, points - 1))
     if (step < 1) step = 1
     if (step > MAX_STEP) step = MAX_STEP
     return step
+}
+
+// Maximum data points that fit on a single chart row at step=1.
+// Used as the bucket target when downsampling oversized series.
+export function maxRenderablePoints(termWidth: number): number {
+    return Math.max(2, termWidth - Y_AXIS_PAD - 2)
+}
+
+// Bucketed-mean downsample. When a time series has more points than the chart
+// can render at step=1 the chart overflows the terminal — bucketing keeps the
+// visual shape while making it fit. Identity when `values.length <= maxPoints`.
+export function bucketAverage(values: number[], maxPoints: number): number[] {
+    if (maxPoints <= 0 || values.length <= maxPoints) {
+        return values.slice()
+    }
+    const bucketSize = Math.ceil(values.length / maxPoints)
+    const out: number[] = []
+    for (let i = 0; i < values.length; i += bucketSize) {
+        let sum = 0
+        let count = 0
+        for (let k = i; k < Math.min(i + bucketSize, values.length); k++) {
+            sum += values[k]
+            count++
+        }
+        out.push(count > 0 ? sum / count : 0)
+    }
+    return out
+}
+
+// Stride sampling for label arrays (strings can't be averaged). Takes the first
+// label of each bucket so the resulting positions line up with `bucketAverage`.
+export function bucketLabels<T>(labels: T[], maxPoints: number): T[] {
+    if (maxPoints <= 0 || labels.length <= maxPoints) {
+        return labels.slice()
+    }
+    const bucketSize = Math.ceil(labels.length / maxPoints)
+    const out: T[] = []
+    for (let i = 0; i < labels.length; i += bucketSize) {
+        out.push(labels[i])
+    }
+    return out
+}
+
+// PostHog's data palette (frontend/src/styles/base.scss data-color-1..15).
+// Kept in sync with the web app so terminal charts pick the same series colors.
+export const POSTHOG_COLORS: readonly string[] = [
+    '#1d4aff', // data-color-1
+    '#621da6', // data-color-2
+    '#42827e', // data-color-3
+    '#ce7c00', // data-color-4
+    '#de4916', // data-color-5
+    '#8b0014', // data-color-6
+    '#b64b94', // data-color-7
+    '#487968', // data-color-8
+    '#8b4513', // data-color-9
+    '#4682b4', // data-color-10
+    '#191970', // data-color-11
+    '#008b8b', // data-color-12
+    '#b8860b', // data-color-13
+    '#ff6347', // data-color-14
+    '#30d5c8', // data-color-15
+]
+
+export function parseHex(hex: string): { r: number; g: number; b: number } {
+    const value = hex.startsWith('#') ? hex.slice(1) : hex
+    return {
+        r: parseInt(value.slice(0, 2), 16),
+        g: parseInt(value.slice(2, 4), 16),
+        b: parseInt(value.slice(4, 6), 16),
+    }
+}
+
+// 24-bit truecolor SGR. Every modern terminal renders this; asciichart just
+// concats the escape with the glyph + reset, so a unique hex stays distinct
+// instead of collapsing onto one of the eight named ANSI colors.
+export function hexToAnsi(hex: string): string {
+    const { r, g, b } = parseHex(hex)
+    return `\x1b[38;2;${r};${g};${b}m`
+}
+
+export function getPostHogHex(index: number): string {
+    const wrapped = ((index % POSTHOG_COLORS.length) + POSTHOG_COLORS.length) % POSTHOG_COLORS.length
+    return POSTHOG_COLORS[wrapped]
 }
 
 // Stride-thins labels to avoid collisions; the last label is always kept so the
