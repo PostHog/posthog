@@ -268,6 +268,7 @@ export const detectFlowsLogic = kea<detectFlowsLogicType>([
             (s) => [s.runStatus],
             (runStatus): boolean => runStatus === TaskRunStatus.FAILED || runStatus === TaskRunStatus.CANCELLED,
         ],
+        hasLogs: [(s) => [s.streamEntries], (streamEntries): boolean => streamEntries.length > 0],
         canSubmit: [
             (s) => [s.repository, s.domain, s.submitting],
             (repository, domain, submitting): boolean => !!repository && !!domain && !submitting,

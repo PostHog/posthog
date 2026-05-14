@@ -11,7 +11,7 @@ const STEPS = [
 ] as const
 
 export function DetectFlowsBanner(): JSX.Element | null {
-    const { bannerVisible, step, proposedCount, isTerminal, isFailed } = useValues(detectFlowsLogic)
+    const { bannerVisible, step, proposedCount, isTerminal, isFailed, hasLogs } = useValues(detectFlowsLogic)
     const { openLogsModal, dismissBanner } = useActions(detectFlowsLogic)
 
     if (!bannerVisible) {
@@ -27,10 +27,15 @@ export function DetectFlowsBanner(): JSX.Element | null {
             : 'Proposing tests'
 
     return (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-10 flex gap-0.5">
-            <LemonButton type="secondary" onClick={openLogsModal}>
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-10 flex gap-2">
+            <LemonButton
+                type="secondary"
+                onClick={openLogsModal}
+                className="bg-bg-light"
+                disabledReason={isTerminal && !hasLogs ? 'Logs are no longer available' : undefined}
+            >
                 <div className="flex items-center gap-3">
-                    <span className="font-semibold text-xs">Key flow detection</span>
+                    <span className="font-semibold text-xxs uppercase tracking-wider">Key flow detection</span>
                     <div className="w-px h-4 bg-border" />
                     {STEPS.map((s, i) => {
                         const stepNum = (i + 1) as 1 | 2
@@ -81,7 +86,16 @@ export function DetectFlowsBanner(): JSX.Element | null {
                     </div>
                 </div>
             </LemonButton>
-            {isTerminal && <LemonButton type="secondary" onClick={dismissBanner} tooltip="Dismiss" icon={<IconX />} />}
+            {isTerminal && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={dismissBanner}
+                    tooltip="Dismiss"
+                    icon={<IconX />}
+                    className="bg-bg-light"
+                />
+            )}
         </div>
     )
 }
