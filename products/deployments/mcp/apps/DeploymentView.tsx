@@ -7,7 +7,7 @@ import { formatDuration, STATUS_LABELS, STATUS_VARIANTS } from './utils'
 
 export interface DeploymentData {
     id: string
-    project?: string
+    deployment_project_id?: string
     status: string
     is_current?: boolean
     started_at?: string | null

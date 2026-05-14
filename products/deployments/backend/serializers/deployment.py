@@ -15,7 +15,8 @@ from ..models import Deployment, DeploymentProject
 
 class DeploymentSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for the deployment.")
-    project: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(  # ty: ignore[invalid-assignment]
+    deployment_project_id = serializers.UUIDField(
+        source="project_id",
         read_only=True,
         help_text="The deployment project this deployment belongs to.",
     )
@@ -135,7 +136,7 @@ class DeploymentSerializer(serializers.ModelSerializer):
         model = Deployment
         fields = [
             "id",
-            "project",
+            "deployment_project_id",
             "status",
             "started_at",
             "finished_at",
@@ -161,7 +162,7 @@ class DeploymentSerializer(serializers.ModelSerializer):
         # SerializerMethodField is implicitly read-only.
         read_only_fields = [
             "id",
-            "project",
+            "deployment_project_id",
             "created_at",
             "triggered_by_deployment",
             "triggered_by_user_id",

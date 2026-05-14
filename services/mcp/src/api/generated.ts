@@ -11937,7 +11937,7 @@ export namespace Schemas {
       /** Unique identifier for the deployment. */
       readonly id: string;
       /** The deployment project this deployment belongs to. */
-      readonly project: string;
+      readonly deployment_project_id: string;
       /** Current pipeline stage. Valid values: queued, initializing, building, ready, error, cancelled.
 
       * `queued` - Queued
