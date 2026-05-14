@@ -179,10 +179,26 @@ many dashboards; only a few become reference points. Use these tools:
     your metric definitions in what tables actually exist and what their
     columns mean. Use the descriptions Phase 2 just wrote.
 
+  - `read-data-schema` with `{"kind": "events"}` — returns the **event
+    definitions** for the team (`signed_up`, `paid_bill`, …). Use this
+    for event discovery. It reads metadata from Postgres and returns
+    instantly.
+
+**Do NOT scan the `events` ClickHouse table for discovery.** It is
+billions of rows in production and slow even locally. Specifically:
+
+  - Never run `count()` / `count(DISTINCT …)` over `events` with a
+    window longer than **1 day**.
+  - Never use it to "verify an event has volume" — if it appears in the
+    event definitions list above, it has volume.
+  - Never re-run an identical query you already ran.
+  - If you absolutely must look at a row of `events`, use
+    `LIMIT 10` and a 1-day window.
+
 If the team has fewer than 3 multi-viewer dashboards, fall back to:
 "propose the standard AARRR metrics that the team *could* track given
-the events you see in `system.tables` (e.g., the `events` table's event
-definitions, any warehouse tables like `stripe_charges`)."
+the event definitions returned by `read-data-schema` above, plus any
+warehouse tables like `stripe_charges` visible in `system.tables`."
 
 ## Writing metrics
 
