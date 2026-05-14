@@ -276,7 +276,7 @@ describe('trendsDataLogic', () => {
                     filter: {},
                 }) as unknown as TrendResult
 
-            it('Name mode sorts breakdowns alphabetically regardless of aggregate magnitude', async () => {
+            it('name mode sorts breakdowns alphabetically regardless of aggregate magnitude', async () => {
                 const query: TrendsQuery = {
                     kind: NodeKind.TrendsQuery,
                     series: [],
@@ -302,7 +302,7 @@ describe('trendsDataLogic', () => {
                 })
             })
 
-            it('Name mode keeps Other and null buckets at the end', async () => {
+            it('name mode keeps Other and null buckets at the end', async () => {
                 const query: TrendsQuery = {
                     kind: NodeKind.TrendsQuery,
                     series: [],
@@ -326,7 +326,7 @@ describe('trendsDataLogic', () => {
                 expect(tail).toEqual([BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_NULL_STRING_LABEL])
             })
 
-            it('Name mode interleaves compare-mode pairs by breakdown_value (stable sort)', async () => {
+            it('name mode interleaves compare-mode pairs by breakdown_value (stable sort)', async () => {
                 const query: TrendsQuery = {
                     kind: NodeKind.TrendsQuery,
                     series: [],
@@ -364,7 +364,7 @@ describe('trendsDataLogic', () => {
                 ])
             })
 
-            it('AggregateValue mode preserves existing pie sort', async () => {
+            it('aggregate-value mode preserves existing pie sort', async () => {
                 const query: TrendsQuery = {
                     kind: NodeKind.TrendsQuery,
                     series: [],
