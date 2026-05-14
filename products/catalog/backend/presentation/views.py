@@ -42,8 +42,10 @@ from ..facade.contracts import (
     UpdateNodeParams,
     UpdateRelationshipParams,
     UpsertColumnParams,
+    UpsertEntityParams,
     UpsertNodeParams,
 )
+from ..temporal.activities.agent import start_catalog_clustering_task
 from .serializers import (
     CatalogBrowserDTOSerializer,
     CatalogColumnDTOSerializer,
@@ -62,6 +64,7 @@ from .serializers import (
     UpdateNodeInputSerializer,
     UpdateRelationshipInputSerializer,
     UpsertColumnInputSerializer,
+    UpsertEntityInputSerializer,
     UpsertNodeInputSerializer,
 )
 
@@ -306,8 +309,28 @@ class CatalogEntityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "catalog"
     scope_object_read_actions = ["list", "retrieve", "browser"]
-    scope_object_write_actions = ["partial_update", "derive"]
+    scope_object_write_actions = ["create", "partial_update", "derive"]
     serializer_class = CatalogEntityDTOSerializer
+
+    @validated_request(
+        request_serializer=UpsertEntityInputSerializer,
+        responses={201: OpenApiResponse(response=CatalogEntityDTOSerializer)},
+    )
+    def create(self, request: TypedRequest[dict[str, Any]], **kwargs) -> Response:
+        """Upsert a catalog entity by name. The clustering agent calls this for each
+        cluster it proposes."""
+        data = request.validated_data
+        params = UpsertEntityParams(
+            team_id=cast(int, self.team_id),
+            name=data["name"],
+            description=data.get("description"),
+            member_node_ids=tuple(data.get("member_node_ids") or ()),
+            confidence=data.get("confidence"),
+            reasoning=data.get("reasoning", ""),
+            generator_model=data.get("generator_model"),
+        )
+        entity = catalog_api.CatalogAPI.upsert_entity(params)
+        return Response(CatalogEntityDTOSerializer(instance=entity).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses={200: CatalogEntityDTOSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -357,6 +380,19 @@ class CatalogEntityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         their review status."""
         result = catalog_api.CatalogAPI.derive_catalog(cast(int, self.team_id))
         return Response(DeriveResultSerializer(instance=result).data)
+
+    @extend_schema(responses={202: OpenApiResponse(description="Clustering agent task spawned")})
+    @action(detail=False, methods=["post"], pagination_class=None)
+    def cluster(self, request: Request, **kwargs) -> Response:
+        """Kick off the LLM clustering pass.
+
+        Spawns a sandbox agent that reads the catalog state and writes back
+        proposed entity groupings via the catalog-entities-create MCP tool.
+        Returns the task_run_id so callers can poll for completion if needed —
+        but the user-facing flow is fire-and-forget: status changes show up in
+        the browser scene when the agent's writes land."""
+        task_run_id = start_catalog_clustering_task(cast(int, self.team_id))
+        return Response({"task_run_id": task_run_id}, status=status.HTTP_202_ACCEPTED)
 
 
 @extend_schema(tags=[CATALOG_TAG])

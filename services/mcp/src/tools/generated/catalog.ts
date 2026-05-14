@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     CatalogColumnsCreateBody,
+    CatalogEntitiesCreateBody,
     CatalogNodesCreateBody,
     CatalogRelationshipsCreateBody,
 } from '@/generated/catalog/api'
@@ -53,6 +54,41 @@ const catalogColumnsCreate = (): ToolBase<typeof CatalogColumnsCreateSchema, Sch
         const result = await context.api.request<Schemas.CatalogColumnDTO>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/catalog/columns/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CatalogEntitiesCreateSchema = CatalogEntitiesCreateBody
+
+const catalogEntitiesCreate = (): ToolBase<typeof CatalogEntitiesCreateSchema, Schemas.CatalogEntityDTO> => ({
+    name: 'catalog-entities-create',
+    schema: CatalogEntitiesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof CatalogEntitiesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.member_node_ids !== undefined) {
+            body['member_node_ids'] = params.member_node_ids
+        }
+        if (params.confidence !== undefined) {
+            body['confidence'] = params.confidence
+        }
+        if (params.reasoning !== undefined) {
+            body['reasoning'] = params.reasoning
+        }
+        if (params.generator_model !== undefined) {
+            body['generator_model'] = params.generator_model
+        }
+        const result = await context.api.request<Schemas.CatalogEntityDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/catalog/entities/`,
             body,
         })
         return result
@@ -155,6 +191,7 @@ const catalogRelationshipsCreate = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'catalog-columns-create': catalogColumnsCreate,
+    'catalog-entities-create': catalogEntitiesCreate,
     'catalog-nodes-create': catalogNodesCreate,
     'catalog-relationships-create': catalogRelationshipsCreate,
 }

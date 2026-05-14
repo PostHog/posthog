@@ -204,6 +204,21 @@ class DeriveResult:
 
 
 @dataclass(frozen=True)
+class UpsertEntityParams:
+    """Upsert a CatalogEntity by name — the clustering agent's write path via MCP.
+    Idempotent on (team_id, name): re-calling with the same name updates description,
+    members, and confidence in place without creating duplicates."""
+
+    team_id: int
+    name: str
+    description: str | None = None
+    member_node_ids: tuple[UUID, ...] = ()
+    confidence: float | None = None
+    reasoning: str = ""
+    generator_model: str | None = None
+
+
+@dataclass(frozen=True)
 class UpdateEntityParams:
     team_id: int
     entity_id: UUID

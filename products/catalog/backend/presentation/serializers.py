@@ -462,6 +462,53 @@ class ProposeRelationshipInputSerializer(serializers.Serializer):
     )
 
 
+class UpsertEntityInputSerializer(serializers.Serializer):
+    """Body for catalog-entities create. Idempotent on (team, name) — the clustering
+    agent calls this for each cluster it proposes."""
+
+    name = serializers.CharField(
+        max_length=200,
+        help_text=(
+            "Display name for this entity, e.g. `Customer`, `Order`, `Subscription`. Must be unique per team. "
+            "Re-calling with the same name updates the row in place rather than creating a duplicate."
+        ),
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="What this entity represents in the business. Markdown supported.",
+    )
+    member_node_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        help_text=(
+            "IDs of CatalogNodes that back this entity (e.g. `stripe_customers` + `auth_users` for the Customer "
+            "entity). Look node ids up via `system.tables`."
+        ),
+    )
+    confidence = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Agent confidence (0..1) that this is a real business entity grouping.",
+    )
+    reasoning = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        help_text="Free-text justification — which signals the agent used to identify the cluster.",
+    )
+    generator_model = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=64,
+        help_text="Identifier of the LLM that proposed this entity, e.g. `claude-opus-4-7`.",
+    )
+
+
 class UpdateEntityInputSerializer(serializers.Serializer):
     """Body for catalog-entities partial_update. Every field optional."""
 

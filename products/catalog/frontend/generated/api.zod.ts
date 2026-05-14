@@ -204,6 +204,56 @@ export const CatalogDimensionsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Body for catalog-dimensions partial_update. Every field optional.')
 
 /**
+ * Upsert a catalog entity by name. The clustering agent calls this for each
+cluster it proposes.
+ */
+export const catalogEntitiesCreateBodyNameMax = 200
+
+export const catalogEntitiesCreateBodyConfidenceMin = 0
+export const catalogEntitiesCreateBodyConfidenceMax = 1
+
+export const catalogEntitiesCreateBodyReasoningDefault = ``
+export const catalogEntitiesCreateBodyGeneratorModelMax = 64
+
+export const CatalogEntitiesCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(catalogEntitiesCreateBodyNameMax)
+            .describe(
+                'Display name for this entity, e.g. `Customer`, `Order`, `Subscription`. Must be unique per team. Re-calling with the same name updates the row in place rather than creating a duplicate.'
+            ),
+        description: zod
+            .string()
+            .nullish()
+            .describe('What this entity represents in the business. Markdown supported.'),
+        member_node_ids: zod
+            .array(zod.uuid())
+            .optional()
+            .describe(
+                'IDs of CatalogNodes that back this entity (e.g. `stripe_customers` + `auth_users` for the Customer entity). Look node ids up via `system.tables`.'
+            ),
+        confidence: zod
+            .number()
+            .min(catalogEntitiesCreateBodyConfidenceMin)
+            .max(catalogEntitiesCreateBodyConfidenceMax)
+            .nullish()
+            .describe('Agent confidence (0..1) that this is a real business entity grouping.'),
+        reasoning: zod
+            .string()
+            .default(catalogEntitiesCreateBodyReasoningDefault)
+            .describe('Free-text justification — which signals the agent used to identify the cluster.'),
+        generator_model: zod
+            .string()
+            .max(catalogEntitiesCreateBodyGeneratorModelMax)
+            .nullish()
+            .describe('Identifier of the LLM that proposed this entity, e.g. `claude-opus-4-7`.'),
+    })
+    .describe(
+        'Body for catalog-entities create. Idempotent on (team, name) — the clustering\nagent calls this for each cluster it proposes.'
+    )
+
+/**
  * Rename, redescribe, or accept/reject an entity.
  */
 export const catalogEntitiesPartialUpdateBodyNameMax = 200
@@ -230,6 +280,28 @@ export const CatalogEntitiesPartialUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Body for catalog-entities partial_update. Every field optional.')
+
+/**
+ * Kick off the LLM clustering pass.
+
+Spawns a sandbox agent that reads the catalog state and writes back
+proposed entity groupings via the catalog-entities-create MCP tool.
+Returns the task_run_id so callers can poll for completion if needed —
+but the user-facing flow is fire-and-forget: status changes show up in
+the browser scene when the agent's writes land.
+ */
+export const CatalogEntitiesClusterCreateBody = /* @__PURE__ */ zod.object({
+    id: zod.uuid(),
+    name: zod.string(),
+    description: zod.string().nullable(),
+    member_node_ids: zod.array(zod.uuid()),
+    status: zod.string(),
+    confidence: zod.number().nullable(),
+    reasoning: zod.string(),
+    reviewed_at: zod.iso.datetime({ offset: true }).nullable(),
+    discovered_at: zod.iso.datetime({ offset: true }),
+    last_seen_at: zod.iso.datetime({ offset: true }),
+})
 
 /**
  * Run the rule-based proposer over the current catalog state.

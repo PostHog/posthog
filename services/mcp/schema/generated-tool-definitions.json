@@ -468,6 +468,21 @@
             "readOnlyHint": false
         }
     },
+    "catalog-entities-create": {
+        "description": "Upsert a CatalogEntity by name. The clustering agent calls this for each business object it proposes — Customer, Order, Subscription, etc. Pass the underlying CatalogNode UUIDs as `member_node_ids` to attach the entity to one or more source tables. Idempotent on (team, name): re-calling with the same name updates description and members in place. Status lands as `proposed` for a human to accept/reject.",
+        "category": "Catalog",
+        "feature": "catalog",
+        "summary": "Upsert catalog entity",
+        "title": "Upsert catalog entity",
+        "required_scopes": ["catalog:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "catalog-nodes-create": {
         "description": "Upsert a catalog node — a table-shaped entity in the semantic graph (warehouse table, saved query, system table, or PostHog first-party table). Use this to record what a table is, when to use it, and what business domain it belongs to. Idempotent: re-call with the same (kind, name) to update the description, semantic role, tags, or confidence without creating a duplicate. Typically called during catalog traversal after inspecting a table's schema and sample data. Returns the node's id, which you'll use when upserting columns or proposing relationships.",
         "category": "Catalog",

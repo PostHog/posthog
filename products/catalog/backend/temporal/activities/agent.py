@@ -27,8 +27,11 @@ from posthog.models.user import User
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.oauth import MCP_READ_SCOPES
 
-from products.catalog.backend.models import CatalogColumn, CatalogNode
-from products.catalog.backend.temporal.agent_prompts import CATALOG_DESCRIPTION_SYSTEM_PROMPT
+from products.catalog.backend.models import CatalogColumn, CatalogEntity, CatalogNode
+from products.catalog.backend.temporal.agent_prompts import (
+    CATALOG_CLUSTERING_SYSTEM_PROMPT,
+    CATALOG_DESCRIPTION_SYSTEM_PROMPT,
+)
 from products.tasks.backend.models import Task, TaskRun
 
 _TERMINAL_STATUSES: frozenset[str] = frozenset(
@@ -142,3 +145,63 @@ def _count_descriptions_for_run_sync(team_id: int, started_at: datetime) -> int:
         description_generated_at__gte=started_at,
     ).count()
     return node_count + column_count
+
+
+# --- spawn_catalog_clustering_task --------------------------------------------
+
+
+@activity.defn
+async def spawn_catalog_clustering_task(team_id: int) -> str:
+    """Create a Task + TaskRun for the entity-clustering pass and return the run id.
+
+    Mirrors `spawn_catalog_agent_task` but with the clustering prompt and only
+    `catalog:write` access — the agent reads via HogQL and only ever writes via
+    `catalog-entities-create`.
+    """
+    return await asyncio.to_thread(_spawn_catalog_clustering_task_sync, team_id)
+
+
+def _spawn_catalog_clustering_task_sync(team_id: int) -> str:
+    team = Team.objects.select_related("organization").get(id=team_id)
+    user = _resolve_catalog_task_user(team)
+
+    task = Task.create_and_run(
+        team=team,
+        title="Catalog entity clustering pass",
+        description=CATALOG_CLUSTERING_SYSTEM_PROMPT.format(team_id=team_id),
+        origin_product=Task.OriginProduct.AUTOMATION,
+        user_id=user.id,
+        repository=None,
+        create_pr=False,
+        posthog_mcp_scopes=[*MCP_READ_SCOPES, "catalog:write"],
+    )
+    run = task.runs.order_by("-created_at").first()
+    if run is None:
+        raise RuntimeError(f"Task {task.id} did not produce a TaskRun")
+    return str(run.id)
+
+
+def start_catalog_clustering_task(team_id: int) -> str:
+    """Public, sync entry point for triggering the clustering agent from a DRF
+    view. Returns the TaskRun id; the agent runs async in the sandbox."""
+    return _spawn_catalog_clustering_task_sync(team_id)
+
+
+# --- count_entities_for_run ---------------------------------------------------
+
+
+@activity.defn
+async def count_entities_for_run(team_id: int, started_at_iso: str) -> int:
+    """Count entities whose generator_model was set during this run."""
+    started_at = datetime.fromisoformat(started_at_iso)
+    return await asyncio.to_thread(_count_entities_for_run_sync, team_id, started_at)
+
+
+def _count_entities_for_run_sync(team_id: int, started_at: datetime) -> int:
+    # last_seen_at updates on save; combined with generator_model NOT NULL this
+    # captures entities the clustering agent created or refreshed in this run.
+    return CatalogEntity.objects.filter(
+        team_id=team_id,
+        generator_model__isnull=False,
+        last_seen_at__gte=started_at,
+    ).count()

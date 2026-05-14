@@ -11,6 +11,7 @@ import { Breadcrumb } from '~/types'
 import {
     catalogDimensionsPartialUpdate,
     catalogEntitiesBrowserRetrieve,
+    catalogEntitiesClusterCreate,
     catalogEntitiesDeriveCreate,
     catalogEntitiesPartialUpdate,
     catalogMetricsPartialUpdate,
@@ -38,6 +39,7 @@ export const catalogBrowserSceneLogic = kea<catalogBrowserSceneLogicType>([
     actions({
         setSelectedEntityId: (entityId: string | null) => ({ entityId }),
         deriveCatalog: true,
+        clusterCatalog: true,
         updateEntity: (entityId: string, edits: PatchedUpdateEntityInputApi) => ({ entityId, edits }),
         updateMetric: (metricId: string, edits: PatchedUpdateMetricInputApi) => ({ metricId, edits }),
         updateDimension: (dimensionId: string, edits: PatchedUpdateDimensionInputApi) => ({ dimensionId, edits }),
@@ -132,6 +134,16 @@ export const catalogBrowserSceneLogic = kea<catalogBrowserSceneLogicType>([
                 actions.loadBrowser()
             } catch (error) {
                 lemonToast.error(`Failed to derive catalog: ${(error as Error).message}`)
+            }
+        },
+        clusterCatalog: async () => {
+            try {
+                await catalogEntitiesClusterCreate(String(values.currentProjectId))
+                lemonToast.info(
+                    'Clustering agent started. Entities will update with merge proposals as the agent works — refresh the page in a few minutes to see them.'
+                )
+            } catch (error) {
+                lemonToast.error(`Failed to start clustering: ${(error as Error).message}`)
             }
         },
         updateEntity: async ({ entityId, edits }) => {

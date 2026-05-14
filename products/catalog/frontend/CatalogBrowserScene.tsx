@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconSparkles, IconX } from '@posthog/icons'
+import { IconAIText, IconCheck, IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
@@ -27,7 +27,7 @@ export const scene: SceneExport = {
 
 export function CatalogBrowserScene(): JSX.Element {
     const { browser, browserLoading, entities, selectedEntity } = useValues(catalogBrowserSceneLogic)
-    const { setSelectedEntityId, deriveCatalog } = useActions(catalogBrowserSceneLogic)
+    const { setSelectedEntityId, deriveCatalog, clusterCatalog } = useActions(catalogBrowserSceneLogic)
 
     if (browserLoading && !browser) {
         return (
@@ -45,9 +45,19 @@ export function CatalogBrowserScene(): JSX.Element {
                 description="Business objects, metrics, and dimensions derived from your data."
                 resourceType={{ type: 'data_warehouse' }}
                 actions={
-                    <LemonButton type="secondary" icon={<IconSparkles />} onClick={deriveCatalog}>
-                        Derive proposals
-                    </LemonButton>
+                    <>
+                        <LemonButton type="secondary" icon={<IconSparkles />} onClick={deriveCatalog}>
+                            Derive proposals
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconAIText />}
+                            onClick={clusterCatalog}
+                            tooltip="Run an LLM pass that merges the per-table entities into business objects like Customer, Order, Subscription."
+                        >
+                            Cluster with AI
+                        </LemonButton>
+                    </>
                 }
             />
             <CatalogPageTabs activeTab="entities" />

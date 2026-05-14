@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 3 enabled ops
+ * PostHog API - MCP 4 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -117,6 +117,64 @@ export const CatalogColumnsCreateBody = /* @__PURE__ */ zod
             .describe('Agent confidence (0..1) in the description and semantic typing.'),
     })
     .describe('Body for catalog-columns-create. Identified by (node_id, name).')
+
+/**
+ * Upsert a catalog entity by name. The clustering agent calls this for each
+cluster it proposes.
+ */
+export const CatalogEntitiesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const catalogEntitiesCreateBodyNameMax = 200
+
+export const catalogEntitiesCreateBodyConfidenceMin = 0
+export const catalogEntitiesCreateBodyConfidenceMax = 1
+
+export const catalogEntitiesCreateBodyReasoningDefault = ``
+export const catalogEntitiesCreateBodyGeneratorModelMax = 64
+
+export const CatalogEntitiesCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(catalogEntitiesCreateBodyNameMax)
+            .describe(
+                'Display name for this entity, e.g. `Customer`, `Order`, `Subscription`. Must be unique per team. Re-calling with the same name updates the row in place rather than creating a duplicate.'
+            ),
+        description: zod
+            .string()
+            .nullish()
+            .describe('What this entity represents in the business. Markdown supported.'),
+        member_node_ids: zod
+            .array(zod.string())
+            .optional()
+            .describe(
+                'IDs of CatalogNodes that back this entity (e.g. `stripe_customers` + `auth_users` for the Customer entity). Look node ids up via `system.tables`.'
+            ),
+        confidence: zod
+            .number()
+            .min(catalogEntitiesCreateBodyConfidenceMin)
+            .max(catalogEntitiesCreateBodyConfidenceMax)
+            .nullish()
+            .describe('Agent confidence (0..1) that this is a real business entity grouping.'),
+        reasoning: zod
+            .string()
+            .default(catalogEntitiesCreateBodyReasoningDefault)
+            .describe('Free-text justification — which signals the agent used to identify the cluster.'),
+        generator_model: zod
+            .string()
+            .max(catalogEntitiesCreateBodyGeneratorModelMax)
+            .nullish()
+            .describe('Identifier of the LLM that proposed this entity, e.g. `claude-opus-4-7`.'),
+    })
+    .describe(
+        'Body for catalog-entities create. Idempotent on (team, name) — the clustering\nagent calls this for each cluster it proposes.'
+    )
 
 /**
  * Upsert a catalog node and its agent-authored descriptions.

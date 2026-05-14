@@ -19,6 +19,7 @@ from products.catalog.backend.facade.contracts import (
     UpdateNodeParams,
     UpdateRelationshipParams,
     UpsertColumnParams,
+    UpsertEntityParams,
     UpsertNodeParams,
 )
 
@@ -95,6 +96,11 @@ class CatalogAPI:
     @staticmethod
     def list_dimensions(team_id: int) -> list[CatalogDimensionDTO]:
         return logic.list_dimensions(team_id)
+
+    @staticmethod
+    def upsert_entity(params: UpsertEntityParams) -> CatalogEntityDTO:
+        """Idempotent on (team, name). The clustering agent's write path."""
+        return logic.upsert_entity(params)
 
     @staticmethod
     def derive_catalog(team_id: int, *, generator_model: str | None = None) -> DeriveResult:

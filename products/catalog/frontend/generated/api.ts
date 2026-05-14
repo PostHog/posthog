@@ -34,6 +34,7 @@ import type {
     PatchedUpdateRelationshipInputApi,
     ProposeRelationshipInputApi,
     UpsertColumnInputApi,
+    UpsertEntityInputApi,
     UpsertNodeInputApi,
 } from './api.schemas'
 
@@ -177,6 +178,27 @@ export const catalogEntitiesList = async (
     })
 }
 
+export const getCatalogEntitiesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/catalog/entities/`
+}
+
+/**
+ * Upsert a catalog entity by name. The clustering agent calls this for each
+cluster it proposes.
+ */
+export const catalogEntitiesCreate = async (
+    projectId: string,
+    upsertEntityInputApi: UpsertEntityInputApi,
+    options?: RequestInit
+): Promise<CatalogEntityDTOApi> => {
+    return apiMutator<CatalogEntityDTOApi>(getCatalogEntitiesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(upsertEntityInputApi),
+    })
+}
+
 export const getCatalogEntitiesPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/catalog/entities/${id}/`
 }
@@ -213,6 +235,32 @@ export const catalogEntitiesBrowserRetrieve = async (
     return apiMutator<CatalogBrowserDTOApi>(getCatalogEntitiesBrowserRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCatalogEntitiesClusterCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/catalog/entities/cluster/`
+}
+
+/**
+ * Kick off the LLM clustering pass.
+
+Spawns a sandbox agent that reads the catalog state and writes back
+proposed entity groupings via the catalog-entities-create MCP tool.
+Returns the task_run_id so callers can poll for completion if needed —
+but the user-facing flow is fire-and-forget: status changes show up in
+the browser scene when the agent's writes land.
+ */
+export const catalogEntitiesClusterCreate = async (
+    projectId: string,
+    catalogEntityDTOApi: CatalogEntityDTOApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getCatalogEntitiesClusterCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(catalogEntityDTOApi),
     })
 }
 

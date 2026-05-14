@@ -30,6 +30,49 @@ tools:
     catalog-columns-retrieve:
         operation: catalog_columns_retrieve
         enabled: false
+    catalog-dimensions-list:
+        operation: catalog_dimensions_list
+        enabled: false
+    catalog-dimensions-partial-update:
+        operation: catalog_dimensions_partial_update
+        enabled: false
+    catalog-entities-browser-retrieve:
+        operation: catalog_entities_browser_retrieve
+        enabled: false
+    catalog-entities-cluster-create:
+        operation: catalog_entities_cluster_create
+        enabled: false
+    catalog-entities-create:
+        operation: catalog_entities_create
+        enabled: true
+        scopes:
+            - catalog:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Upsert catalog entity
+        description: >
+            Upsert a CatalogEntity by name. The clustering agent calls this for each business
+            object it proposes — Customer, Order, Subscription, etc. Pass the underlying
+            CatalogNode UUIDs as `member_node_ids` to attach the entity to one or more source
+            tables. Idempotent on (team, name): re-calling with the same name updates description
+            and members in place. Status lands as `proposed` for a human to accept/reject.
+    catalog-entities-derive-create:
+        operation: catalog_entities_derive_create
+        enabled: false
+    catalog-entities-list:
+        operation: catalog_entities_list
+        enabled: false
+    catalog-entities-partial-update:
+        operation: catalog_entities_partial_update
+        enabled: false
+    catalog-metrics-list:
+        operation: catalog_metrics_list
+        enabled: false
+    catalog-metrics-partial-update:
+        operation: catalog_metrics_partial_update
+        enabled: false
     catalog-nodes-create:
         operation: catalog_nodes_create
         enabled: true
@@ -47,6 +90,9 @@ tools:
             role, tags, or confidence without creating a duplicate. Typically called during catalog traversal after
             inspecting a table's schema and sample data. Returns the node's id, which you'll use when upserting columns
             or proposing relationships.
+    catalog-nodes-graph-retrieve:
+        operation: catalog_nodes_graph_retrieve
+        enabled: false
     catalog-nodes-list:
         operation: catalog_nodes_list
         enabled: false

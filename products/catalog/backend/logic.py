@@ -547,6 +547,32 @@ _DIMENSION_REVIEW_STATUSES = {CatalogDimension.Status.ACCEPTED, CatalogDimension
 
 
 @transaction.atomic
+def upsert_entity(params: contracts.UpsertEntityParams) -> contracts.CatalogEntityDTO:
+    """Idempotent upsert keyed by (team, name). Re-call to update description and
+    membership in place without duplicating the row. Status is set to PROPOSED on
+    insert and left alone on update — preserves the human review action."""
+    defaults: dict = {}
+    if params.description is not None:
+        defaults["description"] = params.description
+    if params.confidence is not None:
+        defaults["confidence"] = params.confidence
+    if params.reasoning:
+        defaults["reasoning"] = params.reasoning
+    if params.generator_model is not None:
+        defaults["generator_model"] = params.generator_model
+    entity, _ = CatalogEntity.objects.update_or_create(
+        team_id=params.team_id,
+        name=params.name,
+        defaults=defaults,
+    )
+    # Always sync membership — the agent might be expanding the cluster on a
+    # re-call (e.g. discovering a third member node it missed the first time).
+    if params.member_node_ids:
+        entity.member_nodes.set(list(params.member_node_ids))
+    return to_entity_dto(entity)
+
+
+@transaction.atomic
 def update_entity(params: contracts.UpdateEntityParams) -> contracts.CatalogEntityDTO | None:
     entity = CatalogEntity.objects.filter(team_id=params.team_id, id=params.entity_id).first()
     if entity is None:

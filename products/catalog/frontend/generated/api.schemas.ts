@@ -269,6 +269,40 @@ export interface PaginatedCatalogEntityDTOListApi {
 }
 
 /**
+ * Body for catalog-entities create. Idempotent on (team, name) — the clustering
+agent calls this for each cluster it proposes.
+ */
+export interface UpsertEntityInputApi {
+    /**
+     * Display name for this entity, e.g. `Customer`, `Order`, `Subscription`. Must be unique per team. Re-calling with the same name updates the row in place rather than creating a duplicate.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * What this entity represents in the business. Markdown supported.
+     * @nullable
+     */
+    description?: string | null
+    /** IDs of CatalogNodes that back this entity (e.g. `stripe_customers` + `auth_users` for the Customer entity). Look node ids up via `system.tables`. */
+    member_node_ids?: string[]
+    /**
+     * Agent confidence (0..1) that this is a real business entity grouping.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    confidence?: number | null
+    /** Free-text justification — which signals the agent used to identify the cluster. */
+    reasoning?: string
+    /**
+     * Identifier of the LLM that proposed this entity, e.g. `claude-opus-4-7`.
+     * @maxLength 64
+     * @nullable
+     */
+    generator_model?: string | null
+}
+
+/**
  * Body for catalog-entities partial_update. Every field optional.
  */
 export interface PatchedUpdateEntityInputApi {

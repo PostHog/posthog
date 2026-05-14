@@ -1,6 +1,8 @@
 from products.catalog.backend.temporal.activities.agent import (
     count_descriptions_for_run,
+    count_entities_for_run,
     spawn_catalog_agent_task,
+    spawn_catalog_clustering_task,
     wait_for_task_run_completion,
 )
 from products.catalog.backend.temporal.activities.enumerate import (
@@ -28,6 +30,7 @@ __all__ = [
     "UpsertNodeBatchArgs",
     "complete_traversal_run",
     "count_descriptions_for_run",
+    "count_entities_for_run",
     "create_traversal_run",
     "enumerate_saved_queries",
     "enumerate_warehouse_tables",
@@ -35,6 +38,7 @@ __all__ = [
     "propose_saved_query_lineage",
     "propose_warehouse_joins",
     "spawn_catalog_agent_task",
+    "spawn_catalog_clustering_task",
     "upsert_node_batch",
     "wait_for_task_run_completion",
 ]
