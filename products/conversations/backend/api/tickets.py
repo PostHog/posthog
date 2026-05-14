@@ -837,7 +837,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         detail=False,
         methods=["POST"],
         pagination_class=None,
-        permission_classes=[IsAuthenticated],
         throttle_classes=[ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle],
     )
     def compose(self, request, *args, **kwargs):
