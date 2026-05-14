@@ -297,11 +297,15 @@ async def count_targets_activity(team_id: int, reenrich: bool = False) -> int:
 
     Mirrors `_load_page`'s filter exactly so the `estimated_chunks` log line
     is honest. Filtering to `is_identified=True` keeps anonymous tracking
-    cookies out of the candidate set — there's nothing to enrich on them."""
+    cookies out of the candidate set — there's nothing to enrich on them.
+
+    Direct ORM use: the personhog gRPC service has no list/count RPC that
+    filters by `properties__has_key`. Until such an RPC exists, the count is
+    Postgres-only — the personhog client can't express this query."""
     close_old_connections()
     from posthog.models import Person
 
-    qs = Person.objects.filter(team_id=team_id, is_identified=True)
+    qs = Person.objects.filter(team_id=team_id, is_identified=True)  # nosemgrep: no-direct-persons-db-orm
     if not reenrich:
         qs = qs.exclude(properties__has_key=ENRICHED_AT_KEY)
     return await sync_to_async(qs.count)()
@@ -352,7 +356,12 @@ async def enrich_chunk(inputs: EnrichChunkInputs) -> dict[str, typing.Any]:
         # (match, no-match, or error) below, so the candidate set strictly
         # shrinks across chunks. That lets us take rows from the start of the
         # ordered set each time.
-        qs = Person.objects.filter(team_id=inputs.team_id, is_identified=True)
+        #
+        # Direct ORM use: the personhog gRPC service has no list RPC that
+        # filters by `properties__has_key`. The candidate-set-shrinking design
+        # depends on excluding persons that already carry `$enriched_at`, which
+        # only Postgres can express today.
+        qs = Person.objects.filter(team_id=inputs.team_id, is_identified=True)  # nosemgrep: no-direct-persons-db-orm
         if not inputs.reenrich:
             qs = qs.exclude(properties__has_key=ENRICHED_AT_KEY)
         qs = qs.order_by("id")[: inputs.chunk_size]
@@ -392,15 +401,25 @@ async def enrich_chunk(inputs: EnrichChunkInputs) -> dict[str, typing.Any]:
     now_iso = dt.datetime.now(dt.UTC).isoformat()
 
     def _persist(person_id: int, fields: dict[str, typing.Any] | None) -> None:
-        person = Person.objects.get(pk=person_id)
+        # Read goes through the personhog client; the property write stays on
+        # the ORM because `posthog/models/person/util.py` has no routed
+        # `save_person_properties` helper yet. The canonical fan-out still
+        # flows through `$set` events in `_capture_event` below — the local
+        # stamp here is just dedupe for the next chunk's `_load_page`.
+        from posthog.models.person.util import get_person_by_id
+
+        person = get_person_by_id(inputs.team_id, person_id)
+        if person is None:
+            return
         props = person.properties or {}
         if fields:
             props.update({k: v for k, v in fields.items() if v is not None})
         # Stamp every attempt (match or no-match) so the candidate set shrinks
         # and subsequent runs don't retry the same persons indefinitely.
         props[ENRICHED_AT_KEY] = now_iso
-        person.properties = props
-        person.save(update_fields=["properties"])
+        Person.objects.filter(pk=person_id, team_id=inputs.team_id).update(  # nosemgrep: no-direct-persons-db-orm
+            properties=props
+        )
 
     def _capture_event(distinct_id: str, fields: dict[str, typing.Any]) -> None:
         if not capture_client:
