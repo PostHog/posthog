@@ -1471,7 +1471,7 @@ class TestDevboxTaskClaudeWarning:
         result = runner.invoke(cli, ["devbox:task", "do something"])
 
         assert result.exit_code == 0
-        assert "Claude user secret set" not in result.output
+        assert "no 'CLAUDE_CODE_OAUTH_TOKEN' Coder user secret set" not in result.output
 
     def test_no_warning_when_server_unsupported(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)

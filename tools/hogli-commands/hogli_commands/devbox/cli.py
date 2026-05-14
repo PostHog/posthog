@@ -254,7 +254,15 @@ def _read_legacy_keychain_token() -> str | None:
     if sys.platform != "darwin":
         return None
     result = subprocess.run(
-        ["security", "find-generic-password", "-a", os.environ.get("USER", ""), "-s", _LEGACY_KEYCHAIN_SERVICE, "-w"],
+        [
+            "security",
+            "find-generic-password",
+            "-a",
+            os.environ.get("USER", "posthog"),
+            "-s",
+            _LEGACY_KEYCHAIN_SERVICE,
+            "-w",
+        ],
         capture_output=True,
         text=True,
     )
@@ -273,7 +281,7 @@ def _delete_legacy_keychain_token() -> bool:
             "security",
             "delete-generic-password",
             "-a",
-            os.environ.get("USER", ""),
+            os.environ.get("USER", "posthog"),
             "-s",
             _LEGACY_KEYCHAIN_SERVICE,
         ],
