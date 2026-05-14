@@ -179,6 +179,12 @@ class RetrainNotApplicableError(Exception):
     or running bootstrap first."""
 
 
+class InferenceNotApplicableError(Exception):
+    """Raised when scoring can't proceed — pipeline is in the wrong state
+    (not ``ACTIVE``) or has no champion to score with. Same shape as
+    ``RetrainNotApplicableError``: maps to 409 at the DRF boundary."""
+
+
 @dataclass(frozen=True)
 class AutoMLPipelineRunDTO:
     """The public shape of a single pipeline run.
@@ -208,6 +214,7 @@ class AutoMLPipelineRunDTO:
     outcome_report: str
     eda_result: dict[str, Any]
     training_result: dict[str, Any]
+    inference_result: dict[str, Any]
     failure_reason: str
     created_model_version_id: UUID | None
     parent_run_id: UUID | None
@@ -261,6 +268,27 @@ class RecordBootstrapOutcomeInput:
     outcome_report: str
     failure_reason: str = ""
     cli_run_id: str = ""
+    agent_session_id: str = ""
+
+
+@dataclass(frozen=True)
+class RecordInferenceOutcomeInput:
+    """Inputs for the ``automl-record-inference-outcome`` MCP tool.
+
+    Called by the agent as the final (and only) MCP checkpoint of an
+    inference run. The agent stamps the full ``refresh-task`` stdout
+    manifest into ``inference_result``. The PostHog-side event-emission
+    step (Phase 2) reads ``predictions_uri`` out of that blob to fetch
+    the parquet and emit ``$automl_prediction`` events.
+
+    Schemaless on the ``inference_result`` field — the CLI's manifest
+    shape will evolve and we don't want to gate updates on a migration.
+    """
+
+    status: RunStatus
+    outcome_report: str
+    inference_result: dict[str, Any] = field(default_factory=dict)
+    failure_reason: str = ""
     agent_session_id: str = ""
 
 

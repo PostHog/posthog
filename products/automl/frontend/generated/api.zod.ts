@@ -174,6 +174,34 @@ export const AutomlPipelinesRunsRecordEdaResultCreateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Flip an inference run terminal and stamp the CLI manifest onto the row.
+
+Single-shot — same idempotent shape as ``record_bootstrap_outcome``.
+Re-calls on a terminal run no-op so the agent can retry the MCP call
+after a transient blip without overwriting the timeline. Rejects
+``status='running'`` with 400 (terminal status required) and 400 on a
+non-inference run (use ``record_bootstrap_outcome`` for those).
+
+Pipeline status is NOT changed: inference failures leave the pipeline
+ACTIVE so the existing champion keeps serving until the next run.
+ */
+export const AutomlPipelinesRunsRecordInferenceOutcomeCreateBody = /* @__PURE__ */ zod
+    .object({
+        status: zod
+            .enum(['running', 'succeeded', 'failed', 'aborted'])
+            .describe(
+                '\* `running` - RUNNING\n\* `succeeded` - SUCCEEDED\n\* `failed` - FAILED\n\* `aborted` - ABORTED'
+            ),
+        outcome_report: zod.string(),
+        inference_result: zod.record(zod.string(), zod.unknown()).optional(),
+        failure_reason: zod.string().optional(),
+        agent_session_id: zod.string().optional(),
+    })
+    .describe(
+        'Request body for ``POST \/automl_pipelines\/{id}\/runs\/{run_id}\/record_inference_outcome\/``.\n\nCalled by the inference agent as the single MCP checkpoint at the end of\na scoring iteration. Stamps the full ``automl refresh-task`` stdout\nmanifest into ``inference_result``; the PostHog-side event-emission step\nreads ``predictions_uri`` out of that blob.'
+    )
+
+/**
  * Run preflight validation against a proposed pipeline config.
 
 Side-effect-free: nothing is written, no pipeline is created. Same body

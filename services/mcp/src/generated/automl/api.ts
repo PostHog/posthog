@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 18 enabled ops
+ * PostHog API - MCP 20 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -143,6 +143,28 @@ export const AutomlPipelinesPartialUpdateBody = /* @__PURE__ */ zod
  * Soft-archive a pipeline. Inference stops; history is preserved.
  */
 export const AutomlPipelinesArchiveCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Dispatch a single scoring iteration on an active pipeline's champion.
+
+Same preconditions as ``retrain`` (pipeline must be ``ACTIVE`` and
+have a winning run). Opens a new ``AutoMLPipelineRun(run_kind=INFERENCE)``
+chained via ``parent_run_id`` to the champion's training run, then
+enqueues a Task that runs the ``automl-inference`` agent skill — one
+``automl refresh-task`` call + one MCP checkpoint, no training.
+
+Returns the new run DTO. Pipeline status stays ``ACTIVE`` — inference
+failures don't fail the pipeline (the existing champion keeps serving
+and the next scheduled run retries).
+ */
+export const AutomlPipelinesInferCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -397,6 +419,42 @@ export const AutomlPipelinesRunsRecordEdaResultCreateBody = /* @__PURE__ */ zod
     })
     .describe(
         "Request body for ``POST /automl_pipelines/{id}/runs/{run_id}/record_eda_result/``.\n\nCalled by the bootstrap agent between ``automl eda`` and ``automl train``.\nThe ``eda_result`` payload is schemaless on purpose so the CLI's\n``eda.yaml`` shape can evolve without forcing a migration."
+    )
+
+/**
+ * Flip an inference run terminal and stamp the CLI manifest onto the row.
+
+Single-shot — same idempotent shape as ``record_bootstrap_outcome``.
+Re-calls on a terminal run no-op so the agent can retry the MCP call
+after a transient blip without overwriting the timeline. Rejects
+``status='running'`` with 400 (terminal status required) and 400 on a
+non-inference run (use ``record_bootstrap_outcome`` for those).
+
+Pipeline status is NOT changed: inference failures leave the pipeline
+ACTIVE so the existing champion keeps serving until the next run.
+ */
+export const AutomlPipelinesRunsRecordInferenceOutcomeCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    run_id: zod.string(),
+})
+
+export const AutomlPipelinesRunsRecordInferenceOutcomeCreateBody = /* @__PURE__ */ zod
+    .object({
+        status: zod
+            .enum(['running', 'succeeded', 'failed', 'aborted'])
+            .describe('* `running` - RUNNING\n* `succeeded` - SUCCEEDED\n* `failed` - FAILED\n* `aborted` - ABORTED'),
+        outcome_report: zod.string(),
+        inference_result: zod.record(zod.string(), zod.unknown()).optional(),
+        failure_reason: zod.string().optional(),
+        agent_session_id: zod.string().optional(),
+    })
+    .describe(
+        'Request body for ``POST /automl_pipelines/{id}/runs/{run_id}/record_inference_outcome/``.\n\nCalled by the inference agent as the single MCP checkpoint at the end of\na scoring iteration. Stamps the full ``automl refresh-task`` stdout\nmanifest into ``inference_result``; the PostHog-side event-emission step\nreads ``predictions_uri`` out of that blob.'
     )
 
 /**

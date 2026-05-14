@@ -453,6 +453,21 @@
             "readOnlyHint": true
         }
     },
+    "automl-infer": {
+        "description": "Open a new inference run on an active pipeline's champion. Mirrors retrain's preconditions (pipeline must be ACTIVE and have a winning run) but does no training: the agent runs `automl refresh-task` once, captures the manifest, calls automl-record-inference-outcome, and exits. The PostHog-side event-emission step then reads predictions_uri out of the recorded manifest and emits one $automl_prediction event per row. Pipeline status stays ACTIVE even if the inference run fails — the champion keeps serving.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Dispatch an AutoML scoring iteration",
+        "title": "Dispatch an AutoML scoring iteration",
+        "required_scopes": ["automl:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "automl-list": {
         "description": "List all non-archived AutoML pipelines for the current team, newest first. Each pipeline captures a configured ML task (clustering, classification, regression, or forecasting) along with its populations, cadence, autonomy, and lifecycle status. Use this to discover what pipelines exist before fetching one by id.",
         "category": "AutoML",
@@ -549,6 +564,21 @@
         "feature": "automl",
         "summary": "Record EDA result on an AutoML run",
         "title": "Record EDA result on an AutoML run",
+        "required_scopes": ["automl:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "automl-record-inference-outcome": {
+        "description": "Flip an inference run to a terminal status (succeeded / failed / aborted) and stamp the full `automl refresh-task` stdout manifest into inference_result. The PostHog-side event-emission step reads predictions_uri out of that JSON to fetch the parquet and emit $automl_prediction events. Single-shot — once a run reaches a terminal status, re-calling this no-ops, so retries after a transient blip are safe. Rejects \"running\" status (terminal required) and rejects calls on bootstrap / retrain runs (use automl-record-bootstrap-outcome for those).",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Record an inference outcome on an AutoML run",
+        "title": "Record an inference outcome on an AutoML run",
         "required_scopes": ["automl:write"],
         "new_mcp": true,
         "annotations": {

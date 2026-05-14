@@ -401,6 +401,19 @@ class AutoMLPipelineRun(ProductTeamModel):
             "the run-history view doesn't need to join."
         ),
     )
+    inference_result = models.JSONField(
+        blank=True,
+        default=dict,
+        help_text=(
+            "Full manifest from the inference run: ``predictions_uri``, "
+            "``predictions_count``, ``id_column``, ``model_uri``, ``model_run_id``, "
+            "``inference_run_id``, ``rows`` (input feature row count), and any "
+            "other fields the CLI's ``refresh-task`` stdout carries. Only "
+            "populated when ``run_kind=inference``. The PostHog-side event-emission "
+            "step reads ``predictions_uri`` out of this blob to fetch the parquet "
+            "and emit one ``$automl_prediction`` event per row."
+        ),
+    )
     failure_reason = models.CharField(
         max_length=128,
         blank=True,

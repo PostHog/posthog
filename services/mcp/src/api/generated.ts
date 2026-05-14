@@ -4471,6 +4471,8 @@ export namespace Schemas {
 
     export type AutoMLPipelineRunDTOTrainingResult = { [key: string]: unknown };
 
+    export type AutoMLPipelineRunDTOInferenceResult = { [key: string]: unknown };
+
     /**
      * * `bootstrap` - BOOTSTRAP
     * `retrain` - RETRAIN
@@ -4527,6 +4529,7 @@ export namespace Schemas {
       outcome_report: string;
       eda_result: AutoMLPipelineRunDTOEdaResult;
       training_result: AutoMLPipelineRunDTOTrainingResult;
+      inference_result: AutoMLPipelineRunDTOInferenceResult;
       failure_reason: string;
       /** @nullable */
       created_model_version_id: string | null;
@@ -5672,6 +5675,7 @@ export namespace Schemas {
       * `America/Coral_Harbour` - America/Coral_Harbour
       * `America/Cordoba` - America/Cordoba
       * `America/Costa_Rica` - America/Costa_Rica
+      * `America/Coyhaique` - America/Coyhaique
       * `America/Creston` - America/Creston
       * `America/Cuiaba` - America/Cuiaba
       * `America/Curacao` - America/Curacao
@@ -27647,6 +27651,7 @@ export namespace Schemas {
       * `America/Coral_Harbour` - America/Coral_Harbour
       * `America/Cordoba` - America/Cordoba
       * `America/Costa_Rica` - America/Costa_Rica
+      * `America/Coyhaique` - America/Coyhaique
       * `America/Creston` - America/Creston
       * `America/Cuiaba` - America/Cuiaba
       * `America/Curacao` - America/Curacao
@@ -30513,6 +30518,7 @@ export namespace Schemas {
       * `America/Coral_Harbour` - America/Coral_Harbour
       * `America/Cordoba` - America/Cordoba
       * `America/Costa_Rica` - America/Costa_Rica
+      * `America/Coyhaique` - America/Coyhaique
       * `America/Creston` - America/Creston
       * `America/Cuiaba` - America/Cuiaba
       * `America/Curacao` - America/Curacao
@@ -33124,6 +33130,24 @@ export namespace Schemas {
     export interface RecordEdaResultInput {
       eda_result: RecordEdaResultInputEdaResult;
       cli_run_id?: string;
+    }
+
+    export type RecordInferenceOutcomeInputInferenceResult = { [key: string]: unknown };
+
+    /**
+     * Request body for ``POST /automl_pipelines/{id}/runs/{run_id}/record_inference_outcome/``.
+
+    Called by the inference agent as the single MCP checkpoint at the end of
+    a scoring iteration. Stamps the full ``automl refresh-task`` stdout
+    manifest into ``inference_result``; the PostHog-side event-emission step
+    reads ``predictions_uri`` out of that blob.
+     */
+    export interface RecordInferenceOutcomeInput {
+      status: AutoMLRunStatusEnum;
+      outcome_report: string;
+      inference_result?: RecordInferenceOutcomeInputInferenceResult;
+      failure_reason?: string;
+      agent_session_id?: string;
     }
 
     export type RecordTrainingResultInputMetrics = { [key: string]: unknown };

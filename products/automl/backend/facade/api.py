@@ -11,6 +11,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from .. import logic
+from ..inference import dispatch as inference_dispatch
 from ..models import AutoMLModelVersion, AutoMLPipeline, AutoMLPipelineRun
 from ..training import (
     bootstrap,
@@ -25,6 +26,7 @@ PipelineStateTransitionError = contracts.PipelineStateTransitionError
 ModelVersionNotFoundError = contracts.ModelVersionNotFoundError
 PipelineRunNotFoundError = contracts.PipelineRunNotFoundError
 RetrainNotApplicableError = contracts.RetrainNotApplicableError
+InferenceNotApplicableError = contracts.InferenceNotApplicableError
 
 
 def _run_to_dto(obj: AutoMLPipelineRun) -> contracts.AutoMLPipelineRunDTO:
@@ -44,6 +46,7 @@ def _run_to_dto(obj: AutoMLPipelineRun) -> contracts.AutoMLPipelineRunDTO:
         outcome_report=obj.outcome_report,
         eda_result=obj.eda_result,
         training_result=obj.training_result,
+        inference_result=obj.inference_result,
         failure_reason=obj.failure_reason,
         created_model_version_id=obj.created_model_version_id,
         parent_run_id=obj.parent_run_id,
@@ -261,6 +264,89 @@ def retrain(*, team_id: int, pipeline_id: UUID, user_id: int) -> contracts.AutoM
     refreshed = logic.get_pipeline_run(team_id=team_id, run_id=run.id)
     assert refreshed is not None
     return _run_to_dto(refreshed)
+
+
+def infer(*, team_id: int, pipeline_id: UUID, user_id: int) -> contracts.AutoMLPipelineRunDTO:
+    """Dispatch a single scoring iteration against an active pipeline's champion.
+
+    Preconditions match ``retrain`` (must be ACTIVE, must have a winning
+    run = champion). Differences:
+      - The agent runs ``automl-inference`` (not ``automl-retrain``), which
+        is one CLI call + one MCP checkpoint — no training, no displacement.
+      - Inference failures never fail the pipeline; the existing champion
+        keeps serving and the next scheduled inference retries.
+
+    Returns the run DTO so the caller can poll its status and read the
+    inference_result manifest once the agent completes.
+    """
+    pipeline = logic.get_pipeline(team_id=team_id, pipeline_id=pipeline_id)
+    if pipeline is None:
+        raise contracts.PipelineNotFoundError(f"pipeline {pipeline_id} not found in team {team_id}")
+    if pipeline.status != PipelineStatus.ACTIVE.value:
+        raise contracts.InferenceNotApplicableError(
+            f"cannot infer on pipeline in status {pipeline.status!r}; must be ACTIVE"
+        )
+
+    parent_run = logic.find_latest_winning_run(team_id=team_id, pipeline_id=pipeline_id)
+    if parent_run is None:
+        raise contracts.InferenceNotApplicableError(
+            "no champion to score with — bootstrap a first model before scheduling inference"
+        )
+
+    task_slug = bootstrap.derive_task_slug(pipeline)
+    task_workspace_root = bootstrap.derive_task_workspace_root(task_slug)
+
+    run = logic.create_pipeline_run(
+        team_id=team_id,
+        pipeline_id=pipeline_id,
+        params=contracts.CreatePipelineRunInput(
+            run_kind=RunKind.INFERENCE,
+            task_slug=task_slug,
+            task_workspace_root=task_workspace_root,
+            parent_run_id=parent_run.id,
+        ),
+    )
+
+    try:
+        task = inference_dispatch.enqueue_inference(
+            pipeline=pipeline,
+            user_id=user_id,
+            run_id=run.id,
+            task_slug=task_slug,
+            task_workspace_root=task_workspace_root,
+            parent_run=parent_run,
+        )
+    except Exception:
+        logic.mark_run_failed(run=run, failure_reason="task_create_failed")
+        raise
+
+    run.task_id = task.id
+    run.save(update_fields=["task_id", "updated_at"])
+
+    refreshed = logic.get_pipeline_run(team_id=team_id, run_id=run.id)
+    assert refreshed is not None
+    return _run_to_dto(refreshed)
+
+
+def record_inference_outcome(
+    *,
+    team_id: int,
+    run_id: UUID,
+    params: contracts.RecordInferenceOutcomeInput,
+) -> contracts.AutoMLPipelineRunDTO:
+    """Flip an inference run terminal and persist the CLI manifest.
+
+    Called by the agent at the end of a scoring iteration via
+    ``automl-record-inference-outcome``. Idempotent — single-shot writes,
+    re-calls on a terminal run no-op. Does NOT alter pipeline status: an
+    inference failure leaves the pipeline ACTIVE so the existing champion
+    keeps serving until the next scheduled run.
+
+    Phase 2 will read ``params.inference_result["predictions_uri"]`` and
+    emit ``$automl_prediction`` events.
+    """
+    obj = logic.record_inference_outcome(team_id=team_id, run_id=run_id, params=params)
+    return _run_to_dto(obj)
 
 
 def pause(*, team_id: int, pipeline_id: UUID) -> contracts.AutoMLPipelineDTO:

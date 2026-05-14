@@ -460,6 +460,67 @@ def record_bootstrap_outcome(
     return run
 
 
+def record_inference_outcome(
+    *,
+    team_id: int,
+    run_id: UUID,
+    params: contracts.RecordInferenceOutcomeInput,
+) -> AutoMLPipelineRun:
+    """Flip an inference run to a terminal state and stamp the CLI manifest onto it.
+
+    Same idempotent shape as ``record_bootstrap_outcome``: ``running`` is
+    rejected (terminal status required); calling on an already-terminal run
+    no-ops and returns the existing row. The ``inference_result`` JSON
+    field receives the full ``refresh-task`` stdout manifest unchanged.
+
+    Pipeline status reconciliation does NOT happen here — an inference
+    failure doesn't fail the pipeline (the champion keeps serving; the
+    next scheduled run will retry). The pipeline stays ``ACTIVE``.
+
+    Raises ``PipelineRunNotFoundError`` if the run doesn't exist on the team
+    and ``ValueError`` if the run isn't an ``INFERENCE`` run (guards against
+    accidental wiring — bootstrap / retrain runs have their own outcome
+    handlers).
+    """
+    if params.status == RunStatus.RUNNING:
+        raise ValueError("record_inference_outcome requires a terminal status")
+
+    run = get_pipeline_run(team_id=team_id, run_id=run_id)
+    if run is None:
+        raise contracts.PipelineRunNotFoundError(f"run {run_id} not found in team {team_id}")
+
+    if run.run_kind != RunKind.INFERENCE.value:
+        raise ValueError(
+            f"record_inference_outcome called on a {run.run_kind!r} run; "
+            f"use record_bootstrap_outcome for bootstrap and retrain runs."
+        )
+
+    if run.status != RunStatus.RUNNING.value:
+        return run
+
+    with transaction.atomic():
+        run.status = params.status.value
+        run.outcome_report = params.outcome_report
+        run.failure_reason = params.failure_reason
+        run.inference_result = params.inference_result
+        if params.agent_session_id:
+            run.agent_session_id = params.agent_session_id
+        run.completed_at = datetime.now(UTC)
+        run.save(
+            update_fields=[
+                "status",
+                "outcome_report",
+                "failure_reason",
+                "inference_result",
+                "agent_session_id",
+                "completed_at",
+                "updated_at",
+            ]
+        )
+
+    return run
+
+
 def find_latest_winning_run(*, team_id: int, pipeline_id: UUID) -> AutoMLPipelineRun | None:
     """Find the most recent succeeded run on a pipeline that landed a model version.
 

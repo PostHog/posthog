@@ -28,6 +28,7 @@ from ..facade.contracts import (
     CreatePipelineInput,
     RecordBootstrapOutcomeInput,
     RecordEdaResultInput,
+    RecordInferenceOutcomeInput,
     RecordTrainingResultInput,
     UpdatePipelineInput,
 )
@@ -39,6 +40,7 @@ from .serializers import (
     CreatePipelineInputSerializer,
     RecordBootstrapOutcomeInputSerializer,
     RecordEdaResultInputSerializer,
+    RecordInferenceOutcomeInputSerializer,
     RecordTrainingResultInputSerializer,
     UpdatePipelineInputSerializer,
     ValidationReportSerializer,
@@ -67,10 +69,12 @@ class AutoMLPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "resume",
         "archive",
         "retrain",
+        "infer",
         "record_model_version",
         "promote_model_version",
         "record_eda_result",
         "record_bootstrap_outcome",
+        "record_inference_outcome",
     ]
     scope_object_read_actions = [
         "list",
@@ -220,6 +224,42 @@ class AutoMLPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.RetrainNotApplicableError as e:
             return Response(
                 {"detail": str(e), "code": "retrain_not_applicable"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(AutoMLPipelineRunSerializer(instance=dto).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        request=None,
+        responses={201: AutoMLPipelineRunSerializer},
+    )
+    @action(detail=True, methods=["post"])
+    def infer(self, request: Request, pk: str, **kwargs) -> Response:
+        """Dispatch a single scoring iteration on an active pipeline's champion.
+
+        Same preconditions as ``retrain`` (pipeline must be ``ACTIVE`` and
+        have a winning run). Opens a new ``AutoMLPipelineRun(run_kind=INFERENCE)``
+        chained via ``parent_run_id`` to the champion's training run, then
+        enqueues a Task that runs the ``automl-inference`` agent skill — one
+        ``automl refresh-task`` call + one MCP checkpoint, no training.
+
+        Returns the new run DTO. Pipeline status stays ``ACTIVE`` — inference
+        failures don't fail the pipeline (the existing champion keeps serving
+        and the next scheduled run retries).
+        """
+        user_id = cast(int | None, getattr(request.user, "id", None))
+        if user_id is None:
+            return Response(
+                {"detail": "Authentication required to dispatch inference."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        try:
+            dto = api.infer(team_id=self.team_id, pipeline_id=UUID(pk), user_id=user_id)
+        except api.PipelineNotFoundError:
+            return Response({"detail": "Pipeline not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.InferenceNotApplicableError as e:
+            return Response(
+                {"detail": str(e), "code": "inference_not_applicable"},
                 status=status.HTTP_409_CONFLICT,
             )
         return Response(AutoMLPipelineRunSerializer(instance=dto).data, status=status.HTTP_201_CREATED)
@@ -500,6 +540,61 @@ class AutoMLPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except ValueError as e:
             return Response(
                 {"detail": str(e), "code": "invalid_status"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(AutoMLPipelineRunSerializer(instance=dto).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter("run_id", OpenApiTypes.STR, OpenApiParameter.PATH),
+        ],
+    )
+    @validated_request(
+        request_serializer=RecordInferenceOutcomeInputSerializer,
+        responses={200: OpenApiResponse(response=AutoMLPipelineRunSerializer)},
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"runs/(?P<run_id>[^/.]+)/record_inference_outcome",
+    )
+    def record_inference_outcome(
+        self,
+        request: TypedRequest[RecordInferenceOutcomeInput],
+        pk: str,
+        run_id: str,
+        **kwargs,
+    ) -> Response:
+        """Flip an inference run terminal and stamp the CLI manifest onto the row.
+
+        Single-shot — same idempotent shape as ``record_bootstrap_outcome``.
+        Re-calls on a terminal run no-op so the agent can retry the MCP call
+        after a transient blip without overwriting the timeline. Rejects
+        ``status='running'`` with 400 (terminal status required) and 400 on a
+        non-inference run (use ``record_bootstrap_outcome`` for those).
+
+        Pipeline status is NOT changed: inference failures leave the pipeline
+        ACTIVE so the existing champion keeps serving until the next run.
+        """
+        try:
+            run_uuid = UUID(run_id)
+        except ValueError:
+            return Response(
+                {"detail": "Invalid run_id", "code": "invalid_run_id"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            dto = api.record_inference_outcome(
+                team_id=self.team_id,
+                run_id=run_uuid,
+                params=request.validated_data,
+            )
+        except api.PipelineRunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError as e:
+            return Response(
+                {"detail": str(e), "code": "invalid_status_or_run_kind"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(AutoMLPipelineRunSerializer(instance=dto).data)

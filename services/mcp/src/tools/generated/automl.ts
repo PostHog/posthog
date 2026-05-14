@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import {
     AutomlPipelinesArchiveCreateParams,
     AutomlPipelinesCreateBody,
+    AutomlPipelinesInferCreateParams,
     AutomlPipelinesListQueryParams,
     AutomlPipelinesModelVersionsActiveRetrieveParams,
     AutomlPipelinesModelVersionsActiveRetrieveQueryParams,
@@ -25,6 +26,8 @@ import {
     AutomlPipelinesRunsRecordBootstrapOutcomeCreateParams,
     AutomlPipelinesRunsRecordEdaResultCreateBody,
     AutomlPipelinesRunsRecordEdaResultCreateParams,
+    AutomlPipelinesRunsRecordInferenceOutcomeCreateBody,
+    AutomlPipelinesRunsRecordInferenceOutcomeCreateParams,
     AutomlPipelinesRunsRetrieveParams,
     AutomlPipelinesStartCreateParams,
     AutomlPipelinesValidateCreateBody,
@@ -531,6 +534,86 @@ const automlRetrain = (): ToolBase<typeof AutomlRetrainSchema, WithPostHogUrl<Sc
     },
 })
 
+const AutomlInferSchema = AutomlPipelinesInferCreateParams.omit({ project_id: true }).extend({
+    id: AutomlPipelinesInferCreateParams.shape['id'].describe(
+        'Pipeline UUID to score. Must be ACTIVE and have a winning run. Returns 409 with code=inference_not_applicable otherwise.'
+    ),
+})
+
+const automlInfer = (): ToolBase<typeof AutomlInferSchema, WithPostHogUrl<Schemas.AutoMLPipelineRunDTO>> => ({
+    name: 'automl-infer',
+    schema: AutomlInferSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlInferSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AutoMLPipelineRunDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/infer/`,
+        })
+        return await withPostHogUrl(context, result, `/automl/${result.id}`)
+    },
+})
+
+const AutomlRecordInferenceOutcomeSchema = AutomlPipelinesRunsRecordInferenceOutcomeCreateParams.omit({
+    project_id: true,
+})
+    .extend(AutomlPipelinesRunsRecordInferenceOutcomeCreateBody.shape)
+    .extend({
+        id: AutomlPipelinesRunsRecordInferenceOutcomeCreateParams.shape['id'].describe(
+            'Pipeline UUID. Used for URL routing; the run lookup is keyed by run_id + team.'
+        ),
+        run_id: AutomlPipelinesRunsRecordInferenceOutcomeCreateParams.shape['run_id'].describe(
+            'Run UUID from the inference brief\'s "Run context" block. Must be the currently in-flight run and must have run_kind=inference (otherwise 400).'
+        ),
+        status: AutomlPipelinesRunsRecordInferenceOutcomeCreateBody.shape['status'].describe(
+            'Terminal status to flip the run to. One of "succeeded" / "failed" / "aborted". Rejects "running".'
+        ),
+        outcome_report: AutomlPipelinesRunsRecordInferenceOutcomeCreateBody.shape['outcome_report'].describe(
+            'Short markdown body the user reads on the pipeline-detail page. Mention rows scored, predictions parquet URI, model run id, and any caveats. Empty string when the run failed before producing meaningful output.'
+        ),
+        inference_result: AutomlPipelinesRunsRecordInferenceOutcomeCreateBody.shape['inference_result'].describe(
+            "The full JSON manifest from the CLI's `automl refresh-task` stdout — predictions_uri, predictions_count, id_column, model_uri, model_run_id, inference_run_id, rows, and any other fields the CLI emits. Pass through the parsed JSON object unchanged. The PostHog-side event- emission step reads predictions_uri out of this blob."
+        ),
+        failure_reason: AutomlPipelinesRunsRecordInferenceOutcomeCreateBody.shape['failure_reason'].describe(
+            'Compact tag categorizing the failure when status is failed or aborted. Examples: snapshot_fetch_failed / model_load_failed / predict_crashed / mcp_unavailable. Empty when status is succeeded.'
+        ),
+        agent_session_id: AutomlPipelinesRunsRecordInferenceOutcomeCreateBody.shape['agent_session_id'].describe(
+            'Optional sandbox session id so we can replay the agent transcript later when debugging.'
+        ),
+    })
+
+const automlRecordInferenceOutcome = (): ToolBase<
+    typeof AutomlRecordInferenceOutcomeSchema,
+    Schemas.AutoMLPipelineRunDTO
+> => ({
+    name: 'automl-record-inference-outcome',
+    schema: AutomlRecordInferenceOutcomeSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlRecordInferenceOutcomeSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.status !== undefined) {
+            body['status'] = params.status
+        }
+        if (params.outcome_report !== undefined) {
+            body['outcome_report'] = params.outcome_report
+        }
+        if (params.inference_result !== undefined) {
+            body['inference_result'] = params.inference_result
+        }
+        if (params.failure_reason !== undefined) {
+            body['failure_reason'] = params.failure_reason
+        }
+        if (params.agent_session_id !== undefined) {
+            body['agent_session_id'] = params.agent_session_id
+        }
+        const result = await context.api.request<Schemas.AutoMLPipelineRunDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/runs/${encodeURIComponent(String(params.run_id))}/record_inference_outcome/`,
+            body,
+        })
+        return result
+    },
+})
+
 const AutomlResumeSchema = AutomlPipelinesResumeCreateParams.omit({ project_id: true })
 
 const automlResume = (): ToolBase<typeof AutomlResumeSchema, WithPostHogUrl<Schemas.AutoMLPipelineDTO>> => ({
@@ -700,6 +783,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'automl-list-model-versions': automlListModelVersions,
     'automl-promote-model-version': automlPromoteModelVersion,
     'automl-retrain': automlRetrain,
+    'automl-infer': automlInfer,
+    'automl-record-inference-outcome': automlRecordInferenceOutcome,
     'automl-resume': automlResume,
     'automl-start': automlStart,
     'automl-update': automlUpdate,

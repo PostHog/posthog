@@ -23,6 +23,7 @@ import type {
     PatchedUpdatePipelineInputApi,
     RecordBootstrapOutcomeInputApi,
     RecordEdaResultInputApi,
+    RecordInferenceOutcomeInputApi,
     RecordTrainingResultInputApi,
     ValidationReportApi,
 } from './api.schemas'
@@ -129,6 +130,34 @@ export const automlPipelinesArchiveCreate = async (
     options?: RequestInit
 ): Promise<AutoMLPipelineDTOApi> => {
     return apiMutator<AutoMLPipelineDTOApi>(getAutomlPipelinesArchiveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getAutomlPipelinesInferCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/automl_pipelines/${id}/infer/`
+}
+
+/**
+ * Dispatch a single scoring iteration on an active pipeline's champion.
+
+Same preconditions as ``retrain`` (pipeline must be ``ACTIVE`` and
+have a winning run). Opens a new ``AutoMLPipelineRun(run_kind=INFERENCE)``
+chained via ``parent_run_id`` to the champion's training run, then
+enqueues a Task that runs the ``automl-inference`` agent skill — one
+``automl refresh-task`` call + one MCP checkpoint, no training.
+
+Returns the new run DTO. Pipeline status stays ``ACTIVE`` — inference
+failures don't fail the pipeline (the existing champion keeps serving
+and the next scheduled run retries).
+ */
+export const automlPipelinesInferCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoMLPipelineRunDTOApi> => {
+    return apiMutator<AutoMLPipelineRunDTOApi>(getAutomlPipelinesInferCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })
@@ -454,6 +483,40 @@ export const automlPipelinesRunsRecordEdaResultCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(recordEdaResultInputApi),
     })
+}
+
+export const getAutomlPipelinesRunsRecordInferenceOutcomeCreateUrl = (projectId: string, id: string, runId: string) => {
+    return `/api/projects/${projectId}/automl_pipelines/${id}/runs/${runId}/record_inference_outcome/`
+}
+
+/**
+ * Flip an inference run terminal and stamp the CLI manifest onto the row.
+
+Single-shot — same idempotent shape as ``record_bootstrap_outcome``.
+Re-calls on a terminal run no-op so the agent can retry the MCP call
+after a transient blip without overwriting the timeline. Rejects
+``status='running'`` with 400 (terminal status required) and 400 on a
+non-inference run (use ``record_bootstrap_outcome`` for those).
+
+Pipeline status is NOT changed: inference failures leave the pipeline
+ACTIVE so the existing champion keeps serving until the next run.
+ */
+export const automlPipelinesRunsRecordInferenceOutcomeCreate = async (
+    projectId: string,
+    id: string,
+    runId: string,
+    recordInferenceOutcomeInputApi: RecordInferenceOutcomeInputApi,
+    options?: RequestInit
+): Promise<AutoMLPipelineRunDTOApi> => {
+    return apiMutator<AutoMLPipelineRunDTOApi>(
+        getAutomlPipelinesRunsRecordInferenceOutcomeCreateUrl(projectId, id, runId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(recordInferenceOutcomeInputApi),
+        }
+    )
 }
 
 export const getAutomlPipelinesStartCreateUrl = (projectId: string, id: string) => {

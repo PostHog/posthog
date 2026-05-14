@@ -386,6 +386,74 @@ tools:
                 description: >
                     Pipeline UUID to retrain. Must be ACTIVE and have a winning run. Returns 409 with
                     code=retrain_not_applicable otherwise.
+    automl-infer:
+        operation: automl_pipelines_infer_create
+        enabled: true
+        scopes:
+            - automl:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Dispatch an AutoML scoring iteration
+        description: >
+            Open a new inference run on an active pipeline's champion. Mirrors retrain's preconditions (pipeline must
+            be ACTIVE and have a winning run) but does no training: the agent runs `automl refresh-task` once, captures
+            the manifest, calls automl-record-inference-outcome, and exits. The PostHog-side event-emission step then
+            reads predictions_uri out of the recorded manifest and emits one $automl_prediction event per row.
+            Pipeline status stays ACTIVE even if the inference run fails — the champion keeps serving.
+        param_overrides:
+            id:
+                description: >
+                    Pipeline UUID to score. Must be ACTIVE and have a winning run. Returns 409 with
+                    code=inference_not_applicable otherwise.
+    automl-record-inference-outcome:
+        operation: automl_pipelines_runs_record_inference_outcome_create
+        enabled: true
+        scopes:
+            - automl:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Record an inference outcome on an AutoML run
+        description: >
+            Flip an inference run to a terminal status (succeeded / failed / aborted) and stamp the full
+            `automl refresh-task` stdout manifest into inference_result. The PostHog-side event-emission step reads
+            predictions_uri out of that JSON to fetch the parquet and emit $automl_prediction events. Single-shot —
+            once a run reaches a terminal status, re-calling this no-ops, so retries after a transient blip are safe.
+            Rejects "running" status (terminal required) and rejects calls on bootstrap / retrain runs (use
+            automl-record-bootstrap-outcome for those).
+        param_overrides:
+            id:
+                description: Pipeline UUID. Used for URL routing; the run lookup is keyed by run_id + team.
+            run_id:
+                description: >
+                    Run UUID from the inference brief's "Run context" block. Must be the currently in-flight run
+                    and must have run_kind=inference (otherwise 400).
+            status:
+                description: >
+                    Terminal status to flip the run to. One of "succeeded" / "failed" / "aborted". Rejects "running".
+            outcome_report:
+                description: >
+                    Short markdown body the user reads on the pipeline-detail page. Mention rows scored, predictions
+                    parquet URI, model run id, and any caveats. Empty string when the run failed before producing
+                    meaningful output.
+            inference_result:
+                description: >
+                    The full JSON manifest from the CLI's `automl refresh-task` stdout — predictions_uri,
+                    predictions_count, id_column, model_uri, model_run_id, inference_run_id, rows, and any other
+                    fields the CLI emits. Pass through the parsed JSON object unchanged. The PostHog-side event-
+                    emission step reads predictions_uri out of this blob.
+            failure_reason:
+                description: >
+                    Compact tag categorizing the failure when status is failed or aborted. Examples:
+                    snapshot_fetch_failed / model_load_failed / predict_crashed / mcp_unavailable. Empty when
+                    status is succeeded.
+            agent_session_id:
+                description: >
+                    Optional sandbox session id so we can replay the agent transcript later when debugging.
     automl-resume:
         operation: automl_pipelines_resume_create
         enabled: true

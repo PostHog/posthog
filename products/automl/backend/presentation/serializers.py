@@ -13,6 +13,7 @@ from ..facade.contracts import (
     CreatePipelineInput,
     RecordBootstrapOutcomeInput,
     RecordEdaResultInput,
+    RecordInferenceOutcomeInput,
     RecordTrainingResultInput,
     UpdatePipelineInput,
     ValidationFinding,
@@ -136,3 +137,16 @@ class RecordBootstrapOutcomeInputSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = RecordBootstrapOutcomeInput
+
+
+class RecordInferenceOutcomeInputSerializer(DataclassSerializer):
+    """Request body for ``POST /automl_pipelines/{id}/runs/{run_id}/record_inference_outcome/``.
+
+    Called by the inference agent as the single MCP checkpoint at the end of
+    a scoring iteration. Stamps the full ``automl refresh-task`` stdout
+    manifest into ``inference_result``; the PostHog-side event-emission step
+    reads ``predictions_uri`` out of that blob.
+    """
+
+    class Meta:
+        dataclass = RecordInferenceOutcomeInput

@@ -715,6 +715,7 @@ export interface ProjectBackwardCompatApi {
   * `America/Coral_Harbour` - America/Coral_Harbour
   * `America/Cordoba` - America/Cordoba
   * `America/Costa_Rica` - America/Costa_Rica
+  * `America/Coyhaique` - America/Coyhaique
   * `America/Creston` - America/Creston
   * `America/Cuiaba` - America/Cuiaba
   * `America/Curacao` - America/Curacao
@@ -1511,6 +1512,7 @@ export interface PatchedProjectBackwardCompatApi {
   * `America/Coral_Harbour` - America/Coral_Harbour
   * `America/Cordoba` - America/Cordoba
   * `America/Costa_Rica` - America/Costa_Rica
+  * `America/Coyhaique` - America/Coyhaique
   * `America/Creston` - America/Creston
   * `America/Cuiaba` - America/Cuiaba
   * `America/Curacao` - America/Curacao

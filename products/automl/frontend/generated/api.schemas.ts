@@ -182,6 +182,76 @@ export interface PatchedUpdatePipelineInputApi {
     extra?: PatchedUpdatePipelineInputApiExtra
 }
 
+export type AutoMLPipelineRunDTOApiEdaResult = { [key: string]: unknown }
+
+export type AutoMLPipelineRunDTOApiTrainingResult = { [key: string]: unknown }
+
+export type AutoMLPipelineRunDTOApiInferenceResult = { [key: string]: unknown }
+
+/**
+ * * `bootstrap` - BOOTSTRAP
+ * `retrain` - RETRAIN
+ * `inference` - INFERENCE
+ */
+export type AutoMLRunKindEnumApi = (typeof AutoMLRunKindEnumApi)[keyof typeof AutoMLRunKindEnumApi]
+
+export const AutoMLRunKindEnumApi = {
+    Bootstrap: 'bootstrap',
+    Retrain: 'retrain',
+    Inference: 'inference',
+} as const
+
+/**
+ * * `running` - RUNNING
+ * `succeeded` - SUCCEEDED
+ * `failed` - FAILED
+ * `aborted` - ABORTED
+ */
+export type AutoMLRunStatusEnumApi = (typeof AutoMLRunStatusEnumApi)[keyof typeof AutoMLRunStatusEnumApi]
+
+export const AutoMLRunStatusEnumApi = {
+    Running: 'running',
+    Succeeded: 'succeeded',
+    Failed: 'failed',
+    Aborted: 'aborted',
+} as const
+
+/**
+ * Output shape of one bootstrap / retrain / inference run on a pipeline.
+
+Durable per-run record — holds the agent's outcome report, EDA summary,
+training summary, and failure reason. The pipeline-detail timeline reads
+these rows directly; the retraining iteration chain threads them via
+``parent_run_id``.
+ */
+export interface AutoMLPipelineRunDTOApi {
+    id: string
+    pipeline_id: string
+    team_id: number
+    run_kind: AutoMLRunKindEnumApi
+    status: AutoMLRunStatusEnumApi
+    task_slug: string
+    task_workspace_root: string
+    cli_run_id: string
+    agent_session_id: string
+    /** @nullable */
+    task_id: string | null
+    started_at: string
+    /** @nullable */
+    completed_at: string | null
+    outcome_report: string
+    eda_result: AutoMLPipelineRunDTOApiEdaResult
+    training_result: AutoMLPipelineRunDTOApiTrainingResult
+    inference_result: AutoMLPipelineRunDTOApiInferenceResult
+    failure_reason: string
+    /** @nullable */
+    created_model_version_id: string | null
+    /** @nullable */
+    parent_run_id: string | null
+    created_at: string
+    updated_at: string
+}
+
 /**
  * * `champion` - CHAMPION
  * `challenger` - CHALLENGER
@@ -281,73 +351,6 @@ export interface RecordTrainingResultInputApi {
     run_id?: string | null
 }
 
-export type AutoMLPipelineRunDTOApiEdaResult = { [key: string]: unknown }
-
-export type AutoMLPipelineRunDTOApiTrainingResult = { [key: string]: unknown }
-
-/**
- * * `bootstrap` - BOOTSTRAP
- * `retrain` - RETRAIN
- * `inference` - INFERENCE
- */
-export type AutoMLRunKindEnumApi = (typeof AutoMLRunKindEnumApi)[keyof typeof AutoMLRunKindEnumApi]
-
-export const AutoMLRunKindEnumApi = {
-    Bootstrap: 'bootstrap',
-    Retrain: 'retrain',
-    Inference: 'inference',
-} as const
-
-/**
- * * `running` - RUNNING
- * `succeeded` - SUCCEEDED
- * `failed` - FAILED
- * `aborted` - ABORTED
- */
-export type AutoMLRunStatusEnumApi = (typeof AutoMLRunStatusEnumApi)[keyof typeof AutoMLRunStatusEnumApi]
-
-export const AutoMLRunStatusEnumApi = {
-    Running: 'running',
-    Succeeded: 'succeeded',
-    Failed: 'failed',
-    Aborted: 'aborted',
-} as const
-
-/**
- * Output shape of one bootstrap / retrain / inference run on a pipeline.
-
-Durable per-run record — holds the agent's outcome report, EDA summary,
-training summary, and failure reason. The pipeline-detail timeline reads
-these rows directly; the retraining iteration chain threads them via
-``parent_run_id``.
- */
-export interface AutoMLPipelineRunDTOApi {
-    id: string
-    pipeline_id: string
-    team_id: number
-    run_kind: AutoMLRunKindEnumApi
-    status: AutoMLRunStatusEnumApi
-    task_slug: string
-    task_workspace_root: string
-    cli_run_id: string
-    agent_session_id: string
-    /** @nullable */
-    task_id: string | null
-    started_at: string
-    /** @nullable */
-    completed_at: string | null
-    outcome_report: string
-    eda_result: AutoMLPipelineRunDTOApiEdaResult
-    training_result: AutoMLPipelineRunDTOApiTrainingResult
-    failure_reason: string
-    /** @nullable */
-    created_model_version_id: string | null
-    /** @nullable */
-    parent_run_id: string | null
-    created_at: string
-    updated_at: string
-}
-
 export interface PaginatedAutoMLPipelineRunDTOListApi {
     count: number
     /** @nullable */
@@ -384,6 +387,24 @@ The ``eda_result`` payload is schemaless on purpose so the CLI's
 export interface RecordEdaResultInputApi {
     eda_result: RecordEdaResultInputApiEdaResult
     cli_run_id?: string
+}
+
+export type RecordInferenceOutcomeInputApiInferenceResult = { [key: string]: unknown }
+
+/**
+ * Request body for ``POST /automl_pipelines/{id}/runs/{run_id}/record_inference_outcome/``.
+
+Called by the inference agent as the single MCP checkpoint at the end of
+a scoring iteration. Stamps the full ``automl refresh-task`` stdout
+manifest into ``inference_result``; the PostHog-side event-emission step
+reads ``predictions_uri`` out of that blob.
+ */
+export interface RecordInferenceOutcomeInputApi {
+    status: AutoMLRunStatusEnumApi
+    outcome_report: string
+    inference_result?: RecordInferenceOutcomeInputApiInferenceResult
+    failure_reason?: string
+    agent_session_id?: string
 }
 
 /**
