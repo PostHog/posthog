@@ -17,7 +17,9 @@ export type PostHogMcpAnalyticsOptions = {
     // lets the caller resolve that inner tool's description from the request so
     // it can be surfaced as `$mcp_exec_tool_call_description`. Returns undefined
     // when the request isn't an exec call or the inner tool isn't recognized.
-    resolveExecInnerToolDescription?: (request: unknown) => string | undefined
+    // Type accepts `| undefined` explicitly so callers can pass the value
+    // through unconditionally under `exactOptionalPropertyTypes: true`.
+    resolveExecInnerToolDescription?: ((request: unknown) => string | undefined) | undefined
 }
 
 export type PostHogMcpAnalyticsInitResult =

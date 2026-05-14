@@ -49,7 +49,7 @@ export function parseExecCallInnerToolName(command: string): string | undefined 
     if (verb !== 'call' || !rest) {
         return
     }
-    const argv = rest.startsWith('--json ') ? rest.slice('--json'.length).trim() : rest === '--json' ? '' : rest
+    const argv = rest.startsWith('--json ') ? rest.slice('--json '.length).trim() : rest === '--json' ? '' : rest
     if (!argv) {
         return
     }

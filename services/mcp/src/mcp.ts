@@ -810,7 +810,7 @@ export class MCP extends McpAgent<Env> {
             const initResult = await initPostHogMcpAnalytics(this.server, mcpAnalyticsIdentity, {
                 contextEnabled: true,
                 reportMissingEnabled: !useSingleExec,
-                ...(resolveExecInnerToolDescription ? { resolveExecInnerToolDescription } : {}),
+                resolveExecInnerToolDescription,
             })
             Object.assign(this.requestProperties, {
                 posthogMcpAnalyticsInitAction: initResult.action,
