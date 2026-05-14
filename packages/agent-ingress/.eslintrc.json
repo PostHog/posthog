@@ -1,0 +1,20 @@
+{
+    "root": true,
+    "rules": {
+        "no-restricted-imports": [
+            "error",
+            {
+                "patterns": [
+                    {
+                        "group": ["@anthropic-ai/*", "@modal/*", "modal", "claude-agent-sdk"],
+                        "message": "agent-ingress must not import the Claude Agent SDK or Modal — those belong to agent-runner. Blast-radius rule."
+                    },
+                    {
+                        "group": ["**/nodejs/*", "../../../nodejs/*", "@posthog/nodejs"],
+                        "message": "agent-ingress must not import from nodejs/ — cherry-pick into @posthog/agent-core instead."
+                    }
+                ]
+            }
+        ]
+    }
+}
