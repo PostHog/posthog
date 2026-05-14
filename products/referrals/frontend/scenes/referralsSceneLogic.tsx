@@ -37,7 +37,7 @@ type PaginatedSocialReferrals = {
 }
 
 export const referralsSceneLogic = kea<referralsSceneLogicType>([
-    path(['scenes', 'referrals', 'referralsSceneLogic']),
+    path(['products', 'referrals', 'referralsSceneLogic']),
     tabAwareScene(),
     connect(() => ({
         values: [organizationLogic, ['currentOrganizationId'], userLogic, ['user']],

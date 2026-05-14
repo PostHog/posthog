@@ -295,7 +295,6 @@ export const urls = {
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkDoctor: (): string => '/health/sdk-doctor',
     exports: (): string => '/exports',
-    referrals: (): string => '/referrals',
     subscriptions: (): string => '/subscriptions',
     subscription: (id: string | number): string => `/subscriptions/${id}`,
 }

@@ -501,12 +501,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.',
     },
-    [Scene.Referrals]: {
-        projectBased: true,
-        name: 'Referrals',
-        iconType: 'link',
-        description: 'Share your signup link—attributed signups show up below.',
-    },
     [Scene.Subscriptions]: {
         projectBased: true,
         name: 'Subscriptions',
@@ -910,7 +904,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     // Parameterized route must come after static /health/* routes
     [urls.healthCategory(':category')]: [Scene.HealthCategoryDetail, 'healthCategoryDetail'],
     [urls.exports()]: [Scene.Exports, 'exports'],
-    [urls.referrals()]: [Scene.Referrals, 'referrals'],
     [urls.subscriptions()]: [Scene.Subscriptions, 'subscriptions'],
     [urls.subscription(':subscriptionId')]: [Scene.Subscription, 'subscription'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
