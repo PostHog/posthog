@@ -17,7 +17,7 @@ from rest_framework import serializers
 from ..models import DeploymentProject
 
 
-class RejectUnknownFieldsMixin:
+class RejectUnknownFieldsMixin(serializers.Serializer):
     def to_internal_value(self, data: Any) -> Any:
         if isinstance(data, Mapping):
             unknown_fields = set(data) - set(self.fields)
