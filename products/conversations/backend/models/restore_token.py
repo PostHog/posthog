@@ -22,6 +22,7 @@ DEFAULT_TOKEN_TTL_MINUTES = 60
 
 
 class ConversationRestoreToken(models.Model):
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     token_hash = models.CharField(max_length=64, unique=True, db_index=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="conversation_restore_tokens")

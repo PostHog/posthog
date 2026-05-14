@@ -438,6 +438,121 @@ class TestExperimentService(APIBaseTest):
 
         assert "Saved metric does not exist or does not belong to this project" in str(ctx.exception)
 
+    @parameterized.expand(
+        [
+            (
+                "not_a_dict",
+                "not-a-dict",
+                "exposure_criteria must be an object, got str",
+            ),
+            (
+                "falsy_empty_list",
+                [],
+                "exposure_criteria must be an object, got list",
+            ),
+            (
+                "falsy_empty_string",
+                "",
+                "exposure_criteria must be an object, got str",
+            ),
+            (
+                "falsy_false",
+                False,
+                "exposure_criteria must be an object, got bool",
+            ),
+            (
+                "filter_test_accounts_string",
+                {"filterTestAccounts": "true"},
+                "exposure_criteria.filterTestAccounts must be a boolean, got str: 'true'",
+            ),
+            (
+                "filter_test_accounts_int",
+                {"filterTestAccounts": 1},
+                "exposure_criteria.filterTestAccounts must be a boolean, got int: 1",
+            ),
+            (
+                "exposure_config_not_a_dict",
+                {"exposure_config": "ActionsNode"},
+                "exposure_criteria.exposure_config must be an object, got str",
+            ),
+            (
+                "exposure_config_unknown_kind",
+                {"exposure_config": {"kind": "EventsNode", "event": "$pageview"}},
+                "exposure_criteria.exposure_config.kind must be one of "
+                "['ExperimentEventExposureConfig', 'ActionsNode'], got 'EventsNode'",
+            ),
+            (
+                "exposure_config_event_kind_missing_event",
+                {"exposure_config": {"kind": "ExperimentEventExposureConfig", "properties": []}},
+                "Invalid exposure_criteria.exposure_config (kind='ExperimentEventExposureConfig')",
+            ),
+            (
+                "exposure_config_actions_kind_missing_id",
+                {"exposure_config": {"kind": "ActionsNode"}},
+                "Invalid exposure_criteria.exposure_config (kind='ActionsNode')",
+            ),
+        ]
+    )
+    def test_validate_experiment_exposure_criteria_rejects_invalid_payloads(
+        self, _: str, exposure_criteria: object, expected_error_fragment: str
+    ) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)
+
+        assert expected_error_fragment in str(ctx.exception), (
+            f"Expected fragment {expected_error_fragment!r} in error: {ctx.exception}"
+        )
+
+    @parameterized.expand(
+        [
+            ("none", None),
+            ("empty_dict", {}),
+            (
+                "event_payload",
+                {
+                    "filterTestAccounts": True,
+                    "exposure_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "$feature_flag_called",
+                        "properties": [],
+                    },
+                },
+            ),
+            (
+                "action_payload",
+                {
+                    "filterTestAccounts": False,
+                    "exposure_config": {"kind": "ActionsNode", "id": 1},
+                },
+            ),
+            (
+                "event_payload_without_explicit_kind",
+                {"exposure_config": {"event": "$pageview", "properties": []}},
+            ),
+        ]
+    )
+    def test_validate_experiment_exposure_criteria_accepts_valid_payloads(
+        self, _: str, exposure_criteria: object
+    ) -> None:
+        ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)
+
+    def test_validate_experiment_exposure_criteria_hint_is_actionable(self) -> None:
+        """The error hint should name both supported kinds so the LLM can self-correct."""
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_exposure_criteria({"exposure_config": {"kind": "FunnelsQuery"}})
+        message = str(ctx.exception)
+        assert "ExperimentEventExposureConfig" in message
+        assert "ActionsNode" in message
+
+    def test_validate_experiment_exposure_criteria_truncates_large_user_values(self) -> None:
+        """A large user-supplied value must not bloat the error message reflected back."""
+        huge_kind = "x" * 10_000
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_exposure_criteria({"exposure_config": {"kind": huge_kind}})
+        message = str(ctx.exception)
+        assert "...(truncated)" in message
+        assert len(message) < 1_000, f"Error message length was {len(message)}, expected to be bounded"
+
     # ------------------------------------------------------------------
     # Service contract fields
     # ------------------------------------------------------------------
@@ -1881,6 +1996,122 @@ class TestExperimentService(APIBaseTest):
         )
         metadata = completed_call.args[2]
         assert "significant" not in metadata
+
+    @patch("products.experiments.backend.experiment_service.create_notification")
+    def test_end_experiment_dispatches_realtime_to_creator(self, mock_create_notification):
+        creator = self._create_user("creator-end@test.com")
+        experiment = self._create_running_experiment(name="End Notify", feature_flag_key="end-notify-flag")
+        experiment.created_by = creator
+        experiment.save()
+
+        self._service().end_experiment(experiment, request=self._make_request())
+
+        assert mock_create_notification.call_count == 1
+        data = mock_create_notification.call_args.args[0]
+        assert data.notification_type.value == "experiment_concluded"
+        assert data.target_id == str(creator.id)
+        assert data.team_id == self.team.id
+        assert data.resource_type == "experiment"
+        assert data.resource_id == str(experiment.id)
+
+    @patch("products.experiments.backend.experiment_service.create_notification")
+    def test_ship_variant_running_dispatches_realtime(self, mock_create_notification):
+        creator = self._create_user("creator-ship@test.com")
+        experiment = self._create_running_experiment(name="Ship Notify", feature_flag_key="ship-notify-flag")
+        experiment.created_by = creator
+        experiment.save()
+
+        self._service().ship_variant(experiment, variant_key="control", request=self._make_request())
+
+        assert mock_create_notification.call_count == 1
+        data = mock_create_notification.call_args.args[0]
+        assert data.notification_type.value == "experiment_concluded"
+
+    @patch("products.experiments.backend.experiment_service.create_notification")
+    def test_no_dispatch_when_actor_is_creator(self, mock_create_notification):
+        # If the user ending the experiment is the creator, skip the self-notification.
+        experiment = self._create_running_experiment(name="Self End", feature_flag_key="self-end-flag")
+        assert experiment.created_by_id == self.user.id
+
+        self._service().end_experiment(experiment, request=self._make_request())
+
+        mock_create_notification.assert_not_called()
+
+    @patch("products.experiments.backend.experiment_service.create_notification")
+    def test_ship_variant_already_stopped_does_not_dispatch(self, mock_create_notification):
+        experiment = self._create_ended_experiment(
+            name="Ship Stopped Notify", feature_flag_key="ship-stopped-notify-flag"
+        )
+
+        self._service().ship_variant(experiment, variant_key="control", request=self._make_request())
+
+        mock_create_notification.assert_not_called()
+
+    @patch("products.experiments.backend.experiment_service.create_notification")
+    def test_no_dispatch_when_experiment_has_no_creator(self, mock_create_notification):
+        experiment = self._create_running_experiment(name="No Creator", feature_flag_key="no-creator-flag")
+        experiment.created_by = None
+        experiment.save()
+
+        self._service().end_experiment(experiment, request=self._make_request())
+
+        mock_create_notification.assert_not_called()
+
+    @patch(
+        "products.experiments.backend.experiment_service.create_notification",
+        side_effect=RuntimeError("kafka down"),
+    )
+    def test_realtime_failure_does_not_block_end_experiment(self, _mock_create_notification):
+        creator = self._create_user("creator-failure@test.com")
+        experiment = self._create_running_experiment(name="Notify Failure", feature_flag_key="notify-failure-flag")
+        experiment.created_by = creator
+        experiment.save()
+
+        # Must not raise.
+        self._service().end_experiment(experiment, request=self._make_request())
+
+        experiment.refresh_from_db()
+        assert experiment.end_date is not None
+
+    @parameterized.expand(
+        [
+            ("significant", {"significant": True, "variants": []}, "Primary metric: significant"),
+            ("inconclusive", {"significant": False, "variants": []}, "Primary metric: inconclusive"),
+            ("no_result", None, ""),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.create_notification")
+    def test_end_experiment_body_reflects_primary_metric_outcome(
+        self,
+        _name: str,
+        metric_result: dict | None,
+        expected_body: str,
+        mock_create_notification: MagicMock,
+    ) -> None:
+        creator = self._create_user(f"creator-body-{_name}@test.com")
+        experiment = self._create_running_experiment(
+            name=f"End Body {_name}", feature_flag_key=f"end-body-{_name.replace('_', '-')}-flag"
+        )
+        experiment.created_by = creator
+        experiment.save()
+        if metric_result is not None:
+            assert experiment.metrics is not None
+            assert experiment.start_date is not None
+            ExperimentMetricResult.objects.create(
+                experiment=experiment,
+                metric_uuid=experiment.metrics[0]["uuid"],
+                query_from=experiment.start_date,
+                query_to=timezone.now(),
+                status=ExperimentMetricResult.Status.COMPLETED,
+                result=metric_result,
+                completed_at=timezone.now(),
+            )
+
+        self._service().end_experiment(experiment, request=self._make_request())
+
+        assert mock_create_notification.call_count == 1
+        data = mock_create_notification.call_args.args[0]
+        assert data.body == expected_body
 
     # ------------------------------------------------------------------
     # Pause / Resume

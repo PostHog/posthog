@@ -8,6 +8,7 @@ import structlog
 
 from posthog.models.instance_setting import get_instance_setting
 
+from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.tasks.backend.models import TaskRun
 
 logger = structlog.get_logger(__name__)
@@ -124,4 +125,45 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
     task_run.capture_event(analytics_event, {"pr_url": pr_url}, event_uuid=event_uuid)
 
+    if action == "closed" and merged:
+        _resolve_signal_reports_for_task(task_run.task_id, pr_url)
+
     return HttpResponse(status=200)
+
+
+def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
+    """Mark signal reports linked to a merged PR's task as resolved.
+
+    Kept tolerant: a single bad transition should not fail the whole webhook,
+    since GitHub retries 5xx responses and we've already acknowledged the PR event.
+    """
+    reports = (
+        SignalReport.objects.filter(report_tasks__task_id=task_id)
+        .exclude(
+            status__in=[
+                SignalReport.Status.RESOLVED,
+                SignalReport.Status.DELETED,
+                SignalReport.Status.SUPPRESSED,
+            ]
+        )
+        .distinct()
+    )
+
+    for report in reports:
+        try:
+            updated_fields = report.transition_to(SignalReport.Status.RESOLVED)
+        except InvalidStatusTransition:
+            logger.warning(
+                "github_pr_webhook_signal_report_invalid_transition",
+                report_id=str(report.id),
+                from_status=report.status,
+                pr_url=pr_url,
+            )
+            continue
+        report.save(update_fields=updated_fields)
+        logger.info(
+            "github_pr_webhook_signal_report_resolved",
+            report_id=str(report.id),
+            task_id=str(task_id),
+            pr_url=pr_url,
+        )

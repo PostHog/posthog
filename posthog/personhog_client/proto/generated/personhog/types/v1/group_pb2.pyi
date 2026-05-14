@@ -133,6 +133,55 @@ class GroupTypeMappingsByKey(_message.Message):
         self, key: _Optional[int] = ..., mappings: _Optional[_Iterable[_Union[GroupTypeMapping, _Mapping]]] = ...
     ) -> None: ...
 
+class ListGroupsRequest(_message.Message):
+    __slots__ = (
+        "team_id",
+        "group_type_index",
+        "group_key_contains",
+        "search",
+        "cursor_created_at_ms",
+        "cursor_id",
+        "limit",
+        "read_options",
+    )
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    GROUP_TYPE_INDEX_FIELD_NUMBER: _ClassVar[int]
+    GROUP_KEY_CONTAINS_FIELD_NUMBER: _ClassVar[int]
+    SEARCH_FIELD_NUMBER: _ClassVar[int]
+    CURSOR_CREATED_AT_MS_FIELD_NUMBER: _ClassVar[int]
+    CURSOR_ID_FIELD_NUMBER: _ClassVar[int]
+    LIMIT_FIELD_NUMBER: _ClassVar[int]
+    READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    group_type_index: int
+    group_key_contains: str
+    search: str
+    cursor_created_at_ms: int
+    cursor_id: int
+    limit: int
+    read_options: _common_pb2.ReadOptions
+
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        group_type_index: _Optional[int] = ...,
+        group_key_contains: _Optional[str] = ...,
+        search: _Optional[str] = ...,
+        cursor_created_at_ms: _Optional[int] = ...,
+        cursor_id: _Optional[int] = ...,
+        limit: _Optional[int] = ...,
+        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+    ) -> None: ...
+
+class ListGroupsResponse(_message.Message):
+    __slots__ = ("groups", "has_more")
+    GROUPS_FIELD_NUMBER: _ClassVar[int]
+    HAS_MORE_FIELD_NUMBER: _ClassVar[int]
+    groups: _containers.RepeatedCompositeFieldContainer[Group]
+    has_more: bool
+
+    def __init__(self, groups: _Optional[_Iterable[_Union[Group, _Mapping]]] = ..., has_more: bool = ...) -> None: ...
+
 class GetGroupRequest(_message.Message):
     __slots__ = ("team_id", "group_type_index", "group_key", "read_options")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]

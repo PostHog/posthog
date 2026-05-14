@@ -63,12 +63,12 @@ describe('Tool Filtering - Features', () => {
         {
             features: ['error_tracking'],
             description: 'error tracking tools (underscore)',
-            expectedTools: ['query-error-tracking-issues', 'error-tracking-issues-list'],
+            expectedTools: ['query-error-tracking-issues-list', 'query-error-tracking-issue'],
         },
         {
             features: ['error-tracking'],
             description: 'error tracking tools (hyphen, normalized)',
-            expectedTools: ['query-error-tracking-issues', 'error-tracking-issues-list'],
+            expectedTools: ['query-error-tracking-issues-list', 'query-error-tracking-issue'],
         },
         {
             features: ['experiments'],
@@ -642,9 +642,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'tracing',
                 'visual-review',
                 'mcp-feedback-tool',
+                'user-interviews',
             ])
         )
-        expect(flags).toHaveLength(5)
+        expect(flags).toHaveLength(6)
     })
 
     // Test the filtering logic with a direct unit test approach using

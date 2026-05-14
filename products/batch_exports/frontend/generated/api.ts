@@ -85,11 +85,6 @@ export const batchExportsCreate = async (
     })
 }
 
-/**
- * ViewSet for BatchExportBackfill models.
-
-Allows creating and reading backfills, but not updating or deleting them.
- */
 export const getBatchExportsBackfillsListUrl = (
     projectId: string,
     batchExportId: string,
@@ -110,6 +105,11 @@ export const getBatchExportsBackfillsListUrl = (
         : `/api/projects/${projectId}/batch_exports/${batchExportId}/backfills/`
 }
 
+/**
+ * ViewSet for BatchExportBackfill models.
+
+Allows creating and reading backfills, but not updating or deleting them.
+ */
 export const batchExportsBackfillsList = async (
     projectId: string,
     batchExportId: string,
@@ -125,13 +125,13 @@ export const batchExportsBackfillsList = async (
     )
 }
 
-/**
- * Create a new backfill for a BatchExport.
- */
 export const getBatchExportsBackfillsCreateUrl = (projectId: string, batchExportId: string) => {
     return `/api/projects/${projectId}/batch_exports/${batchExportId}/backfills/`
 }
 
+/**
+ * Create a new backfill for a BatchExport.
+ */
 export const batchExportsBackfillsCreate = async (
     projectId: string,
     batchExportId: string,
@@ -146,15 +146,15 @@ export const batchExportsBackfillsCreate = async (
     })
 }
 
+export const getBatchExportsBackfillsRetrieveUrl = (projectId: string, batchExportId: string, id: string) => {
+    return `/api/projects/${projectId}/batch_exports/${batchExportId}/backfills/${id}/`
+}
+
 /**
  * ViewSet for BatchExportBackfill models.
 
 Allows creating and reading backfills, but not updating or deleting them.
  */
-export const getBatchExportsBackfillsRetrieveUrl = (projectId: string, batchExportId: string, id: string) => {
-    return `/api/projects/${projectId}/batch_exports/${batchExportId}/backfills/${id}/`
-}
-
 export const batchExportsBackfillsRetrieve = async (
     projectId: string,
     batchExportId: string,
@@ -167,13 +167,13 @@ export const batchExportsBackfillsRetrieve = async (
     })
 }
 
-/**
- * Cancel a batch export backfill.
- */
 export const getBatchExportsBackfillsCancelCreateUrl = (projectId: string, batchExportId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${batchExportId}/backfills/${id}/cancel/`
 }
 
+/**
+ * Cancel a batch export backfill.
+ */
 export const batchExportsBackfillsCancelCreate = async (
     projectId: string,
     batchExportId: string,
@@ -237,13 +237,13 @@ export const batchExportsRunsRetrieve = async (
     })
 }
 
-/**
- * Cancel a batch export run.
- */
 export const getBatchExportsRunsCancelCreateUrl = (projectId: string, batchExportId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/cancel/`
 }
 
+/**
+ * Cancel a batch export run.
+ */
 export const batchExportsRunsCancelCreate = async (
     projectId: string,
     batchExportId: string,
@@ -293,16 +293,16 @@ export const batchExportsRunsLogsRetrieve = async (
     })
 }
 
+export const getBatchExportsRunsRetryCreateUrl = (projectId: string, batchExportId: string, id: string) => {
+    return `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/retry/`
+}
+
 /**
  * Retry a batch export run.
 
 We use the same underlying mechanism as when backfilling a batch export, as retrying
 a run is the same as backfilling one run.
  */
-export const getBatchExportsRunsRetryCreateUrl = (projectId: string, batchExportId: string, id: string) => {
-    return `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/retry/`
-}
-
 export const batchExportsRunsRetryCreate = async (
     projectId: string,
     batchExportId: string,
@@ -358,7 +358,7 @@ export const getBatchExportsPartialUpdateUrl = (projectId: string, id: string) =
 export const batchExportsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedBatchExportRequestApi: PatchedBatchExportRequestApi,
+    patchedBatchExportRequestApi?: PatchedBatchExportRequestApi,
     options?: RequestInit
 ): Promise<BatchExportApi> => {
     return apiMutator<BatchExportApi>(getBatchExportsPartialUpdateUrl(projectId, id), {
@@ -412,13 +412,13 @@ export const batchExportsLogsRetrieve = async (
     })
 }
 
-/**
- * Pause a BatchExport.
- */
 export const getBatchExportsPauseCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${id}/pause/`
 }
 
+/**
+ * Pause a BatchExport.
+ */
 export const batchExportsPauseCreate = async (
     projectId: string,
     id: string,
@@ -451,13 +451,13 @@ export const batchExportsRunTestStepCreate = async (
     })
 }
 
-/**
- * Unpause a BatchExport.
- */
 export const getBatchExportsUnpauseCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${id}/unpause/`
 }
 
+/**
+ * Unpause a BatchExport.
+ */
 export const batchExportsUnpauseCreate = async (
     projectId: string,
     id: string,

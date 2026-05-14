@@ -466,3 +466,60 @@ class TestGetSandboxGitHubToken(TestCase):
         result = get_sandbox_github_token(None, run_id="run-1", state={"pr_authorship_mode": "bot"})
 
         assert result is None
+
+    def test_bot_authorship_falls_back_to_user_install_token_when_team_integration_missing(self) -> None:
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+        from posthog.models.user_integration import UserIntegration
+
+        organization = Organization.objects.create(name="bot-fallback-org")
+        Team.objects.create(organization=organization, name="bot-fallback-team")
+        user = User.objects.create(email="bot-fallback@test.com")
+        user_integration = UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="install-1",
+            config={},
+            sensitive_config={"access_token": "ghs_user_install"},
+        )
+
+        result = get_sandbox_github_token(
+            None,
+            run_id="run-1",
+            state={"pr_authorship_mode": "bot"},
+            github_user_integration_id=str(user_integration.id),
+        )
+
+        assert result == "ghs_user_install"
+
+    def test_bot_authorship_prefers_team_integration_over_user_install_token(self) -> None:
+        from posthog.models import Integration, Organization, Team
+        from posthog.models.user import User
+        from posthog.models.user_integration import UserIntegration
+
+        organization = Organization.objects.create(name="bot-precedence-org")
+        team = Team.objects.create(organization=organization, name="bot-precedence-team")
+        team_integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            integration_id="team-install",
+            config={},
+            sensitive_config={"access_token": "ghs_team"},
+        )
+        user = User.objects.create(email="bot-precedence@test.com")
+        user_integration = UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="user-install",
+            config={},
+            sensitive_config={"access_token": "ghs_user_install"},
+        )
+
+        result = get_sandbox_github_token(
+            team_integration.id,
+            run_id="run-1",
+            state={"pr_authorship_mode": "bot"},
+            github_user_integration_id=str(user_integration.id),
+        )
+
+        assert result == "ghs_team"

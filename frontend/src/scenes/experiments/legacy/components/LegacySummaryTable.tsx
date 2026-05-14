@@ -29,7 +29,6 @@ import { FilterLogicalOperator, InsightType, RecordingUniversalFilters, TrendExp
 /**
  * @deprecated
  * This component supports legacy experiment metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery).
- * For new experiments, use the modern SummaryTable component.
  */
 export function LegacySummaryTable({
     metric,

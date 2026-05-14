@@ -61,10 +61,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `event` - event
  * `event_metadata` - event_metadata
@@ -126,59 +122,60 @@ export const PropertyFilterTypeEnumApi = {
     WorkflowVariable: 'workflow_variable',
 } as const
 
+export const PropertyItemApiType = { ...PropertyFilterTypeEnumApi, ...BlankEnumApi } as const
 export interface PropertyItemApi {
     /** Key of the property you're filtering on. For example `email` or `$current_url` */
     key: string
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
     value: string | number | boolean | (string | number)[]
-    operator?: PropertyItemOperatorEnumApi | BlankEnumApi | NullEnumApi | null
-    type?: PropertyFilterTypeEnumApi | BlankEnumApi
+    operator?: PropertyItemOperatorEnumApi | BlankEnumApi | null
+    type?: (typeof PropertyItemApiType)[keyof typeof PropertyItemApiType]
 }
 
 export interface PropertyApi {
     /**
- You can use a simplified version:
-```json
-{
-    "properties": [
-        {
-            "key": "email",
-            "value": "x@y.com",
-            "operator": "exact",
-            "type": "event"
-        }
-    ]
-}
-```
+   You can use a simplified version:
+  ```json
+  {
+      "properties": [
+          {
+              "key": "email",
+              "value": "x@y.com",
+              "operator": "exact",
+              "type": "event"
+          }
+      ]
+  }
+  ```
 
-Or you can create more complicated queries with AND and OR:
-```json
-{
-    "properties": {
-        "type": "AND",
-        "values": [
-            {
-                "type": "OR",
-                "values": [
-                    {"key": "email", ...},
-                    {"key": "email", ...}
-                ]
-            },
-            {
-                "type": "AND",
-                "values": [
-                    {"key": "email", ...},
-                    {"key": "email", ...}
-                ]
-            }
-        ]
-    ]
-}
-```
+  Or you can create more complicated queries with AND and OR:
+  ```json
+  {
+      "properties": {
+          "type": "AND",
+          "values": [
+              {
+                  "type": "OR",
+                  "values": [
+                      {"key": "email", ...},
+                      {"key": "email", ...}
+                  ]
+              },
+              {
+                  "type": "AND",
+                  "values": [
+                      {"key": "email", ...},
+                      {"key": "email", ...}
+                  ]
+              }
+          ]
+      ]
+  }
+  ```
 
 
-* `AND` - AND
-* `OR` - OR */
+  * `AND` - AND
+  * `OR` - OR */
     type?: PropertyGroupOperatorApi
     values: PropertyItemApi[]
 }

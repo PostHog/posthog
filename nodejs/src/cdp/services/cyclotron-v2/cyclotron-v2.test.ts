@@ -265,21 +265,22 @@ describe('Cyclotron V2', () => {
             }
         })
 
-        it('createJob rejects non-UUID personId before reaching the database', async () => {
-            await expect(manager.createJob({ teamId: 1, queueName: QUEUE, personId: 'not-a-uuid' })).rejects.toThrow(
-                /uuid/i
-            )
+        it('createJob coerces non-UUID personId to null', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, personId: 'not-a-uuid' as any })
+            const row = await queryJob(id)
+            expect(row.person_id).toBeNull()
         })
 
-        it('bulkCreateJobs rejects non-UUID values without writing any rows', async () => {
-            const before = await totalJobCount()
-            await expect(
-                manager.bulkCreateJobs([
-                    { teamId: 1, queueName: QUEUE, personId: uuidv7() },
-                    { teamId: 1, queueName: QUEUE, personId: 'bad-uuid' as any },
-                ])
-            ).rejects.toThrow(/uuid/i)
-            expect(await totalJobCount()).toBe(before)
+        it('bulkCreateJobs coerces non-UUID personIds to null instead of failing the batch', async () => {
+            const validPersonId = uuidv7()
+            const ids = await manager.bulkCreateJobs([
+                { teamId: 1, queueName: QUEUE, personId: validPersonId },
+                { teamId: 1, queueName: QUEUE, personId: 'group-key-not-a-uuid' as any },
+            ])
+            expect(ids).toHaveLength(2)
+            const rows = await Promise.all(ids.map(queryJob))
+            expect(rows[0].person_id).toBe(validPersonId)
+            expect(rows[1].person_id).toBeNull()
         })
     })
 
@@ -422,9 +423,12 @@ describe('Cyclotron V2', () => {
             expect(job.actionId).toBe('a-on-job')
         })
 
-        it('reschedule rejects non-UUID personId before reaching the database', async () => {
-            const { job } = await seedAndDequeue()
-            await expect(job.reschedule({ personId: 'bad-uuid' as any })).rejects.toThrow(/uuid/i)
+        it('reschedule coerces non-UUID personId to null instead of failing', async () => {
+            const { id, job } = await seedAndDequeue({ personId: uuidv7() })
+            await job.reschedule({ personId: 'bad-uuid' as any })
+
+            const row = await queryJob(id)
+            expect(row.person_id).toBeNull()
         })
 
         it('reschedule({ distinctId }) updates distinct_id column', async () => {

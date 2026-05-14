@@ -1,7 +1,6 @@
-import { linearRegression, movingAverage, trendLine } from 'lib/statistics'
-
 import type { Series } from '../../../core/types'
 import { dimHex } from '../../../utils/comparison-dimming'
+import { linearRegression, movingAverage, trendLine } from '../../../utils/statistics'
 
 const TREND_LINE_DIM_OPACITY = 0.5
 const CI_FILL_OPACITY = 0.2

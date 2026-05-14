@@ -667,28 +667,53 @@
       total_scroll_magnitude Float64,
       scroll_direction_reversal_count Int64,
       rapid_scroll_reversal_count Int64,
+      scroll_to_top_count Int64,
       click_count Int64,
       keypress_count Int64,
       mouse_activity_count Int64,
       rage_click_count Int64,
       dead_click_count Int64,
+      backspace_count Int64,
       inter_action_gap_count Int64,
       inter_action_gap_sum_ms Float64,
       inter_action_gap_sum_of_squares_ms Float64,
       max_idle_gap_ms Float64,
+      long_idle_gap_count Int64,
       quick_back_count Int64,
       page_visit_count Int64,
       visited_urls Array(String),
+      login_path_visit_count Int64,
+      signup_path_visit_count Int64,
+      checkout_path_visit_count Int64,
+      cart_path_visit_count Int64,
+      billing_path_visit_count Int64,
+      settings_path_visit_count Int64,
+      account_path_visit_count Int64,
+      error_path_visit_count Int64,
+      not_found_path_visit_count Int64,
+      admin_path_visit_count Int64,
+      dashboard_path_visit_count Int64,
+      onboarding_path_visit_count Int64,
+      cancel_path_visit_count Int64,
+      refund_path_visit_count Int64,
       console_error_count Int64,
       console_error_after_click_count Int64,
+      console_warn_count Int64,
       network_request_count Int64,
       network_failed_request_count Int64,
+      network_4xx_count Int64,
+      network_5xx_count Int64,
       network_request_duration_sum Float64,
       network_request_duration_sum_of_squares Float64,
       network_request_duration_count Int64,
+      mutation_count Int64,
+      viewport_resize_count Int64,
+      touch_event_count Int64,
       max_scroll_y Float64,
       click_target_ids Array(Int64),
+      form_field_ids Array(Int64),
       text_selection_count Int64,
+      selection_copy_count Int64,
       is_deleted UInt8
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_features_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
@@ -2394,28 +2419,53 @@
       total_scroll_magnitude Float64,
       scroll_direction_reversal_count Int64,
       rapid_scroll_reversal_count Int64,
+      scroll_to_top_count Int64,
       click_count Int64,
       keypress_count Int64,
       mouse_activity_count Int64,
       rage_click_count Int64,
       dead_click_count Int64,
+      backspace_count Int64,
       inter_action_gap_count Int64,
       inter_action_gap_sum_ms Float64,
       inter_action_gap_sum_of_squares_ms Float64,
       max_idle_gap_ms Float64,
+      long_idle_gap_count Int64,
       quick_back_count Int64,
       page_visit_count Int64,
       visited_urls Array(String),
+      login_path_visit_count Int64,
+      signup_path_visit_count Int64,
+      checkout_path_visit_count Int64,
+      cart_path_visit_count Int64,
+      billing_path_visit_count Int64,
+      settings_path_visit_count Int64,
+      account_path_visit_count Int64,
+      error_path_visit_count Int64,
+      not_found_path_visit_count Int64,
+      admin_path_visit_count Int64,
+      dashboard_path_visit_count Int64,
+      onboarding_path_visit_count Int64,
+      cancel_path_visit_count Int64,
+      refund_path_visit_count Int64,
       console_error_count Int64,
       console_error_after_click_count Int64,
+      console_warn_count Int64,
       network_request_count Int64,
       network_failed_request_count Int64,
+      network_4xx_count Int64,
+      network_5xx_count Int64,
       network_request_duration_sum Float64,
       network_request_duration_sum_of_squares Float64,
       network_request_duration_count Int64,
+      mutation_count Int64,
+      viewport_resize_count Int64,
+      touch_event_count Int64,
       max_scroll_y Float64,
       click_target_ids Array(Int64),
+      form_field_ids Array(Int64),
       text_selection_count Int64,
+      selection_copy_count Int64,
       is_deleted UInt8
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_features_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
@@ -2750,6 +2800,204 @@
   '''
   
   CREATE TABLE IF NOT EXISTS posthog_test.logs_kafka_metrics_distributed AS posthog_test.logs_kafka_metrics ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'logs_kafka_metrics')
+  
+  '''
+# ---
+# name: test_create_table_query[metric_attributes]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_attributes
+  (
+      `team_id` Int32 CODEC(DoubleDelta, ZSTD(1)),
+      `time_bucket` DateTime64(0) CODEC(DoubleDelta, ZSTD(1)),
+      `service_name` LowCardinality(String) CODEC(ZSTD(1)),
+      `resource_fingerprint` UInt64 DEFAULT 0 CODEC(DoubleDelta, ZSTD(1)),
+      `attribute_key` LowCardinality(String) CODEC(ZSTD(1)),
+      `attribute_value` String CODEC(ZSTD(1)),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64),
+      `attribute_type` LowCardinality(String),
+      INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
+      INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_attributes', '{replica}-{shard}')
+  PARTITION BY toDate(time_bucket)
+  ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value)
+  SETTINGS
+      deduplicate_merge_projection_mode = 'drop',
+      index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query[metrics1]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metrics1
+  (
+      `time_bucket` DateTime MATERIALIZED toStartOfDay(timestamp) CODEC(DoubleDelta, ZSTD(1)),
+      `uuid` String CODEC(ZSTD(1)),
+      `team_id` Int32 CODEC(ZSTD(1)),
+      `trace_id` String CODEC(ZSTD(1)),
+      `span_id` String CODEC(ZSTD(1)),
+      `trace_flags` Int32 CODEC(ZSTD(1)),
+      `timestamp` DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
+      `observed_timestamp` DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
+      `created_at` DateTime64(6) MATERIALIZED now() CODEC(DoubleDelta, ZSTD(1)),
+      `service_name` LowCardinality(String) CODEC(ZSTD(1)),
+      `metric_name` LowCardinality(String) CODEC(ZSTD(1)),
+      `metric_type` LowCardinality(String) CODEC(ZSTD(1)),
+      `value` Float64 CODEC(Gorilla, ZSTD(1)),
+      `count` UInt64 DEFAULT 1 CODEC(T64, ZSTD(1)),
+      `histogram_bounds` Array(Float64) CODEC(ZSTD(1)),
+      `histogram_counts` Array(UInt64) CODEC(ZSTD(1)),
+      `unit` LowCardinality(String) CODEC(ZSTD(1)),
+      `aggregation_temporality` LowCardinality(String) CODEC(ZSTD(1)),
+      `is_monotonic` Bool DEFAULT false CODEC(ZSTD(1)),
+      `resource_attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes) CODEC(DoubleDelta, ZSTD(1)),
+      `instrumentation_scope` String CODEC(ZSTD(1)),
+      `attributes_map_str` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+      `attributes_map_float` Map(LowCardinality(String), Float64) CODEC(ZSTD(1)),
+      `time_minute` DateTime ALIAS toStartOfMinute(timestamp),
+      `attributes` Map(String, String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
+      INDEX idx_metric_name_set metric_name TYPE set(100) GRANULARITY 1,
+      INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
+      INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
+      INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+      PROJECTION projection_aggregate_counts
+      (
+          SELECT
+              team_id,
+              time_bucket,
+              toStartOfMinute(timestamp),
+              service_name,
+              metric_name,
+              metric_type,
+              resource_fingerprint,
+              count() AS event_count,
+              sum(value) AS total_value,
+              min(value) AS min_value,
+              max(value) AS max_value
+          GROUP BY
+              team_id,
+              time_bucket,
+              toStartOfMinute(timestamp),
+              service_name,
+              metric_name,
+              metric_type,
+              resource_fingerprint
+      )
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics1', '{replica}-{shard}')
+  PARTITION BY toDate(timestamp)
+  PRIMARY KEY (team_id, time_bucket, service_name, metric_name, resource_fingerprint, timestamp)
+  ORDER BY (team_id, time_bucket, service_name, metric_name, resource_fingerprint, timestamp)
+  SETTINGS
+      index_granularity_bytes = 104857600,
+      index_granularity = 8192,
+      ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[metrics1_to_metric_attributes]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics1_to_metric_attributes TO posthog_test.metric_attributes
+  (
+      `team_id` Int32,
+      `time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `resource_fingerprint` UInt64,
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
+      `attribute_type` LowCardinality(String),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64)
+  )
+  AS SELECT
+      team_id,
+      time_bucket,
+      service_name,
+      resource_fingerprint,
+      attribute_key,
+      attribute_value,
+      attribute_type,
+      attribute_count
+  FROM
+  (
+      SELECT
+          team_id AS team_id,
+          toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
+          service_name AS service_name,
+          resource_fingerprint,
+          mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes,
+          arrayJoin(attributes) AS attribute,
+          'metric' AS attribute_type,
+          attribute.1 AS attribute_key,
+          attribute.2 AS attribute_value,
+          sumSimpleState(1) AS attribute_count
+      FROM posthog_test.metrics1
+      GROUP BY
+          team_id,
+          time_bucket,
+          service_name,
+          resource_fingerprint,
+          attributes
+  )
+  
+  '''
+# ---
+# name: test_create_table_query[metrics1_to_resource_attributes]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics1_to_resource_attributes TO posthog_test.metric_attributes
+  (
+      `team_id` Int32,
+      `time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `resource_fingerprint` UInt64,
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
+      `attribute_type` LowCardinality(String),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64)
+  )
+  AS SELECT
+      team_id,
+      time_bucket,
+      service_name,
+      resource_fingerprint,
+      attribute_key,
+      attribute_value,
+      attribute_type,
+      attribute_count
+  FROM
+  (
+      SELECT
+          team_id AS team_id,
+          toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
+          service_name AS service_name,
+          resource_fingerprint,
+          arrayJoin(resource_attributes) AS attribute,
+          'resource' AS attribute_type,
+          attribute.1 AS attribute_key,
+          attribute.2 AS attribute_value,
+          sumSimpleState(1) AS attribute_count
+      FROM posthog_test.metrics1
+      GROUP BY
+          team_id,
+          time_bucket,
+          service_name,
+          resource_fingerprint,
+          resource_attributes
+  )
+  
+  '''
+# ---
+# name: test_create_table_query[metrics]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metrics AS posthog_test.metrics1 ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metrics1')
   
   '''
 # ---
@@ -4461,28 +4709,53 @@
       total_scroll_magnitude SimpleAggregateFunction(sum, Float64),
       scroll_direction_reversal_count SimpleAggregateFunction(sum, Int64),
       rapid_scroll_reversal_count SimpleAggregateFunction(sum, Int64),
+      scroll_to_top_count SimpleAggregateFunction(sum, Int64),
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
       mouse_activity_count SimpleAggregateFunction(sum, Int64),
       rage_click_count SimpleAggregateFunction(sum, Int64),
       dead_click_count SimpleAggregateFunction(sum, Int64),
+      backspace_count SimpleAggregateFunction(sum, Int64),
       inter_action_gap_count SimpleAggregateFunction(sum, Int64),
       inter_action_gap_sum_ms SimpleAggregateFunction(sum, Float64),
       inter_action_gap_sum_of_squares_ms SimpleAggregateFunction(sum, Float64),
       max_idle_gap_ms SimpleAggregateFunction(max, Float64),
+      long_idle_gap_count SimpleAggregateFunction(sum, Int64),
       quick_back_count SimpleAggregateFunction(sum, Int64),
       page_visit_count SimpleAggregateFunction(sum, Int64),
-      unique_url_count AggregateFunction(uniqExact, String),
+      unique_url_count AggregateFunction(uniqCombined(12), String),
+      login_path_visit_count SimpleAggregateFunction(sum, Int64),
+      signup_path_visit_count SimpleAggregateFunction(sum, Int64),
+      checkout_path_visit_count SimpleAggregateFunction(sum, Int64),
+      cart_path_visit_count SimpleAggregateFunction(sum, Int64),
+      billing_path_visit_count SimpleAggregateFunction(sum, Int64),
+      settings_path_visit_count SimpleAggregateFunction(sum, Int64),
+      account_path_visit_count SimpleAggregateFunction(sum, Int64),
+      error_path_visit_count SimpleAggregateFunction(sum, Int64),
+      not_found_path_visit_count SimpleAggregateFunction(sum, Int64),
+      admin_path_visit_count SimpleAggregateFunction(sum, Int64),
+      dashboard_path_visit_count SimpleAggregateFunction(sum, Int64),
+      onboarding_path_visit_count SimpleAggregateFunction(sum, Int64),
+      cancel_path_visit_count SimpleAggregateFunction(sum, Int64),
+      refund_path_visit_count SimpleAggregateFunction(sum, Int64),
       console_error_count SimpleAggregateFunction(sum, Int64),
       console_error_after_click_count SimpleAggregateFunction(sum, Int64),
+      console_warn_count SimpleAggregateFunction(sum, Int64),
       network_request_count SimpleAggregateFunction(sum, Int64),
       network_failed_request_count SimpleAggregateFunction(sum, Int64),
+      network_4xx_count SimpleAggregateFunction(sum, Int64),
+      network_5xx_count SimpleAggregateFunction(sum, Int64),
       network_request_duration_sum SimpleAggregateFunction(sum, Float64),
       network_request_duration_sum_of_squares SimpleAggregateFunction(sum, Float64),
       network_request_duration_count SimpleAggregateFunction(sum, Int64),
+      mutation_count SimpleAggregateFunction(sum, Int64),
+      viewport_resize_count SimpleAggregateFunction(sum, Int64),
+      touch_event_count SimpleAggregateFunction(sum, Int64),
       max_scroll_y SimpleAggregateFunction(max, Float64),
-      unique_click_target_count AggregateFunction(uniqExact, Int64),
+      unique_click_target_count AggregateFunction(uniqCombined(12), Int64),
+      unique_form_field_count AggregateFunction(uniqCombined(12), Int64),
       text_selection_count SimpleAggregateFunction(sum, Int64),
+      selection_copy_count SimpleAggregateFunction(sum, Int64),
       is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_features', sipHash64(session_id))
   
@@ -4514,28 +4787,53 @@
   sum(total_scroll_magnitude) as total_scroll_magnitude,
   sum(scroll_direction_reversal_count) as scroll_direction_reversal_count,
   sum(rapid_scroll_reversal_count) as rapid_scroll_reversal_count,
+  sum(scroll_to_top_count) as scroll_to_top_count,
   sum(click_count) as click_count,
   sum(keypress_count) as keypress_count,
   sum(mouse_activity_count) as mouse_activity_count,
   sum(rage_click_count) as rage_click_count,
   sum(dead_click_count) as dead_click_count,
+  sum(backspace_count) as backspace_count,
   sum(inter_action_gap_count) as inter_action_gap_count,
   sum(inter_action_gap_sum_ms) as inter_action_gap_sum_ms,
   sum(inter_action_gap_sum_of_squares_ms) as inter_action_gap_sum_of_squares_ms,
   max(max_idle_gap_ms) as max_idle_gap_ms,
+  sum(long_idle_gap_count) as long_idle_gap_count,
   sum(quick_back_count) as quick_back_count,
   sum(page_visit_count) as page_visit_count,
-  uniqExactArrayState(visited_urls) as unique_url_count,
+  uniqCombinedArrayState(12)(visited_urls) as unique_url_count,
+  sum(login_path_visit_count) as login_path_visit_count,
+  sum(signup_path_visit_count) as signup_path_visit_count,
+  sum(checkout_path_visit_count) as checkout_path_visit_count,
+  sum(cart_path_visit_count) as cart_path_visit_count,
+  sum(billing_path_visit_count) as billing_path_visit_count,
+  sum(settings_path_visit_count) as settings_path_visit_count,
+  sum(account_path_visit_count) as account_path_visit_count,
+  sum(error_path_visit_count) as error_path_visit_count,
+  sum(not_found_path_visit_count) as not_found_path_visit_count,
+  sum(admin_path_visit_count) as admin_path_visit_count,
+  sum(dashboard_path_visit_count) as dashboard_path_visit_count,
+  sum(onboarding_path_visit_count) as onboarding_path_visit_count,
+  sum(cancel_path_visit_count) as cancel_path_visit_count,
+  sum(refund_path_visit_count) as refund_path_visit_count,
   sum(console_error_count) as console_error_count,
   sum(console_error_after_click_count) as console_error_after_click_count,
+  sum(console_warn_count) as console_warn_count,
   sum(network_request_count) as network_request_count,
   sum(network_failed_request_count) as network_failed_request_count,
+  sum(network_4xx_count) as network_4xx_count,
+  sum(network_5xx_count) as network_5xx_count,
   sum(network_request_duration_sum) as network_request_duration_sum,
   sum(network_request_duration_sum_of_squares) as network_request_duration_sum_of_squares,
   sum(network_request_duration_count) as network_request_duration_count,
+  sum(mutation_count) as mutation_count,
+  sum(viewport_resize_count) as viewport_resize_count,
+  sum(touch_event_count) as touch_event_count,
   max(max_scroll_y) as max_scroll_y,
-  uniqExactArrayState(click_target_ids) as unique_click_target_count,
+  uniqCombinedArrayState(12)(click_target_ids) as unique_click_target_count,
+  uniqCombinedArrayState(12)(form_field_ids) as unique_form_field_count,
   sum(text_selection_count) as text_selection_count,
+  sum(selection_copy_count) as selection_copy_count,
   max(is_deleted) as is_deleted
   FROM posthog_test.kafka_session_replay_features
   GROUP BY session_id, team_id
@@ -5669,28 +5967,53 @@
       total_scroll_magnitude SimpleAggregateFunction(sum, Float64),
       scroll_direction_reversal_count SimpleAggregateFunction(sum, Int64),
       rapid_scroll_reversal_count SimpleAggregateFunction(sum, Int64),
+      scroll_to_top_count SimpleAggregateFunction(sum, Int64),
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
       mouse_activity_count SimpleAggregateFunction(sum, Int64),
       rage_click_count SimpleAggregateFunction(sum, Int64),
       dead_click_count SimpleAggregateFunction(sum, Int64),
+      backspace_count SimpleAggregateFunction(sum, Int64),
       inter_action_gap_count SimpleAggregateFunction(sum, Int64),
       inter_action_gap_sum_ms SimpleAggregateFunction(sum, Float64),
       inter_action_gap_sum_of_squares_ms SimpleAggregateFunction(sum, Float64),
       max_idle_gap_ms SimpleAggregateFunction(max, Float64),
+      long_idle_gap_count SimpleAggregateFunction(sum, Int64),
       quick_back_count SimpleAggregateFunction(sum, Int64),
       page_visit_count SimpleAggregateFunction(sum, Int64),
-      unique_url_count AggregateFunction(uniqExact, String),
+      unique_url_count AggregateFunction(uniqCombined(12), String),
+      login_path_visit_count SimpleAggregateFunction(sum, Int64),
+      signup_path_visit_count SimpleAggregateFunction(sum, Int64),
+      checkout_path_visit_count SimpleAggregateFunction(sum, Int64),
+      cart_path_visit_count SimpleAggregateFunction(sum, Int64),
+      billing_path_visit_count SimpleAggregateFunction(sum, Int64),
+      settings_path_visit_count SimpleAggregateFunction(sum, Int64),
+      account_path_visit_count SimpleAggregateFunction(sum, Int64),
+      error_path_visit_count SimpleAggregateFunction(sum, Int64),
+      not_found_path_visit_count SimpleAggregateFunction(sum, Int64),
+      admin_path_visit_count SimpleAggregateFunction(sum, Int64),
+      dashboard_path_visit_count SimpleAggregateFunction(sum, Int64),
+      onboarding_path_visit_count SimpleAggregateFunction(sum, Int64),
+      cancel_path_visit_count SimpleAggregateFunction(sum, Int64),
+      refund_path_visit_count SimpleAggregateFunction(sum, Int64),
       console_error_count SimpleAggregateFunction(sum, Int64),
       console_error_after_click_count SimpleAggregateFunction(sum, Int64),
+      console_warn_count SimpleAggregateFunction(sum, Int64),
       network_request_count SimpleAggregateFunction(sum, Int64),
       network_failed_request_count SimpleAggregateFunction(sum, Int64),
+      network_4xx_count SimpleAggregateFunction(sum, Int64),
+      network_5xx_count SimpleAggregateFunction(sum, Int64),
       network_request_duration_sum SimpleAggregateFunction(sum, Float64),
       network_request_duration_sum_of_squares SimpleAggregateFunction(sum, Float64),
       network_request_duration_count SimpleAggregateFunction(sum, Int64),
+      mutation_count SimpleAggregateFunction(sum, Int64),
+      viewport_resize_count SimpleAggregateFunction(sum, Int64),
+      touch_event_count SimpleAggregateFunction(sum, Int64),
       max_scroll_y SimpleAggregateFunction(max, Float64),
-      unique_click_target_count AggregateFunction(uniqExact, Int64),
+      unique_click_target_count AggregateFunction(uniqCombined(12), Int64),
+      unique_form_field_count AggregateFunction(uniqCombined(12), Int64),
       text_selection_count SimpleAggregateFunction(sum, Int64),
+      selection_copy_count SimpleAggregateFunction(sum, Int64),
       is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_features', '{replica}')
   
@@ -6791,28 +7114,53 @@
       total_scroll_magnitude SimpleAggregateFunction(sum, Float64),
       scroll_direction_reversal_count SimpleAggregateFunction(sum, Int64),
       rapid_scroll_reversal_count SimpleAggregateFunction(sum, Int64),
+      scroll_to_top_count SimpleAggregateFunction(sum, Int64),
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
       mouse_activity_count SimpleAggregateFunction(sum, Int64),
       rage_click_count SimpleAggregateFunction(sum, Int64),
       dead_click_count SimpleAggregateFunction(sum, Int64),
+      backspace_count SimpleAggregateFunction(sum, Int64),
       inter_action_gap_count SimpleAggregateFunction(sum, Int64),
       inter_action_gap_sum_ms SimpleAggregateFunction(sum, Float64),
       inter_action_gap_sum_of_squares_ms SimpleAggregateFunction(sum, Float64),
       max_idle_gap_ms SimpleAggregateFunction(max, Float64),
+      long_idle_gap_count SimpleAggregateFunction(sum, Int64),
       quick_back_count SimpleAggregateFunction(sum, Int64),
       page_visit_count SimpleAggregateFunction(sum, Int64),
-      unique_url_count AggregateFunction(uniqExact, String),
+      unique_url_count AggregateFunction(uniqCombined(12), String),
+      login_path_visit_count SimpleAggregateFunction(sum, Int64),
+      signup_path_visit_count SimpleAggregateFunction(sum, Int64),
+      checkout_path_visit_count SimpleAggregateFunction(sum, Int64),
+      cart_path_visit_count SimpleAggregateFunction(sum, Int64),
+      billing_path_visit_count SimpleAggregateFunction(sum, Int64),
+      settings_path_visit_count SimpleAggregateFunction(sum, Int64),
+      account_path_visit_count SimpleAggregateFunction(sum, Int64),
+      error_path_visit_count SimpleAggregateFunction(sum, Int64),
+      not_found_path_visit_count SimpleAggregateFunction(sum, Int64),
+      admin_path_visit_count SimpleAggregateFunction(sum, Int64),
+      dashboard_path_visit_count SimpleAggregateFunction(sum, Int64),
+      onboarding_path_visit_count SimpleAggregateFunction(sum, Int64),
+      cancel_path_visit_count SimpleAggregateFunction(sum, Int64),
+      refund_path_visit_count SimpleAggregateFunction(sum, Int64),
       console_error_count SimpleAggregateFunction(sum, Int64),
       console_error_after_click_count SimpleAggregateFunction(sum, Int64),
+      console_warn_count SimpleAggregateFunction(sum, Int64),
       network_request_count SimpleAggregateFunction(sum, Int64),
       network_failed_request_count SimpleAggregateFunction(sum, Int64),
+      network_4xx_count SimpleAggregateFunction(sum, Int64),
+      network_5xx_count SimpleAggregateFunction(sum, Int64),
       network_request_duration_sum SimpleAggregateFunction(sum, Float64),
       network_request_duration_sum_of_squares SimpleAggregateFunction(sum, Float64),
       network_request_duration_count SimpleAggregateFunction(sum, Int64),
+      mutation_count SimpleAggregateFunction(sum, Int64),
+      viewport_resize_count SimpleAggregateFunction(sum, Int64),
+      touch_event_count SimpleAggregateFunction(sum, Int64),
       max_scroll_y SimpleAggregateFunction(max, Float64),
-      unique_click_target_count AggregateFunction(uniqExact, Int64),
+      unique_click_target_count AggregateFunction(uniqCombined(12), Int64),
+      unique_form_field_count AggregateFunction(uniqCombined(12), Int64),
       text_selection_count SimpleAggregateFunction(sum, Int64),
+      selection_copy_count SimpleAggregateFunction(sum, Int64),
       is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_features', sipHash64(session_id))
   
@@ -7253,6 +7601,104 @@
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_kafka_metrics', '{replica}-{shard}')
   ORDER BY (_topic, _partition)
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[metric_attributes]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_attributes
+  (
+      `team_id` Int32 CODEC(DoubleDelta, ZSTD(1)),
+      `time_bucket` DateTime64(0) CODEC(DoubleDelta, ZSTD(1)),
+      `service_name` LowCardinality(String) CODEC(ZSTD(1)),
+      `resource_fingerprint` UInt64 DEFAULT 0 CODEC(DoubleDelta, ZSTD(1)),
+      `attribute_key` LowCardinality(String) CODEC(ZSTD(1)),
+      `attribute_value` String CODEC(ZSTD(1)),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64),
+      `attribute_type` LowCardinality(String),
+      INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
+      INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_attributes', '{replica}-{shard}')
+  PARTITION BY toDate(time_bucket)
+  ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value)
+  SETTINGS
+      deduplicate_merge_projection_mode = 'drop',
+      index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[metrics1]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metrics1
+  (
+      `time_bucket` DateTime MATERIALIZED toStartOfDay(timestamp) CODEC(DoubleDelta, ZSTD(1)),
+      `uuid` String CODEC(ZSTD(1)),
+      `team_id` Int32 CODEC(ZSTD(1)),
+      `trace_id` String CODEC(ZSTD(1)),
+      `span_id` String CODEC(ZSTD(1)),
+      `trace_flags` Int32 CODEC(ZSTD(1)),
+      `timestamp` DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
+      `observed_timestamp` DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
+      `created_at` DateTime64(6) MATERIALIZED now() CODEC(DoubleDelta, ZSTD(1)),
+      `service_name` LowCardinality(String) CODEC(ZSTD(1)),
+      `metric_name` LowCardinality(String) CODEC(ZSTD(1)),
+      `metric_type` LowCardinality(String) CODEC(ZSTD(1)),
+      `value` Float64 CODEC(Gorilla, ZSTD(1)),
+      `count` UInt64 DEFAULT 1 CODEC(T64, ZSTD(1)),
+      `histogram_bounds` Array(Float64) CODEC(ZSTD(1)),
+      `histogram_counts` Array(UInt64) CODEC(ZSTD(1)),
+      `unit` LowCardinality(String) CODEC(ZSTD(1)),
+      `aggregation_temporality` LowCardinality(String) CODEC(ZSTD(1)),
+      `is_monotonic` Bool DEFAULT false CODEC(ZSTD(1)),
+      `resource_attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes) CODEC(DoubleDelta, ZSTD(1)),
+      `instrumentation_scope` String CODEC(ZSTD(1)),
+      `attributes_map_str` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+      `attributes_map_float` Map(LowCardinality(String), Float64) CODEC(ZSTD(1)),
+      `time_minute` DateTime ALIAS toStartOfMinute(timestamp),
+      `attributes` Map(String, String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
+      INDEX idx_metric_name_set metric_name TYPE set(100) GRANULARITY 1,
+      INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
+      INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
+      INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+      PROJECTION projection_aggregate_counts
+      (
+          SELECT
+              team_id,
+              time_bucket,
+              toStartOfMinute(timestamp),
+              service_name,
+              metric_name,
+              metric_type,
+              resource_fingerprint,
+              count() AS event_count,
+              sum(value) AS total_value,
+              min(value) AS min_value,
+              max(value) AS max_value
+          GROUP BY
+              team_id,
+              time_bucket,
+              toStartOfMinute(timestamp),
+              service_name,
+              metric_name,
+              metric_type,
+              resource_fingerprint
+      )
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics1', '{replica}-{shard}')
+  PARTITION BY toDate(timestamp)
+  PRIMARY KEY (team_id, time_bucket, service_name, metric_name, resource_fingerprint, timestamp)
+  ORDER BY (team_id, time_bucket, service_name, metric_name, resource_fingerprint, timestamp)
+  SETTINGS
+      index_granularity_bytes = 104857600,
+      index_granularity = 8192,
+      ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -8738,28 +9184,53 @@
       total_scroll_magnitude SimpleAggregateFunction(sum, Float64),
       scroll_direction_reversal_count SimpleAggregateFunction(sum, Int64),
       rapid_scroll_reversal_count SimpleAggregateFunction(sum, Int64),
+      scroll_to_top_count SimpleAggregateFunction(sum, Int64),
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
       mouse_activity_count SimpleAggregateFunction(sum, Int64),
       rage_click_count SimpleAggregateFunction(sum, Int64),
       dead_click_count SimpleAggregateFunction(sum, Int64),
+      backspace_count SimpleAggregateFunction(sum, Int64),
       inter_action_gap_count SimpleAggregateFunction(sum, Int64),
       inter_action_gap_sum_ms SimpleAggregateFunction(sum, Float64),
       inter_action_gap_sum_of_squares_ms SimpleAggregateFunction(sum, Float64),
       max_idle_gap_ms SimpleAggregateFunction(max, Float64),
+      long_idle_gap_count SimpleAggregateFunction(sum, Int64),
       quick_back_count SimpleAggregateFunction(sum, Int64),
       page_visit_count SimpleAggregateFunction(sum, Int64),
-      unique_url_count AggregateFunction(uniqExact, String),
+      unique_url_count AggregateFunction(uniqCombined(12), String),
+      login_path_visit_count SimpleAggregateFunction(sum, Int64),
+      signup_path_visit_count SimpleAggregateFunction(sum, Int64),
+      checkout_path_visit_count SimpleAggregateFunction(sum, Int64),
+      cart_path_visit_count SimpleAggregateFunction(sum, Int64),
+      billing_path_visit_count SimpleAggregateFunction(sum, Int64),
+      settings_path_visit_count SimpleAggregateFunction(sum, Int64),
+      account_path_visit_count SimpleAggregateFunction(sum, Int64),
+      error_path_visit_count SimpleAggregateFunction(sum, Int64),
+      not_found_path_visit_count SimpleAggregateFunction(sum, Int64),
+      admin_path_visit_count SimpleAggregateFunction(sum, Int64),
+      dashboard_path_visit_count SimpleAggregateFunction(sum, Int64),
+      onboarding_path_visit_count SimpleAggregateFunction(sum, Int64),
+      cancel_path_visit_count SimpleAggregateFunction(sum, Int64),
+      refund_path_visit_count SimpleAggregateFunction(sum, Int64),
       console_error_count SimpleAggregateFunction(sum, Int64),
       console_error_after_click_count SimpleAggregateFunction(sum, Int64),
+      console_warn_count SimpleAggregateFunction(sum, Int64),
       network_request_count SimpleAggregateFunction(sum, Int64),
       network_failed_request_count SimpleAggregateFunction(sum, Int64),
+      network_4xx_count SimpleAggregateFunction(sum, Int64),
+      network_5xx_count SimpleAggregateFunction(sum, Int64),
       network_request_duration_sum SimpleAggregateFunction(sum, Float64),
       network_request_duration_sum_of_squares SimpleAggregateFunction(sum, Float64),
       network_request_duration_count SimpleAggregateFunction(sum, Int64),
+      mutation_count SimpleAggregateFunction(sum, Int64),
+      viewport_resize_count SimpleAggregateFunction(sum, Int64),
+      touch_event_count SimpleAggregateFunction(sum, Int64),
       max_scroll_y SimpleAggregateFunction(max, Float64),
-      unique_click_target_count AggregateFunction(uniqExact, Int64),
+      unique_click_target_count AggregateFunction(uniqCombined(12), Int64),
+      unique_form_field_count AggregateFunction(uniqCombined(12), Int64),
       text_selection_count SimpleAggregateFunction(sum, Int64),
+      selection_copy_count SimpleAggregateFunction(sum, Int64),
       is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_features', '{replica}')
   

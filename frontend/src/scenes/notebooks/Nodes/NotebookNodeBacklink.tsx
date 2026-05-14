@@ -35,117 +35,106 @@ type BackLinkMapper = {
     regex: RegExp
     type: string
     icon: JSX.Element
-    getTitle: (match: string) => Promise<string>
+    getTitle: (id: string) => Promise<string>
 }
 
-const BACKLINK_MAP: BackLinkMapper[] = [
+export const BACKLINK_MAP: BackLinkMapper[] = [
     {
         type: 'dashboards',
-        regex: new RegExp(urls.dashboard('(.+)')),
+        regex: new RegExp(urls.dashboard('([^/]+)')),
         icon: <IconDashboard />,
-        getTitle: async (path: string) => {
-            const id = path.split('/')[2]
+        getTitle: async (id: string) => {
             const dashboard = await api.dashboards.get(Number(id))
-            return dashboard.name ?? ''
+            return dashboard.name || id
         },
     },
     {
         type: 'insights',
-        regex: new RegExp(urls.insightView('(.+)' as QueryBasedInsightModel['short_id'])),
+        regex: new RegExp(urls.insightView('([^/]+)' as QueryBasedInsightModel['short_id'])),
         icon: <IconGraph />,
-        getTitle: async (path: string) => {
-            const id = path.split('/')[2]
+        getTitle: async (id: string) => {
             const insight = await api.insights.loadInsight(id as QueryBasedInsightModel['short_id'])
-            return insight.results[0]?.name ?? ''
+            return insight.results[0]?.name || id
         },
     },
     {
         type: 'feature_flags',
-        regex: new RegExp(urls.featureFlag('(.+)')),
+        regex: new RegExp(urls.featureFlag('([^/]+)')),
         icon: <IconFlag />,
-        getTitle: async (path: string) => {
-            const id = path.split('/')[2]
+        getTitle: async (id: string) => {
             const flag = await api.featureFlags.get(Number(id))
-            return flag.name ?? ''
+            return flag.name || flag.key || id
         },
     },
     {
         type: 'experiments',
-        regex: new RegExp(urls.experiment('(.+)')),
+        regex: new RegExp(urls.experiment('([^/]+)')),
         icon: <IconFlask />,
-        getTitle: async (path: string) => {
-            const id = path.split('/')[2]
+        getTitle: async (id: string) => {
             const experiment = await api.experiments.get(Number(id))
-            return experiment.name ?? ''
+            return experiment.name || id
         },
     },
     {
         type: 'surveys',
-        regex: new RegExp(urls.survey('(.+)')),
+        regex: new RegExp(urls.survey('([^/]+)')),
         icon: <IconChat />,
-        getTitle: async (path: string) => {
-            const id = path.split('/')[2]
+        getTitle: async (id: string) => {
             const survey = await api.surveys.get(id)
-            return survey.name ?? ''
+            return survey.name || id
         },
     },
     {
         type: 'events',
-        regex: new RegExp(urls.eventDefinition('(.+)')),
+        regex: new RegExp(urls.eventDefinition('([^/]+)')),
         icon: <IconLive width="1em" height="1em" />,
-        getTitle: async (path: string) => {
-            const id = path.split('/')[3]
+        getTitle: async (id: string) => {
             const event = await api.eventDefinitions.get({ eventDefinitionId: id })
-            return event.name ?? ''
+            return event.name || id
         },
     },
     {
         type: 'persons',
-        regex: new RegExp(urls.personByDistinctId('(.+)')),
+        regex: new RegExp(urls.personByDistinctId('([^/]+)', false)),
         icon: <IconPerson />,
-        getTitle: async (path: string) => {
-            const id = path.split('/')[2]
+        getTitle: async (id: string) => {
             const response = await api.persons.list({ distinct_id: id })
-            return response.results[0]?.name ?? ''
+            return response.results[0]?.name || id
         },
     },
     {
         type: 'cohorts',
-        regex: new RegExp(urls.cohort('(.+)')),
+        regex: new RegExp(urls.cohort('([^/]+)')),
         icon: <IconPeople />,
-        getTitle: async (path: string) => {
-            const id = path.split('/')[2]
+        getTitle: async (id: string) => {
             const cohort = await api.cohorts.get(Number(id))
-            return cohort.name ?? ''
+            return cohort.name || id
         },
     },
     {
         type: 'playlist',
-        regex: new RegExp(urls.replayPlaylist('(.+)')),
+        regex: new RegExp(urls.replayPlaylist('([^/]+)')),
         icon: <IconPlaylist />,
-        getTitle: async (path: string) => {
-            const id = path.split('/')[3]
+        getTitle: async (id: string) => {
             const playlist = await api.recordings.getPlaylist(id)
-            return playlist.name ?? 'None'
+            return playlist.name || id
         },
     },
     {
         type: 'replay',
-        regex: new RegExp(urls.replaySingle('(.+)')),
+        regex: new RegExp(urls.replaySingle('([^/]+)')),
         icon: <IconRewindPlay />,
-        getTitle: async (path: string) => {
-            const id = path.split('/')[2]
+        getTitle: async (id: string) => {
             return id
         },
     },
     {
         type: 'notebooks',
-        regex: new RegExp(urls.notebook('(.+)')),
+        regex: new RegExp(urls.notebook('([^/]+)')),
         icon: <IconNotebook />,
-        getTitle: async (path: string) => {
-            const id = path.split('/')[2]
+        getTitle: async (id: string) => {
             const notebook = await api.notebooks.get(id)
-            return notebook.title ?? ''
+            return notebook.title || 'Untitled'
         },
     },
 ]
@@ -155,18 +144,20 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const { location } = useValues(router)
 
     const href: string = props.node.attrs.href ?? ''
+    const hrefWithoutQuery: string = href.split(/[?#]/)[0]
 
-    const backLinkConfig = BACKLINK_MAP.find((config) => config.regex.test(href))
+    const backLinkConfig = BACKLINK_MAP.find((config) => config.regex.test(hrefWithoutQuery))
+    const matchedId = backLinkConfig?.regex.exec(hrefWithoutQuery)?.[1]
     const derivedText: string = props.node.attrs.title || props.node.attrs.href
     const isViewing = location.pathname === href
 
     useEffect(() => {
-        if (props.node.attrs.title || !backLinkConfig) {
+        if (props.node.attrs.title || !backLinkConfig || !matchedId) {
             return
         }
 
         void backLinkConfig
-            .getTitle(href)
+            .getTitle(matchedId)
             .then((title) => {
                 props.updateAttributes({
                     title,

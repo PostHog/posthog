@@ -19,12 +19,16 @@ import {
     UsersPartialUpdateParams,
     UsersRetrieveParams,
 } from '@/generated/core/api'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ProjectGetSchema = OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
-    id: OrganizationsProjectsRetrieveParams.shape['id'].describe(
-        "Project ID, or `@current` to fetch the caller's active project."
+    id: z.preprocess(
+        castStringToInt,
+        OrganizationsProjectsRetrieveParams.shape['id'].describe(
+            "Project ID, or `@current` to fetch the caller's active project."
+        )
     ),
 })
 
@@ -50,8 +54,11 @@ const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackward
 const ProjectSettingsUpdateSchema = OrganizationsProjectsPartialUpdateParams.omit({ organization_id: true })
     .extend(OrganizationsProjectsPartialUpdateBody.shape)
     .extend({
-        id: OrganizationsProjectsPartialUpdateParams.shape['id'].describe(
-            "Project ID, or `@current` to target the caller's active project."
+        id: z.preprocess(
+            castStringToInt,
+            OrganizationsProjectsPartialUpdateParams.shape['id'].describe(
+                "Project ID, or `@current` to target the caller's active project."
+            )
         ),
     })
 

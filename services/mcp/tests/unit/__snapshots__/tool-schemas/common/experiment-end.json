@@ -4,17 +4,9 @@
         "conclusion": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid",
-                            "enum": ["won", "lost", "inconclusive", "stopped_early", "invalid"],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid",
+                    "enum": ["won", "lost", "inconclusive", "stopped_early", "invalid"],
+                    "type": "string"
                 },
                 {
                     "type": "null"

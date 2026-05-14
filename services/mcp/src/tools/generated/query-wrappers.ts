@@ -1202,6 +1202,19 @@ const AssistantTrendsActorsQuery = z.object({
     source: AssistantTrendsQuery.describe('The source insight query whose data point we are drilling into.'),
 })
 
+const AssistantLifecycleStatus = z.enum(['new', 'returning', 'resurrecting', 'dormant'])
+
+const AssistantLifecycleActorsQuery = z.object({
+    day: z
+        .string()
+        .describe("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
+    kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
+    source: AssistantLifecycleQuery.describe('The source lifecycle insight query whose bucket we are drilling into.'),
+    status: AssistantLifecycleStatus.describe(
+        "Lifecycle status to drill into for the given day. Must be one of the bucket names visible in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted)."
+    ),
+})
+
 const QueryTrendsSchema = AssistantTrendsQuery.extend({
     output_format: z
         .enum(['optimized', 'json'])
@@ -1263,6 +1276,16 @@ const QueryLifecycleSchema = AssistantLifecycleQuery.extend({
 })
 
 const QueryTrendsActorsSchema = AssistantTrendsActorsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
+const QueryLifecycleActorsSchema = AssistantLifecycleActorsQuery.extend({
     output_format: z
         .enum(['optimized', 'json'])
         .default('optimized')
@@ -1340,6 +1363,14 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
     'query-trends-actors': createQueryWrapper({
         name: 'query-trends-actors',
         schema: QueryTrendsActorsSchema,
+        kind: 'InsightActorsQuery',
+        uiResourceUri: 'ui://posthog/insight-actors.html',
+        outputFormat: 'optimized',
+        mcpVersion: 2,
+    }),
+    'query-lifecycle-actors': createQueryWrapper({
+        name: 'query-lifecycle-actors',
+        schema: QueryLifecycleActorsSchema,
         kind: 'InsightActorsQuery',
         uiResourceUri: 'ui://posthog/insight-actors.html',
         outputFormat: 'optimized',
