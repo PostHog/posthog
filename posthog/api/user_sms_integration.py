@@ -33,12 +33,14 @@ from posthog.clients.sendblue import SendBlueError, SendBlueNotConfigured, get_s
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import APIScopePermission
+from posthog.rate_limit import SMSStartVerificationThrottle, SMSVerifyThrottle
 
 logger = structlog.get_logger(__name__)
 
 SMS_VERIFICATION_CACHE_PREFIX = "user_sms_verify:"
 SMS_VERIFICATION_TTL_SECONDS = 600  # 10 minutes
 SMS_VERIFICATION_CODE_LENGTH = 6
+SMS_VERIFICATION_MAX_ATTEMPTS = 5
 
 # Conservative E.164: leading +, 8-15 digits, no leading zero on the country code.
 E164_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
@@ -99,6 +101,13 @@ class UserSMSIntegrationViewSet(viewsets.GenericViewSet):
     http_method_names = ["get", "post", "delete"]
     serializer_class = SMSIntegrationItemSerializer
     pagination_class = None
+
+    def get_throttles(self):
+        if self.action == "start_verification":
+            return [SMSStartVerificationThrottle()]
+        if self.action == "verify":
+            return [SMSVerifyThrottle()]
+        return super().get_throttles()
 
     def _get_user(self) -> User:
         request_user = cast(User, self.request.user)
@@ -167,7 +176,7 @@ class UserSMSIntegrationViewSet(viewsets.GenericViewSet):
         code = "".join(secrets.choice("0123456789") for _ in range(SMS_VERIFICATION_CODE_LENGTH))
         cache.set(
             _verification_cache_key(user),
-            {"phone": phone, "code": code},
+            {"phone": phone, "code": code, "attempts": 0},
             timeout=SMS_VERIFICATION_TTL_SECONDS,
         )
 
@@ -200,6 +209,13 @@ class UserSMSIntegrationViewSet(viewsets.GenericViewSet):
         if not cached or cached.get("phone") != phone:
             raise exceptions.ValidationError("No active verification for this phone number. Request a new code.")
         if not secrets.compare_digest(str(cached.get("code", "")), submitted_code):
+            # Cap brute-force guesses on the 6-digit OTP: after N wrong attempts the
+            # challenge is invalidated and the user must request a new code.
+            attempts = int(cached.get("attempts", 0)) + 1
+            if attempts >= SMS_VERIFICATION_MAX_ATTEMPTS:
+                cache.delete(cache_key)
+            else:
+                cache.set(cache_key, {**cached, "attempts": attempts}, timeout=SMS_VERIFICATION_TTL_SECONDS)
             raise exceptions.ValidationError("Invalid verification code.")
 
         cache.delete(cache_key)

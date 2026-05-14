@@ -805,6 +805,20 @@ class CodeInviteThrottle(UserRateThrottle):
     rate = "20000/hour"
 
 
+class SMSStartVerificationThrottle(UserRateThrottle):
+    # Caps how often a single user can request an OTP SMS, to prevent SendBlue cost abuse
+    # and SMS flooding of unlinked phone numbers.
+    scope = "sms_start_verification"
+    rate = "5/hour"
+
+
+class SMSVerifyThrottle(UserRateThrottle):
+    # Caps OTP verification attempts per user. Together with the per-OTP attempt counter
+    # in UserSMSIntegrationViewSet.verify, this bounds brute-force guesses on the 6-digit code.
+    scope = "sms_verify"
+    rate = "20/hour"
+
+
 class RunSavedQueryRateThrottle(PersonalApiKeyRateThrottle):
     # Rate limit running a saved query per saved query per team.
     # Prevents agents from running the same query repeatedly without reason.
