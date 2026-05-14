@@ -377,8 +377,8 @@ export const productConfiguration: Record<string, any> = {
     Deployments: {
         projectBased: true,
         name: 'Deployments',
-        iconType: 'live',
-        description: 'Build and ship your project site straight from PostHog.',
+        iconType: 'deployments',
+        description: 'View, redeploy, and roll back deployments of your app.',
     },
     Deployment: { projectBased: true, name: 'Deployment' },
     EarlyAccessFeatures: {
@@ -1048,6 +1048,13 @@ export const fileSystemTypes = {
         iconColor: ['var(--color-product-dashboards-light)'],
         filterKey: 'dashboard',
     },
+    deployments: {
+        name: 'Deployment',
+        iconType: 'deployments',
+        iconColor: ['var(--color-product-deployments-light)'] as FileSystemIconColor,
+        href: () => urls.deployments(),
+        filterKey: 'deployments',
+    },
     early_access_feature: {
         name: 'Early access feature',
         iconType: 'early_access_feature' as FileSystemIconType,
@@ -1432,9 +1439,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.DEPLOYMENTS],
         category: ProductItemCategory.TOOLS,
         href: urls.deployments(),
-        type: 'live',
-        iconType: 'live' as FileSystemIconType,
-        iconColor: ['var(--color-text-3000)'] as FileSystemIconColor,
+        type: 'deployments',
+        iconType: 'deployments' as FileSystemIconType,
+        iconColor: [
+            'var(--color-product-deployments-light)',
+            'var(--color-product-deployments-dark)',
+        ] as FileSystemIconColor,
         sceneKey: 'Deployments',
         sceneKeys: ['Deployments', 'Deployment'],
         flag: FEATURE_FLAGS.DEPLOYMENTS,

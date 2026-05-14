@@ -2529,6 +2529,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The name of the MCP tool that was invoked. Only present on mcp_tool_call.",
             "examples": ["execute-sql", "feature-flag-get-all"],
         },
+        "$mcp_tool_description": {
+            "label": "MCP tool description",
+            "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do — descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
+            "examples": [
+                "Run a HogQL/SQL query against PostHog.",
+                "Fetch the trace referenced by an LLM analytics URL.",
+            ],
+        },
         "$mcp_resource_name": {
             "label": "MCP resource name",
             "description": "The name of the MCP resource, prompt, or tool the event refers to.",
@@ -2585,6 +2593,24 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         # PostHog-specific MCP properties added by the PostHog MCP server on top of the SDK's core
         # set. They identify which deployment, transport, and consumer produced the event. The
         # @posthog/mcp SDK will continue to carry these — they're not on a deprecation path.
+        "$mcp_exec_tool_call_name": {
+            "label": "MCP exec inner tool name",
+            "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so by itself it doesn't tell you which inner tool the agent was actually invoking. This property carries the inner tool's name — derived server-side by parsing the exec command's `call <tool> ...` form and looking it up in our catalog. Use it for breakdowns / funnels that should pivot on the real tool rather than the dispatcher. Only present when an exec call targets a recognized inner tool.",
+            "examples": ["execute-sql", "feature-flag-get-all"],
+        },
+        "$mcp_exec_tool_call_description": {
+            "label": "MCP exec inner tool description",
+            "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so the SDK's $mcp_tool_description is the dispatcher's static text on every call. This property carries the description of the inner tool the agent was actually invoking via 'call <tool> ...' — derived server-side by parsing the exec command and looking the inner tool up in our catalog. Only present when an exec call targets a recognized inner tool.",
+            "examples": [
+                "Run a HogQL/SQL query against PostHog.",
+                "List feature flags in the project.",
+            ],
+        },
+        "$mcp_exec_inner_tool_names": {
+            "label": "MCP exec inner tool catalog",
+            "description": "Array of every inner tool name available to the agent at the time of a tools/list request. Stored as a JSON array — filter with `contains` against a single tool name (e.g. 'execute-sql'). Only stamped on mcp_tools_list events when running in single-exec mode (in multi-tool mode the SDK's $mcp_listed_tool_names already carries the catalog). Lets you compute zombie tools by diffing against $mcp_exec_tool_call_name from mcp_tool_call events.",
+            "examples": ["execute-sql", "feature-flag-get-all"],
+        },
         "mcp_protocol_version": {
             "label": "MCP protocol version",
             "description": "The MCP protocol version negotiated during initialize.",

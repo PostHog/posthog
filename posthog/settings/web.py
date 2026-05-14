@@ -418,6 +418,7 @@ SPECTACULAR_SETTINGS = {
         "SavedQueryStatusEnum": "products.data_warehouse.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.Status",
         "DesktopRecordingStatusEnum": "products.desktop_recordings.backend.models.DesktopRecording.Status",
         "MeetingPlatformEnum": "products.desktop_recordings.backend.models.DesktopRecording.Platform",
+        "PushTokenPlatformEnum": "posthog.models.user_push_token.UserPushToken.Platform",
         "PropertyDefinitionTypeEnum": "products.event_definitions.backend.models.property_definition.PropertyType",
         "ExternalDataSourceTypeEnum": "products.data_warehouse.backend.types.ExternalDataSourceType",
         "ExperimentMetricKindEnum": "products.llm_analytics.backend.models.score_definitions.ScoreDefinition.Kind",
@@ -589,6 +590,14 @@ CLOUDFLARE_API_TOKEN = get_from_env("CLOUDFLARE_API_TOKEN", "")
 CLOUDFLARE_ZONE_ID = get_from_env("CLOUDFLARE_ZONE_ID", "")
 CLOUDFLARE_WORKER_NAME = get_from_env("CLOUDFLARE_WORKER_NAME", "")
 CLOUDFLARE_PROXY_BASE_CNAME = get_from_env("CLOUDFLARE_PROXY_BASE_CNAME", "")
+
+# Single-tenant Cloudflare Pages settings for the Deployments product.
+# Separate from the SaaS proxy block above: different account scope (Pages,
+# not Workers + DNS for posthog.com) and a different zone (hog.dev).
+DEPLOYMENTS_CLOUDFLARE_ACCOUNT_ID = get_from_env("DEPLOYMENTS_CLOUDFLARE_ACCOUNT_ID", "")
+DEPLOYMENTS_CLOUDFLARE_API_TOKEN = get_from_env("DEPLOYMENTS_CLOUDFLARE_API_TOKEN", "")
+DEPLOYMENTS_HOG_DEV_ZONE_ID = get_from_env("DEPLOYMENTS_HOG_DEV_ZONE_ID", "")
+DEPLOYMENTS_CLOUDFLARE_PROJECT_PREFIX = get_from_env("DEPLOYMENTS_CLOUDFLARE_PROJECT_PREFIX", "hogdev-")
 
 # Domain Connect (automated DNS configuration)
 DOMAIN_CONNECT_PRIVATE_KEY: str | None = os.getenv("DOMAIN_CONNECT_PRIVATE_KEY", "").replace("\\n", "\n") or None

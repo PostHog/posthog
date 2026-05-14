@@ -12,8 +12,8 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/Deployments'),
             projectBased: true,
             name: 'Deployments',
-            iconType: 'live',
-            description: 'Build and ship your project site straight from PostHog.',
+            iconType: 'deployments',
+            description: 'View, redeploy, and roll back deployments of your app.',
         },
         Deployment: {
             import: () => import('./frontend/Deployment'),
@@ -29,7 +29,15 @@ export const manifest: ProductManifest = {
         deployments: (): string => '/deployments',
         deployment: (id: string): string => `/deployments/${id}`,
     },
-    fileSystemTypes: {},
+    fileSystemTypes: {
+        deployments: {
+            name: 'Deployment',
+            iconType: 'deployments',
+            iconColor: ['var(--color-product-deployments-light)'] as FileSystemIconColor,
+            href: () => urls.deployments(),
+            filterKey: 'deployments',
+        },
+    },
     treeItemsNew: [],
     treeItemsProducts: [
         {
@@ -37,9 +45,12 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.DEPLOYMENTS],
             category: ProductItemCategory.TOOLS,
             href: urls.deployments(),
-            type: 'live',
-            iconType: 'live' as FileSystemIconType,
-            iconColor: ['var(--color-text-3000)'] as FileSystemIconColor,
+            type: 'deployments',
+            iconType: 'deployments' as FileSystemIconType,
+            iconColor: [
+                'var(--color-product-deployments-light)',
+                'var(--color-product-deployments-dark)',
+            ] as FileSystemIconColor,
             sceneKey: 'Deployments',
             sceneKeys: ['Deployments', 'Deployment'],
             flag: FEATURE_FLAGS.DEPLOYMENTS,

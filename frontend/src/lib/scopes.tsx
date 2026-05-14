@@ -192,6 +192,11 @@ export const API_KEY_SCOPE_PRESETS: {
         ),
         access_type: 'all',
     },
+    {
+        value: 'read_only_access',
+        label: 'Read-only access',
+        scopes: API_SCOPES.map(({ key }) => `${key}:read`),
+    },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
 

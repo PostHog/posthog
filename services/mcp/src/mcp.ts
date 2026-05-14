@@ -37,7 +37,7 @@ import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
-import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
+import { createExecInnerToolCallResolver, createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
 
@@ -53,7 +53,23 @@ type PostHogMcpAnalyticsFlagResult = {
 export type RequestProperties = {
     userHash: string
     apiToken: string
+    // Wrapper-app-provided hint from `?sessionId=` query param. Resolved to a
+    // UUID via `SessionManager.getSessionUuid()` and emitted as `$session_id`
+    // for Session Replay / LLM Analytics grouping. Only set by wrapping
+    // consumer apps (setup wizard, sandbox, etc.).
     sessionId?: string
+    // Streamable-HTTP transport session id (`Mcp-Session-Id` HTTP header).
+    // Server-minted per the MCP protocol spec, present on every request after
+    // initialize. Distinct from `sessionId` above — this is the transport's
+    // own correlation key, available for direct MCP clients (Claude Code,
+    // Cursor, …) that never set the wrapper-app `?sessionId=` hint.
+    mcpSessionId?: string
+    // Agent-echoed conversation id from `@posthog/mcp-analytics` PR #14
+    // (`enableConversationId: true`). Plumbed alongside `mcpSessionId`
+    // through every identity-provider + emitter path so the consumer side
+    // is ready to read it; the producer-side source lands when that SDK
+    // PR ships and a header read is wired into `index.ts`.
+    mcpConversationId?: string
     features?: string[]
     tools?: string[]
     region?: string
@@ -344,6 +360,12 @@ export class MCP extends McpAgent<Env> {
                     ...(this.mcpProtocolVersion ? { mcp_protocol_version: this.mcpProtocolVersion } : {}),
                     ...(this.requestProperties.mcpConsumer ? { mcp_consumer: this.requestProperties.mcpConsumer } : {}),
                     ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
+                    ...(this.requestProperties.mcpSessionId
+                        ? { mcp_session_id: this.requestProperties.mcpSessionId }
+                        : {}),
+                    ...(this.requestProperties.mcpConversationId
+                        ? { mcp_conversation_id: this.requestProperties.mcpConversationId }
+                        : {}),
                     ...(this.mcpMode ? { mcp_mode: this.mcpMode } : {}),
                     ...(this.mcpVersion !== undefined ? { mcp_version: this.mcpVersion } : {}),
                     ...contextProperties,
@@ -741,6 +763,8 @@ export class MCP extends McpAgent<Env> {
             getTransport: async () => this.requestProperties.transport,
             getMcpConsumer: async () => this.requestProperties.mcpConsumer,
             getMcpMode: async () => this.mcpMode,
+            getMcpSessionId: async () => this.requestProperties.mcpSessionId,
+            getMcpConversationId: async () => this.requestProperties.mcpConversationId,
         }
 
         Object.assign(this.requestProperties, {
@@ -764,9 +788,26 @@ export class MCP extends McpAgent<Env> {
         // single-exec mode the wrapper handles every call, so the missing-tool
         // signal has nothing to map to and the extra slot is pure noise.
         if (posthogMcpAnalyticsOn) {
+            // In single-exec mode every event's `$mcp_tool_name` is `exec`, so the
+            // SDK's `$mcp_tool_description` would be the dispatcher's static text on
+            // every call. Resolve the inner tool the agent was actually invoking
+            // from the command and surface its name + description as
+            // `$mcp_exec_tool_call_name` / `$mcp_exec_tool_call_description`.
+            const resolveExecInnerToolCall = useSingleExec ? createExecInnerToolCallResolver(allTools) : undefined
+
+            // In single-exec mode the SDK's $mcp_listed_tool_names collapses to
+            // just `exec`, so we can't compute "advertised but never called"
+            // (zombie tools) from SDK data alone. Pass the inner-tool catalog
+            // here so analytics can attach it as $mcp_exec_inner_tool_names on
+            // mcp_tools_list events. Dashboards can then diff it against
+            // $mcp_exec_tool_call_name from mcp_tool_call.
+            const execInnerToolNames = useSingleExec ? allTools.map((t) => t.name) : undefined
+
             const initResult = await initPostHogMcpAnalytics(this.server, mcpAnalyticsIdentity, {
                 contextEnabled: true,
                 reportMissingEnabled: !useSingleExec,
+                resolveExecInnerToolCall,
+                execInnerToolNames,
             })
             Object.assign(this.requestProperties, {
                 posthogMcpAnalyticsInitAction: initResult.action,

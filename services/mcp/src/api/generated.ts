@@ -7587,6 +7587,37 @@ export namespace Schemas {
       value: string;
     }
 
+    export interface ComposeTicket {
+      /** Recipient email address. */
+      recipient_email: string;
+      /**
+         * PostHog distinct_id to link the ticket to a person. Falls back to recipient_email.
+         * @maxLength 400
+         */
+      recipient_distinct_id?: string;
+      /**
+         * Email subject line.
+         * @maxLength 500
+         */
+      email_subject?: string;
+      /** ID of the EmailChannel to send from. */
+      email_config_id: string;
+      /**
+         * Message content in markdown.
+         * @maxLength 5000
+         */
+      message: string;
+      /** TipTap rich content JSON for formatted messages. */
+      rich_content?: unknown;
+    }
+
+    export interface ComposeTicketResponse {
+      /** Created ticket UUID. */
+      id: string;
+      /** Human-readable ticket number. */
+      ticket_number: number;
+    }
+
     /**
      * * `won` - won
     * `lost` - lost
@@ -11846,6 +11877,25 @@ export namespace Schemas {
     }
 
     /**
+     * * `dispatch` - Dispatch
+    * `clone` - Clone
+    * `install` - Install
+    * `build` - Build
+    * `publish` - Publish
+     */
+    export type ErrorStepEnum = typeof ErrorStepEnum[keyof typeof ErrorStepEnum];
+
+
+    export const ErrorStepEnum = {
+      Dispatch: 'dispatch',
+      Clone: 'clone',
+      Install: 'install',
+      Build: 'build',
+      Publish: 'publish',
+    } as const;
+
+    export const DeploymentErrorStep = {...ErrorStepEnum,...BlankEnum,} as const
+    /**
      * * `queued` - Queued
     * `initializing` - Initializing
     * `building` - Building
@@ -11866,7 +11916,8 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `git` - Git
+     * * `manual` - Manual
+    * `git` - Git
     * `redeploy` - Redeploy
     * `rollback` - Rollback
     * `seed` - Seed
@@ -11875,6 +11926,7 @@ export namespace Schemas {
 
 
     export const TriggerKindEnum = {
+      Manual: 'manual',
       Git: 'git',
       Redeploy: 'redeploy',
       Rollback: 'rollback',
@@ -11884,7 +11936,9 @@ export namespace Schemas {
     export interface Deployment {
       /** Unique identifier for the deployment. */
       readonly id: string;
-      /** Current pipeline stage for the deployment. Valid values: queued, initializing, building, ready, error, cancelled.
+      /** The deployment project this deployment belongs to. */
+      readonly project: string;
+      /** Current pipeline stage. Valid values: queued, initializing, building, ready, error, cancelled.
 
       * `queued` - Queued
       * `initializing` - Initializing
@@ -11894,19 +11948,19 @@ export namespace Schemas {
       * `cancelled` - Cancelled */
       status: DeploymentStatusEnum;
       /**
-         * Timestamp when the pipeline started building. Null while still queued.
+         * When the pipeline started building. Null while still queued.
          * @nullable
          */
       started_at?: string | null;
       /**
-         * Timestamp when the pipeline finished (regardless of outcome). Null while still running.
+         * When the pipeline finished (regardless of outcome). Null while still running.
          * @nullable
          */
       finished_at?: string | null;
-      /** Timestamp when the deployment row was created. */
+      /** When the deployment row was created (~ queued_at). */
       readonly created_at: string;
       /**
-         * Git commit SHA the deployment was built from. Empty for non-git triggers.
+         * Git commit SHA the deployment was built from.
          * @maxLength 64
          */
       commit_sha?: string;
@@ -11918,12 +11972,12 @@ export namespace Schemas {
          */
       commit_author_name?: string;
       /**
-         * Email address of the commit author.
+         * Email address of the commit author. Used by the Author filter on the list page.
          * @maxLength 255
          */
       commit_author_email?: string;
       /**
-         * HTTPS URL of the source repository this deployment came from.
+         * HTTPS URL of the source repository. Captured at deploy time.
          * @maxLength 1024
          */
       repo_url?: string;
@@ -11933,39 +11987,277 @@ export namespace Schemas {
          */
       branch?: string;
       /**
-         * Public URL where the built site is served once the deployment is ready.
+         * Public URL serving the built site once ready.
          * @maxLength 1024
          */
       deployment_url?: string;
       /**
-         * URL of a screenshot capture of the deployed site, used in the list view.
+         * URL of the captured site screenshot, used in the list/card view.
          * @maxLength 1024
          */
       preview_image_url?: string;
       /**
-         * The deployment this one was triggered from (e.g. for rollbacks/redeploys).
+         * The deployment this one was triggered from (for rollbacks and redeploys).
          * @nullable
          */
       readonly triggered_by_deployment: string | null;
-      /** What caused this deployment to start. One of: git, redeploy, rollback, seed.
+      /**
+         * Posthog user id of the user who clicked Deploy/Redeploy/Rollback. Null for git-triggered or seed rows.
+         * @nullable
+         */
+      readonly triggered_by_user_id: number | null;
+      /** What caused this deployment to start: manual | git | redeploy | rollback | seed.
 
+      * `manual` - Manual
       * `git` - Git
       * `redeploy` - Redeploy
       * `rollback` - Rollback
       * `seed` - Seed */
       trigger_kind: TriggerKindEnum;
-      /** Whether this deployment is the team's currently-serving production deployment. */
+      /** Failure detail set when status=error. Empty for successful or in-flight deployments. */
+      readonly error_message: string;
+      /** Build step that failed: dispatch | clone | install | build | publish. Empty when status != error.
+
+      * `dispatch` - Dispatch
+      * `clone` - Clone
+      * `install` - Install
+      * `build` - Build
+      * `publish` - Publish */
+      error_step?: typeof DeploymentErrorStep[keyof typeof DeploymentErrorStep];
+      /** Cloudflare Pages deployment id, set once the publish step succeeds. */
+      readonly cloudflare_deployment_id: string;
+      /** Temporal workflow id for this build. Used for cancellation signalling. */
+      readonly temporal_workflow_id: string;
+      /** True if this deployment is currently serving production traffic for its project. */
       readonly is_current: boolean;
       /** Build duration in seconds (finished_at - started_at). 0 while still running. */
       readonly duration_seconds: number;
     }
 
     /**
-     * Response shape for the redeploy/rollback/refresh-preview stubs.
+     * Response shape for one-off action endpoints (cancel, refresh_preview).
      */
     export interface DeploymentActionResponse {
-      /** Human-readable explanation of the stub response. */
+      /** Short human-readable confirmation message. */
       detail: string;
+    }
+
+    /**
+     * Response shape returned with HTTP 409 when an active deploy exists.
+     */
+    export interface DeploymentConflictResponse {
+      /** Reason for the conflict. */
+      detail: string;
+      /** The deployment currently in-flight for the project. Frontend can poll this id. */
+      active_deployment_id: string;
+    }
+
+    /**
+     * Body of POST /api/projects/{}/deployment_projects/{}/deployments/.
+     */
+    export interface DeploymentCreateInput {
+      /**
+         * Optional commit SHA. If omitted, the build worker resolves HEAD of `branch` (or the project's default_branch).
+         * @maxLength 64
+         */
+      commit_sha?: string;
+      /**
+         * Optional branch override. If omitted, uses the project's `default_branch`.
+         * @maxLength 255
+         */
+      branch?: string;
+    }
+
+    export interface DeploymentEvent {
+      /** Unique identifier for the event row. */
+      readonly id: string;
+      /** The deployment this event belongs to. */
+      readonly deployment: string;
+      /**
+         * Event category, e.g. `status_changed`, `preview_captured`, `dispatched`.
+         * @maxLength 50
+         */
+      event_type: string;
+      /** Arbitrary structured payload for the event. Shape varies by event_type. */
+      payload: unknown;
+      /** When the event occurred (server time). */
+      readonly occurred_at: string;
+    }
+
+    export interface DeploymentProject {
+      /** Unique identifier for the deployment project. */
+      readonly id: string;
+      /**
+         * Human-readable project name shown in the UI.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
+         * @maxLength 80
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug: string;
+      /**
+         * HTTPS URL of the connected GitHub repository, resolved from the selected repository id.
+         * @maxLength 1024
+         */
+      readonly repo_url: string;
+      /**
+         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
+         * @maxLength 255
+         */
+      default_branch?: string;
+      /**
+         * Existing PostHog GitHub integration id used for repository access.
+         * @nullable
+         */
+      github_integration_id?: number | null;
+      /**
+         * Stable GitHub repository identifier selected from the existing integration's repository list.
+         * @nullable
+         */
+      github_repo_id?: number | null;
+      /**
+         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+         * @nullable
+         */
+      build_command?: string | null;
+      /**
+         * Directory containing the built static site, relative to the repository root.
+         * @maxLength 255
+         */
+      output_dir?: string;
+      /**
+         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
+         * @maxLength 50
+         * @nullable
+         */
+      framework?: string | null;
+      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
+      inject_posthog_snippet?: boolean;
+      /** Cloudflare Pages project name, assigned during provisioning. */
+      readonly cloudflare_project_name: string;
+      /** Public subdomain at which deployments of this project serve. */
+      readonly subdomain: string;
+      /**
+         * Timestamp when the Cloudflare project was fully provisioned and ready to receive deploys.
+         * @nullable
+         */
+      readonly cloudflare_ready_at: string | null;
+      /**
+         * The deployment currently serving traffic for this project. Null if no deployment has ever succeeded.
+         * @nullable
+         */
+      readonly current_deployment: string | null;
+      /** True when the project has both a provisioned Cloudflare backend and a configured GitHub credential — meaning a deploy can be triggered right now. */
+      readonly is_ready_to_deploy: boolean;
+      /** Timestamp when the project was created. */
+      readonly created_at: string;
+      /** Timestamp when the project was last modified. */
+      readonly updated_at: string;
+    }
+
+    export interface DeploymentProjectCreate {
+      /**
+         * Human-readable project name shown in the UI.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * URL-safe handle. Becomes the subdomain `{slug}.posthog-app.com`. Must be unique per team.
+         * @maxLength 80
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug: string;
+      /**
+         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
+         * @maxLength 255
+         */
+      default_branch?: string;
+      /** Existing PostHog GitHub integration id used for repository access. */
+      github_integration_id: number;
+      /** Stable GitHub repository identifier selected from the existing integration's repository list. */
+      github_repo_id: number;
+      /**
+         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+         * @nullable
+         */
+      build_command?: string | null;
+      /**
+         * Directory containing the built static site, relative to the repository root.
+         * @maxLength 255
+         */
+      output_dir?: string;
+      /**
+         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
+         * @maxLength 50
+         * @nullable
+         */
+      framework?: string | null;
+      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
+      inject_posthog_snippet?: boolean;
+    }
+
+    /**
+     * Response shape for refreshing a deployment project's GitHub branch.
+     */
+    export interface DeploymentProjectRefreshResponse {
+      /** Human-readable explanation of the refresh result. */
+      detail: string;
+      /** HTTPS URL of the connected GitHub repository. */
+      repo_url: string;
+      /** Branch checked by the refresh action. */
+      default_branch: string;
+      /** Current GitHub HEAD SHA for default_branch. */
+      commit_sha: string;
+    }
+
+    export interface DeploymentProjectWrite {
+      /**
+         * Human-readable project name shown in the UI.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
+         * @maxLength 80
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug: string;
+      /**
+         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
+         * @maxLength 255
+         */
+      default_branch?: string;
+      /**
+         * Existing PostHog GitHub integration id used for repository access.
+         * @nullable
+         */
+      github_integration_id?: number | null;
+      /**
+         * Stable GitHub repository identifier selected from the existing integration's repository list.
+         * @nullable
+         */
+      github_repo_id?: number | null;
+      /**
+         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+         * @nullable
+         */
+      build_command?: string | null;
+      /**
+         * Directory containing the built static site, relative to the repository root.
+         * @maxLength 255
+         */
+      output_dir?: string;
+      /**
+         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
+         * @maxLength 50
+         * @nullable
+         */
+      framework?: string | null;
+      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
+      inject_posthog_snippet?: boolean;
     }
 
     export interface DeprovisionWarehouseResponse {
@@ -12044,6 +12336,69 @@ export namespace Schemas {
       completed_at?: string | null;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    /**
+     * Inputs the `/detect/` endpoint needs to suggest a project config.
+
+    Decouples detection from any one git provider — callers fetch
+    `package.json` and the list of lockfiles however they like (GitHub
+    raw content via the team's existing integration, a temporary clone,
+    user-pasted JSON during early development) and pass them here.
+     */
+    export interface DetectConfigRequest {
+      /** Parsed contents of the repo's `package.json`. Pass null or omit if the repo doesn't have one — the response is then the plain-HTML fallback. */
+      package_json?: unknown;
+      /** Filenames of package-manager lockfiles found in the repo root (e.g. ["pnpm-lock.yaml"]). Used to pick the package manager. */
+      lockfiles?: string[];
+    }
+
+    /**
+     * * `npm` - npm
+    * `pnpm` - pnpm
+    * `yarn` - yarn
+    * `bun` - bun
+     */
+    export type PackageManagerEnum = typeof PackageManagerEnum[keyof typeof PackageManagerEnum];
+
+
+    export const PackageManagerEnum = {
+      Npm: 'npm',
+      Pnpm: 'pnpm',
+      Yarn: 'yarn',
+      Bun: 'bun',
+    } as const;
+
+    /**
+     * Suggested project config. Every field is overridable in the connect-repo UI.
+
+    `build_command`, `output_dir`, and `framework` map directly to the
+    `DeploymentProject` model fields. `package_manager`, `install_command`,
+    and `node_version` are informational hints — the model doesn't store
+    them today, but the UI can display them so the user knows what the
+    build worker will end up running.
+     */
+    export interface DetectConfigResponse {
+      /** Detected package manager from lockfile presence.
+
+      * `npm` - npm
+      * `pnpm` - pnpm
+      * `yarn` - yarn
+      * `bun` - bun */
+      package_manager: PackageManagerEnum;
+      /** Suggested install command, or empty when no install is needed. */
+      install_command: string;
+      /** Suggested build command, or empty when no known framework matched. */
+      build_command: string;
+      /** Suggested output directory relative to repo root. */
+      output_dir: string;
+      /** Suggested Node major version, parsed from `engines.node` or defaulted to 20. */
+      node_version: string;
+      /**
+         * Detected framework hint (e.g. `nextjs`, `vite`, `astro`) to write into `DeploymentProject.framework`. Null when no framework matched — leaving the field null lets the build worker fall back to its own auto-detection.
+         * @nullable
+         */
+      framework: string | null;
     }
 
     /**
@@ -18705,6 +19060,22 @@ export namespace Schemas {
       line_refs: string;
     }
 
+    export interface IntervieweeContext {
+      readonly id: string;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /**
+         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+         * @maxLength 400
+         */
+      interviewee_identifier: string;
+      /**
+         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+         * @maxLength 10000
+         */
+      agent_context: string;
+    }
+
     /**
      * * `2.0` - 2.0
      */
@@ -21148,6 +21519,15 @@ export namespace Schemas {
       results: Dataset[];
     }
 
+    export interface PaginatedDeploymentEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DeploymentEvent[];
+    }
+
     export interface PaginatedDeploymentList {
       count: number;
       /** @nullable */
@@ -21155,6 +21535,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Deployment[];
+    }
+
+    export interface PaginatedDeploymentProjectList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DeploymentProject[];
     }
 
     export interface PaginatedDesktopRecordingList {
@@ -21551,6 +21940,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: IntegrationConfig[];
+    }
+
+    export interface PaginatedIntervieweeContextList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: IntervieweeContext[];
     }
 
     export interface PaginatedKnowledgeSourceList {
@@ -24269,6 +24667,36 @@ export namespace Schemas {
       results: UserInterview[];
     }
 
+    export interface UserInterviewTopic {
+      readonly id: string;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /**
+         * Optional cohort ID identifying who to target. Not enforced as a foreign key.
+         * @nullable
+         */
+      interviewee_cohort?: number | null;
+      /** Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids. */
+      interviewee_emails?: string[];
+      /** PostHog distinct IDs of people to interview. May be combined with interviewee_cohort and interviewee_emails. */
+      interviewee_distinct_ids?: string[];
+      /** The product, feature, or idea you want to ask interviewees about. */
+      topic: string;
+      /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
+      agent_context?: string;
+      /** Ordered list of questions the voice agent should work through during the interview. */
+      questions?: string[];
+    }
+
+    export interface PaginatedUserInterviewTopicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: UserInterviewTopic[];
+    }
+
     /**
      * * `disabled` - disabled
     * `toolbar` - toolbar
@@ -25339,6 +25767,53 @@ export namespace Schemas {
       readonly updated_at?: string | null;
       readonly created_by?: UserBasic;
       readonly team?: number;
+    }
+
+    export interface PatchedDeploymentProjectWrite {
+      /**
+         * Human-readable project name shown in the UI.
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
+         * @maxLength 80
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug?: string;
+      /**
+         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
+         * @maxLength 255
+         */
+      default_branch?: string;
+      /**
+         * Existing PostHog GitHub integration id used for repository access.
+         * @nullable
+         */
+      github_integration_id?: number | null;
+      /**
+         * Stable GitHub repository identifier selected from the existing integration's repository list.
+         * @nullable
+         */
+      github_repo_id?: number | null;
+      /**
+         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+         * @nullable
+         */
+      build_command?: string | null;
+      /**
+         * Directory containing the built static site, relative to the repository root.
+         * @maxLength 255
+         */
+      output_dir?: string;
+      /**
+         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
+         * @maxLength 50
+         * @nullable
+         */
+      framework?: string | null;
+      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
+      inject_posthog_snippet?: boolean;
     }
 
     export interface PatchedDesktopRecording {
@@ -26649,6 +27124,22 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly errors?: string;
       readonly display_name?: string;
+    }
+
+    export interface PatchedIntervieweeContext {
+      readonly id?: string;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /**
+         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+         * @maxLength 400
+         */
+      interviewee_identifier?: string;
+      /**
+         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+         * @maxLength 10000
+         */
+      agent_context?: string;
     }
 
     export interface PatchedJsSnippetVersion {
@@ -29937,6 +30428,27 @@ export namespace Schemas {
       audio?: string;
     }
 
+    export interface PatchedUserInterviewTopic {
+      readonly id?: string;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /**
+         * Optional cohort ID identifying who to target. Not enforced as a foreign key.
+         * @nullable
+         */
+      interviewee_cohort?: number | null;
+      /** Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids. */
+      interviewee_emails?: string[];
+      /** PostHog distinct IDs of people to interview. May be combined with interviewee_cohort and interviewee_emails. */
+      interviewee_distinct_ids?: string[];
+      /** The product, feature, or idea you want to ask interviewees about. */
+      topic?: string;
+      /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
+      agent_context?: string;
+      /** Ordered list of questions the voice agent should work through during the interview. */
+      questions?: string[];
+    }
+
     export interface PatchedUserProductList {
       readonly id?: string;
       readonly product_path?: string;
@@ -31120,6 +31632,20 @@ export namespace Schemas {
       /** Maximum number of proxy records allowed for this organization's current plan. */
       max_proxy_records: number;
     }
+
+    /**
+     * * `ios` - iOS
+    * `android` - Android
+    * `web` - Web
+     */
+    export type PushTokenPlatformEnum = typeof PushTokenPlatformEnum[keyof typeof PushTokenPlatformEnum];
+
+
+    export const PushTokenPlatformEnum = {
+      Ios: 'ios',
+      Android: 'android',
+      Web: 'web',
+    } as const;
 
     export interface QuarantineInput {
       /** @maxLength 512 */
@@ -34961,6 +35487,43 @@ export namespace Schemas {
       install_url: string;
       /** OAuth or install flow used for this GitHub connection. */
       connect_flow: string;
+    }
+
+    export interface UserPushTokenItem {
+      /** PostHog UserPushToken row id. */
+      id: string;
+      /** Device platform the token was issued for.
+
+      * `ios` - iOS
+      * `android` - Android
+      * `web` - Web */
+      platform: PushTokenPlatformEnum;
+      /** When this token was first registered. */
+      created_at: string;
+      /** Last time the mobile app re-registered this token. */
+      last_seen_at: string;
+    }
+
+    export interface UserPushTokenRegisterRequest {
+      /**
+         * Opaque push token issued by the device's platform push service (e.g. an Expo push token).
+         * @maxLength 512
+         */
+      token: string;
+      /** Device platform the token was issued for. One of `ios`, `android`, or `web`.
+
+      * `ios` - iOS
+      * `android` - Android
+      * `web` - Web */
+      platform: PushTokenPlatformEnum;
+    }
+
+    export interface UserPushTokenUnregisterRequest {
+      /**
+         * The opaque push token to remove for the authenticated user.
+         * @maxLength 512
+         */
+      token: string;
     }
 
     export interface UtmEvent {
@@ -39191,6 +39754,32 @@ export namespace Schemas {
       SpanResourceAttribute: 'span_resource_attribute',
     } as const;
 
+    export type UserInterviewTopicsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type UserInterviewTopicsIntervieweesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type UserInterviewsListParams = {
     /**
      * Number of results to return per page.
@@ -40805,7 +41394,7 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type DeploymentsListParams = {
+    export type DeploymentProjectsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -40814,6 +41403,52 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type DeploymentProjectsDeploymentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type DeploymentProjectsDeploymentsEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type EarlyAccessFeatureListParams = {

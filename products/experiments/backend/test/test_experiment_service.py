@@ -438,6 +438,121 @@ class TestExperimentService(APIBaseTest):
 
         assert "Saved metric does not exist or does not belong to this project" in str(ctx.exception)
 
+    @parameterized.expand(
+        [
+            (
+                "not_a_dict",
+                "not-a-dict",
+                "exposure_criteria must be an object, got str",
+            ),
+            (
+                "falsy_empty_list",
+                [],
+                "exposure_criteria must be an object, got list",
+            ),
+            (
+                "falsy_empty_string",
+                "",
+                "exposure_criteria must be an object, got str",
+            ),
+            (
+                "falsy_false",
+                False,
+                "exposure_criteria must be an object, got bool",
+            ),
+            (
+                "filter_test_accounts_string",
+                {"filterTestAccounts": "true"},
+                "exposure_criteria.filterTestAccounts must be a boolean, got str: 'true'",
+            ),
+            (
+                "filter_test_accounts_int",
+                {"filterTestAccounts": 1},
+                "exposure_criteria.filterTestAccounts must be a boolean, got int: 1",
+            ),
+            (
+                "exposure_config_not_a_dict",
+                {"exposure_config": "ActionsNode"},
+                "exposure_criteria.exposure_config must be an object, got str",
+            ),
+            (
+                "exposure_config_unknown_kind",
+                {"exposure_config": {"kind": "EventsNode", "event": "$pageview"}},
+                "exposure_criteria.exposure_config.kind must be one of "
+                "['ExperimentEventExposureConfig', 'ActionsNode'], got 'EventsNode'",
+            ),
+            (
+                "exposure_config_event_kind_missing_event",
+                {"exposure_config": {"kind": "ExperimentEventExposureConfig", "properties": []}},
+                "Invalid exposure_criteria.exposure_config (kind='ExperimentEventExposureConfig')",
+            ),
+            (
+                "exposure_config_actions_kind_missing_id",
+                {"exposure_config": {"kind": "ActionsNode"}},
+                "Invalid exposure_criteria.exposure_config (kind='ActionsNode')",
+            ),
+        ]
+    )
+    def test_validate_experiment_exposure_criteria_rejects_invalid_payloads(
+        self, _: str, exposure_criteria: object, expected_error_fragment: str
+    ) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)
+
+        assert expected_error_fragment in str(ctx.exception), (
+            f"Expected fragment {expected_error_fragment!r} in error: {ctx.exception}"
+        )
+
+    @parameterized.expand(
+        [
+            ("none", None),
+            ("empty_dict", {}),
+            (
+                "event_payload",
+                {
+                    "filterTestAccounts": True,
+                    "exposure_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "$feature_flag_called",
+                        "properties": [],
+                    },
+                },
+            ),
+            (
+                "action_payload",
+                {
+                    "filterTestAccounts": False,
+                    "exposure_config": {"kind": "ActionsNode", "id": 1},
+                },
+            ),
+            (
+                "event_payload_without_explicit_kind",
+                {"exposure_config": {"event": "$pageview", "properties": []}},
+            ),
+        ]
+    )
+    def test_validate_experiment_exposure_criteria_accepts_valid_payloads(
+        self, _: str, exposure_criteria: object
+    ) -> None:
+        ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)
+
+    def test_validate_experiment_exposure_criteria_hint_is_actionable(self) -> None:
+        """The error hint should name both supported kinds so the LLM can self-correct."""
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_exposure_criteria({"exposure_config": {"kind": "FunnelsQuery"}})
+        message = str(ctx.exception)
+        assert "ExperimentEventExposureConfig" in message
+        assert "ActionsNode" in message
+
+    def test_validate_experiment_exposure_criteria_truncates_large_user_values(self) -> None:
+        """A large user-supplied value must not bloat the error message reflected back."""
+        huge_kind = "x" * 10_000
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_exposure_criteria({"exposure_config": {"kind": huge_kind}})
+        message = str(ctx.exception)
+        assert "...(truncated)" in message
+        assert len(message) < 1_000, f"Error message length was {len(message)}, expected to be bounded"
+
     # ------------------------------------------------------------------
     # Service contract fields
     # ------------------------------------------------------------------
