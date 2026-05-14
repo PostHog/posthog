@@ -1,0 +1,17 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block section %}
+<p>Hey kitten from the restaurant,</p>
+
+<p><strong>barbados nigiri is live on posthog</strong> is live on PostHog. That's on you. Well done, recruiter.</p>
+
+<p>Your merch coupon:</p>
+
+<p style="font-size: 18px; font-weight: bold; letter-spacing: 0.05em;">REFERRAL-KJ3E9W</p>
+
+<p>Use it at checkout on the PostHog merch store. Buy something with a hedgehog on it.</p>
+
+<p>You can also open <a href="{% absolute_uri referrals_path %}">referrals</a> in PostHog to track your progress up the
+    pyramide.</p>
+
+<p>If you did not expect this email, reply and let us know. We'll pretend this never happened.</p>
+{% endblock %}

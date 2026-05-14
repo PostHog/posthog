@@ -749,36 +749,63 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     )
 
 
-@shared_task(**EMAIL_TASK_KWARGS)
-@skip_team_scope_audit
-def send_social_referral_shopify_reward_email(
+def deliver_social_referral_merch_reward_notice_email(
+    *,
     user_id: int,
-    discount_code: str,
     referee_organization_name: str,
-    enqueue_email_delivery: bool = True,
+    social_referral_id: str,
+    referee_organization_key: str,
 ) -> None:
-    """Transactional email when a referrer earns a Shopify discount (referral sent first ingested events).
-
-    ``enqueue_email_delivery`` defaults True so standalone ``.delay()`` matches historical behavior (SMTP runs via
-    the ``_send_email`` Celery task). Referral ingestion / Temporal passes ``False`` so Mail sends inside the worker
-    without requiring a separate email-queue consumer (same process behavior as ``manage.py send_test_email``).
-    """
     user: User = User.objects.get(pk=user_id)
     referee_organization_display = sanitize_display_name(
         referee_organization_name,
         fallback="an organization you invited",
         context={
-            "task": "send_social_referral_shopify_reward_email",
+            "task": "deliver_social_referral_merch_reward_notice_email",
+            "user_id": user_id,
+            "social_referral_id": social_referral_id,
+        },
+    )
+    message = EmailMessage(
+        use_http=False,
+        campaign_key=f"social-referral-merch-notice-{social_referral_id}-{referee_organization_key}",
+        subject="Your PostHog merch coupon — thanks for the referral",
+        template_name="social_referral_merch_reward_notice",
+        template_context={
+            "preheader": f"Your merch coupon for referring {referee_organization_display} is in PostHog.",
+            "user_name": user.first_name or "there",
+            "referee_organization_name": referee_organization_display,
+            "cloud": is_cloud(),
+            "site_url": settings.SITE_URL or "",
+            "referrals_path": "/referrals",
+        },
+    )
+    message.add_user_recipient(user)
+    message.send(send_async=False)
+
+
+def deliver_social_referral_shopify_reward_email(
+    user_id: int,
+    discount_code: str,
+    referee_organization_name: str,
+) -> None:
+    """Merch coupon email for referrers (in-process SMTP). ``send_social_referral_shopify_reward_email`` queues this."""
+    user: User = User.objects.get(pk=user_id)
+    referee_organization_display = sanitize_display_name(
+        referee_organization_name,
+        fallback="an organization you invited",
+        context={
+            "task": "deliver_social_referral_shopify_reward_email",
             "user_id": user_id,
         },
     )
     message = EmailMessage(
         use_http=False,
         campaign_key=f"social-referral-shopify-{user.uuid}-{discount_code}",
-        subject="Your referral reward — PostHog merch discount code",
+        subject="Your PostHog merch coupon — thanks for the referral",
         template_name="social_referral_shopify_reward",
         template_context={
-            "preheader": f"Use code {discount_code} on PostHog merch.",
+            "preheader": f"Your merch coupon {discount_code} is ready.",
             "user_name": user.first_name or "there",
             "discount_code": discount_code,
             "referee_organization_name": referee_organization_display,
@@ -788,7 +815,18 @@ def send_social_referral_shopify_reward_email(
         },
     )
     message.add_user_recipient(user)
-    message.send(send_async=enqueue_email_delivery)
+    message.send(send_async=False)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_social_referral_shopify_reward_email(
+    user_id: int,
+    discount_code: str,
+    referee_organization_name: str,
+) -> None:
+    """Queueable wrapper; runs the same in-process SMTP path as :func:`deliver_social_referral_shopify_reward_email`."""
+    deliver_social_referral_shopify_reward_email(user_id, discount_code, referee_organization_name)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

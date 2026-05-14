@@ -2,9 +2,11 @@
 {% block section %}
 <p>Hey {% if user_name %}{{ user_name }}{% else %}there{% endif %},</p>
 
-<p>An invited organization (<strong>{{ referee_organization_name }}</strong>) has sent its first events through your referral link. Here is your Shopify discount code for PostHog merch:</p>
+<p>An organization you referred (<strong>{{ referee_organization_name }}</strong>) is up and running on PostHog. Here is your merch <strong>coupon code</strong> for the PostHog store:</p>
 
 <p style="font-size: 18px; font-weight: bold; letter-spacing: 0.05em;">{{ discount_code }}</p>
+
+<p>Apply this coupon at checkout on PostHog merch — it is your referral reward.</p>
 
 <p>You can always see referral progress in PostHog under <a href="{% absolute_uri referrals_path %}">referrals</a>.</p>
 

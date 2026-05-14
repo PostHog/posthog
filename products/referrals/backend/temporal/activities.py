@@ -8,11 +8,9 @@ Two unrelated concerns share this module:
    internal flow's email hook is still a placeholder.
 2. **Social referral referee status sync** (nightly) — scan ``SocialReferral.referee_state``
    for orgs that have started sending events, flip the per-org ``first_event_sent`` flag,
-   issue optional Shopify referrer codes when configured, enqueue a transactional email
-   to the referrer with the code. Temporal runs this as three activities per row (flip
-   ``first_event_sent``, issue Shopify codes, enqueue reward emails) so each step is
-   visible independently in history; the non-Temporal sweep helper chains the same steps
-   in-process. Failures are still isolated per ``SocialReferral`` row.
+   issue optional Shopify referrer codes when configured, and always send a **merch reward**
+   email per flipped org with a referring user (in-process SMTP; copy does not include a code). Temporal
+   uses three activities per row (flip, issue Shopify codes, send notices).
 
 The two concerns are kept side-by-side rather than split into two modules because they
 ship under the same product and the registration boilerplate already lives in one
@@ -38,7 +36,7 @@ from temporalio import activity
 
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
-from posthog.tasks.email import send_social_referral_shopify_reward_email
+from posthog.tasks.email import deliver_social_referral_merch_reward_notice_email
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 
@@ -65,7 +63,7 @@ from products.referrals.backend.temporal.types import (
     IssueShopifyCodesInput,
     ProcessSingleReferralIngestionInput,
     RecordIngestionCheckFailureInput,
-    SendShopifyRewardEmailsInput,
+    SendReferralIngestionNoticeEmailsInput,
     ShopifyRewardEmailItem,
 )
 from products.referrals.backend.twitter.research.prompts import TwitterReferralCandidates
@@ -511,29 +509,36 @@ def _issue_shopify_codes_for_referral_orgs(referral_id: UUID, org_keys: list[str
     return rewards
 
 
-def _enqueue_shopify_reward_emails(rewards: list[ShopifyRewardEmailItem]) -> None:
-    """Deliver reward mail in-process (still runs the shared Celery task body for one code path).
-
-    Using ``.delay()`` queues ``_send_email`` on the email Celery queue; local Temporal workers typically do not run
-    that consumer, so nothing reaches Maildev. ``apply(..., enqueue_email_delivery=False)`` sends SMTP inline here.
-    """
-    for r in rewards:
-        send_social_referral_shopify_reward_email.apply(
-            kwargs={
-                "user_id": r.user_id,
-                "discount_code": r.discount_code,
-                "referee_organization_name": r.referee_organization_name,
-                "enqueue_email_delivery": False,
-            },
-            throw=True,
+def _deliver_referral_shopify_reward_emails(referral_id: UUID, flipped_org_keys: list[str]) -> None:
+    if not flipped_org_keys:
+        return
+    referral = SocialReferral.objects.filter(id=referral_id).first()
+    if referral is None or referral.user_id is None:
+        return
+    uid = referral.user_id
+    rid_str = str(referral_id)
+    for org_key in flipped_org_keys:
+        try:
+            org_uuid = UUID(org_key)
+        except ValueError:
+            continue
+        referee_name = Organization.objects.filter(id=org_uuid).values_list("name", flat=True).first() or org_key
+        deliver_social_referral_merch_reward_notice_email(
+            user_id=uid,
+            referee_organization_name=str(referee_name),
+            social_referral_id=rid_str,
+            referee_organization_key=org_key,
         )
 
 
 def process_single_social_referral_ingestion_sync(referral_id: UUID) -> dict[str, int]:
-    """Apply ingestion + optional Shopify + emails for one SocialReferral (non-Temporal sweep helper)."""
     flip = _flip_ingestion_for_referral(referral_id)
-    rewards = _issue_shopify_codes_for_referral_orgs(referral_id, flip["flipped_org_keys"])
-    _enqueue_shopify_reward_emails(rewards)
+    flipped_keys = list(flip["flipped_org_keys"])
+    try:
+        _issue_shopify_codes_for_referral_orgs(referral_id, flipped_keys)
+    except Exception:
+        _LOGGER.exception("social_referral_shopify_issue_unexpected_failure", referral_id=str(referral_id))
+    _deliver_referral_shopify_reward_emails(referral_id, flipped_keys)
     return {"orgs_flipped": flip["orgs_flipped"]}
 
 
@@ -583,9 +588,9 @@ async def referral_status_issue_shopify_codes_activity(inp: IssueShopifyCodesInp
     return await django_sync()
 
 
-@activity.defn(name="referral-status-send-shopify-reward-emails")
-def referral_status_send_shopify_reward_emails_activity(inp: SendShopifyRewardEmailsInput) -> None:
-    _enqueue_shopify_reward_emails(list(inp.rewards))
+@activity.defn(name="referral-status-send-referral-ingestion-notice-emails")
+def referral_status_send_referral_ingestion_notice_emails_activity(inp: SendReferralIngestionNoticeEmailsInput) -> None:
+    _deliver_referral_shopify_reward_emails(UUID(inp.social_referral_id), list(inp.flipped_org_keys))
 
 
 @activity.defn(name="referral-status-record-ingestion-check-failure")
