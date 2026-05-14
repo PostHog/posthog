@@ -104,11 +104,18 @@ export function WhenStep(): JSX.Element {
     }
 
     const setIterationCount = (value: number | undefined): void => {
-        if (!value || value < MIN_ITERATION_COUNT) {
-            setSurveyValue('iteration_count', MIN_ITERATION_COUNT)
+        // Don't clamp to min on every keystroke — typing "10" briefly passes through 1, and aggressive
+        // clamping prevents the second digit from being appended. The blur handler enforces the floor.
+        if (value === undefined) {
             return
         }
         setSurveyValue('iteration_count', Math.min(value, MAX_ITERATION_COUNT))
+    }
+
+    const commitIterationCount = (): void => {
+        if (!survey.iteration_count || survey.iteration_count < MIN_ITERATION_COUNT) {
+            setSurveyValue('iteration_count', MIN_ITERATION_COUNT)
+        }
     }
 
     const setSeenSurveyWaitPeriod = (value: number | null): void => {
@@ -283,6 +290,7 @@ export function WhenStep(): JSX.Element {
                             max={MAX_ITERATION_COUNT}
                             value={iterationCount}
                             onChange={(val) => setIterationCount(val ?? undefined)}
+                            onBlur={commitIterationCount}
                             className="w-20"
                         />
                         <span className="text-secondary">times total</span>
