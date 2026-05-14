@@ -120,3 +120,36 @@ class TestGetIntentClusterSnapshot(APIBaseTest):
         assert cluster.tool_distribution[0].error_rate_pct == 8.3
         assert snapshot.computed_with is not None
         assert snapshot.computed_with.n_clusters == 1
+
+    def test_stale_computing_snapshot_is_auto_flipped_to_error(self) -> None:
+        from datetime import timedelta
+
+        from products.mcp_analytics.backend.logic import STALE_COMPUTING_THRESHOLD
+
+        row = MCPIntentClusterSnapshot.objects.create(
+            team=self.team,
+            status=MCPIntentClusterSnapshot.Status.COMPUTING,
+        )
+        # Backdate updated_at past the threshold so the read should auto-recover.
+        stale = timezone.now() - STALE_COMPUTING_THRESHOLD - timedelta(seconds=30)
+        MCPIntentClusterSnapshot.objects.filter(pk=row.pk).update(updated_at=stale)
+
+        snapshot = logic.get_intent_cluster_snapshot(self.team)
+
+        assert snapshot.status == MCPIntentClusterSnapshot.Status.ERROR
+        assert "did not complete" in snapshot.error_message
+
+        row.refresh_from_db()
+        assert row.status == MCPIntentClusterSnapshot.Status.ERROR
+
+    def test_fresh_computing_snapshot_is_left_alone(self) -> None:
+        MCPIntentClusterSnapshot.objects.create(
+            team=self.team,
+            status=MCPIntentClusterSnapshot.Status.COMPUTING,
+        )
+
+        snapshot = logic.get_intent_cluster_snapshot(self.team)
+
+        # Recently updated COMPUTING rows pass through unmodified.
+        assert snapshot.status == MCPIntentClusterSnapshot.Status.COMPUTING
+        assert snapshot.error_message == ""
