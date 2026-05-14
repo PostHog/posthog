@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "type": "string"
+        },
+        "monitor_ids": {
+            "description": "Ordered list of monitor IDs to display on this status page. Order is preserved.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "slug": {
+            "description": "URL slug used in the public URL /status/<slug>. Must be globally unique.",
+            "maxLength": 64,
+            "type": "string"
+        },
+        "title": {
+            "description": "Human-readable title of the status page, shown publicly above the monitor list.",
+            "maxLength": 255,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

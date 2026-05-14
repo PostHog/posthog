@@ -1873,6 +1873,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         path: 'Uptime',
         category: ProductItemCategory.BEHAVIOR,
         href: '/uptime',
+        iconType: 'uptime',
         sceneKey: 'Uptime',
         sceneKeys: ['Uptime', 'UptimeMonitor', 'UptimeStatusPage', 'UptimePublicStatusPage'],
     },

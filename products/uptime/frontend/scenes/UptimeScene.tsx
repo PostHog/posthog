@@ -152,7 +152,7 @@ export function UptimeScene(): JSX.Element {
             <SceneTitleSection
                 name="Uptime"
                 description="Monitor URLs and view their recent ping history."
-                resourceType={{ type: 'default_icon_type' }}
+                resourceType={{ type: 'uptime' }}
                 actions={headerActions}
             />
             <LemonTabs activeKey={activeTab} onChange={(key) => setActiveTab(key)} tabs={tabs} sceneInset />

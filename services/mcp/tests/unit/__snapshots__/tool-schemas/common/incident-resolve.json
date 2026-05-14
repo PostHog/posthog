@@ -1,0 +1,14 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "type": "string"
+        },
+        "resolution_note": {
+            "description": "Required note explaining how the incident was resolved. Shown on the public status page.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "resolution_note"],
+    "type": "object"
+}

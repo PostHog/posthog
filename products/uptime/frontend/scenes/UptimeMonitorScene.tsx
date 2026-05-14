@@ -93,7 +93,7 @@ export function UptimeMonitorScene(): JSX.Element {
                 status banner below. */}
             <SceneTitleSection
                 name={summary.name}
-                resourceType={{ type: 'default_icon_type' }}
+                resourceType={{ type: 'uptime' }}
                 actions={
                     <div className="flex gap-2">
                         <LemonButton type="secondary" icon={<IconPencil />} onClick={() => setEditModalOpen(true)}>

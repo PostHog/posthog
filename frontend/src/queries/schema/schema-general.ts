@@ -3187,6 +3187,7 @@ export type FileSystemIconType =
     | 'link'
     | 'live_debugger'
     | 'logs'
+    | 'uptime'
     | 'tracing'
     | 'metrics'
     | 'workflows'

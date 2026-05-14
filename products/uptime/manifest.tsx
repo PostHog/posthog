@@ -51,6 +51,7 @@ export const manifest: ProductManifest = {
             path: 'Uptime',
             category: ProductItemCategory.BEHAVIOR,
             href: '/uptime',
+            iconType: 'uptime',
             sceneKey: 'Uptime',
         },
     ],

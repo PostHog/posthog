@@ -14,9 +14,7 @@ def backfill_display_order(apps, schema_editor):
     # Monitor inherits from ProductTeamModel which sets default_manager_name="all_teams"
     # — `.objects` doesn't exist; use `_default_manager` so this works regardless of
     # how the model is configured.
-    for monitor in Monitor._default_manager.order_by("team_id", "created_at").only(
-        "id", "team_id", "created_at"
-    ):
+    for monitor in Monitor._default_manager.order_by("team_id", "created_at").only("id", "team_id", "created_at"):
         idx = seen_per_team.get(monitor.team_id, 0)
         monitor.display_order = idx
         monitor.save(update_fields=["display_order"])

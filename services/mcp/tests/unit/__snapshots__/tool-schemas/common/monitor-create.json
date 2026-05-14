@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "name": {
+            "description": "Human-readable name of the monitor.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "url": {
+            "description": "HTTP(S) URL to ping every 5 minutes.",
+            "format": "uri",
+            "maxLength": 2048,
+            "type": "string"
+        }
+    },
+    "required": ["name", "url"],
+    "type": "object"
+}
