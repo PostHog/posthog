@@ -99,6 +99,38 @@ class TestCSPSignalDescription(BaseTest):
         assert extra["line_number"] is None
         assert extra["column_number"] is None
 
+    @parameterized.expand(
+        [
+            ("nan", "NaN"),
+            ("positive_infinity", "Infinity"),
+            ("negative_infinity", "-Infinity"),
+        ]
+    )
+    def test_extra_payload_rejects_non_finite_numbers(self, _name, value):
+        extra = _build_extra(_csp_properties(**{"$csp_line_number": value}))
+        assert extra["line_number"] is None
+
+
+class TestCSPSignalFingerprintRobustness(BaseTest):
+    def test_empty_fields_do_not_collapse_with_pipe_embedded_fields(self):
+        empty = _csp_properties(
+            **{
+                "$csp_violated_directive": None,
+                "$csp_blocked_url": None,
+                "$csp_document_url": None,
+                "$csp_source_file": None,
+            }
+        )
+        pipe_smuggled = _csp_properties(
+            **{
+                "$csp_violated_directive": "|",
+                "$csp_blocked_url": "|",
+                "$csp_document_url": "|",
+                "$csp_source_file": "",
+            }
+        )
+        assert _fingerprint(empty) != _fingerprint(pipe_smuggled)
+
 
 def _enable_csp_signals(team_id: int) -> None:
     cache.set(_enabled_cache_key(team_id), True, 60)
@@ -194,6 +226,18 @@ class TestCSPSignalThrottle(BaseTest):
         result = enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
         assert result == 0
         mock_delay.assert_not_called()
+
+    @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay", side_effect=RuntimeError("broker down"))
+    def test_celery_dispatch_failure_releases_dedup_keys(self, _mock_delay):
+        from posthog.redis import get_client
+
+        properties = _csp_properties()
+        result = enqueue_csp_violation_signals(self.team.id, [properties])
+        assert result == 0
+
+        # The dedup key must have been DEL'd so a retry can fire.
+        key = _dedup_key(self.team.id, _fingerprint(properties))
+        assert get_client().get(key) is None
 
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
     def test_disabled_team_skips_throttle_and_enqueue(self, mock_delay):

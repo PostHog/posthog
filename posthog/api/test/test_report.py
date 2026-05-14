@@ -498,7 +498,8 @@ class TestCspReport(BaseTest):
 
     @patch("posthog.api.report.capture_internal")
     @patch("posthog.api.report.enqueue_csp_violation_signals")
-    def test_csp_signal_skipped_when_team_cache_misses(self, mock_enqueue, mock_capture):
+    @patch("posthog.api.report.logger")
+    def test_csp_signal_skipped_when_team_cache_misses(self, mock_logger, mock_enqueue, mock_capture):
         mock_capture.return_value = MagicMock(status_code=204)
 
         from django.core.cache import cache
@@ -519,6 +520,8 @@ class TestCspReport(BaseTest):
             )
         assert response.status_code == status.HTTP_204_NO_CONTENT
         mock_enqueue.assert_not_called()
+        warning_calls = [c for c in mock_logger.warning.call_args_list if c[0][0] == "csp_signal_team_cache_miss"]
+        assert len(warning_calls) == 1
 
     @patch("posthog.api.report.capture_internal")
     @patch("posthog.api.report.enqueue_csp_violation_signals")
