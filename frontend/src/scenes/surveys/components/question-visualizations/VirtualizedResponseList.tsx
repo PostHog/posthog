@@ -143,8 +143,8 @@ export function VirtualizedResponseList({
     className,
 }: VirtualizedResponseListProps): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
-    const isMobile = isWindowLessThan('sm')
-    const columnCount = isMobile ? 1 : 2
+    const isNarrow = isWindowLessThan('md')
+    const columnCount = isNarrow ? 1 : 2
     const rowCount = Math.ceil(responses.length / columnCount)
     const [isAtBottom, setIsAtBottom] = useState(false)
 
@@ -163,7 +163,7 @@ export function VirtualizedResponseList({
 
     if (responses.length <= MAX_STATIC_RESPONSES) {
         return (
-            <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${className ?? ''}`}>
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-3 ${className ?? ''}`}>
                 {responses.map((response, index) => (
                     <ResponseListItem key={`${response.distinctId}-${index}`} response={response} />
                 ))}
