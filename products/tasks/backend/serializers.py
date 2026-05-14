@@ -22,6 +22,7 @@ from .constants import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
+    SENDBLUE_TASK_REPOSITORY,
 )
 from .models import SandboxEnvironment, Task, TaskAutomation, TaskRun
 from .services.title_generator import generate_task_title
@@ -203,6 +204,8 @@ class TaskSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
         validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
+        if validated_data["origin_product"] == Task.OriginProduct.SENDBLUE and not validated_data.get("repository"):
+            validated_data["repository"] = SENDBLUE_TASK_REPOSITORY
 
         if "request" in self.context and hasattr(self.context["request"], "user"):
             validated_data["created_by"] = self.context["request"].user
@@ -213,7 +216,9 @@ class TaskSerializer(serializers.ModelSerializer):
         )
 
         # Set default GitHub integration if not provided
-        if not validated_data.get("github_integration"):
+        if validated_data.get("origin_product") != Task.OriginProduct.SENDBLUE and not validated_data.get(
+            "github_integration"
+        ):
             default_integration = Integration.objects.filter(team=self.context["team"], kind="github").first()
             if default_integration:
                 validated_data["github_integration"] = default_integration

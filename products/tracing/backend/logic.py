@@ -19,6 +19,7 @@ from posthog.schema import (
     CompareFilter,
     DateRange,
     HogQLFilters,
+    HogQLQueryModifiers,
     IntervalType,
     PropertyGroupFilter,
     PropertyGroupsMode,
@@ -497,6 +498,7 @@ def run_service_names_query(
         team=team,
         workload=Workload.LOGS,
         filters=HogQLFilters(dateRange=date_range),
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             allow_experimental_object_type=False,
             allow_experimental_join_condition=False,
@@ -512,7 +514,7 @@ def run_service_names_query(
 def run_attribute_names_query(
     team: "Team",
     date_range: DateRange,
-    attribute_type: str = "span",
+    attribute_type: str = "span_attribute",
     search: str = "",
     limit: int = 100,
     offset: int = 0,
@@ -528,7 +530,7 @@ def run_attribute_names_query(
     )
 
     property_filter_type = (
-        attribute_type if attribute_type in ("span", "span_attribute", "span_resource_attribute") else "span_attribute"
+        attribute_type if attribute_type in ("span_attribute", "span_resource_attribute") else "span_attribute"
     )
 
     query = parse_select(
@@ -565,6 +567,7 @@ def run_attribute_names_query(
         team=team,
         workload=Workload.LOGS,
         filters=HogQLFilters(dateRange=date_range),
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",
             max_bytes_to_read=5_000_000_000,
@@ -584,7 +587,7 @@ def run_attribute_names_query(
 def run_attribute_values_query(
     team: "Team",
     date_range: DateRange,
-    attribute_type: str = "span",
+    attribute_type: str = "span_attribute",
     attribute_key: str = "",
     search: str = "",
     limit: int = 100,
@@ -636,6 +639,7 @@ def run_attribute_values_query(
         team=team,
         workload=Workload.LOGS,
         filters=HogQLFilters(dateRange=date_range),
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",
             max_bytes_to_read=5_000_000_000,

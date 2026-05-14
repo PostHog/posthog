@@ -41,6 +41,13 @@ class SharingConfiguration(models.Model):
         null=True,
         blank=True,
     )
+    interviewee_context = models.ForeignKey(
+        "user_interviews.IntervieweeContext",
+        related_name="sharing_configurations",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
@@ -70,6 +77,7 @@ class SharingConfiguration(models.Model):
             insight=self.insight,
             recording=self.recording,
             notebook=self.notebook,
+            interviewee_context=self.interviewee_context,
             enabled=self.enabled,
             settings=self.settings,
             password_required=self.password_required,
@@ -126,7 +134,7 @@ class SharingConfiguration(models.Model):
         if obj._meta.object_name == "Insight" and (self.dashboard or self.notebook):
             return cast(Insight, obj).id in self.get_connected_insight_ids()
 
-        for comparison in [self.insight, self.dashboard, self.recording, self.notebook]:
+        for comparison in [self.insight, self.dashboard, self.recording, self.notebook, self.interviewee_context]:
             if comparison and comparison == obj:
                 return True
 
