@@ -19,12 +19,18 @@ logger = structlog.get_logger(__name__)
 
 BROWSERBASE_API = "https://api.browserbase.com/v1"
 
+# Regions Browserbase supports. Keep in sync with their docs:
+# https://docs.browserbase.com/features/browser-regions
+SUPPORTED_REGIONS = ("us-west-2", "us-east-1", "eu-central-1", "ap-southeast-1")
+DEFAULT_REGION = "us-west-2"
+
 
 @dataclass(frozen=True)
 class BrowserbaseSession:
     id: str
     connect_url: str  # ws:// or wss:// for Playwright `connect_over_cdp`
     replay_url: str  # https URL a human can open to watch playback
+    region: str  # which region this session ran in
 
 
 def _api_key() -> str:
@@ -42,10 +48,15 @@ def _project_id() -> str:
 
 
 @contextmanager
-def open_session(*, keep_alive: bool = False) -> Iterator[BrowserbaseSession]:
+def open_session(*, region: str | None = None, keep_alive: bool = False) -> Iterator[BrowserbaseSession]:
     """Create a Browserbase session, yield it, and request termination on exit."""
     headers = {"X-BB-API-Key": _api_key(), "Content-Type": "application/json"}
-    payload = {"projectId": _project_id(), "keepAlive": keep_alive}
+    effective_region = region if region in SUPPORTED_REGIONS else DEFAULT_REGION
+    payload: dict[str, object] = {
+        "projectId": _project_id(),
+        "keepAlive": keep_alive,
+        "region": effective_region,
+    }
 
     resp = requests.post(f"{BROWSERBASE_API}/sessions", json=payload, headers=headers, timeout=30)
     resp.raise_for_status()
@@ -57,6 +68,7 @@ def open_session(*, keep_alive: bool = False) -> Iterator[BrowserbaseSession]:
         # Browserbase replay URL convention — confirm with their docs if their dashboard
         # path changes. As of now: https://www.browserbase.com/sessions/{id}
         replay_url=f"https://www.browserbase.com/sessions/{data['id']}",
+        region=effective_region,
     )
 
     try:

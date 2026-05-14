@@ -39,6 +39,12 @@ export const AgenticTestsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Cron expression (5 fields, UTC) describing the run cadence. Empty means manual-only — no automatic runs.'
         ),
+    regions: zod
+        .unknown()
+        .optional()
+        .describe(
+            'List of Browserbase regions the test may run from. Each run picks one at random. Empty list means use the Browserbase default (us-west-2). Supported: us-west-2, us-east-1, eu-central-1, ap-southeast-1.'
+        ),
     source_replay_id: zod.string().max(agenticTestsCreateBodySourceReplayIdMax).nullish(),
 })
 
@@ -71,6 +77,12 @@ export const AgenticTestsUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Cron expression (5 fields, UTC) describing the run cadence. Empty means manual-only — no automatic runs.'
+        ),
+    regions: zod
+        .unknown()
+        .optional()
+        .describe(
+            'List of Browserbase regions the test may run from. Each run picks one at random. Empty list means use the Browserbase default (us-west-2). Supported: us-west-2, us-east-1, eu-central-1, ap-southeast-1.'
         ),
     source_replay_id: zod.string().max(agenticTestsUpdateBodySourceReplayIdMax).nullish(),
 })
@@ -105,5 +117,29 @@ export const AgenticTestsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Cron expression (5 fields, UTC) describing the run cadence. Empty means manual-only — no automatic runs.'
         ),
+    regions: zod
+        .unknown()
+        .optional()
+        .describe(
+            'List of Browserbase regions the test may run from. Each run picks one at random. Empty list means use the Browserbase default (us-west-2). Supported: us-west-2, us-east-1, eu-central-1, ap-southeast-1.'
+        ),
     source_replay_id: zod.string().max(agenticTestsPartialUpdateBodySourceReplayIdMax).nullish(),
+})
+
+/**
+ * Launch a sandboxed agent to analyze a GitHub repository and propose test flows.
+ */
+export const agenticTestsDetectFlowsCreateBodyRepositoryMax = 256
+
+export const agenticTestsDetectFlowsCreateBodyDomainMax = 256
+
+export const AgenticTestsDetectFlowsCreateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .max(agenticTestsDetectFlowsCreateBodyRepositoryMax)
+        .describe("GitHub repository in 'owner\/repo' format, e.g. 'posthog\/posthog-js'."),
+    domain: zod
+        .string()
+        .max(agenticTestsDetectFlowsCreateBodyDomainMax)
+        .describe("Domain where the product is deployed, e.g. 'us.posthog.com'."),
 })

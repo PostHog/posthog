@@ -44,6 +44,15 @@ class AgenticTest(UUIDModel):
             "Cron expression (5 fields, UTC) describing the run cadence. Empty means manual-only — no automatic runs."
         ),
     )
+    regions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "List of Browserbase regions the test may run from. Each run picks one at "
+            "random. Empty list means use the Browserbase default (us-west-2). "
+            "Supported: us-west-2, us-east-1, eu-central-1, ap-southeast-1."
+        ),
+    )
     next_run_at = models.DateTimeField(
         null=True,
         blank=True,

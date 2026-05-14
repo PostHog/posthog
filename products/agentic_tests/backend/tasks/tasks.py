@@ -19,14 +19,14 @@ from celery import shared_task
 
 from products.agentic_tests.backend.logic.execution import execute_agentic_test_run, queue_agentic_test_run
 from products.agentic_tests.backend.logic.scheduling import compute_next_run_at
-from products.agentic_tests.backend.models import AgenticTest
+from products.agentic_tests.backend.models import AgenticTest, AgenticTestRun
 
 logger = structlog.get_logger(__name__)
 
 MAX_BATCH = 50
 
 
-@shared_task(ignore_result=True, queue="default")
+@shared_task(ignore_result=True)
 def run_due_agentic_tests() -> None:
     """Pick up any active agentic tests whose next_run_at has elapsed and queue a run for each."""
     now = timezone.now()
@@ -46,15 +46,39 @@ def run_due_agentic_tests() -> None:
 
     for test in due_tests:
         try:
-            queue_agentic_test_run(test)
+            queue_agentic_test_run(test, source=AgenticTestRun.Source.SCHEDULED)
         except Exception as exc:  # noqa: BLE001
             logger.exception("agentic_test_enqueue_failed", test_id=str(test.id), error=str(exc))
 
 
-@shared_task(ignore_result=True, queue="default")
+@shared_task(ignore_result=True)
 def run_agentic_test_run(run_id: str) -> None:
     """Execute a single pending AgenticTestRun to completion."""
     try:
         execute_agentic_test_run(run_id)
     except Exception as exc:  # noqa: BLE001
         logger.exception("agentic_test_execution_failed", run_id=run_id, error=str(exc))
+
+
+@shared_task(ignore_result=True)
+def pair_posthog_session_for_run(run_id: str, attempt: int = 1) -> None:
+    """Retry the PostHog session lookup for a run whose immediate lookup came up empty.
+
+    ClickHouse ingestion through Kafka has a few seconds of lag — the recording events
+    aren't always queryable at the moment the run completes. This task fires after a
+    delay (and re-schedules itself once if still empty) to backfill the link.
+    """
+    from products.agentic_tests.backend.logic.execution import _lookup_posthog_session_id
+
+    run = AgenticTestRun.objects.select_related("agentic_test").filter(id=run_id).first()
+    if run is None or run.posthog_session_id:
+        return
+    sid = _lookup_posthog_session_id(team_id=run.agentic_test.team_id, run=run)
+    if sid:
+        run.posthog_session_id = sid
+        run.save(update_fields=["posthog_session_id"])
+        return
+    # One more retry with a longer wait, in case the customer's posthog-js batched and
+    # flushed slowly. Two attempts is enough — anything beyond that is a config issue.
+    if attempt < 2:
+        pair_posthog_session_for_run.apply_async(args=[run_id, attempt + 1], countdown=60)

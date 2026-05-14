@@ -15,6 +15,7 @@ event — no per-test config needed.
 """
 
 import time
+from dataclasses import asdict
 from datetime import timedelta
 from typing import Any
 
@@ -28,12 +29,12 @@ from posthog.ph_client import ph_scoped_capture
 
 from products.agentic_tests.backend.models import AgenticTest, AgenticTestRun
 
-from .runner import run_agent
+from .runner import AgentEvent, run_agent
 
 logger = structlog.get_logger(__name__)
 
 
-def queue_agentic_test_run(test: AgenticTest) -> AgenticTestRun:
+def queue_agentic_test_run(test: AgenticTest, *, source: str = AgenticTestRun.Source.MANUAL) -> AgenticTestRun:
     """
     Create a run row in RUNNING state and dispatch a celery task to finish it.
 
@@ -45,6 +46,7 @@ def queue_agentic_test_run(test: AgenticTest) -> AgenticTestRun:
     run = AgenticTestRun.objects.create(
         agentic_test=test,
         status=AgenticTestRun.Status.RUNNING,
+        source=source,
     )
     run_id = str(run.id)
     transaction.on_commit(lambda: run_agentic_test_run.delay(run_id))
@@ -53,12 +55,13 @@ def queue_agentic_test_run(test: AgenticTest) -> AgenticTestRun:
 
 def execute_agentic_test_run(run_id: str) -> None:
     """Execute an existing running run row to completion. Called from the celery worker."""
-    run = AgenticTestRun.objects.select_related("agentic_test").get(id=run_id)
+    run = AgenticTestRun.objects.select_related("agentic_test__team").get(id=run_id)
     test = run.agentic_test
 
+    log_entries: list[dict[str, Any]] = []
     start = time.monotonic()
     try:
-        result = _run(test)
+        result = _run(test, run=run, log_entries=log_entries)
     except Exception as exc:  # noqa: BLE001 — surface anything as a failed run
         logger.exception("agentic_test_runner_error", test_id=str(test.id), error=str(exc))
         result = {"passed": False, "output": {}, "error": f"Runner error: {exc}"}
@@ -79,6 +82,15 @@ def execute_agentic_test_run(run_id: str) -> None:
     run.output = output
     run.external_session_id = result.get("external_session_id", "")
     run.screenshot_url = result.get("screenshot_url", "")
+    run.region = result.get("region", "")
+    run.posthog_session_id = _lookup_posthog_session_id(team_id=test.team_id, run=run)
+    run.log_entries = log_entries
+    if not run.posthog_session_id:
+        # Events may still be in flight through Kafka -> CH; retry after a delay so
+        # the link populates without the user needing to refresh.
+        from products.agentic_tests.backend.tasks.tasks import pair_posthog_session_for_run
+
+        pair_posthog_session_for_run.apply_async(args=[str(run.id)], countdown=20)
     run.status = AgenticTestRun.Status.PASSED if overall_passed else AgenticTestRun.Status.FAILED
     if not overall_passed:
         if not agent_passed:
@@ -149,18 +161,85 @@ def _check_event_captured(*, team_id: int, event: str, within_seconds: int, star
     return False, f"No '{event}' events captured within {within_seconds}s"
 
 
-def _run(test: AgenticTest) -> dict[str, Any]:
-    """Dispatch to the real Python agent loop or the deterministic mock based on settings."""
+def _run(test: AgenticTest, *, run: AgenticTestRun, log_entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """Dispatch to the real Python agent loop or the deterministic mock based on settings.
+
+    Every AgentEvent emitted by the runner is appended to `log_entries` (mutated in place)
+    so the caller can persist them on the run row, even if the runner crashes mid-stream.
+    """
     if getattr(settings, "AGENTIC_TESTS_USE_MOCK_RUNNER", False):
         return _run_mock(test)
 
     final: dict[str, Any] | None = None
-    for event in run_agent(prompt=test.prompt, target_url=test.target_url):
+    for event in run_agent(
+        prompt=test.prompt,
+        target_url=test.target_url,
+        regions=list(test.regions or []),
+        test_id=str(test.id),
+        test_name=test.name,
+        run_id=str(run.id),
+    ):
+        log_entries.append(_event_to_dict(event))
         if event.type == "final":
             final = event.data
     if final is None:
         return {"passed": False, "output": {}, "error": "Runner produced no final event"}
     return final
+
+
+def _event_to_dict(event: AgentEvent) -> dict[str, Any]:
+    """Serialize an AgentEvent for persistence, attaching a UTC timestamp."""
+    d = asdict(event)
+    d["ts"] = timezone.now().isoformat()
+    return d
+
+
+def _lookup_posthog_session_id(*, team_id: int, run: AgenticTestRun) -> str:
+    """Find the PostHog session replay matching this run's user-agent tag, if any.
+
+    The runner sets `navigator.userAgent` to include `run=<run.id>`, which the customer's
+    own posthog-js captures on every event under `$user_agent`. Querying for that exact
+    substring within the run's time window gives us the single session_id to link to.
+
+    Best-effort: returns empty string if no event matched (e.g. customer's site has no
+    posthog-js, or the agent didn't capture any events before the run completed).
+    """
+    if not run.finished_at or not run.started_at:
+        return ""
+    from posthog.clickhouse.client import sync_execute
+
+    try:
+        # We append `?_phag=run-<id>` to the target URL before the agent navigates, so
+        # the customer's posthog-js auto-captures it into `$current_url`. Lookup is a
+        # substring match on that property, plus a UA fallback for defense in depth.
+        rows = sync_execute(
+            """
+            SELECT $session_id
+            FROM events
+            WHERE team_id = %(team_id)s
+              AND timestamp >= %(start)s
+              AND timestamp <  %(end)s
+              AND $session_id != ''
+              AND (
+                positionUTF8(JSONExtractString(properties, '$current_url'), %(needle)s) > 0
+                OR positionUTF8(JSONExtractString(properties, '$initial_current_url'), %(needle)s) > 0
+                OR positionUTF8(JSONExtractString(properties, '$raw_user_agent'), %(ua_needle)s) > 0
+              )
+            ORDER BY timestamp ASC
+            LIMIT 1
+            """,
+            {
+                "team_id": team_id,
+                "start": run.started_at,
+                "end": run.finished_at + timedelta(minutes=5),
+                "needle": f"_phag=run-{run.id}",
+                "ua_needle": f"run={run.id}",
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 — non-fatal, just no link
+        logger.warning("agentic_test_session_lookup_failed", run_id=str(run.id), error=str(exc))
+        return ""
+    return str(rows[0][0]) if rows and rows[0] and rows[0][0] else ""
 
 
 def _run_mock(test: AgenticTest) -> dict[str, Any]:

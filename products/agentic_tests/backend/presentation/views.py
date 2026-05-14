@@ -157,6 +157,7 @@ class AgenticTestViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         run = AgenticTestRun.objects.create(
             agentic_test=test,
             status=AgenticTestRun.Status.RUNNING,
+            source=AgenticTestRun.Source.MANUAL,
         )
 
         response = StreamingHttpResponse(
@@ -243,6 +244,9 @@ async def _stream_run(*, run: AgenticTestRun, test: AgenticTest) -> AsyncIterato
     pushes events into an asyncio.Queue; this async generator awaits the queue
     and yields SSE frames. The async generator is what lets Django's ASGI handler
     (Granian) actually stream chunks to the client instead of collecting them.
+
+    Every event is also captured into a local list and persisted onto the run row
+    at the end so the Runs tab has a permanent record of what happened.
     """
     yield _sse("run_started", {"run_id": str(run.id), "agentic_test_id": str(test.id)})
 
@@ -252,7 +256,14 @@ async def _stream_run(*, run: AgenticTestRun, test: AgenticTest) -> AsyncIterato
 
     def producer() -> None:
         try:
-            for event in run_agent(prompt=test.prompt, target_url=test.target_url):
+            for event in run_agent(
+                prompt=test.prompt,
+                target_url=test.target_url,
+                regions=list(test.regions or []),
+                test_id=str(test.id),
+                test_name=test.name,
+                run_id=str(run.id),
+            ):
                 loop.call_soon_threadsafe(queue.put_nowait, event)
         except Exception as exc:  # noqa: BLE001 — surface crashes as a final event
             crash = AgentEvent(
@@ -272,6 +283,7 @@ async def _stream_run(*, run: AgenticTestRun, test: AgenticTest) -> AsyncIterato
     threading.Thread(target=producer, daemon=True).start()
 
     final: dict[str, Any] | None = None
+    captured_events: list[dict[str, Any]] = []
     try:
         while True:
             try:
@@ -284,6 +296,7 @@ async def _stream_run(*, run: AgenticTestRun, test: AgenticTest) -> AsyncIterato
             if item is SENTINEL:
                 break
             assert isinstance(item, AgentEvent)
+            captured_events.append({"type": item.type, "step": item.step, "data": item.data})
             yield _sse(item.type, {"step": item.step, **item.data})
             if item.type == "final":
                 final = item.data
@@ -292,13 +305,23 @@ async def _stream_run(*, run: AgenticTestRun, test: AgenticTest) -> AsyncIterato
             run=run,
             test=test,
             result=final or {},
+            log_entries=captured_events,
         )
 
     yield _sse("run_finished", {"run_id": str(run.id), "status": run.status})
 
 
-def _persist_run_terminal(*, run: AgenticTestRun, test: AgenticTest, result: dict[str, Any]) -> None:
-    """Write the final state of a streamed run, mirroring execute_agentic_test."""
+def _persist_run_terminal(
+    *,
+    run: AgenticTestRun,
+    test: AgenticTest,
+    result: dict[str, Any],
+    log_entries: list[dict[str, Any]],
+) -> None:
+    """Write the final state of a streamed run. Mirrors `execute_agentic_test_run` so
+    both the celery and SSE paths converge on the same persisted row shape."""
+    from products.agentic_tests.backend.logic.execution import _lookup_posthog_session_id
+
     passed = bool(result.get("passed", False))
     output = result.get("output") or {}
     run.finished_at = timezone.now()
@@ -306,6 +329,13 @@ def _persist_run_terminal(*, run: AgenticTestRun, test: AgenticTest, result: dic
     run.output = output
     run.external_session_id = result.get("external_session_id", "") or ""
     run.screenshot_url = result.get("screenshot_url", "") or ""
+    run.region = result.get("region", "") or ""
+    run.log_entries = log_entries
+    run.posthog_session_id = _lookup_posthog_session_id(team_id=test.team_id, run=run)
+    if not run.posthog_session_id:
+        from products.agentic_tests.backend.tasks.tasks import pair_posthog_session_for_run
+
+        pair_posthog_session_for_run.apply_async(args=[str(run.id)], countdown=20)
     run.status = AgenticTestRun.Status.PASSED if passed else AgenticTestRun.Status.FAILED
     if not passed:
         run.error_message = (result.get("error") or "")[:5000]

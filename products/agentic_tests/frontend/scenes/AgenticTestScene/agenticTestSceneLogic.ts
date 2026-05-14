@@ -41,6 +41,7 @@ export interface AgenticTestDraft {
     assertions: AgenticTestAssertion[]
     source_replay_id?: string | null
     schedule_cron: string
+    regions: string[]
 }
 
 export interface AgenticTestSceneProps {
@@ -54,9 +55,12 @@ const emptyDraft: AgenticTestDraft = {
     description: '',
     target_url: '',
     prompt: '',
-    status: 'proposed',
+    // Manually-created tests start enabled. `proposed` is reserved for AI-suggested tests
+    // produced by the detect-flows path, which always go through accept/reject first.
+    status: 'active',
     assertions: [],
     schedule_cron: '',
+    regions: [],
 }
 
 export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
@@ -170,6 +174,7 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                 assertions: test.assertions ?? [],
                 source_replay_id: test.source_replay_id,
                 schedule_cron: (test as any).schedule_cron ?? '',
+                regions: (test as any).regions ?? [],
             })
             actions.loadRuns()
         },
@@ -188,6 +193,7 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                 assertions: test.assertions ?? [],
                 source_replay_id: test.source_replay_id,
                 schedule_cron: (test as any).schedule_cron ?? '',
+                regions: (test as any).regions ?? [],
             })
         },
         addAssertion: ({ assertionType }) => {

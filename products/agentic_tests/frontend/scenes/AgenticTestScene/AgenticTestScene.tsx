@@ -7,6 +7,7 @@ import { IconBolt } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonCheckbox,
     LemonInput,
     LemonLabel,
     LemonSelect,
@@ -41,6 +42,13 @@ const SCHEDULE_PRESETS: { value: string; label: string }[] = [
     { value: '0 * * * *', label: 'Every hour' },
     { value: '0 */6 * * *', label: 'Every 6 hours' },
     { value: '0 0 * * *', label: 'Every day' },
+]
+
+const REGION_OPTIONS: { value: string; label: string }[] = [
+    { value: 'us-west-2', label: 'US West (Oregon)' },
+    { value: 'us-east-1', label: 'US East (Virginia)' },
+    { value: 'eu-central-1', label: 'EU Central (Frankfurt)' },
+    { value: 'ap-southeast-1', label: 'Asia Pacific (Singapore)' },
 ]
 
 const STATUS_BADGE: Record<string, { type: LemonTagType; label: string }> = {
@@ -213,11 +221,18 @@ function ConfigurationTab({ id }: { id: string | 'new' }): JSX.Element {
                                 Save the test first, then enable it to start running on schedule.
                             </p>
                         )}
-                        {test?.next_run_at && persistedStatus === 'active' && (
-                            <div className="text-xs text-muted">
-                                Next run: <TZLabel time={test.next_run_at} />
-                            </div>
-                        )}
+                        {test?.next_run_at &&
+                            persistedStatus === 'active' &&
+                            (new Date(test.next_run_at).getTime() > Date.now() ? (
+                                <div className="text-xs text-muted">
+                                    Next run: <TZLabel time={test.next_run_at} />
+                                </div>
+                            ) : (
+                                <div className="text-xs text-warning">
+                                    Overdue — scheduled for <TZLabel time={test.next_run_at} />. Check that the celery
+                                    beat + worker are running.
+                                </div>
+                            ))}
                     </CardSection>
 
                     <CardSection title="Trigger" icon={<IconBolt className="text-lg" />}>
@@ -232,6 +247,35 @@ function ConfigurationTab({ id }: { id: string | 'new' }): JSX.Element {
                         <p className="text-xs text-muted mb-0">
                             How often this test should run. Manual-only tests can be triggered with Run now.
                         </p>
+                    </CardSection>
+
+                    <CardSection title="Regions">
+                        <p className="text-xs text-muted mb-0">
+                            Browser regions this test may run from. If multiple are selected, each run picks one at
+                            random. Leave empty to use the Browserbase default (US West).
+                        </p>
+                        <div className="flex flex-col gap-1">
+                            {REGION_OPTIONS.map((opt) => {
+                                const selected = (testForm.regions ?? []).includes(opt.value)
+                                return (
+                                    <LemonCheckbox
+                                        key={opt.value}
+                                        checked={selected}
+                                        label={opt.label}
+                                        onChange={(checked) => {
+                                            const current = new Set(testForm.regions ?? [])
+                                            if (checked) {
+                                                current.add(opt.value)
+                                            } else {
+                                                current.delete(opt.value)
+                                            }
+                                            setTestFormValue('regions', Array.from(current))
+                                        }}
+                                        data-attr={`agentic-test-region-${opt.value}`}
+                                    />
+                                )
+                            })}
+                        </div>
                     </CardSection>
 
                     <CardSection title="Assertions">
@@ -374,14 +418,57 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
                         render: (_, run) => (run.duration_ms != null ? `${run.duration_ms} ms` : '—'),
                     },
                     {
-                        title: 'Session',
-                        key: 'external_session_id',
+                        title: 'Source',
+                        key: 'source',
                         render: (_, run) =>
-                            run.external_session_id ? (
-                                <code className="text-xs">{run.external_session_id}</code>
+                            (run as any).source ? (
+                                <LemonTag type={(run as any).source === 'scheduled' ? 'primary' : 'muted'}>
+                                    {(run as any).source}
+                                </LemonTag>
                             ) : (
                                 <span className="text-muted">—</span>
                             ),
+                    },
+                    {
+                        title: 'Region',
+                        key: 'region',
+                        render: (_, run) =>
+                            (run as any).region ? (
+                                <code className="text-xs">{(run as any).region}</code>
+                            ) : (
+                                <span className="text-muted">—</span>
+                            ),
+                    },
+                    {
+                        title: 'Replay',
+                        key: 'posthog_session_id',
+                        render: (_, run) => {
+                            const sid = (run as any).posthog_session_id as string | undefined
+                            if (sid) {
+                                return (
+                                    <Link to={`/replay/${sid}`} data-attr="run-replay-link">
+                                        View replay →
+                                    </Link>
+                                )
+                            }
+                            // No session id yet. If the run finished within the retry window
+                            // (~3 min), the celery `pair_posthog_session_for_run` task is still
+                            // going to try the ClickHouse lookup — tell the user to wait
+                            // rather than showing a silent dash.
+                            const finishedAt = run.finished_at ? new Date(run.finished_at).getTime() : 0
+                            const isPairingPending = finishedAt > 0 && Date.now() - finishedAt < 3 * 60 * 1000
+                            if (isPairingPending) {
+                                return (
+                                    <span
+                                        className="text-xs text-muted italic"
+                                        title="Waiting for the customer's posthog-js events to land in ClickHouse so we can pair this run to its session recording. Usually < 30s. Refresh in a moment."
+                                    >
+                                        Pairing replay…
+                                    </span>
+                                )
+                            }
+                            return <span className="text-muted">—</span>
+                        },
                     },
                     {
                         title: 'Error',

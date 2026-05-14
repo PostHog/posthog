@@ -13,6 +13,8 @@ import type {
     AgenticTestRunApi,
     AgenticTestRunsListParams,
     AgenticTestsListParams,
+    DetectFlowsRequestApi,
+    DetectFlowsResponseApi,
     PaginatedAgenticTestListApi,
     PaginatedAgenticTestRunListApi,
     PatchedAgenticTestApi,
@@ -227,7 +229,7 @@ export const getAgenticTestsRunNowCreateUrl = (projectId: string, id: string) =>
 }
 
 /**
- * Trigger an immediate run of this agentic test (mocked until browserbase wiring lands).
+ * Trigger an immediate run of this agentic test (blocks until complete; for long runs prefer `stream`).
  */
 export const agenticTestsRunNowCreate = async (
     projectId: string,
@@ -237,5 +239,70 @@ export const agenticTestsRunNowCreate = async (
     return apiMutator<AgenticTestRunApi>(getAgenticTestsRunNowCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getAgenticTestsStreamCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/agentic_tests/${id}/stream/`
+}
+
+/**
+ * Trigger a run and stream progress as Server-Sent Events. Each event is a JSON line with `type` and `data`. A terminal event with `type='final'` carries the persisted AgenticTestRun id (`run_id`) so the client can fetch the row.
+ */
+export const agenticTestsStreamCreate = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getAgenticTestsStreamCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getAgenticTestsDetectFlowsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/agentic_tests/detect_flows/`
+}
+
+/**
+ * Get the latest flow-detection task for this team, if any.
+ */
+export const agenticTestsDetectFlowsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DetectFlowsResponseApi> => {
+    return apiMutator<DetectFlowsResponseApi>(getAgenticTestsDetectFlowsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgenticTestsDetectFlowsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/agentic_tests/detect_flows/`
+}
+
+/**
+ * Launch a sandboxed agent to analyze a GitHub repository and propose test flows.
+ */
+export const agenticTestsDetectFlowsCreate = async (
+    projectId: string,
+    detectFlowsRequestApi: DetectFlowsRequestApi,
+    options?: RequestInit
+): Promise<DetectFlowsResponseApi> => {
+    return apiMutator<DetectFlowsResponseApi>(getAgenticTestsDetectFlowsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(detectFlowsRequestApi),
+    })
+}
+
+export const getAgenticTestsDetectFlowsDestroyUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/agentic_tests/detect_flows/`
+}
+
+/**
+ * Dismiss the latest flow-detection task (soft-delete).
+ */
+export const agenticTestsDetectFlowsDestroy = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getAgenticTestsDetectFlowsDestroyUrl(projectId), {
+        ...options,
+        method: 'DELETE',
     })
 }

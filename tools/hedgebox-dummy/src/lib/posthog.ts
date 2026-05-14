@@ -10,7 +10,11 @@ export function initPostHog(): void {
             )
             return
         }
-        const localApiHost = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'http://localhost:8010'
+        // Default to a same-origin rewrite path (see next.config.js) so the site works
+        // identically when visited locally and when proxied through ngrok to a remote
+        // browser (e.g. a Browserbase agent). Override with NEXT_PUBLIC_POSTHOG_HOST
+        // if you have an absolute reachable URL.
+        const localApiHost = process.env.NEXT_PUBLIC_POSTHOG_HOST || '/posthog-proxy'
         posthog.init(demoApiToken, {
             api_host: localApiHost,
             disable_compression: true,

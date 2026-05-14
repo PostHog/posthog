@@ -17,11 +17,15 @@ class AgenticTestRunSerializer(serializers.ModelSerializer):
             "started_at",
             "finished_at",
             "status",
+            "source",
             "duration_ms",
             "output",
             "error_message",
             "external_session_id",
             "screenshot_url",
+            "region",
+            "posthog_session_id",
+            "log_entries",
         ]
         read_only_fields = fields
 
@@ -43,6 +47,7 @@ class AgenticTestSerializer(serializers.ModelSerializer):
             "status",
             "assertions",
             "schedule_cron",
+            "regions",
             "next_run_at",
             "source_replay_id",
             "created_by",

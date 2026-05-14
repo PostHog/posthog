@@ -24,6 +24,17 @@ export const AgenticTestRunStatusEnumApi = {
     Error: 'error',
 } as const
 
+/**
+ * * `manual` - Manual
+ * `scheduled` - Scheduled
+ */
+export type AgenticTestRunSourceEnumApi = (typeof AgenticTestRunSourceEnumApi)[keyof typeof AgenticTestRunSourceEnumApi]
+
+export const AgenticTestRunSourceEnumApi = {
+    Manual: 'manual',
+    Scheduled: 'scheduled',
+} as const
+
 export interface AgenticTestRunApi {
     readonly id: string
     readonly agentic_test: string
@@ -31,6 +42,11 @@ export interface AgenticTestRunApi {
     /** @nullable */
     readonly finished_at: string | null
     readonly status: AgenticTestRunStatusEnumApi
+    /** What triggered this run. New sources may be added (e.g. webhook, api).
+
+  * `manual` - Manual
+  * `scheduled` - Scheduled */
+    readonly source: AgenticTestRunSourceEnumApi
     /** @nullable */
     readonly duration_ms: number | null
     /** Raw response from the browser agent. */
@@ -39,6 +55,12 @@ export interface AgenticTestRunApi {
     /** Runner-specific session id (e.g. browserbase) so we can deep-link back to the agent run. */
     readonly external_session_id: string
     readonly screenshot_url: string
+    /** Browserbase region this run executed in (e.g. us-west-2). */
+    readonly region: string
+    /** PostHog session replay id recorded by posthog-js inside the browserbase session. */
+    readonly posthog_session_id: string
+    /** Append-only list of agent events emitted during the run (status, tool_call, tool_result, model_text, final). One dict per event. */
+    readonly log_entries: unknown
 }
 
 export interface PaginatedAgenticTestRunListApi {
@@ -120,12 +142,6 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
-/**
- * Most recent run for this test, or null if none have completed yet.
- * @nullable
- */
-export type AgenticTestApiLastRun = { [key: string]: unknown } | null
-
 export interface AgenticTestApi {
     readonly id: string
     /** @maxLength 255 */
@@ -143,6 +159,8 @@ export interface AgenticTestApi {
      * @maxLength 128
      */
     schedule_cron?: string
+    /** List of Browserbase regions the test may run from. Each run picks one at random. Empty list means use the Browserbase default (us-west-2). Supported: us-west-2, us-east-1, eu-central-1, ap-southeast-1. */
+    regions?: unknown
     /**
      * When the next scheduled run is due. Null when the test is not on a schedule.
      * @nullable
@@ -158,11 +176,8 @@ export interface AgenticTestApi {
     readonly updated_at: string
     /** @nullable */
     readonly last_run_at: string | null
-    /**
-     * Most recent run for this test, or null if none have completed yet.
-     * @nullable
-     */
-    readonly last_run: AgenticTestApiLastRun
+    /** Most recent run for this test, or null if none have completed yet. */
+    readonly last_run: AgenticTestRunApi | null
 }
 
 export interface PaginatedAgenticTestListApi {
@@ -173,12 +188,6 @@ export interface PaginatedAgenticTestListApi {
     previous?: string | null
     results: AgenticTestApi[]
 }
-
-/**
- * Most recent run for this test, or null if none have completed yet.
- * @nullable
- */
-export type PatchedAgenticTestApiLastRun = { [key: string]: unknown } | null
 
 export interface PatchedAgenticTestApi {
     readonly id?: string
@@ -197,6 +206,8 @@ export interface PatchedAgenticTestApi {
      * @maxLength 128
      */
     schedule_cron?: string
+    /** List of Browserbase regions the test may run from. Each run picks one at random. Empty list means use the Browserbase default (us-west-2). Supported: us-west-2, us-east-1, eu-central-1, ap-southeast-1. */
+    regions?: unknown
     /**
      * When the next scheduled run is due. Null when the test is not on a schedule.
      * @nullable
@@ -212,11 +223,36 @@ export interface PatchedAgenticTestApi {
     readonly updated_at?: string
     /** @nullable */
     readonly last_run_at?: string | null
+    /** Most recent run for this test, or null if none have completed yet. */
+    readonly last_run?: AgenticTestRunApi | null
+}
+
+export interface DetectFlowsResponseApi {
+    /** ID of the created task. */
+    task_id: string
     /**
-     * Most recent run for this test, or null if none have completed yet.
+     * ID of the task run to stream logs from.
      * @nullable
      */
-    readonly last_run?: PatchedAgenticTestApiLastRun
+    task_run_id: string | null
+    /**
+     * Current status of the task run: queued, in_progress, completed, failed, or cancelled.
+     * @nullable
+     */
+    status?: string | null
+}
+
+export interface DetectFlowsRequestApi {
+    /**
+     * GitHub repository in 'owner/repo' format, e.g. 'posthog/posthog-js'.
+     * @maxLength 256
+     */
+    repository: string
+    /**
+     * Domain where the product is deployed, e.g. 'us.posthog.com'.
+     * @maxLength 256
+     */
+    domain: string
 }
 
 export type AgenticTestRunsListParams = {

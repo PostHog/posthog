@@ -24,16 +24,17 @@ Final event is always type="final" carrying the runner contract that
 
 import json
 import time
+import random
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import structlog
-from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import BrowserContext, Page, sync_playwright
 
 from posthog.llm.gateway_client import get_llm_client
 
-from .browserbase import BrowserbaseSession, open_session
+from .browserbase import DEFAULT_REGION, SUPPORTED_REGIONS, BrowserbaseSession, open_session
 
 logger = structlog.get_logger(__name__)
 
@@ -228,8 +229,20 @@ def run_agent(
     prompt: str,
     target_url: str,
     max_steps: int = 20,
+    regions: list[str] | None = None,
+    test_id: str = "",
+    test_name: str = "",
+    run_id: str = "",
 ) -> Iterator[AgentEvent]:
-    """Run a single agentic test, yielding events as work happens."""
+    """Run a single agentic test, yielding events as work happens.
+
+    `regions`: list of Browserbase region codes the test may pick from (one chosen at random
+    per run). Empty/None -> Browserbase default.
+    `test_id`, `run_id`, `test_name`: surfaced into the browserbase session's user-agent and
+    HTTP headers so the customer's existing posthog-js (already loaded by their site) tags
+    the resulting session replay with our identifiers — filter by `$user_agent contains
+    "PostHog-AgenticTest"` to find replays from a specific test/run.
+    """
     try:
         client = get_llm_client(LLM_PRODUCT)
     except ValueError as exc:
@@ -239,17 +252,31 @@ def run_agent(
     state = _RunState()
     start = time.monotonic()
 
+    chosen_region = _pick_region(regions)
     try:
-        with open_session() as bb, sync_playwright() as pw:
-            yield AgentEvent("status", {"message": "Browserbase session opened", "replay_url": bb.replay_url})
-            browser = pw.chromium.connect_over_cdp(bb.connect_url)
-            page = (
-                browser.contexts[0].pages[0]
-                if browser.contexts and browser.contexts[0].pages
-                else browser.new_context().new_page()
+        with open_session(region=chosen_region) as bb, sync_playwright() as pw:
+            yield AgentEvent(
+                "status",
+                {
+                    "message": f"Browserbase session opened in {bb.region}",
+                    "replay_url": bb.replay_url,
+                    "region": bb.region,
+                },
             )
+            browser = pw.chromium.connect_over_cdp(bb.connect_url)
+            context = browser.contexts[0] if browser.contexts else browser.new_context()
+            _configure_context(
+                context,
+                test_id=test_id,
+                run_id=run_id,
+                test_name=test_name,
+                region=bb.region,
+            )
+            page = context.pages[0] if context.pages else context.new_page()
+            _override_user_agent_for_page(page, test_id=test_id, run_id=run_id, region=bb.region)
 
-            page.goto(target_url, wait_until="domcontentloaded")
+            tagged_url = _append_run_tracking_params(target_url, run_id=run_id, test_id=test_id)
+            page.goto(tagged_url, wait_until="domcontentloaded")
             page.wait_for_timeout(PAGE_SETTLE_MS)
             refs, snapshot = _enumerate(page)
 
@@ -409,6 +436,7 @@ def _yield_final(
     passed: bool,
     reason: str,
     duration_ms: int,
+    posthog_session_id: str = "",
 ) -> Iterator[AgentEvent]:
     yield AgentEvent(
         "final",
@@ -416,6 +444,8 @@ def _yield_final(
             "passed": passed,
             "external_session_id": bb.id,
             "screenshot_url": bb.replay_url,
+            "region": bb.region,
+            "posthog_session_id": posthog_session_id,
             "output": {
                 "verdict": {"passed": passed, "reason": reason},
                 "actions": state.actions,
@@ -438,6 +468,69 @@ def _final_error(message: str, *, duration_ms: int = 0) -> AgentEvent:
             "error": message,
             "external_session_id": "",
             "screenshot_url": "",
+            "region": "",
+            "posthog_session_id": "",
             "output": {"verdict": {"passed": False, "reason": message}, "actions": [], "duration_ms": duration_ms},
         },
     )
+
+
+def _pick_region(regions: list[str] | None) -> str | None:
+    """Pick a supported region from the configured list. None lets browserbase pick."""
+    if not regions:
+        return None
+    candidates = [r for r in regions if r in SUPPORTED_REGIONS]
+    return random.choice(candidates) if candidates else DEFAULT_REGION
+
+
+_USER_AGENT_BASE = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
+
+def _configure_context(
+    context: BrowserContext,
+    *,
+    test_id: str,
+    run_id: str,
+    test_name: str,
+    region: str,
+) -> None:
+    """Tag every request from this context with identifying headers so customer servers + PostHog
+    session replays can filter by our run."""
+    try:
+        context.set_extra_http_headers(
+            {
+                "X-PostHog-Agentic-Test-Id": test_id,
+                "X-PostHog-Agentic-Test-Run-Id": run_id,
+                "X-PostHog-Agentic-Test-Region": region,
+                "X-PostHog-Agentic-Test-Name": test_name[:120],
+            }
+        )
+    except Exception as exc:  # noqa: BLE001 — non-fatal
+        logger.warning("agentic_test_headers_failed", error=str(exc))
+
+
+def _append_run_tracking_params(url: str, *, run_id: str, test_id: str) -> str:
+    """Append a single tracking param the customer's posthog-js will capture into `$current_url`.
+
+    We deliberately avoid UTM (`utm_*`) so we don't pollute the customer's marketing
+    analytics. `_phag=run-<id>` is unique to PostHog Agentic tests and the run id is
+    enough to look the session up server-side via substring match on `$current_url`.
+    """
+    from urllib.parse import urlencode, urlparse, urlunparse
+
+    parsed = urlparse(url)
+    extra = urlencode({"_phag": f"run-{run_id}"})
+    new_query = f"{parsed.query}&{extra}" if parsed.query else extra
+    return urlunparse(parsed._replace(query=new_query))
+
+
+def _override_user_agent_for_page(page: Page, *, test_id: str, run_id: str, region: str) -> None:
+    """Override navigator.userAgent on this page via CDP so the customer's posthog-js picks it up."""
+    custom_ua = f"{_USER_AGENT_BASE} PostHog-AgenticTest/1.0 (test={test_id}; run={run_id}; region={region})"
+    try:
+        cdp = page.context.new_cdp_session(page)
+        cdp.send("Network.setUserAgentOverride", {"userAgent": custom_ua})
+    except Exception as exc:  # noqa: BLE001 — non-fatal, customer just won't see the tag
+        logger.warning("agentic_test_ua_override_failed", error=str(exc))
