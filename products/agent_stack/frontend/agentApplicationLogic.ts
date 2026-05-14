@@ -10,15 +10,11 @@ import type { agentApplicationLogicType } from './agentApplicationLogicType'
 import {
     agentApplicationsEnvUpdate,
     agentApplicationsPartialUpdate,
+    agentApplicationsPromoteCreate,
     agentApplicationsRetrieve,
     agentApplicationsRevisionsList,
-    agentApplicationsSessionsList,
 } from './generated/api'
-import type {
-    AgentApplicationApi,
-    AgentApplicationRevisionApi,
-    AgentApplicationSessionApi,
-} from './generated/api.schemas'
+import type { AgentApplicationApi, AgentApplicationRevisionApi } from './generated/api.schemas'
 
 export enum AgentApplicationTab {
     Overview = 'overview',
@@ -27,6 +23,33 @@ export enum AgentApplicationTab {
 
 export interface AgentApplicationLogicProps {
     slug: string
+}
+
+export interface AgentSession {
+    id: string
+    status: string
+    application_id: string
+    revision_id: string | null
+    created: string | null
+    last_heartbeat: string | null
+    last_transition: string | null
+    transition_count: number
+    state_byte_size: number | null
+}
+
+export interface RequiredSecret {
+    key: string
+    tool: string
+    description?: string
+}
+
+export interface AgentConfig {
+    prompt: string
+    tools: string[]
+    skills: string[]
+    triggers: Array<{ id: string; type: string }>
+    visibility: string
+    required_secrets: RequiredSecret[]
 }
 
 export interface SettingsFormValues {
@@ -78,6 +101,9 @@ export const agentApplicationLogic = kea<agentApplicationLogicType>([
     actions({
         setActiveTab: (tab: AgentApplicationTab) => ({ tab }),
         setApplicationMissing: true,
+        selectRevision: (revisionId: string | null) => ({ revisionId }),
+        promoteRevision: (revisionId: string) => ({ revisionId }),
+        saveSecrets: (keys: Record<string, string>) => ({ keys }),
     }),
 
     reducers({
@@ -91,6 +117,13 @@ export const agentApplicationLogic = kea<agentApplicationLogicType>([
             false,
             {
                 setApplicationMissing: () => true,
+            },
+        ],
+        selectedRevisionId: [
+            null as string | null,
+            {
+                selectRevision: (_, { revisionId }) => revisionId,
+                loadRevisionsSuccess: () => null,
             },
         ],
     }),
@@ -123,15 +156,17 @@ export const agentApplicationLogic = kea<agentApplicationLogicType>([
             },
         ],
         sessions: [
-            [] as AgentApplicationSessionApi[],
+            [] as AgentSession[],
             {
                 loadSessions: async () => {
-                    const response = await agentApplicationsSessionsList(
-                        String(values.currentProjectId),
-                        props.slug,
-                        {}
-                    )
-                    return response.results
+                    const projectId = String(values.currentProjectId)
+                    const url = `/api/projects/${projectId}/agent_applications/${encodeURIComponent(props.slug)}/sessions/`
+                    const res = await fetch(url)
+                    if (!res.ok) {
+                        return []
+                    }
+                    const data = await res.json()
+                    return (data.results ?? []) as AgentSession[]
                 },
             },
         ],
@@ -146,20 +181,48 @@ export const agentApplicationLogic = kea<agentApplicationLogicType>([
             (s) => [s.revisions],
             (revisions: AgentApplicationRevisionApi[]) => revisions.filter((r) => r.deployment_status === 'preview'),
         ],
-        sessionStats: [
-            (s) => [s.sessions],
-            (sessions: AgentApplicationSessionApi[]) => {
-                const stats = { total: sessions.length, running: 0, succeeded: 0, failed: 0 }
-                for (const session of sessions) {
-                    if (session.state === 'running' || session.state === 'available') {
-                        stats.running += 1
-                    } else if (session.state === 'completed') {
-                        stats.succeeded += 1
-                    } else if (session.state === 'failed') {
-                        stats.failed += 1
-                    }
+        activeRevision: [
+            (s) => [s.selectedRevisionId, s.revisions, s.liveRevision],
+            (
+                selectedId: string | null,
+                revisions: AgentApplicationRevisionApi[],
+                liveRevision: AgentApplicationRevisionApi | null
+            ): AgentApplicationRevisionApi | null => {
+                if (selectedId) {
+                    return revisions.find((r) => r.id === selectedId) ?? null
                 }
-                return stats
+                return liveRevision
+            },
+        ],
+        agentConfig: [
+            (s) => [s.activeRevision],
+            (revision: AgentApplicationRevisionApi | null): AgentConfig | null => {
+                if (!revision?.top_level_config) {
+                    return null
+                }
+                const cfg = revision.top_level_config as Record<string, unknown>
+                return {
+                    prompt: (cfg.prompt as string) ?? '',
+                    tools: (cfg.tools as string[]) ?? [],
+                    skills: (cfg.skills as string[]) ?? [],
+                    triggers: (cfg.triggers as Array<{ id: string; type: string }>) ?? [],
+                    visibility: (cfg.visibility as string) ?? 'private',
+                    required_secrets: (cfg.required_secrets as RequiredSecret[]) ?? [],
+                }
+            },
+        ],
+        existingEnvKeys: [
+            (s) => [s.application],
+            (application: AgentApplicationApi | null): Set<string> => {
+                if (!application?.env_redacted) {
+                    return new Set()
+                }
+                return new Set(
+                    application.env_redacted
+                        .split('\n')
+                        .filter((l: string) => l.includes('='))
+                        .map((l: string) => l.split('=')[0])
+                )
             },
         ],
     }),
@@ -191,7 +254,33 @@ export const agentApplicationLogic = kea<agentApplicationLogicType>([
         },
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values, props }) => ({
+        saveSecrets: async ({ keys }) => {
+            const projectId = String(values.currentProjectId)
+            const url = `/api/projects/${projectId}/agent_applications/${encodeURIComponent(props.slug)}/env/`
+            const csrfToken = document.cookie.match(/posthog_csrftoken=([^;]+)/)?.[1] ?? ''
+            const res = await fetch(url, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify({ keys }),
+            })
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}))
+                lemonToast.error(body.detail || 'Failed to save secrets')
+                return
+            }
+            lemonToast.success('Secrets saved')
+            actions.loadApplication()
+        },
+        promoteRevision: async ({ revisionId }) => {
+            const projectId = String(values.currentProjectId)
+            await agentApplicationsPromoteCreate(projectId, props.slug, {
+                revision_id: revisionId,
+            })
+            lemonToast.success('Revision promoted to live')
+            actions.loadRevisions()
+            actions.selectRevision(null)
+        },
         loadApplicationSuccess: ({ application }) => {
             if (application) {
                 actions.setSettingsValues({

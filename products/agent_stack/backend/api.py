@@ -4,28 +4,30 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from django.conf import settings
 from django.db.models import QuerySet
 from django.utils import timezone
 
-import django_filters
+import requests as http_requests
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from . import deploys
-from .models import AgentApplication, AgentApplicationRevision, AgentApplicationSession
+from .models import AgentApplication, AgentApplicationRevision
 from .serializers import (
     AgentApplicationRevisionSerializer,
     AgentApplicationSerializer,
-    AgentApplicationSessionSerializer,
     CompleteUploadRequestSerializer,
     DisableRevisionRequestSerializer,
+    PatchEnvKeysRequestSerializer,
     PreviewRevisionRequestSerializer,
     PromoteRevisionRequestSerializer,
     StartDeployRequestSerializer,
@@ -158,31 +160,41 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["post"], url_path="promote")
     def promote(self, request: ValidatedRequest, **kwargs) -> Response:
-        """Promote a ready revision to live. Demotes the previous live revision atomically."""
+        """Promote a ready revision to live. Blocked if required secrets are missing."""
         application = self.get_object()
         revision = self._get_revision_for_app(application, request.validated_data["revision_id"])
         try:
-            revision = deploys.promote_revision(revision=revision)
+            revision = deploys.promote_revision(revision=revision, application=application)
         except deploys.RevisionStateError as e:
             return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
+        except deploys.MissingSecretsError as e:
+            return Response(
+                {"detail": str(e), "missing_secrets": e.missing},
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(AgentApplicationRevisionSerializer(revision).data)
 
     @validated_request(
         request_serializer=PreviewRevisionRequestSerializer,
         responses={
             200: OpenApiResponse(response=AgentApplicationRevisionSerializer),
-            409: OpenApiResponse(description="Revision is not ready"),
+            409: OpenApiResponse(description="Revision is not ready or secrets missing"),
         },
     )
     @action(detail=True, methods=["post"], url_path="preview")
     def preview(self, request: ValidatedRequest, **kwargs) -> Response:
-        """Mark a ready revision as preview. Multiple previews can coexist; no siblings demoted."""
+        """Mark a ready revision as preview. Blocked if required secrets are missing."""
         application = self.get_object()
         revision = self._get_revision_for_app(application, request.validated_data["revision_id"])
         try:
-            revision = deploys.preview_revision(revision=revision)
+            revision = deploys.preview_revision(revision=revision, application=application)
         except deploys.RevisionStateError as e:
             return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
+        except deploys.MissingSecretsError as e:
+            return Response(
+                {"detail": str(e), "missing_secrets": e.missing},
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(AgentApplicationRevisionSerializer(revision).data)
 
     @validated_request(
@@ -197,15 +209,24 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         revision = deploys.disable_revision(revision=revision)
         return Response(AgentApplicationRevisionSerializer(revision).data)
 
-    @validated_request(
-        request_serializer=UpdateEnvRequestSerializer,
-        responses={200: OpenApiResponse(response=AgentApplicationSerializer)},
-    )
-    @action(detail=True, methods=["put"], url_path="env")
+    @action(detail=True, methods=["put", "patch"], url_path="env")
     def env(self, request: ValidatedRequest, **kwargs) -> Response:
-        """Replace the application's encrypted `.env`. Plaintext is not returned."""
+        """PUT: replace the entire env. PATCH: merge individual keys (set to null to remove)."""
         application = self.get_object()
-        application = deploys.update_env(application=application, env=request.validated_data["env"])
+        if request.method == "PATCH":
+            serializer = PatchEnvKeysRequestSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            application = deploys.patch_env_keys(
+                application=application,
+                keys=serializer.validated_data["keys"],
+            )
+        else:
+            serializer = UpdateEnvRequestSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            application = deploys.update_env(
+                application=application,
+                env=serializer.validated_data["env"],
+            )
         return Response(AgentApplicationSerializer(application).data)
 
 
@@ -245,39 +266,88 @@ class AgentApplicationRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyM
         )
 
 
-class AgentApplicationSessionFilter(django_filters.FilterSet):
-    created_after = django_filters.IsoDateTimeFilter(
-        field_name="created_at",
-        lookup_expr="gte",
-        help_text="Inclusive lower bound on created_at (ISO-8601). Used by `ass logs --follow` polling.",
-    )
-    created_before = django_filters.IsoDateTimeFilter(
-        field_name="created_at",
-        lookup_expr="lt",
-        help_text="Exclusive upper bound on created_at (ISO-8601).",
-    )
-
-    class Meta:
-        model = AgentApplicationSession
-        fields = ["revision", "state", "parent_run_id"]
+def _resolve_application_id(lookup_value: str, team_id: int) -> str | None:
+    """Resolve a slug-or-UUID to the application's UUID string."""
+    try:
+        UUID(str(lookup_value))
+        return str(lookup_value)
+    except (ValueError, TypeError):
+        app = AgentApplication.objects.filter(slug=lookup_value, deleted=False, team_id=team_id).first()
+        return str(app.id) if app else None
 
 
 @extend_schema(tags=["agent_stack"])
-class AgentApplicationSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    """Sessions for an application — read-only, nested under agent_applications."""
+class AgentApplicationSessionProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """Proxy to the agent-janitor service for session list/detail/cancel.
+
+    Django authenticates + authorizes, then forwards to the janitor's internal
+    HTTP API. The janitor owns the session schema — we pass its response through.
+    """
 
     scope_object = "agent_application"
     scope_object_read_actions = ["list", "retrieve"]
-    serializer_class = AgentApplicationSessionSerializer
-    queryset = AgentApplicationSession.objects.all().order_by("-created_at")
-    filter_backends = [DjangoFilterBackend]
-    filterset_class = AgentApplicationSessionFilter
+    scope_object_write_actions = ["cancel"]
 
-    def _should_skip_parents_filter(self) -> bool:
-        return True
+    def _janitor_url(self, path: str) -> str:
+        base = getattr(settings, "AGENT_JANITOR_BASE_URL", "http://localhost:3031")
+        return f"{base.rstrip('/')}{path}"
 
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return _filter_by_parent_application(
-            queryset.filter(team_id=self.team_id),
-            self.parents_query_dict["application_id"],
-        )
+    def _janitor_headers(self) -> dict[str, str]:
+        key = getattr(settings, "AGENT_JANITOR_SHARED_KEY", "")
+        return {"x-internal-key": key} if key else {}
+
+    def _resolve_app_id(self) -> str:
+        lookup = self.parents_query_dict.get("application_id", "")
+        app_id = _resolve_application_id(lookup, self.team_id)
+        if not app_id:
+            raise NotFound("Application not found")
+        return app_id
+
+    def list(self, request: Request, **kwargs) -> Response:
+        """List sessions for this application via the janitor."""
+        app_id = self._resolve_app_id()
+        params = {
+            "application_id": app_id,
+            "team_id": str(self.team_id),
+        }
+        for key in ("status", "limit", "created_before"):
+            val = request.query_params.get(key)
+            if val:
+                params[key] = val
+        try:
+            resp = http_requests.get(
+                self._janitor_url("/internal/sessions"), params=params, headers=self._janitor_headers(), timeout=10
+            )
+        except http_requests.ConnectionError:
+            return Response(
+                {"detail": "agent-janitor service is not reachable"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(resp.json(), status=resp.status_code)
+
+    def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
+        """Get a single session by id via the janitor."""
+        try:
+            resp = http_requests.get(
+                self._janitor_url(f"/internal/sessions/{pk}"), headers=self._janitor_headers(), timeout=10
+            )
+        except http_requests.ConnectionError:
+            return Response(
+                {"detail": "agent-janitor service is not reachable"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(resp.json(), status=resp.status_code)
+
+    @action(detail=True, methods=["post"], url_path="cancel")
+    def cancel(self, request: Request, pk: str, **kwargs) -> Response:
+        """Cancel a running session via the janitor."""
+        try:
+            resp = http_requests.post(
+                self._janitor_url(f"/internal/sessions/{pk}/cancel"), headers=self._janitor_headers(), timeout=10
+            )
+        except http_requests.ConnectionError:
+            return Response(
+                {"detail": "agent-janitor service is not reachable"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(resp.json(), status=resp.status_code)

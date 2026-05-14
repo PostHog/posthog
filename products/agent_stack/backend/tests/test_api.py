@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from products.agent_stack.backend.enums import DeploymentStatus, RevisionState, SessionState
-from products.agent_stack.backend.models import AgentApplication, AgentApplicationRevision, AgentApplicationSession
+from products.agent_stack.backend.enums import DeploymentStatus, RevisionState
+from products.agent_stack.backend.models import AgentApplication, AgentApplicationRevision
 
 SHA = hashlib.sha256(b"bundle").hexdigest()
 
@@ -384,55 +384,3 @@ class TestNestedRevisions(APIBaseTest):
         results = response.json()["results"]
         assert len(results) == 1
         assert results[0]["deployment_status"] == DeploymentStatus.LIVE
-
-
-class TestNestedSessions(APIBaseTest):
-    def _url(self, app) -> str:
-        return f"/api/projects/{self.team.id}/agent_applications/{app.id}/sessions/"
-
-    def _create_session(self, app, revision, **kwargs) -> AgentApplicationSession:
-        return AgentApplicationSession.objects.create(
-            team=app.team,
-            application=app,
-            revision=revision,
-            state=kwargs.get("state", SessionState.RUNNING),
-            input=kwargs.get("input", {}),
-        )
-
-    def test_list_scoped_to_parent_app(self):
-        app = _create_app(self.team, slug="a")
-        other = _create_app(self.team, slug="b")
-        rev_a = _create_revision(app)
-        rev_b = _create_revision(other)
-        self._create_session(app, rev_a)
-        self._create_session(other, rev_b)
-
-        response = self.client.get(self._url(app))
-        results = response.json()["results"]
-        assert len(results) == 1
-        assert results[0]["application"] == str(app.id)
-
-    def test_filter_by_state(self):
-        app = _create_app(self.team)
-        rev = _create_revision(app)
-        self._create_session(app, rev, state=SessionState.RUNNING)
-        self._create_session(app, rev, state=SessionState.COMPLETED)
-
-        response = self.client.get(self._url(app) + "?state=running")
-        results = response.json()["results"]
-        assert len(results) == 1
-        assert results[0]["state"] == SessionState.RUNNING
-
-    def test_filter_by_created_after(self):
-        app = _create_app(self.team)
-        rev = _create_revision(app)
-        older = self._create_session(app, rev)
-        newer = self._create_session(app, rev)
-
-        cutoff = older.created_at.isoformat().replace("+00:00", "Z")
-        response = self.client.get(self._url(app) + f"?created_after={cutoff}")
-        # gte cutoff includes the older row too — verify cutoff > older returns only newer.
-        bumped_cutoff = newer.created_at.isoformat().replace("+00:00", "Z")
-        response = self.client.get(self._url(app) + f"?created_after={bumped_cutoff}")
-        ids = {r["id"] for r in response.json()["results"]}
-        assert ids == {str(newer.id)}

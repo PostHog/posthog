@@ -7,7 +7,7 @@ from django.db import models
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.utils import UUIDModel
 
-from .enums import DeploymentStatus, RevisionState, SandboxState, SessionState
+from .enums import DeploymentStatus, RevisionState, SandboxState
 
 
 class AgentApplication(UUIDModel):
@@ -97,55 +97,6 @@ class AgentApplicationRevision(UUIDModel):
 
     def __str__(self) -> str:
         return f"{self.application_id}:{self.id} ({self.state})"
-
-
-class AgentApplicationSession(UUIDModel):
-    """Main-DB mirror of a job in the agent-runtime queue.
-
-    Queue rows live in the agent-runtime queue DB. This row is the team-scoped,
-    UI-queryable, FK-having record. The runner keeps both in sync — state
-    transitions mirror queue JobState.
-    """
-
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    application = models.ForeignKey(AgentApplication, on_delete=models.CASCADE, related_name="sessions")
-    revision = models.ForeignKey(AgentApplicationRevision, on_delete=models.CASCADE)
-
-    # Points at the job in the agent-runtime queue DB. Null until the runner enqueues.
-    queue_job_id = models.UUIDField(null=True, blank=True, db_index=True)
-    # Same id as the queue's parent_run_id — groups sessions fanned out by one trigger firing.
-    parent_run_id = models.UUIDField(null=True, blank=True, db_index=True)
-
-    state = models.CharField(
-        max_length=32,
-        choices=[(s.value, s.value) for s in SessionState],
-        default=SessionState.AVAILABLE,
-    )
-
-    trigger_type = models.CharField(max_length=64, blank=True, default="")
-    trigger_payload = models.JSONField(default=dict, blank=True)
-
-    input = models.JSONField(default=dict, blank=True)
-    output = models.JSONField(null=True, blank=True)
-    error = models.JSONField(null=True, blank=True)
-
-    # Identifier of the agent-runner instance that currently owns the session.
-    runtime_instance = models.CharField(max_length=255, blank=True, default="")
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    started_at = models.DateTimeField(null=True, blank=True)
-    last_heartbeat_at = models.DateTimeField(null=True, blank=True)
-    completed_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        indexes = [
-            models.Index(fields=["application", "state", "-created_at"], name="agent_stack_session_app_state"),
-            models.Index(fields=["state", "last_heartbeat_at"], name="agent_stack_session_reaper"),
-            models.Index(fields=["parent_run_id"], name="agent_stack_session_parent_run"),
-        ]
-
-    def __str__(self) -> str:
-        return f"session:{self.id} ({self.state})"
 
 
 class AgentApplicationSandboxInstance(UUIDModel):

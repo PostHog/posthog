@@ -105,8 +105,10 @@ def complete_upload(*, revision: AgentApplicationRevision) -> AgentApplicationRe
         return locked
 
 
-def promote_revision(*, revision: AgentApplicationRevision) -> AgentApplicationRevision:
-    """Atomically set the revision live, demote any prior live revision to disabled."""
+def promote_revision(*, revision: AgentApplicationRevision, application: AgentApplication) -> AgentApplicationRevision:
+    """Atomically set the revision live, demote any prior live revision to disabled.
+    Raises MissingSecretsError if required secrets aren't configured on the application."""
+    check_secrets_for_promotion(revision=revision, application=application)
     with transaction.atomic():
         locked = AgentApplicationRevision.objects.select_for_update().get(pk=revision.pk)
         if locked.state != RevisionState.READY:
@@ -126,8 +128,10 @@ def promote_revision(*, revision: AgentApplicationRevision) -> AgentApplicationR
         return locked
 
 
-def preview_revision(*, revision: AgentApplicationRevision) -> AgentApplicationRevision:
-    """Mark a ready revision as preview. Previews coexist — no siblings demoted."""
+def preview_revision(*, revision: AgentApplicationRevision, application: AgentApplication) -> AgentApplicationRevision:
+    """Mark a ready revision as preview. Previews coexist — no siblings demoted.
+    Raises MissingSecretsError if required secrets aren't configured on the application."""
+    check_secrets_for_promotion(revision=revision, application=application)
     with transaction.atomic():
         locked = AgentApplicationRevision.objects.select_for_update().get(pk=revision.pk)
         if locked.state != RevisionState.READY:
@@ -146,8 +150,66 @@ def disable_revision(*, revision: AgentApplicationRevision) -> AgentApplicationR
         return locked
 
 
+class MissingSecretsError(Exception):
+    """Promotion blocked because required secrets aren't set in the application's env."""
+
+    def __init__(self, missing: list[dict[str, str]]) -> None:
+        self.missing = missing
+        keys = [m["key"] for m in missing]
+        super().__init__(f"missing required secrets: {', '.join(keys)}")
+
+
+def _get_required_secrets(revision: AgentApplicationRevision) -> list[dict[str, str]]:
+    """Extract `required_secrets` from the revision's top_level_config."""
+    config = revision.top_level_config or {}
+    return config.get("required_secrets", [])
+
+
+def _get_env_keys(application: AgentApplication) -> set[str]:
+    """Parse the application's encrypted_env and return the set of defined key names."""
+    if not application.encrypted_env:
+        return set()
+    from .serializers import parse_env
+
+    entries, _ = parse_env(application.encrypted_env)
+    return {k for k, _ in entries}
+
+
+def check_secrets_for_promotion(*, revision: AgentApplicationRevision, application: AgentApplication) -> None:
+    """Raise MissingSecretsError if any required_secrets from the revision's config
+    are absent from the application's encrypted_env."""
+    required = _get_required_secrets(revision)
+    if not required:
+        return
+    env_keys = _get_env_keys(application)
+    missing = [s for s in required if s.get("key") not in env_keys]
+    if missing:
+        raise MissingSecretsError(missing)
+
+
 def update_env(*, application: AgentApplication, env: str) -> AgentApplication:
     """Replace encrypted_env. Plaintext flows in via this function only."""
     application.encrypted_env = env
+    application.save(update_fields=["encrypted_env", "updated_at"])
+    return application
+
+
+def patch_env_keys(*, application: AgentApplication, keys: dict[str, str | None]) -> AgentApplication:
+    """Merge individual keys into the existing env. None/empty values remove the key."""
+    from .serializers import parse_env
+
+    existing: dict[str, str] = {}
+    if application.encrypted_env:
+        entries, _ = parse_env(application.encrypted_env)
+        existing = dict(entries)
+
+    for key, value in keys.items():
+        if value is None or value == "":
+            existing.pop(key, None)
+        else:
+            existing[key] = value
+
+    new_env = "\n".join(f"{k}={v}" for k, v in existing.items()) + ("\n" if existing else "")
+    application.encrypted_env = new_env if existing else None
     application.save(update_fields=["encrypted_env", "updated_at"])
     return application

@@ -6,7 +6,7 @@ import re
 
 from rest_framework import serializers
 
-from .models import AgentApplication, AgentApplicationRevision, AgentApplicationSession
+from .models import AgentApplication, AgentApplicationRevision
 
 REDACTED_VALUE = "********"
 
@@ -145,31 +145,6 @@ class AgentApplicationRevisionSerializer(serializers.ModelSerializer):
         read_only_fields = fields  # Revisions are immutable via the public API.
 
 
-class AgentApplicationSessionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = AgentApplicationSession
-        fields = [
-            "id",
-            "team",
-            "application",
-            "revision",
-            "state",
-            "queue_job_id",
-            "parent_run_id",
-            "trigger_type",
-            "trigger_payload",
-            "input",
-            "output",
-            "error",
-            "runtime_instance",
-            "created_at",
-            "started_at",
-            "last_heartbeat_at",
-            "completed_at",
-        ]
-        read_only_fields = fields
-
-
 # --- Input serializers for custom actions ---
 
 
@@ -248,10 +223,29 @@ class UpdateEnvRequestSerializer(serializers.Serializer):
     )
 
     def validate_env(self, value: str) -> str:
-        # Empty env is allowed (clears the stored value).
         if not value:
             return value
         _entries, errors = parse_env(value)
         if errors:
             raise serializers.ValidationError(errors)
+        return value
+
+
+class PatchEnvKeysRequestSerializer(serializers.Serializer):
+    keys = serializers.DictField(
+        child=serializers.CharField(allow_blank=True, allow_null=True),
+        help_text=(
+            "Map of KEY → value to merge into the existing env. "
+            "Set a key to null or empty string to remove it. "
+            "Keys not mentioned are left unchanged."
+        ),
+    )
+
+    def validate_keys(self, value: dict) -> dict:
+        for key in value:
+            if not _ENV_LINE_RE.match(f"{key}=x"):
+                raise serializers.ValidationError(
+                    f"Key `{key}` is not a valid env var name "
+                    "(must start with a letter or `_` and contain only letters, digits, or `_`)."
+                )
         return value

@@ -18,6 +18,9 @@ class DeploymentStatus(StrEnum):
 
 
 class SessionState(StrEnum):
+    """Retained for migration compatibility (0001_initial references this enum).
+    Sessions are no longer modeled in Django — the runtime owns session state."""
+
     AVAILABLE = "available"
     RUNNING = "running"
     COMPLETED = "completed"

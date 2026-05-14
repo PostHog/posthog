@@ -43,7 +43,7 @@ import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
 from products.agent_stack.backend.api import (
     AgentApplicationRevisionViewSet,
-    AgentApplicationSessionViewSet,
+    AgentApplicationSessionProxyViewSet,
     AgentApplicationViewSet,
 )
 from products.dashboards.backend.api import dashboard, dashboard_templates
@@ -1347,7 +1347,7 @@ agent_applications_router.register(
 )
 agent_applications_router.register(
     r"sessions",
-    AgentApplicationSessionViewSet,
+    AgentApplicationSessionProxyViewSet,
     "project_agent_application_sessions",
     ["project_id", "application_id"],
 )

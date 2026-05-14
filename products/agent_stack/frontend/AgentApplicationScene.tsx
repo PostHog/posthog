@@ -2,7 +2,7 @@ import './AgentStack.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconLock, IconPlay, IconWarning } from '@posthog/icons'
+import { IconLock } from '@posthog/icons'
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -20,7 +20,7 @@ export const scene: SceneExport<AgentApplicationLogicProps> = {
 }
 
 function Telemetry(): JSX.Element {
-    const { application, liveRevision, sessionStats } = useValues(agentApplicationLogic)
+    const { application, liveRevision } = useValues(agentApplicationLogic)
     const envCount = application?.env_redacted ? application.env_redacted.split('\n').filter(Boolean).length : 0
 
     return (
@@ -39,27 +39,6 @@ function Telemetry(): JSX.Element {
                 </div>
                 <div className="as-telemetry-meta">
                     {liveRevision ? <span>state: {liveRevision.state}</span> : <span>no live deployment</span>}
-                </div>
-            </div>
-
-            <div className="as-telemetry-cell">
-                <div className="as-telemetry-label">// Sessions</div>
-                <div className="as-telemetry-value" style={{ fontSize: 16 }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <IconPlay style={{ color: 'var(--as-warning)' }} />
-                        {sessionStats.running}
-                    </span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <IconCheckCircle style={{ color: 'var(--as-live)' }} />
-                        {sessionStats.succeeded}
-                    </span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <IconWarning style={{ color: 'var(--as-danger)' }} />
-                        {sessionStats.failed}
-                    </span>
-                </div>
-                <div className="as-telemetry-meta">
-                    <span>total: {sessionStats.total}</span>
                 </div>
             </div>
 

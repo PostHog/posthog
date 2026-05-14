@@ -4,12 +4,6 @@ import { Counter, Gauge } from 'prom-client'
 import { logger } from '../logger'
 import { CleanupResult, JanitorConfig } from './types'
 
-const janitorDeletedCounter = new Counter({
-    name: 'agent_core_janitor_deleted',
-    help: 'Number of terminal agent sessions cleaned up by the janitor',
-    labelNames: ['status'],
-})
-
 const janitorStalledCounter = new Counter({
     name: 'agent_core_janitor_stalled',
     help: 'Number of stalled agent sessions reset by the janitor',
@@ -79,37 +73,10 @@ export class SessionQueueJanitor {
     }
 
     private async cleanupTerminalJobs(): Promise<number> {
-        const cutoff = new Date(Date.now() - this.cleanupGraceMs)
-        const result = await this.pool.query<{ status: string }>(
-            `WITH to_delete AS (
-                SELECT id
-                FROM agent_sessions
-                WHERE status IN ('completed', 'failed', 'canceled')
-                  AND last_transition < $1
-                ORDER BY last_transition ASC
-                LIMIT $2
-                FOR UPDATE SKIP LOCKED
-            )
-            DELETE FROM agent_sessions
-            USING to_delete
-            WHERE agent_sessions.id = to_delete.id
-            RETURNING agent_sessions.status::text`,
-            [cutoff, this.cleanupBatchSize]
-        )
-
-        let total = 0
-        const counts: Record<string, number> = {}
-        for (const row of result.rows) {
-            counts[row.status] = (counts[row.status] ?? 0) + 1
-            total++
-        }
-        for (const [status, count] of Object.entries(counts)) {
-            janitorDeletedCounter.inc({ status }, count)
-        }
-        if (total > 0) {
-            logger.info('SessionQueueJanitor cleaned up terminal sessions', { counts, total })
-        }
-        return total
+        // Terminal sessions are retained indefinitely — they're the audit trail
+        // and the source of truth for the session list UI. The janitor only
+        // handles stall recovery and poison-pill detection, not deletion.
+        return 0
     }
 
     private async failPoisonPills(): Promise<number> {

@@ -1,16 +1,13 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconPlay, IconWarning } from '@posthog/icons'
 import { LemonTable } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { agentApplicationLogic } from '../agentApplicationLogic'
-import type {
-    AgentApplicationRevisionApi,
-    AgentApplicationSessionApi,
-    AgentApplicationSessionStateEnumApi,
-} from '../generated/api.schemas'
+import { agentApplicationLogic, type AgentSession } from '../agentApplicationLogic'
+import type { AgentApplicationRevisionApi } from '../generated/api.schemas'
+import { AgentConfigPanel } from './AgentConfigPanel'
 
 const REVISION_STATE_CLASS: Record<string, string> = {
     pending_upload: 'as-pill as-pill-muted',
@@ -26,24 +23,9 @@ const DEPLOYMENT_CLASS: Record<string, string> = {
     disabled: 'as-pill as-pill-muted',
 }
 
-const SESSION_CLASS: Record<AgentApplicationSessionStateEnumApi, string> = {
-    available: 'as-pill as-pill-muted',
-    running: 'as-pill as-pill-warning',
-    completed: 'as-pill as-pill-live',
-    failed: 'as-pill as-pill-danger',
-    canceled: 'as-pill as-pill-muted',
-}
-
-const SESSION_ICON: Record<AgentApplicationSessionStateEnumApi, JSX.Element | null> = {
-    available: null,
-    running: <IconPlay />,
-    completed: <IconCheckCircle />,
-    failed: <IconWarning />,
-    canceled: null,
-}
-
 function RevisionsStrip(): JSX.Element {
-    const { revisions, revisionsLoading } = useValues(agentApplicationLogic)
+    const { revisions, revisionsLoading, selectedRevisionId, activeRevision } = useValues(agentApplicationLogic)
+    const { selectRevision } = useActions(agentApplicationLogic)
 
     if (revisionsLoading && revisions.length === 0) {
         return (
@@ -64,27 +46,74 @@ function RevisionsStrip(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
-                <div className="as-label">▌ Recent revisions</div>
+                <div className="as-label">▌ Revisions — click to inspect</div>
                 <div className="as-mono text-xs" style={{ color: 'var(--as-text-dim)' }}>
-                    showing {Math.min(revisions.length, 8)} of {revisions.length}
+                    {selectedRevisionId ? (
+                        <button
+                            style={{
+                                color: 'var(--as-accent)',
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: 0,
+                                fontFamily: 'inherit',
+                                fontSize: 'inherit',
+                            }}
+                            onClick={() => selectRevision(null)}
+                        >
+                            ← back to live
+                        </button>
+                    ) : (
+                        `${revisions.length} total`
+                    )}
                 </div>
             </div>
             <div className="flex flex-wrap gap-2">
-                {revisions.slice(0, 8).map((rev: AgentApplicationRevisionApi) => (
-                    <div key={rev.id} className="as-revision">
-                        <span className="as-revision-hash">{rev.id.slice(0, 7)}</span>
-                        <span className={REVISION_STATE_CLASS[rev.state] ?? 'as-pill as-pill-muted'}>{rev.state}</span>
-                        {rev.deployment_status !== 'disabled' && (
-                            <span className={DEPLOYMENT_CLASS[rev.deployment_status]}>{rev.deployment_status}</span>
-                        )}
-                        <span style={{ color: 'var(--as-text-dim)' }}>
-                            <TZLabel time={rev.created_at} />
-                        </span>
-                    </div>
-                ))}
+                {revisions.map((rev: AgentApplicationRevisionApi) => {
+                    const isSelected = activeRevision?.id === rev.id
+                    return (
+                        <div
+                            key={rev.id}
+                            className="as-revision"
+                            onClick={() => selectRevision(rev.id === selectedRevisionId ? null : rev.id)}
+                            style={{
+                                cursor: 'pointer',
+                                borderColor: isSelected ? 'var(--as-accent)' : undefined,
+                                background: isSelected ? 'rgba(56, 189, 248, 0.08)' : undefined,
+                            }}
+                        >
+                            <span className="as-revision-hash">{rev.id.slice(0, 7)}</span>
+                            <span className={REVISION_STATE_CLASS[rev.state] ?? 'as-pill as-pill-muted'}>
+                                {rev.state}
+                            </span>
+                            {rev.deployment_status !== 'disabled' && (
+                                <span className={DEPLOYMENT_CLASS[rev.deployment_status]}>{rev.deployment_status}</span>
+                            )}
+                            <span style={{ color: 'var(--as-text-dim)' }}>
+                                <TZLabel time={rev.created_at} />
+                            </span>
+                        </div>
+                    )
+                })}
             </div>
         </div>
     )
+}
+
+const SESSION_STATUS_CLASS: Record<string, string> = {
+    available: 'as-pill as-pill-muted',
+    running: 'as-pill as-pill-warning',
+    completed: 'as-pill as-pill-live',
+    failed: 'as-pill as-pill-danger',
+    canceled: 'as-pill as-pill-muted',
+}
+
+const SESSION_STATUS_ICON: Record<string, JSX.Element | null> = {
+    running: <IconPlay style={{ width: 10, height: 10 }} />,
+    completed: <IconCheckCircle style={{ width: 10, height: 10 }} />,
+    failed: <IconWarning style={{ width: 10, height: 10 }} />,
+    available: null,
+    canceled: null,
 }
 
 function SessionsTable(): JSX.Element {
@@ -93,10 +122,10 @@ function SessionsTable(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
-                <div className="as-label">▌ Session activity</div>
+                <div className="as-label">▌ Sessions</div>
                 {!sessionsLoading && (
                     <div className="as-mono text-xs" style={{ color: 'var(--as-text-dim)' }}>
-                        {sessions.length} {sessions.length === 1 ? 'event' : 'events'}
+                        {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}
                     </div>
                 )}
             </div>
@@ -106,57 +135,42 @@ function SessionsTable(): JSX.Element {
                     dataSource={sessions}
                     emptyState={
                         <div className="py-8 text-center as-mono text-xs" style={{ color: 'var(--as-text-dim)' }}>
-                            // no session activity yet
+                            // no sessions yet — trigger one via the ingress
                         </div>
                     }
                     columns={[
                         {
-                            title: 'State',
+                            title: 'Status',
                             width: 140,
-                            render: (_, session: AgentApplicationSessionApi) => (
-                                <span className={SESSION_CLASS[session.state]}>
-                                    {SESSION_ICON[session.state]}
-                                    {session.state}
+                            render: (_, session: AgentSession) => (
+                                <span className={SESSION_STATUS_CLASS[session.status] ?? 'as-pill as-pill-muted'}>
+                                    {SESSION_STATUS_ICON[session.status]}
+                                    {session.status}
                                 </span>
                             ),
                         },
                         {
-                            title: 'Trigger',
-                            render: (_, session: AgentApplicationSessionApi) =>
-                                session.trigger_type ? (
-                                    <span className="as-mono" style={{ color: 'var(--as-text)' }}>
-                                        {session.trigger_type}
-                                    </span>
+                            title: 'ID',
+                            render: (_, session: AgentSession) => (
+                                <code className="as-mono text-xs">{session.id.slice(0, 12)}…</code>
+                            ),
+                        },
+                        {
+                            title: 'Transitions',
+                            render: (_, session: AgentSession) => (
+                                <span className="as-mono text-xs">{session.transition_count}</span>
+                            ),
+                        },
+                        {
+                            title: 'Last activity',
+                            render: (_, session: AgentSession) =>
+                                session.last_transition ? (
+                                    <TZLabel time={session.last_transition} />
+                                ) : session.created ? (
+                                    <TZLabel time={session.created} />
                                 ) : (
                                     <span style={{ color: 'var(--as-text-dim)' }}>–</span>
                                 ),
-                        },
-                        {
-                            title: 'Revision',
-                            render: (_, session: AgentApplicationSessionApi) => (
-                                <span className="as-mono" style={{ color: 'var(--as-text-muted)' }}>
-                                    {session.revision.slice(0, 7)}
-                                </span>
-                            ),
-                        },
-                        {
-                            title: 'Heartbeat',
-                            render: (_, session: AgentApplicationSessionApi) =>
-                                session.last_heartbeat_at ? (
-                                    <span style={{ color: 'var(--as-text-muted)' }}>
-                                        <TZLabel time={session.last_heartbeat_at} />
-                                    </span>
-                                ) : (
-                                    <span style={{ color: 'var(--as-text-dim)' }}>–</span>
-                                ),
-                        },
-                        {
-                            title: 'Started',
-                            render: (_, session: AgentApplicationSessionApi) => (
-                                <span style={{ color: 'var(--as-text-muted)' }}>
-                                    <TZLabel time={session.started_at ?? session.created_at} />
-                                </span>
-                            ),
                         },
                     ]}
                 />
@@ -175,11 +189,11 @@ export function AgentApplicationOverview(): JSX.Element {
                     {application.description}
                 </p>
             )}
+            <AgentConfigPanel />
+            <div className="as-divider" />
             <RevisionsStrip />
+            <div className="as-divider" />
             <SessionsTable />
-            <div className="as-mono text-xs" style={{ color: 'var(--as-text-dim)' }}>
-                // session detail view shipping next · use <code>ass logs --follow</code> meanwhile
-            </div>
         </div>
     )
 }
