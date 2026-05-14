@@ -8,7 +8,6 @@ Two things we own here:
 
 1. **Management plane** — a new flag-gated product under `products/agent_stack/` (Django app + viewsets + frontend).
 2. **Runtime** — four TypeScript services under `services/`, deployed as independent node processes. They share **no code** with `nodejs/` (the legacy plugin-server). Anything we want from `nodejs/` we copy and adapt in `services/agent-core/`.
-
    - `services/agent-core/` — shared library, no process.
    - `services/agent-ingress/` — public-facing `*.agents.posthog.com` terminator.
    - `services/agent-runner/` — session executor (queue consumer + SDK).
@@ -26,11 +25,11 @@ Working tracker for the runtime services only — the Django side is being built
 
 ### services/agent-core/ (milestone 5 — substantially done)
 
-- [x] Queue schema + migration ([migrations/0001_initial_schema.sql](../../services/agent-core/migrations/0001_initial_schema.sql)): state enum, `lock_id`, `last_heartbeat`, `BYTEA` state, `transition_count`, `janitor_touch_count`, indexes for dequeue/stall/cleanup
+- [x] Queue schema + migration ([rust/agent_runtime_queue_migrations/](../../rust/agent_runtime_queue_migrations/), sqlx-managed via the shared rust migrations image): state enum, `lock_id`, `last_heartbeat`, `BYTEA` state, `transition_count`, `janitor_touch_count`, indexes for dequeue/stall/cleanup
 - [x] Manager / enqueue with depth limit + 1 MiB state cap ([src/queue/manager.ts](../../services/agent-core/src/queue/manager.ts))
 - [x] Worker / dequeue + `FOR UPDATE SKIP LOCKED` + heartbeat + ack/fail/reschedule/cancel ([src/queue/worker.ts](../../services/agent-core/src/queue/worker.ts))
 - [x] Janitor / stall recovery + poison-pill + terminal cleanup + Prom metrics ([src/queue/janitor.ts](../../services/agent-core/src/queue/janitor.ts))
-- [x] Migrations runner ([bin/migrate.ts](../../services/agent-core/bin/migrate.ts))
+- [x] Migrations runner ([rust/bin/migrate-agent-runtime-queue](../../rust/bin/migrate-agent-runtime-queue), wired into the shared rust sqlx-migrate image)
 - [x] Pub-sub interface + Redis adapter + in-memory adapter ([src/pubsub/](../../services/agent-core/src/pubsub))
 - [x] Internal-API client (`resolve`, `decrypt`) with optional shared-key header ([src/internal-api/client.ts](../../services/agent-core/src/internal-api/client.ts))
 - [x] Built-ins registry — `posthog.events.capture`, `posthog.feature_flags.evaluate`, `http.fetch` ([src/builtins/index.ts](../../services/agent-core/src/builtins/index.ts))

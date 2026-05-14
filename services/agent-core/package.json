@@ -16,8 +16,7 @@
         "lint:fix": "eslint --fix .",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
-        "test": "jest --runInBand --forceExit",
-        "migrate": "tsx bin/migrate.ts"
+        "test": "jest --runInBand --forceExit"
     },
     "dependencies": {
         "ioredis": "^4.27.6",
@@ -47,7 +46,6 @@
         "jest": "catalog:",
         "prettier": "^3.6.2",
         "ts-jest": "^29.1.0",
-        "tsx": "^4.7.0",
         "typescript": "catalog:"
     },
     "engines": {

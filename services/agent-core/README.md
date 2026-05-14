@@ -17,10 +17,14 @@ See [`docs/internal/agent-platform.md`](../../docs/internal/agent-platform.md) f
 
 ## Database
 
-The queue owns a dedicated Postgres DB (`agent_runtime_queue`). Migrations live in `migrations/` and are applied via `bin/migrate.ts`.
+The queue owns a dedicated Postgres DB (`agent_runtime_queue`). Schema lives in [`rust/agent_runtime_queue_migrations/`](../../rust/agent_runtime_queue_migrations/) and is applied with sqlx via the shared rust migrations image — same pattern as cyclotron.
 
 ```bash
-AGENT_RUNTIME_QUEUE_DATABASE_URL=postgres://... pnpm migrate
+# locally via the top-level migrate script (preferred — also creates the DB)
+bin/migrate --scope=agent_runtime
+
+# or directly
+rust/bin/migrate-agent-runtime-queue
 ```
 
 ## Hard rules

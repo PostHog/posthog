@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
@@ -21,11 +21,20 @@ describeIfDb('agent-core queue (DB-gated)', () => {
 
     beforeAll(async () => {
         pool = new Pool({ connectionString: DB_URL })
-        const schema = readFileSync(join(__dirname, '..', '..', 'migrations', '0001_initial_schema.sql'), 'utf8')
         await pool.query(`DROP TABLE IF EXISTS agent_sessions`)
-        await pool.query(`DROP TABLE IF EXISTS agent_runtime_migrations`)
+        await pool.query(`DROP TABLE IF EXISTS _sqlx_migrations`)
         await pool.query(`DROP TYPE IF EXISTS AgentSessionStatus`)
-        await pool.query(schema)
+
+        // Canonical migrations live in rust/agent_runtime_queue_migrations/, applied via
+        // sqlx in production. For this DB-gated suite we replay them in lexicographic
+        // order directly so we don't need sqlx-cli on the test machine.
+        const migrationsDir = join(__dirname, '..', '..', '..', '..', 'rust', 'agent_runtime_queue_migrations')
+        const files = readdirSync(migrationsDir)
+            .filter((f) => f.endsWith('.sql'))
+            .sort()
+        for (const file of files) {
+            await pool.query(readFileSync(join(migrationsDir, file), 'utf8'))
+        }
     })
 
     afterAll(async () => {

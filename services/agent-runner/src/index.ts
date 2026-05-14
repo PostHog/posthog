@@ -1,4 +1,4 @@
-import { InMemorySessionBus, InternalApiClient, RedisSessionBus, SessionBus, logger } from '@posthog/agent-core'
+import { InMemorySessionBus, RedisSessionBus, SessionBus, logger } from '@posthog/agent-core'
 
 import { loadConfig } from './config'
 import { NotImplementedExecutor } from './executor-stub'
@@ -6,11 +6,6 @@ import { RunnerWorker } from './worker'
 
 async function main(): Promise<void> {
     const config = loadConfig()
-
-    const apiClient = new InternalApiClient({
-        baseUrl: config.internalApiBaseUrl,
-        sharedKey: config.internalApiSharedKey,
-    })
 
     const bus: SessionBus = config.redisUrl ? new RedisSessionBus({ url: config.redisUrl }) : new InMemorySessionBus()
 
@@ -23,15 +18,12 @@ async function main(): Promise<void> {
         queueName: config.queueName,
         executor: new NotImplementedExecutor(),
         bus,
-        loadSecrets: async (applicationId) => {
-            if (!applicationId) {
-                return {}
-            }
-            // Real wiring: ask Django for the secrets declared on the manifest. For now,
-            // the placeholder executor never reaches the tool dispatch path, so an empty
-            // map is fine.
-            const { secrets } = await apiClient.decryptSecrets(applicationId, [])
-            return secrets
+        loadSecrets: () => {
+            // EchoExecutor (v1) never reaches tool dispatch, so we skip the Django
+            // decrypt call. When the real Claude Agent SDK executor lands we'll wire
+            // `InternalApiClient.decryptSecrets(applicationId, names)` here, scoped
+            // to the names declared on the manifest the turn is about to invoke.
+            return Promise.resolve({})
         },
     })
 

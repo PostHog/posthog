@@ -52,12 +52,18 @@ export function registerRun(app: Express, deps: ServerDeps): void {
         }
 
         try {
+            const initialState = {
+                messages: [],
+                pendingInputs: [],
+                initialInput: body.input ?? null,
+                turnCount: 0,
+            }
             const sessionId = await deps.queue.createJob({
                 teamId: revision.teamId,
                 applicationId: revision.applicationId,
                 revisionId: revision.revisionId,
                 queueName: 'default',
-                state: body.input ? Buffer.from(JSON.stringify(body.input)) : null,
+                state: Buffer.from(JSON.stringify(initialState), 'utf8'),
             })
             return res.status(202).json({ sessionId })
         } catch (err) {
