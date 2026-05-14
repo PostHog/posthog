@@ -1,6 +1,6 @@
 /**
- * Wraps `setItem` and `removeItem` on the `localStorage` and
- * `sessionStorage` instances to skip redundant writes — `setItem(k, v)`
+ * Wraps `Storage.prototype.setItem` and `removeItem` so that calls on
+ * `localStorage` and `sessionStorage` skip redundant writes — `setItem(k, v)`
  * becomes a no-op when the current stored value already equals `v`, and
  * `removeItem(k)` becomes a no-op when the key isn't present.
  *
@@ -45,7 +45,7 @@ declare global {
 let installed = false
 
 export function installStorageDedupe(): void {
-    if (installed || typeof window === 'undefined') {
+    if (installed || typeof window === 'undefined' || typeof Storage === 'undefined') {
         return
     }
     try {
@@ -70,38 +70,41 @@ export function installStorageDedupe(): void {
     }
     window.__phStorageDedupe = metrics
 
-    const wrap = (storage: Storage, kind: 'local' | 'session'): void => {
-        const origSet = storage.setItem.bind(storage)
-        const origRemove = storage.removeItem.bind(storage)
-        const origGet = storage.getItem.bind(storage)
+    const origSet = Storage.prototype.setItem
+    const origGet = Storage.prototype.getItem
+    const origRemove = Storage.prototype.removeItem
 
-        storage.setItem = function (key: string, value: string): void {
-            if (origGet(key) === value) {
-                metrics[`${kind}SetSkipped`] += 1
-                return
-            }
+    const kindOf = (storage: Storage): 'local' | 'session' | null => {
+        if (storage === window.localStorage) {
+            return 'local'
+        }
+        if (storage === window.sessionStorage) {
+            return 'session'
+        }
+        return null
+    }
+
+    Storage.prototype.setItem = function (key: string, value: string): void {
+        const kind = kindOf(this)
+        if (kind && origGet.call(this, key) === value) {
+            metrics[`${kind}SetSkipped`] += 1
+            return
+        }
+        if (kind) {
             metrics[`${kind}SetPassed`] += 1
-            origSet(key, value)
         }
+        origSet.call(this, key, value)
+    }
 
-        storage.removeItem = function (key: string): void {
-            if (origGet(key) === null) {
-                metrics[`${kind}RemoveSkipped`] += 1
-                return
-            }
+    Storage.prototype.removeItem = function (key: string): void {
+        const kind = kindOf(this)
+        if (kind && origGet.call(this, key) === null) {
+            metrics[`${kind}RemoveSkipped`] += 1
+            return
+        }
+        if (kind) {
             metrics[`${kind}RemovePassed`] += 1
-            origRemove(key)
         }
-    }
-
-    try {
-        wrap(window.localStorage, 'local')
-    } catch {
-        // localStorage can throw in incognito / quota-exceeded — leave it unwrapped
-    }
-    try {
-        wrap(window.sessionStorage, 'session')
-    } catch {
-        // sessionStorage can throw on some embedded contexts — leave it unwrapped
+        origRemove.call(this, key)
     }
 }
