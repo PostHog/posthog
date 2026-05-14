@@ -137,6 +137,35 @@ fn:django.core.handlers.wsgi.WSGIHandler:exit
 
 In PostHog, join events on `properties.request_id` to reconstruct the full timeline.
 
+## Cross-call diff — "this call fails but the next one succeeds"
+
+The single most powerful debugging pattern for bugs gated on hidden state (cache counters, per-request flags, retry-state machines, throttle windows). Capture the **same named locals at `:exit`** for every call to the suspect function, then visually diff two consecutive events.
+
+```dtrace
+fn:myapp.payments.charge_card:exit
+{
+    capture(
+        retry_count=locals["_retry_count"],
+        signing_secret=locals["signing_secret"],
+        is_idempotent=locals["_is_idempotent"],
+        retval=retval,
+        exception=exception
+    );
+}
+```
+
+Reproduce the bug (fail → succeed, or any A → B sequence). Pull events for the program — the two most recent `:exit` rows are your A and B. Lay them side by side:
+
+| field            | call A (fails) | call B (succeeds) |
+| ---------------- | -------------- | ----------------- |
+| `retry_count`    | `0`            | `1`               |
+| `signing_secret` | `"sec-Y"`      | `"sec-X"`         |
+| `is_idempotent`  | `True`         | `False`           |
+
+Any column where A and B differ is a candidate cause. This works because you don't need to know in advance which local is the culprit — capture them all, then look at the diff.
+
+Reach for this pattern whenever the user describes the bug as "first time fails, second works" or "fails then retries through." Don't try to read the source to figure out which local matters — capture all locals at `:exit` and let the diff tell you. The locals named with `_underscore_prefix` are usually the most interesting (they're typically derived flags the function computed internally).
+
 ## Exploratory: "I don't know what to look at yet"
 
 Capture everything on a low-traffic function for the first call to learn the shape:

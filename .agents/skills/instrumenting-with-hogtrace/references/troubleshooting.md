@@ -4,11 +4,38 @@ When a program is installed but events aren't showing up — or showing up in un
 
 ## "I installed the program and there are no events"
 
-**1. Did you wait long enough?**
+**1. Did you wait long enough? (worker arming is asymmetric)**
 
-The runtime polls PostHog roughly every 30 seconds. After install, expect up to a minute before the program is picked up, _plus_ however long until the target function gets called. For low-traffic targets, give it a few minutes.
+The runtime polls PostHog roughly every 30 seconds, and the manager is **per-Granian-worker** — each worker process polls independently. After install, expect:
 
-**2. Does the specifier resolve in the running process?**
+- Up to ~30s before any worker picks up the program.
+- Additional time for the rest of the workers to poll. A request that lands on a not-yet-armed worker will silently bypass the probe.
+- Then however long until the target function actually gets called.
+
+Realistic floor: wait at least 60–90 seconds after install before declaring a probe broken. For low-traffic targets, give it a few minutes. The asymmetry also means you may see events from only some thread IDs at first; events should spread across more thread IDs over time as workers catch up.
+
+**2. Did a capture expression error silently?**
+
+Capture-time exceptions (e.g., `arg0.id` when `arg0` has no `.id` attribute) cause the event to be **silently dropped** — no warning, no surfaced error, just a missing event. This is indistinguishable from "the probe never attached."
+
+When a probe seems silent, install a stripped-down twin first:
+
+```dtrace
+fn:your.target.function:entry
+{
+    capture(fired=1);
+}
+```
+
+If that emits events, your probe IS attaching — the original capture expression was raising. Replace typed accesses (`arg0.id`, `kwargs["foo"]`, `retval.status_code`) with their containing dict/tuple first (`args`, `kwargs`, `retval`) to inspect the actual shape, then write typed accesses once you know what's there.
+
+**Common silent-failure patterns:**
+
+- `arg0.<attr>` on a method probe when `arg0` is actually `self` (the class instance) rather than the first declared parameter. For methods, `arg0 == self`; the first declared parameter is `arg1`.
+- `kwargs["foo"]` when the caller didn't pass `foo` as a keyword argument.
+- `retval.<attr>` when the function raised — `retval` is `None` on exception paths. Guard with `/ exception == None /` before touching `retval`.
+
+**3. Does the specifier resolve in the running process?**
 
 The runtime walks the dotted path downward — `myapp.users.UserService.create` is tried as a module first, then as `myapp.users.UserService` with attribute `create`, etc. If nothing resolves, the probe is silently skipped.
 
@@ -22,11 +49,21 @@ Re-read the program (`live-debugger-programs-show`) and verify the path correspo
 
 To confirm the path, switch to a no-op probe that captures something trivial (`capture(fired=1)`) — see [patterns](./patterns.md#confirm-a-probe-is-firing-at-all). If that emits events, the path works.
 
-**3. Is the function actually being called in the window you're watching?**
+**4. Did rapid install/uninstall churn flake the attachment?**
 
-Try a function you know is hot (e.g., a request handler) as a sanity check.
+Programs are immutable, so iterating on probe shape means a sequence of install → test → uninstall → install. In practice this churn can leave some workers with stale state: a worker that uninstalls an old program may take an extra poll cycle to attach the new one, and during that window events appear "lost."
 
-**4. Is the predicate always false?**
+If you've done several install/uninstall cycles in quick succession and a probe that worked moments ago seems silent:
+
+- Wait 60–90s and try again before assuming the new program is broken.
+- Prefer **extending an existing installed program** with new probes (re-install once with the full set you want) over many small install/uninstall cycles.
+- The `dispatch:entry` sanity probe pattern can confirm attachment is working on at least one worker before you trust silence as signal.
+
+**5. Is the function actually being called in the window you're watching?**
+
+Try a function you know is hot (e.g., a request handler) as a sanity check. `rest_framework.views.APIView.dispatch:entry` fires on every DRF request and is useful as a per-worker "are probes attaching at all" canary.
+
+**6. Is the predicate always false?**
 
 Re-install without the predicate temporarily. If events start firing, the predicate is the culprit. Common causes:
 

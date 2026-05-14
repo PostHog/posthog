@@ -89,6 +89,8 @@ The tool returns the program's `id`. Save it — you need it for events and unin
 
 The runtime poller picks up the program on its next tick (~30 seconds). Probes start firing as soon as the wrapper is installed on the target function. There's no "deploy" step — installation is the deploy.
 
+**Arming is per-worker and asymmetric.** The runtime manager runs in each Granian worker process independently; each worker polls on its own ~30s cycle. After install, expect probes to appear on different workers at different times within the first minute — a request that lands on a not-yet-armed worker will silently bypass the probe. Plan to wait **at least 60 seconds** after install before assuming the probe is wired up; for low-traffic targets give it longer.
+
 ## Watching for events
 
 `live-debugger-programs-events` returns the most recent probe-hit events for one program (by `id`), most recent first. Each event has:
@@ -114,6 +116,16 @@ See [troubleshooting](./references/troubleshooting.md) for more.
 Hogtrace programs are immutable after install (no update endpoint). To change a program, uninstall the old one and install a new one. The old program's events stay queryable for history; only its probes stop firing.
 
 When iterating quickly, install with a description that includes a version marker ("v2: narrower predicate") so the program list stays scannable.
+
+**Prefer adding probes to a single broad program over many install/uninstall cycles.** Each uninstall→install round costs another full ~60s window for workers to drop the old patches and pick up the new ones, and rapid churn can leave some workers in a stale state where the new program appears silent. If you can predict which captures you'll want before installing, install them all in one program from the start.
+
+## Updating program in-place is not supported — but here's the iteration loop
+
+Because programs are immutable, every change is uninstall + install. To avoid burning iterations:
+
+1. Before installing, decide what you want at `:exit` (usually named locals) and capture them all in one shot — you'll thank yourself when the same data answers your follow-up question.
+2. If a probe seems silent after install, **don't immediately reinstall**. First, give it 60–90s. Then verify attachment with a `capture(fired=1)` sanity probe rather than tweaking the original.
+3. When the user describes a bug as "X happens the first time but not the second," reach for the cross-call diff pattern in [patterns.md](./references/patterns.md#cross-call-diff--this-call-fails-but-the-next-one-succeeds) — capture named locals at `:exit` and diff two consecutive events.
 
 ## Cleaning up
 

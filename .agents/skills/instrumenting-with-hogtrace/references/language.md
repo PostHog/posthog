@@ -23,17 +23,29 @@ Programs can contain multiple probes — they share constants and request-scoped
 
 ### Entry probes
 
-- `args` — tuple of positional arguments
-- `arg0`, `arg1`, … — individual positional arguments
+- `args` — tuple of positional arguments (includes `self` for methods)
+- `arg0`, `arg1`, … — individual positional arguments. **For methods, `arg0` is `self` (the receiver), and `arg1` is the first declared parameter.** Example: `fn:myapp.users.UserService.create:entry` — `arg0` is the `UserService` instance, `arg1` is whatever the method's first parameter is. If you're unsure of the calling convention for a target, capture `args` and `kwargs` first to inspect the shape before writing typed accesses like `arg0.id`.
 - `kwargs` — dict of keyword arguments
-- `self` — receiver for method calls
-- `locals` — dict of local variables (only useful for `entry+N` style probes)
+- `self` — alias for the receiver on methods (equivalent to `arg0` for method probes; not meaningful for module-level functions)
+- `locals` — dict of local variables. On `:entry` probes this is mostly empty (the function body hasn't run); useful at `entry+N` to inspect partial state.
 
 ### Exit probes
 
 - Everything from entry, plus:
 - `retval` — the function's return value
 - `exception` — the exception object if it threw, otherwise `None`
+- `locals` — dict of local variables **as they were when the function returned**, including derived values, computed flags, and branch outcomes. This is one of the highest-signal capture sites — when you want to know "what did this function actually compute internally," capture named locals at `:exit`:
+
+  ```dtrace
+  fn:mymod.build_token:exit
+  {
+      capture(
+          signing_secret=locals["signing_secret"],
+          is_first_call=locals["_is_first_call"],
+          retval=retval
+      );
+  }
+  ```
 
 ### Anywhere
 
