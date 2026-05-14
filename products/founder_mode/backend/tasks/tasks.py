@@ -264,6 +264,7 @@ def run_landing_page_task(founder_project_id: str, user_id: int | None = None) -
             ideation=project.ideation,
             validation=project.validation or {},
             gtm=project.gtm or {},
+            mvp=project.mvp or {},
             team=project.team,
             user=user,
         )

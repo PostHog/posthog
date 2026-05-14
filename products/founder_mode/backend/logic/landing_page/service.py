@@ -31,10 +31,13 @@ LANDING_PAGE_MODEL = "gemini-2.5-flash"
 
 SYSTEM_PROMPT = """You are an experienced product marketer + technical PM writing a *build specification* for a founder's first landing page. The deliverable is NOT a rendered page — it's a detailed brief that a developer (or an AI coding agent like Claude Code / Cursor) will take and turn into a real Next.js + Tailwind + shadcn/ui repo.
 
-You will receive a single founder project as JSON with three earlier-stage outputs:
+You will receive a single founder project as JSON with up to four earlier-stage outputs:
 1. `ideation` — what the founder is building, how it works, who it's for, the problem solved.
 2. `validation` — competitor landscape (with names, URLs, positioning, pricing, strengths, weaknesses), differentiation, top risks, assumptions, and a verdict.
 3. `gtm` — go-to-market positioning, audience, and channels (may be empty if stage 3 isn't filled in yet).
+4. `mvp` — the v1 happy path: one-liner, ordered user journey, must-have features, and a list of features deliberately excluded (may be empty if stage 4 isn't filled in yet).
+
+When `mvp` is present, the landing page MUST reflect what the v1 actually does, not the dreamier vision in `ideation`. Concretely: the hero subhead, "How it works" steps, and feature list should map to the MVP `core_flow` and `must_haves`. Do NOT promise features listed in `deliberately_excluded` — and if a competitor has one of those features, that's a legitimate "we're focused on X, they sprawl into Y" angle for the differentiation copy.
 
 # Output requirements
 
@@ -47,6 +50,7 @@ Every `SourcedText`, `Persona`, `UserPain`, and `ProofPoint` must include `sourc
 - `validation` — claim derived from the validation report generally
 - `validation.<competitor_name>` — a competitor-specific claim
 - `gtm` — claim derived from stage 3 GTM data
+- `mvp` — claim derived from stage 4 MVP happy-path data
 - `brand notebook` — if brand data exists in the project; otherwise mark `brand.source = "synthesized"` instead
 - `synthesized from <X + Y>` — for derived value props that combine multiple sources
 
@@ -122,15 +126,22 @@ def _create_client() -> Any:
     return genai.Client(api_key=settings.GEMINI_API_KEY, posthog_client=posthog_client)
 
 
-def _format_project(*, project_name: str, ideation: dict, validation: dict, gtm: dict) -> str:
-    """Serialize the upstream project state into the user-prompt JSON."""
+def _format_project(*, project_name: str, ideation: dict, validation: dict, gtm: dict, mvp: dict) -> str:
+    """Serialize the upstream project state into the user-prompt JSON.
+
+    Each stage's "completed" payload key differs (validation→report, gtm/mvp→result, etc.),
+    so we unwrap each here to a uniform shape the LLM can grep on.
+    """
     validation_report = validation.get("report") if isinstance(validation, dict) else None
+    gtm_result = gtm.get("result") if isinstance(gtm, dict) else None
+    mvp_result = mvp.get("result") if isinstance(mvp, dict) else None
     return json.dumps(
         {
             "project_name": project_name,
             "ideation": ideation,
             "validation": validation_report or {},
-            "gtm": gtm,
+            "gtm": gtm_result or {},
+            "mvp": mvp_result or {},
         },
         indent=2,
     )
@@ -142,6 +153,7 @@ def generate_landing_page(
     ideation: dict[str, Any],
     validation: dict[str, Any],
     gtm: dict[str, Any],
+    mvp: dict[str, Any],
     team: Team,
     user: User,
 ) -> tuple[LandingPageBuildSpec, str]:
@@ -160,7 +172,7 @@ def generate_landing_page(
 
     response = client.models.generate_content(
         model=LANDING_PAGE_MODEL,
-        contents=_format_project(project_name=project_name, ideation=ideation, validation=validation, gtm=gtm),
+        contents=_format_project(project_name=project_name, ideation=ideation, validation=validation, gtm=gtm, mvp=mvp),
         config=config,
         posthog_distinct_id=user.distinct_id or "",
         posthog_trace_id=trace_id,
