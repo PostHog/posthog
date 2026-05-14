@@ -10,12 +10,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     IntervieweeContextApi,
+    PaginatedInterviewInviteResultListApi,
+    PaginatedInterviewLinkListApi,
     PaginatedIntervieweeContextListApi,
     PaginatedUserInterviewListApi,
     PaginatedUserInterviewTopicListApi,
     PatchedIntervieweeContextApi,
     PatchedUserInterviewApi,
     PatchedUserInterviewTopicApi,
+    SendInvitesRequestApi,
     UserInterviewApi,
     UserInterviewTopicApi,
     UserInterviewTopicsIntervieweesListParams,
@@ -166,6 +169,48 @@ export const userInterviewTopicsDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getUserInterviewTopicsGenerateLinksCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/generate_links/`
+}
+
+/**
+ * Generate one public interview link per targeted interviewee. Materializes an IntervieweeContext row for every identifier on the topic (without overwriting existing per-person context), and an enabled SharingConfiguration with a unique access token. The URL resolves to the public interview viewer with no PostHog auth required.
+ */
+export const userInterviewTopicsGenerateLinksCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PaginatedInterviewLinkListApi> => {
+    return apiMutator<PaginatedInterviewLinkListApi>(getUserInterviewTopicsGenerateLinksCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getUserInterviewTopicsSendInvitesCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/send_invites/`
+}
+
+/**
+ * Generate (if needed) and email a personalized public interview link to every targeted interviewee on this topic whose identifier is an email address. Distinct-ID-only interviewees are skipped and surfaced in the response. Each invite is keyed on the underlying SharingConfiguration so re-runs after token rotation produce a fresh send.
+ */
+export const userInterviewTopicsSendInvitesCreate = async (
+    projectId: string,
+    id: string,
+    sendInvitesRequestApi?: SendInvitesRequestApi,
+    options?: RequestInit
+): Promise<PaginatedInterviewInviteResultListApi> => {
+    return apiMutator<PaginatedInterviewInviteResultListApi>(
+        getUserInterviewTopicsSendInvitesCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(sendInvitesRequestApi),
+        }
+    )
 }
 
 export const getUserInterviewTopicsIntervieweesListUrl = (

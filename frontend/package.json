@@ -157,6 +157,7 @@
         "@tiptap/react": "^3.20.1",
         "@tiptap/starter-kit": "^3.20.1",
         "@tiptap/suggestion": "^3.20.1",
+        "@vapi-ai/web": "2.5.2",
         "@vitejs/plugin-react": "^4.7.0",
         "@xyflow/react": "^12.6.0",
         "bintrees": "^1.0.2",

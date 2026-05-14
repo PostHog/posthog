@@ -18966,6 +18966,36 @@ export namespace Schemas {
       line_refs: string;
     }
 
+    export interface InterviewInviteResult {
+      /** The original identifier (email or distinct ID) from the topic targeting. */
+      interviewee_identifier: string;
+      /**
+         * Email used for delivery. Null when the identifier was not an email (e.g., a distinct ID).
+         * @nullable
+         */
+      email?: string | null;
+      /** The personalized public interview URL embedded in the email body. */
+      interview_url: string;
+      /** True if an email was queued for delivery. False when the recipient was skipped — see `reason`. */
+      sent: boolean;
+      /** Why the email was skipped (e.g., `not_an_email`, `already_sent`). Empty when sent=true. */
+      reason?: string;
+    }
+
+    export interface InterviewLink {
+      /**
+         * The original identifier (email or distinct ID) from the topic targeting.
+         * @maxLength 400
+         */
+      interviewee_identifier: string;
+      /** Best-effort display name derived from the identifier, used to greet the interviewee. */
+      user_name: string;
+      /** Public, unauthenticated URL the interviewee opens to start the call. Backed by a SharingConfiguration access token. */
+      interview_url: string;
+      /** The merged topic + per-interviewee context the voice agent will see during the call. */
+      agent_context: string;
+    }
+
     export interface IntervieweeContext {
       readonly id: string;
       readonly created_by: UserBasic;
@@ -21846,6 +21876,24 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: IntegrationConfig[];
+    }
+
+    export interface PaginatedInterviewInviteResultList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: InterviewInviteResult[];
+    }
+
+    export interface PaginatedInterviewLinkList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: InterviewLink[];
     }
 
     export interface PaginatedIntervieweeContextList {
@@ -33599,6 +33647,18 @@ export namespace Schemas {
       team_sdk_count: number;
       /** Per-SDK health assessments. */
       sdks: SdkAssessment[];
+    }
+
+    export interface SendInvitesRequest {
+      /**
+         * Override the default email subject line. Defaults to a friendly prompt referencing the topic.
+         * @maxLength 200
+         */
+      subject?: string;
+      /** Email address replies should go to. Defaults to the topic creator's email if blank. */
+      reply_to?: string;
+      /** If true (default), queue delivery via Celery. If false, send synchronously and surface errors immediately. */
+      send_async?: boolean;
     }
 
     export type SentimentResultScores = {[key: string]: number};
