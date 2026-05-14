@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSkeleton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTabs, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -16,7 +16,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import type { CatalogTraversalRunDTOApi } from 'products/catalog/frontend/generated/api.schemas'
 import { TaskSessionView } from 'products/tasks/frontend/components/TaskSessionView'
 
-import { catalogLogsSceneLogic } from './catalogLogsSceneLogic'
+import { type CatalogLogsPass, catalogLogsSceneLogic } from './catalogLogsSceneLogic'
 import { CatalogPageTabs } from './CatalogPageTabs'
 import { catalogTaskLogsLogic } from './catalogTaskLogsLogic'
 
@@ -96,22 +96,20 @@ function TaskLogsPane({
     projectId,
     taskId,
     taskRunId,
-    title,
 }: {
     projectId: string
     taskId: string
     taskRunId: string
-    title: string
 }): JSX.Element {
     const logicProps = { projectId, taskId, taskRunId }
     return (
         <BindLogic logic={catalogTaskLogsLogic} props={logicProps}>
-            <TaskLogsPaneInner title={title} />
+            <TaskLogsPaneInner />
         </BindLogic>
     )
 }
 
-function TaskLogsPaneInner({ title }: { title: string }): JSX.Element {
+function TaskLogsPaneInner(): JSX.Element {
     const { run, logs, streamEntries, isStreaming, shouldPoll, rawLogsLoading } = useValues(catalogTaskLogsLogic)
     if (rawLogsLoading && streamEntries.length === 0 && !logs) {
         return (
@@ -122,7 +120,6 @@ function TaskLogsPaneInner({ title }: { title: string }): JSX.Element {
     }
     return (
         <div className="flex flex-col" style={{ minHeight: 320 }}>
-            <div className="px-4 py-2 border-b text-xs font-semibold text-muted">{title}</div>
             <div className="flex-1 overflow-hidden">
                 <TaskSessionView
                     logs={logs}
@@ -138,10 +135,14 @@ function TaskLogsPaneInner({ title }: { title: string }): JSX.Element {
 }
 
 export function CatalogLogsScene(): JSX.Element {
-    const { runs, runsLoading, selectedRun, selectedRunId, syncing } = useValues(catalogLogsSceneLogic)
-    const { setSelectedRunId, startSync } = useActions(catalogLogsSceneLogic)
+    const { runs, runsLoading, selectedRun, selectedRunId, selectedPass, syncing } = useValues(catalogLogsSceneLogic)
+    const { setSelectedRunId, setSelectedPass, startSync } = useActions(catalogLogsSceneLogic)
     const { currentProjectId } = useValues(teamLogic)
     const projectId = String(currentProjectId)
+
+    const descriptionReady = !!(selectedRun?.description_task_id && selectedRun?.description_task_run_id)
+    const metricReady = !!(selectedRun?.metric_task_id && selectedRun?.metric_task_run_id)
+    const activePass: CatalogLogsPass = selectedPass === 'metric' && metricReady ? 'metric' : 'description'
 
     return (
         <SceneContent>
@@ -217,31 +218,46 @@ export function CatalogLogsScene(): JSX.Element {
                                     </span>
                                 )}
                             </div>
-                            {selectedRun.description_task_id && selectedRun.description_task_run_id ? (
-                                <TaskLogsPane
-                                    key={`desc-${selectedRun.id}`}
-                                    projectId={projectId}
-                                    taskId={selectedRun.description_task_id}
-                                    taskRunId={selectedRun.description_task_run_id}
-                                    title="Description pass"
+                            <div className="px-4 pt-2">
+                                <LemonTabs<CatalogLogsPass>
+                                    activeKey={activePass}
+                                    onChange={setSelectedPass}
+                                    tabs={[
+                                        {
+                                            key: 'description',
+                                            label: 'Description pass',
+                                            content: descriptionReady ? (
+                                                <TaskLogsPane
+                                                    key={`desc-${selectedRun.id}`}
+                                                    projectId={projectId}
+                                                    taskId={selectedRun.description_task_id!}
+                                                    taskRunId={selectedRun.description_task_run_id!}
+                                                />
+                                            ) : (
+                                                <div className="px-4 py-4 text-xs text-muted">
+                                                    Description pass hasn't started yet.
+                                                </div>
+                                            ),
+                                        },
+                                        {
+                                            key: 'metric',
+                                            label: 'Metric proposal pass',
+                                            content: metricReady ? (
+                                                <TaskLogsPane
+                                                    key={`metric-${selectedRun.id}`}
+                                                    projectId={projectId}
+                                                    taskId={selectedRun.metric_task_id!}
+                                                    taskRunId={selectedRun.metric_task_run_id!}
+                                                />
+                                            ) : (
+                                                <div className="px-4 py-4 text-xs text-muted">
+                                                    Metric proposal pass hasn't started yet.
+                                                </div>
+                                            ),
+                                        },
+                                    ]}
                                 />
-                            ) : (
-                                <div className="px-4 py-2 text-xs text-muted">Description pass hasn't started yet.</div>
-                            )}
-                            <LemonDivider className="my-0" />
-                            {selectedRun.metric_task_id && selectedRun.metric_task_run_id ? (
-                                <TaskLogsPane
-                                    key={`metric-${selectedRun.id}`}
-                                    projectId={projectId}
-                                    taskId={selectedRun.metric_task_id}
-                                    taskRunId={selectedRun.metric_task_run_id}
-                                    title="Metric proposal pass"
-                                />
-                            ) : (
-                                <div className="px-4 py-2 text-xs text-muted">
-                                    Metric proposal pass hasn't started yet.
-                                </div>
-                            )}
+                            </div>
                         </div>
                     )}
                 </div>

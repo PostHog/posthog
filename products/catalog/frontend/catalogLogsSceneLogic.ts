@@ -11,6 +11,8 @@ import type { CatalogTraversalRunDTOApi } from 'products/catalog/frontend/genera
 
 import type { catalogLogsSceneLogicType } from './catalogLogsSceneLogicType'
 
+export type CatalogLogsPass = 'description' | 'metric'
+
 const RUN_POLL_INTERVAL_MS = 5000
 
 export const catalogLogsSceneLogic = kea<catalogLogsSceneLogicType>([
@@ -21,6 +23,7 @@ export const catalogLogsSceneLogic = kea<catalogLogsSceneLogicType>([
 
     actions({
         setSelectedRunId: (runId: string | null) => ({ runId }),
+        setSelectedPass: (pass: CatalogLogsPass) => ({ pass }),
         startSync: true,
         syncStarted: true,
         syncFailed: true,
@@ -30,6 +33,10 @@ export const catalogLogsSceneLogic = kea<catalogLogsSceneLogicType>([
 
     reducers({
         selectedRunId: [null as string | null, { setSelectedRunId: (_, { runId }) => runId }],
+        selectedPass: [
+            'description' as CatalogLogsPass,
+            { setSelectedPass: (_, { pass }) => pass, setSelectedRunId: () => 'description' as CatalogLogsPass },
+        ],
         syncing: [false, { startSync: () => true, syncStarted: () => false, syncFailed: () => false }],
     }),
 
