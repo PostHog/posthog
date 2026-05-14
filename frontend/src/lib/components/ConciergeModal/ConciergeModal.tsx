@@ -408,7 +408,11 @@ export function ConciergeModal({ isOpen, onClose, title, body }: ConciergeModalP
             <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap" />
 
             <LemonModal isOpen={isOpen} onClose={onClose} simple closable hideCloseButton>
-                <div className="flex flex-col" style={{ width: '85vw', maxWidth: 960, height: '80vh', maxHeight: 720 }}>
+                <div
+                    className="flex flex-col"
+                    style={{ width: '85vw', maxWidth: 960, height: '80vh', maxHeight: 720 }}
+                    onClick={(e) => e.stopPropagation()}
+                >
                     {/* Header: close button */}
                     <div className="flex items-center justify-end gap-2 p-3 border-b border-border">
                         <LemonButton icon={<IconX />} size="small" onClick={onClose} tooltip="Close" />
