@@ -53,6 +53,9 @@ services:
                         path /i/v1/traces
                         path /i/v1/traces/
                         path /i/v1/traces/*
+                        path /i/v1/metrics
+                        path /i/v1/metrics/
+                        path /i/v1/metrics/*
                     }
 
                     @flags {
@@ -342,6 +345,7 @@ services:
             KAFKA_HOSTS: kafka:9092
             JWT_SECRET: '<randomly generated secret key>'
             KAFKA_TOPIC: logs_ingestion
+            KAFKA_METRICS_TOPIC: metrics_ingestion
         networks:
             - otel_network
             - default
