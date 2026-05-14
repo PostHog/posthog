@@ -40,13 +40,6 @@ const SCHEMA_STATUS_ORDER: ExternalDataSchemaStatus[] = [
     ExternalDataSchemaStatus.Running,
     ExternalDataSchemaStatus.Completed,
 ]
-const SCHEMA_STATUS_LABEL: Record<ExternalDataSchemaStatus, string> = {
-    [ExternalDataSchemaStatus.Failed]: 'failed',
-    [ExternalDataSchemaStatus.Paused]: 'paused',
-    [ExternalDataSchemaStatus.Cancelled]: 'cancelled',
-    [ExternalDataSchemaStatus.Running]: 'running',
-    [ExternalDataSchemaStatus.Completed]: 'completed',
-}
 
 export function ManagedSourcesTable(): JSX.Element {
     const { filteredManagedSources, dataWarehouseSourcesLoading, sourceReloadingById, managedSearchTerm } =
@@ -211,7 +204,7 @@ export function ManagedSourcesTable(): JSX.Element {
                                                 forceClickable
                                                 onClick={() => router.actions.push(sourceUrl)}
                                             >
-                                                {schemas.length} {SCHEMA_STATUS_LABEL[status]}
+                                                {schemas.length} {status.toLowerCase()}
                                             </LemonTag>
                                         </Tooltip>
                                     ))}
