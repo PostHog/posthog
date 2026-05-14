@@ -2825,6 +2825,14 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       text.erase(0, 1);
     }
 
+    // Detect hex literals (possibly negative) so they skip the float branch below: hex
+    // digits include 'e', so "0xfe" would otherwise route through stod and return a
+    // double (e.g. 254.0). C++17 stod even accepts hex-float syntax, which hides the
+    // bug at small magnitudes but rounds large values incorrectly near 2^53. Routing
+    // hex through the integer branch keeps the result as exact int64_t.
+    bool is_hex = (text.compare(0, 2, "0x") == 0) ||
+                  (text.size() > 2 && text[0] == '-' && text.compare(1, 2, "0x") == 0);
+
     if (text.find("inf") != string::npos || text.find("nan") != string::npos) {
       // Handle special number cases (infinity and NaN)
       // Mark these with value_type="number" so the deserializer knows to convert them
@@ -2836,7 +2844,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         json["value"] = "NaN";
       }
       json["value_type"] = "number";
-    } else if (text.find(".") != string::npos || text.find("e") != string::npos) {
+    } else if (!is_hex && (text.find(".") != string::npos || text.find("e") != string::npos)) {
       try {
         json["value"] = Json(stod(text));  // Float
       } catch (const std::out_of_range&) {

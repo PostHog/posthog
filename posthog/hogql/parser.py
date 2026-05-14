@@ -1827,21 +1827,21 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitNumberLiteral(self, ctx: HogQLParser.NumberLiteralContext):
         text = ctx.getText().lower()
         # Grammar allows an optional leading sign on every numberLiteral, including INF/NAN.
-        # Strip a leading '+' so "+inf" matches the inf branch and the sign-stripping below is uniform.
+        # Strip a leading '+' so the sign-stripping below is uniform and "+inf" → "inf".
         if text.startswith("+"):
             text = text[1:]
-        if "." in text or "e" in text or text == "-inf" or text == "inf" or text == "nan":
-            return ast.Constant(value=float(text))
         sign = 1
         abs_text = text
         if abs_text.startswith("-"):
             sign = -1
             abs_text = abs_text[1:]
-        # Auto-detect radix so HEXADECIMAL_LITERAL / OCTAL_LITERAL tokens aren't silently
-        # truncated. Python's int() rejects "0x..." / leading-zero forms in base 10, so we
-        # dispatch by prefix instead of relying on int(text, 0).
+        # Hex must be dispatched BEFORE the float guard: hex digits include 'e', so
+        # "0xfe" would otherwise route through float() and raise ValueError.
         if abs_text.startswith("0x"):
             return ast.Constant(value=sign * int(abs_text, 16))
+        if "." in abs_text or "e" in abs_text or abs_text == "inf" or abs_text == "nan":
+            return ast.Constant(value=float(text))
+        # Octal literals (leading '0' followed by more digits) must use base 8.
         if len(abs_text) > 1 and abs_text[0] == "0":
             return ast.Constant(value=sign * int(abs_text, 8))
         return ast.Constant(value=sign * int(abs_text))
