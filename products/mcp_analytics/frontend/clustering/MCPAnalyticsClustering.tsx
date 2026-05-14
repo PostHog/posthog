@@ -48,9 +48,17 @@ function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
     )
 }
 
-function HeatmapCell({ entry }: { entry: MCPIntentClusterToolEntryApi | undefined }): JSX.Element {
+function HeatmapCell({ entry, size }: { entry: MCPIntentClusterToolEntryApi | undefined; size: number }): JSX.Element {
+    const sizeStyle = { width: size, height: size }
     if (!entry || entry.count === 0) {
-        return <div className="h-3.5 w-3.5 rounded-[2px] bg-surface-secondary/30" aria-hidden />
+        return (
+            <div
+                className="rounded-[2px] bg-surface-secondary/30"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={sizeStyle}
+                aria-hidden
+            />
+        )
     }
     // Floor opacity so any non-zero usage is at least faintly visible.
     const opacity = Math.max(0.12, Math.min(1, entry.pct / 100))
@@ -67,9 +75,10 @@ function HeatmapCell({ entry }: { entry: MCPIntentClusterToolEntryApi | undefine
             }
         >
             <div
-                className="h-3.5 w-3.5 rounded-[2px] cursor-help"
+                className="rounded-[2px] cursor-help"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
+                    ...sizeStyle,
                     backgroundColor: hasErrors ? 'var(--danger)' : 'var(--accent)',
                     opacity,
                 }}
@@ -166,6 +175,14 @@ function Heatmap(): JSX.Element {
         )
     }
 
+    // Spacious mode: few tools and shortish names. Bigger cells, horizontal labels.
+    // Compact mode: many tools or long names. Github-style with rotated labels.
+    const longestName = Math.max(...toolColumns.map((t) => t.length))
+    const isSpacious = toolColumns.length <= 6 && longestName <= 14
+
+    const cellSize = isSpacious ? 22 : 14
+    const columnWidth = isSpacious ? 0 : 18 // 0 = let CSS auto-size to label width
+
     return (
         <div className="bg-surface-primary border rounded overflow-x-auto">
             <table className="text-sm border-collapse" style={{ borderSpacing: 0 }}>
@@ -174,26 +191,38 @@ function Heatmap(): JSX.Element {
                         <th className="text-left px-3 py-2 sticky left-0 bg-surface-secondary z-10 min-w-[220px] align-bottom text-xs">
                             Intent cluster
                         </th>
-                        {toolColumns.map((tool) => (
-                            <th
-                                key={tool}
-                                className="px-0 pb-1 pt-2 font-medium align-bottom"
-                                style={{ width: 18, minWidth: 18, maxWidth: 18 }}
-                            >
-                                <div
-                                    className="font-mono text-[10px] mx-auto whitespace-nowrap overflow-hidden text-ellipsis"
-                                    style={{
-                                        writingMode: 'vertical-rl',
-                                        transform: 'rotate(180deg)',
-                                        height: 96,
-                                        lineHeight: '18px',
-                                    }}
+                        {toolColumns.map((tool) =>
+                            isSpacious ? (
+                                <th
+                                    key={tool}
+                                    className="px-2 pb-1 pt-2 font-medium font-mono text-[11px] text-center align-bottom whitespace-nowrap"
                                     title={tool}
                                 >
                                     {tool}
-                                </div>
-                            </th>
-                        ))}
+                                </th>
+                            ) : (
+                                <th
+                                    key={tool}
+                                    className="px-0 pb-1 pt-2 font-medium align-bottom"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{ width: columnWidth, minWidth: columnWidth, maxWidth: columnWidth }}
+                                >
+                                    <div
+                                        className="font-mono text-[10px] mx-auto whitespace-nowrap overflow-hidden text-ellipsis"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{
+                                            writingMode: 'vertical-rl',
+                                            transform: 'rotate(180deg)',
+                                            height: 96,
+                                            lineHeight: '18px',
+                                        }}
+                                        title={tool}
+                                    >
+                                        {tool}
+                                    </div>
+                                </th>
+                            )
+                        )}
                         <th className="px-3 py-2 text-right text-xs align-bottom">Calls</th>
                         <th className="px-3 py-2 text-right text-xs align-bottom">Errors</th>
                         <th className="px-3 py-2 text-left text-xs align-bottom">Routing</th>
@@ -234,10 +263,15 @@ function Heatmap(): JSX.Element {
                                     <td
                                         key={tool}
                                         className="p-0 align-middle"
-                                        style={{ width: 18, minWidth: 18, maxWidth: 18 }}
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={
+                                            isSpacious
+                                                ? undefined
+                                                : { width: columnWidth, minWidth: columnWidth, maxWidth: columnWidth }
+                                        }
                                     >
                                         <div className="flex justify-center items-center py-[2px]">
-                                            <HeatmapCell entry={byTool.get(tool)} />
+                                            <HeatmapCell entry={byTool.get(tool)} size={cellSize} />
                                         </div>
                                     </td>
                                 ))}
