@@ -10,12 +10,10 @@ import {
     applyNodeChanges,
 } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -23,6 +21,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { CatalogGraphNode } from './CatalogGraphNode'
 import { catalogGraphSceneLogic } from './catalogGraphSceneLogic'
+import { CatalogGraphSidePanel } from './CatalogGraphSidePanel'
 
 const FIT_VIEW_OPTIONS = { padding: 0.15 }
 
@@ -46,7 +45,7 @@ export function CatalogGraphScene(): JSX.Element {
 
 function CatalogGraphSceneContent(): JSX.Element {
     const { graph, graphLoading, reactFlowNodes, reactFlowEdges } = useValues(catalogGraphSceneLogic)
-    const { setNodes } = useActions(catalogGraphSceneLogic)
+    const { setNodes, setSelectedNodeId } = useActions(catalogGraphSceneLogic)
 
     if (graphLoading && !graph) {
         return (
@@ -79,15 +78,14 @@ function CatalogGraphSceneContent(): JSX.Element {
                 description={`${graph.nodes.length} nodes · ${graph.relationships.length} relationships`}
                 resourceType={{ type: 'data_warehouse' }}
             />
-            <div className="border rounded" style={{ height: 'calc(100vh - 220px)', minHeight: 480 }}>
+            <div className="relative border rounded" style={{ height: 'calc(100vh - 220px)', minHeight: 480 }}>
                 <ReactFlow
                     nodes={reactFlowNodes}
                     edges={reactFlowEdges}
                     nodeTypes={NODE_TYPES}
                     onNodesChange={(changes) => setNodes(applyNodeChanges(changes, reactFlowNodes))}
-                    onNodeClick={(_, node) => {
-                        router.actions.push(urls.catalogDefinition(node.id))
-                    }}
+                    onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+                    onPaneClick={() => setSelectedNodeId(null)}
                     fitView
                     fitViewOptions={FIT_VIEW_OPTIONS}
                     proOptions={{ hideAttribution: true }}
@@ -95,6 +93,7 @@ function CatalogGraphSceneContent(): JSX.Element {
                     <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
                     <Controls showInteractive={false} />
                 </ReactFlow>
+                <CatalogGraphSidePanel />
             </div>
         </SceneContent>
     )

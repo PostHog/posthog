@@ -1,6 +1,5 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -138,9 +137,7 @@ export const catalogDefinitionSceneLogic = kea<catalogDefinitionSceneLogicType>(
         },
     })),
 
-    urlToAction(({ actions }) => ({
-        '/catalog/definitions/:id': () => {
-            actions.loadDefinition()
-        },
-    })),
+    afterMount(({ actions }) => {
+        actions.loadDefinition()
+    }),
 ])

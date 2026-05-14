@@ -104,6 +104,7 @@ export const catalogGraphSceneLogic = kea<catalogGraphSceneLogicType>([
 
     actions({
         setNodes: (nodes: Node<CatalogGraphNodeData>[]) => ({ nodes }),
+        setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
     }),
 
     loaders(({ values }) => ({
@@ -122,6 +123,12 @@ export const catalogGraphSceneLogic = kea<catalogGraphSceneLogicType>([
             [] as Node<CatalogGraphNodeData>[],
             {
                 setNodes: (_, { nodes }) => nodes,
+            },
+        ],
+        selectedNodeId: [
+            null as string | null,
+            {
+                setSelectedNodeId: (_, { selectedNodeId }) => selectedNodeId,
             },
         ],
     }),

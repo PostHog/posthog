@@ -29,7 +29,12 @@ const PII_CLASS_OPTIONS: { label: string; value: string }[] = [
     { label: 'Unknown', value: 'unknown' },
 ]
 
-export function CatalogDefinitionColumnsTable(): JSX.Element {
+interface Props {
+    /** Hide the hogql type column and tighten the layout for the narrow side panel. */
+    compact?: boolean
+}
+
+export function CatalogDefinitionColumnsTable({ compact = false }: Props = {}): JSX.Element {
     const { definition, pendingColumnEdits } = useValues(catalogDefinitionSceneLogic)
     const { setColumnEdits, clearColumnEdits, saveColumn } = useActions(catalogDefinitionSceneLogic)
 
@@ -41,11 +46,17 @@ export function CatalogDefinitionColumnsTable(): JSX.Element {
             key: 'name',
             render: (_, column) => <span className="font-mono text-sm">{column.name}</span>,
         },
-        {
-            title: 'Type',
-            key: 'type',
-            render: (_, column) => <span className="font-mono text-xs text-secondary">{column.hogql_type ?? '—'}</span>,
-        },
+        ...(compact
+            ? []
+            : [
+                  {
+                      title: 'Type',
+                      key: 'type',
+                      render: (_: unknown, column: CatalogColumnDTOApi) => (
+                          <span className="font-mono text-xs text-secondary">{column.hogql_type ?? '—'}</span>
+                      ),
+                  },
+              ]),
         {
             title: 'Semantic type',
             key: 'semantic_type',
