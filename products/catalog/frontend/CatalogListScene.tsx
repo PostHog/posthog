@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import {
     LemonButton,
+    LemonDropdown,
     LemonInput,
-    LemonInputSelect,
     LemonSelect,
     LemonSkeleton,
     LemonTable,
@@ -149,16 +149,67 @@ export function CatalogListScene(): JSX.Element {
                     size="small"
                 />
                 {availableTags.length > 0 && (
-                    <LemonInputSelect
-                        mode="multiple"
-                        size="small"
-                        placeholder="Filter by tag"
-                        value={tagFilter}
-                        onChange={setTagFilter}
-                        options={availableTags.map((tag) => ({ key: tag, label: tag }))}
-                        allowCustomValues={false}
-                        className="w-64"
-                    />
+                    <LemonDropdown
+                        closeOnClickInside={false}
+                        matchWidth={false}
+                        placement="bottom-end"
+                        actionable
+                        overlay={
+                            <div className="max-w-100 deprecated-space-y-2">
+                                <ul className="deprecated-space-y-px">
+                                    {availableTags.map((tag) => {
+                                        const checked = tagFilter.includes(tag)
+                                        return (
+                                            <li key={tag}>
+                                                <LemonButton
+                                                    fullWidth
+                                                    role="menuitem"
+                                                    size="small"
+                                                    onClick={() =>
+                                                        setTagFilter(
+                                                            checked
+                                                                ? tagFilter.filter((t) => t !== tag)
+                                                                : [...tagFilter, tag]
+                                                        )
+                                                    }
+                                                >
+                                                    <span className="flex items-center gap-2">
+                                                        <input
+                                                            type="checkbox"
+                                                            className="cursor-pointer"
+                                                            checked={checked}
+                                                            readOnly
+                                                        />
+                                                        <span>{tag}</span>
+                                                    </span>
+                                                </LemonButton>
+                                            </li>
+                                        )
+                                    })}
+                                    {tagFilter.length > 0 && (
+                                        <>
+                                            <div className="my-1 border-t" />
+                                            <li>
+                                                <LemonButton
+                                                    fullWidth
+                                                    role="menuitem"
+                                                    size="small"
+                                                    onClick={() => setTagFilter([])}
+                                                    type="tertiary"
+                                                >
+                                                    Clear selection
+                                                </LemonButton>
+                                            </li>
+                                        </>
+                                    )}
+                                </ul>
+                            </div>
+                        }
+                    >
+                        <LemonButton size="small" type="secondary" active={tagFilter.length > 0}>
+                            {tagFilter.length > 0 ? `Tags (${tagFilter.length})` : 'Tags'}
+                        </LemonButton>
+                    </LemonDropdown>
                 )}
                 {hasActiveFilters && (
                     <LemonButton type="tertiary" size="small" onClick={clearFilters}>
