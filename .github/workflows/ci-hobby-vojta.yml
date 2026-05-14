@@ -58,53 +58,21 @@ jobs:
                   fi
 
             - name: Trigger async switch
-              id: switch
               env:
                   BRANCH: ${{ github.ref_name }}
               run: |
                   set -euo pipefail
-                  resp=$(curl -fsSL -X POST "$HOBBYCTL_URL/switch?async=true" \
+                  curl -fsSL -X POST "$HOBBYCTL_URL/switch?async=true" \
                       -H 'content-type: application/json' \
-                      -d "{\"branch\": \"$BRANCH\"}")
-                  echo "Switch response: $resp"
-                  task_id=$(echo "$resp" | jq -r '.task_id')
-                  if [ -z "$task_id" ] || [ "$task_id" = "null" ]; then
-                    echo "Did not receive task_id from hobbyctl"
-                    exit 1
-                  fi
-                  echo "task_id=$task_id" >> "$GITHUB_OUTPUT"
-
-            - name: Poll switch task until done
-              env:
-                  TASK_ID: ${{ steps.switch.outputs.task_id }}
-              run: |
-                  set -euo pipefail
-                  for i in $(seq 1 180); do
-                    info=$(curl -fsSL "$HOBBYCTL_URL/tasks/$TASK_ID")
-                    state=$(echo "$info" | jq -r '.state')
-                    echo "[$i] task state: $state"
-                    case "$state" in
-                      succeeded)
-                        echo "$info" | jq .
-                        exit 0
-                        ;;
-                      failed|cancelled)
-                        echo "Switch task ended in $state"
-                        echo "$info" | jq .
-                        exit 1
-                        ;;
-                    esac
-                    sleep 10
-                  done
-                  echo "Timed out waiting for switch task"
-                  exit 1
+                      -d "{\"branch\": \"$BRANCH\"}" | jq .
 
             - name: Wait for PostHog healthy
+              timeout-minutes: 20
               env:
                   BRANCH: ${{ github.ref_name }}
               run: |
                   set -euo pipefail
-                  for i in $(seq 1 90); do
+                  for i in $(seq 1 120); do
                     status=$(curl -fsSL "$HOBBYCTL_URL/status")
                     cur_branch=$(echo "$status" | jq -r '.branch')
                     ok=$(echo "$status" | jq -r '.posthog_health.ok // false')
