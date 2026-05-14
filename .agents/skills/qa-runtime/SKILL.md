@@ -77,8 +77,16 @@ Load these files only when the matching phase starts:
 - `references/playwright-mcp-patterns.md` - MCP execution and evidence capture.
 - `references/pr-comment-template.md` - final PR comment structure.
 
-Use `.agents/skills/qa-runtime/scripts/url-walker.py` during planning to map
-changed frontend files to candidate routes.
+Skill scripts live next to this file (under `scripts/`). Resolve them via the
+skill's own base directory, which Claude Code reports at skill activation
+("Base directory for this skill: ..."). Do not assume a repo-relative path
+like `.agents/skills/qa-runtime/scripts/...` - the skill may be installed
+user-scoped at `~/.claude/skills/qa-runtime/`, and an active
+`gh pr checkout <N>` may have switched the working tree to a branch that
+does not contain the skill files.
+
+Use `<skill_dir>/scripts/url-walker.py` during planning to map changed
+frontend files to candidate routes.
 
 ## Preconditions
 
@@ -201,7 +209,7 @@ write the changed file list to `.qa-runtime/runs/<run-id>/changed-files.json`
 and run:
 
 ```bash
-python3 .agents/skills/qa-runtime/scripts/url-walker.py \
+python3 "$SKILL_DIR/scripts/url-walker.py" \
   --files-json .qa-runtime/runs/<run-id>/changed-files.json
 ```
 
@@ -372,15 +380,23 @@ uncompressed video. The earlier GIF step should already have produced a
 compressed GIF; if it did not, skip the GIF upload rather than uploading a
 multi-MB file.
 
-Invoke:
+Invoke (substitute `$SKILL_DIR` with the skill's own base directory that
+Claude Code reports at activation, e.g. `~/.claude/skills/qa-runtime`):
 
 ```bash
-uv run python .agents/skills/qa-runtime/scripts/upload-evidence.py \
+uv run python "$SKILL_DIR/scripts/upload-evidence.py" \
   --pr "$PR_NUMBER" \
   --output ".qa-runtime/runs/<run-id>/upload-manifest.json" \
   --file ".qa-runtime/runs/<run-id>/runtime-qa.gif:flow-overview" \
   --file ".qa-runtime/runs/<run-id>/<screenshot>.png:<kebab-finding-description>"
 ```
+
+If the upload script is unreachable at the expected path, do NOT roll your
+own Cloudinary upload code as a substitute - the script encodes the
+qa-runtime public_id naming convention, manifest format, and network-error
+handling that downstream comment rendering relies on. Instead, surface the
+issue (e.g. "skill scripts not on PATH") and fall back to local-path
+evidence in the PR comment.
 
 The script emits a manifest JSON with `uploaded`, `failed`, and
 `skipped_no_env` fields. Exit codes:
