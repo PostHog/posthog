@@ -458,6 +458,19 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Planned user interview topics: who we want to target (cohort) and what we want to ask about."""
 
     scope_object = "user_interview"
+    # Treat the custom @action endpoints as writes so personal API keys with
+    # `user_interview:write` can hit them. Without this override, APIScopePermission
+    # can't map a custom action name to a scope and rejects the request with
+    # "This action does not support personal API key access".
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "generate_links",
+        "send_invites",
+    ]
     queryset = UserInterviewTopic.objects.select_related("created_by").all()
     serializer_class = UserInterviewTopicSerializer
     filter_backends = [filters.SearchFilter]
