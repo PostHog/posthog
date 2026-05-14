@@ -254,7 +254,88 @@ class TestTenantQuery(APIBaseTest):
         assert response["disabled_tables"] == []
         assert ExternalDataSchema.objects.get(source=source, name="posthog_dashboard_tiles").should_sync is True
 
-    def test_configure_tenant_query_rejects_nullable_foreign_key_tenant_column_override(self):
+    def test_configure_tenant_query_drops_stale_nullable_foreign_key_override_when_default_is_valid(self):
+        source = self._create_direct_source()
+        self._create_table(
+            source,
+            name="public.posthog_dashboard",
+            source_table_name="posthog_dashboard",
+            postgres_columns=[("id", "bigint", False), ("team_id", "bigint", False), ("name", "text", True)],
+        )
+        self._create_table(
+            source,
+            name="public.posthog_dashboarditem",
+            source_table_name="posthog_dashboarditem",
+            postgres_columns=[
+                ("id", "bigint", False),
+                ("team_id", "bigint", False),
+                ("dashboard_id", "bigint", True),
+                ("name", "text", True),
+            ],
+            postgres_foreign_keys=[("dashboard_id", "posthog_dashboard", "id")],
+        )
+        self._create_table(
+            source,
+            name="public.posthog_action",
+            source_table_name="posthog_action",
+            postgres_columns=[("id", "bigint", False), ("team_id", "bigint", False), ("name", "text", True)],
+        )
+        self._create_table(
+            source,
+            name="public.posthog_actionstep",
+            source_table_name="posthog_actionstep",
+            postgres_columns=[("id", "bigint", False), ("action_id", "bigint", False), ("name", "text", True)],
+            postgres_foreign_keys=[("action_id", "posthog_action", "id")],
+        )
+
+        response = configure_tenant_query(
+            team=self.team,
+            connection_id=str(source.id),
+            enabled=True,
+            tenant_column_name="team_id",
+            tenant_column_names_by_table={
+                "public.posthog_dashboarditem": "dashboard.team_id",
+                "public.posthog_actionstep": "action.team_id",
+            },
+        )
+
+        config = DataWarehouseTenantQueryConfig.objects.get(team=self.team, external_data_source=source)
+        assert config.tenant_column_names_by_table == {"public.posthog_actionstep": "action.team_id"}
+        assert response["tenant_column_names_by_table"] == {"public.posthog_actionstep": "action.team_id"}
+        assert response["foreign_key_tenant_paths_by_table"] == {"public.posthog_actionstep": ["action.team_id"]}
+
+    def test_config_response_drops_stale_nullable_foreign_key_override_when_default_is_valid(self):
+        source = self._create_direct_source()
+        self._create_table(
+            source,
+            name="public.posthog_dashboard",
+            source_table_name="posthog_dashboard",
+            postgres_columns=[("id", "bigint", False), ("team_id", "bigint", False), ("name", "text", True)],
+        )
+        self._create_table(
+            source,
+            name="public.posthog_dashboarditem",
+            source_table_name="posthog_dashboarditem",
+            postgres_columns=[
+                ("id", "bigint", False),
+                ("team_id", "bigint", False),
+                ("dashboard_id", "bigint", True),
+                ("name", "text", True),
+            ],
+            postgres_foreign_keys=[("dashboard_id", "posthog_dashboard", "id")],
+        )
+        self._create_config(
+            source,
+            tenant_column_name="team_id",
+            tenant_column_names_by_table={"public.posthog_dashboarditem": "dashboard.team_id"},
+        )
+
+        response = get_tenant_query_config(team=self.team, connection_id=str(source.id))
+
+        assert response["tenant_column_names_by_table"] == {}
+        assert response["foreign_key_tenant_paths_by_table"] == {}
+
+    def test_configure_tenant_query_rejects_nullable_foreign_key_override_without_valid_default(self):
         source = self._create_direct_source()
         self._create_table(
             source,
@@ -264,23 +345,10 @@ class TestTenantQuery(APIBaseTest):
         self._create_table(
             source,
             name="posthog_dashboarditem",
-            postgres_columns=[
-                ("id", "bigint", False),
-                ("team_id", "bigint", False),
-                ("dashboard_id", "bigint", True),
-                ("name", "text", True),
-            ],
+            postgres_columns=[("id", "bigint", False), ("dashboard_id", "bigint", True), ("name", "text", True)],
             postgres_foreign_keys=[("dashboard_id", "posthog_dashboard", "id")],
         )
 
-        response = configure_tenant_query(
-            team=self.team,
-            connection_id=str(source.id),
-            enabled=True,
-            tenant_column_name="team_id",
-        )
-
-        assert response["foreign_key_tenant_paths_by_table"] == {}
         with self.assertRaisesRegex(Exception, "not a valid foreign key tenancy path"):
             configure_tenant_query(
                 team=self.team,

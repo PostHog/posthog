@@ -624,6 +624,43 @@ def _validate_tenant_column_overrides(
     return dict(sorted(validated_overrides.items()))
 
 
+def _drop_stale_foreign_key_tenant_overrides(
+    schemas: list[ExternalDataSchema],
+    tenant_column_names_by_table: TenantColumnNamesByTable,
+    default_tenant_column_name: str,
+    tenant_column_type: str,
+) -> TenantColumnNamesByTable:
+    schema_by_name = {_schema_display_name(schema): schema for schema in schemas}
+    foreign_key_tenant_paths_by_table = _foreign_key_tenant_paths_by_table_for_schemas(
+        schemas,
+        default_tenant_column_name,
+        tenant_column_names_by_table,
+        tenant_column_type,
+    )
+    sanitized_overrides: TenantColumnNamesByTable = {}
+
+    for table_name, tenant_column_name in tenant_column_names_by_table.items():
+        if "." not in tenant_column_name:
+            sanitized_overrides[table_name] = tenant_column_name
+            continue
+
+        schema = schema_by_name.get(table_name)
+        if schema is None:
+            continue
+
+        if tenant_column_name in foreign_key_tenant_paths_by_table.get(table_name, []):
+            sanitized_overrides[table_name] = tenant_column_name
+            continue
+
+        default_tenant_column_type = _tenant_column_type_for_schema_column(schema, default_tenant_column_name)
+        if default_tenant_column_type == tenant_column_type:
+            continue
+
+        sanitized_overrides[table_name] = tenant_column_name
+
+    return dict(sorted(sanitized_overrides.items()))
+
+
 def _tenant_column_name_for_schema(
     schema: ExternalDataSchema,
     config: DataWarehouseTenantQueryConfig,
@@ -1368,7 +1405,16 @@ def _tenant_query_config_response(
     config: DataWarehouseTenantQueryConfig | None,
     disabled_tables: list[str] | None = None,
 ) -> dict[str, object]:
+    schemas = _direct_postgres_schemas(source)
     tenant_column_names_by_table = _tenant_column_overrides(config)
+    if config is not None:
+        tenant_column_names_by_table = _drop_stale_foreign_key_tenant_overrides(
+            schemas,
+            tenant_column_names_by_table,
+            config.tenant_column_name,
+            config.tenant_column_type,
+        )
+
     return {
         "connection_id": str(source.id),
         "enabled": config.enabled if config is not None else False,
@@ -1376,7 +1422,7 @@ def _tenant_query_config_response(
         "tenant_column_type": config.tenant_column_type if config is not None else None,
         "tenant_column_names_by_table": tenant_column_names_by_table,
         "foreign_key_tenant_paths_by_table": _foreign_key_tenant_paths_by_table_for_schemas(
-            _direct_postgres_schemas(source),
+            schemas,
             config.tenant_column_name if config is not None else None,
             tenant_column_names_by_table,
             config.tenant_column_type if config is not None else None,
@@ -1492,6 +1538,12 @@ def configure_tenant_query(
             canonical_tenant_column_names_by_table,
             tenant_column_type,
         )
+        canonical_tenant_column_names_by_table = _drop_stale_foreign_key_tenant_overrides(
+            all_schemas,
+            canonical_tenant_column_names_by_table,
+            resolved_tenant_column_name,
+            tenant_column_type,
+        )
         canonical_tenant_column_names_by_table = _validate_tenant_column_overrides(
             all_schemas,
             canonical_tenant_column_names_by_table,
@@ -1531,6 +1583,12 @@ def configure_tenant_query(
 
         disabled_tables = _disable_schemas_without_tenant_column(source, missing_tenant_column_schemas)
     else:
+        canonical_tenant_column_names_by_table = _drop_stale_foreign_key_tenant_overrides(
+            all_schemas,
+            canonical_tenant_column_names_by_table,
+            resolved_tenant_column_name,
+            tenant_column_type,
+        )
         canonical_tenant_column_names_by_table = _validate_tenant_column_overrides(
             all_schemas,
             canonical_tenant_column_names_by_table,
