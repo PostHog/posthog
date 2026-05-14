@@ -356,19 +356,15 @@ mod test {
 
     #[test]
     fn source_ref_generation() {
-        assert_eq!(
-            frame_with("http://example.com/path/to/file.js:1:2")
-                .source_url()
-                .unwrap(),
-            "http://example.com/path/to/file.js".parse().unwrap()
-        );
-
-        assert_eq!(
-            frame_with("http://example.com/path/to/file.js")
-                .source_url()
-                .unwrap(),
-            "http://example.com/path/to/file.js".parse().unwrap()
-        );
+        for url in [
+            "http://example.com/path/to/file.js:1:2",
+            "http://example.com/path/to/file.js",
+        ] {
+            assert_eq!(
+                frame_with(url).source_url().unwrap(),
+                "http://example.com/path/to/file.js".parse().unwrap()
+            );
+        }
     }
 
     #[test]
