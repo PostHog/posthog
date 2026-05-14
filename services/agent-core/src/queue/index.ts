@@ -1,6 +1,8 @@
 export { SessionQueueManager } from './manager'
 export { SessionQueueWorker } from './worker'
 export { SessionQueueJanitor } from './janitor'
+export { SessionQuery } from './query'
+export type { SessionView, ListSessionsFilter } from './query'
 export { SessionJobInitSchema, RescheduleOptionsSchema } from './types'
 export type {
     SessionStatus,

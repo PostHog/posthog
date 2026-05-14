@@ -18,6 +18,7 @@ packages:
     - docs/onboarding
     - services/agent-core
     - services/agent-ingress
+    - services/agent-janitor
     - services/agent-runner
     - services/oauth-proxy
     - services/mcp

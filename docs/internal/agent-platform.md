@@ -7,7 +7,12 @@ Companion to [`agent-stack/docs/agent-platform.md`](https://github.com/PostHog/a
 Two things we own here:
 
 1. **Management plane** — a new flag-gated product under `products/agent_stack/` (Django app + viewsets + frontend).
-2. **Runtime** — three new TypeScript services under `services/`, deployed as independent node processes. They share **no code** with `nodejs/` (the legacy plugin-server). Anything we want from `nodejs/` we copy and adapt in `services/agent-core/`.
+2. **Runtime** — four TypeScript services under `services/`, deployed as independent node processes. They share **no code** with `nodejs/` (the legacy plugin-server). Anything we want from `nodejs/` we copy and adapt in `services/agent-core/`.
+
+   - `services/agent-core/` — shared library, no process.
+   - `services/agent-ingress/` — public-facing `*.agents.posthog.com` terminator.
+   - `services/agent-runner/` — session executor (queue consumer + SDK).
+   - `services/agent-janitor/` — operational: queue sweeps + internal HTTP surface that Django calls to read/cancel sessions. **The runtime owns session state; Django reads via this surface, never writes to `agent_sessions`.**
 
 The runtime split (ingress + runner) from the agent-stack doc still holds. This plan refines what each half looks like inside the posthog monorepo and which existing primitives we lean on conceptually (not by import).
 
@@ -31,9 +36,10 @@ Working tracker for the runtime services only — the Django side is being built
 - [x] Built-ins registry — `posthog.events.capture`, `posthog.feature_flags.evaluate`, `http.fetch` ([src/builtins/index.ts](../../services/agent-core/src/builtins/index.ts))
 - [x] Manifest reader + Zod schema + built-in id validation ([src/manifest/index.ts](../../services/agent-core/src/manifest/index.ts))
 - [x] Logger (pino) + Prom metrics ([src/logger.ts](../../services/agent-core/src/logger.ts), [src/metrics.ts](../../services/agent-core/src/metrics.ts))
-- [x] Tests: queue (DB-gated), pubsub in-memory, manifest, builtins
+- [x] `SessionQuery` — read-only `findSession` / `listSessions` + targeted-write `cancelSession`, used by the janitor's HTTP surface ([src/queue/query.ts](../../services/agent-core/src/queue/query.ts))
+- [x] Tests: queue + SessionQuery (DB-gated), pubsub in-memory, manifest, builtins
+- [x] Tests: internal-API client smoke — 200, 404, 5xx, shared-key header, timeout ([src/internal-api/client.test.ts](../../services/agent-core/src/internal-api/client.test.ts))
 - [ ] Tests: Redis pubsub integration (needs Redis in CI)
-- [ ] Tests: internal-API client smoke (mock server — 404, timeout, shared-key header)
 - [ ] Decide internal-API transport auth (mTLS vs shared key) — both supported in code, pick at infra time
 
 ### services/agent-ingress/ (milestone 6 — wired end-to-end against fakes)
@@ -47,10 +53,10 @@ Working tracker for the runtime services only — the Django side is being built
 - [x] `/webhooks/:provider` — host check, generic signature verify, enqueue ([src/routes/webhooks.ts](../../services/agent-ingress/src/routes/webhooks.ts))
 - [x] `/health`, `/status`
 - [x] ESLint hard rule blocking Anthropic / Modal / nodejs imports ([.eslintrc.json](../../services/agent-ingress/.eslintrc.json))
-- [x] Tests: `/health`, `/status`, `/run`, `/send` happy/sad paths with FakeQueue + InMemoryBus ([tests/server.test.ts](../../services/agent-ingress/tests/server.test.ts))
+- [x] Tests: `/health`, `/status`, `/run`, `/send` happy/sad paths with FakeQueue + InMemoryBus ([src/server.test.ts](../../services/agent-ingress/src/server.test.ts))
+- [x] Tests: `/listen` SSE flow — subscribe → publish → frame received ([src/listen.test.ts](../../services/agent-ingress/src/listen.test.ts))
+- [x] Tests: resolver LRU + TTL + invalidate ([src/resolver.test.ts](../../services/agent-ingress/src/resolver.test.ts))
 - [ ] Tests: webhook signature flow end-to-end
-- [ ] Tests: `/listen` SSE flow (subscribe → publish → frame received)
-- [ ] Tests: resolver LRU + TTL + invalidate
 - [ ] Provider-specific webhook strategies (Stripe, Slack-style HMAC-with-timestamp) under the generic webhook_signature mode
 - [ ] Per-team concurrent-session quota enforcement on `/run`
 - [ ] `/run` rate limiter
@@ -72,7 +78,24 @@ Working tracker for the runtime services only — the Django side is being built
 - [ ] Tests: real Claude Agent SDK turn (gated on key + recorded fixtures)
 - [ ] Secrets loader — [src/index.ts](../../services/agent-runner/src/index.ts) `loadSecrets` returns `{}`; wire to `apiClient.decryptSecrets` once a tool actually needs them
 - [ ] Runner-side reaper: queue janitor already resets stalled jobs; need a matching write to set `AgentApplicationSession.state = 'failed'` for the mirror row
-- [ ] `AgentApplicationSession` mirror writes — direct DB vs internal API — coordinate with Django owner
+- [ ] **Settled with Django owner: runtime owns session state.** No mirror writes from runner. Django reads + cancels through `agent-janitor`'s `/internal/sessions/*` surface (below). `AgentApplicationSession` (the model joshsny added) is treated as a thin request record; its `state` column may be removed once the read path lands.
+
+### services/agent-janitor/ (new in this branch)
+
+Operational process: queue sweeps + internal HTTP surface for Django. The runtime owns session state; Django **reads** sessions through this service and never writes to `agent_sessions`.
+
+- [x] Bootstrap, Zod-validated env, SIGTERM/SIGINT shutdown ([src/index.ts](../../services/agent-janitor/src/index.ts), [src/config.ts](../../services/agent-janitor/src/config.ts))
+- [x] Hosts the queue janitor daemon (same `SessionQueueJanitor` from agent-core)
+- [x] `/internal/sessions/:id` — fetch single session ([src/routes/sessions.ts](../../services/agent-janitor/src/routes/sessions.ts))
+- [x] `/internal/sessions` — list filtered by `application_id`, `revision_id`, `status`, `team_id`, `created_before`, `limit`
+- [x] `POST /internal/sessions/:id/cancel` — cancel an `available` or `running` session
+- [x] Shared-key auth (`x-internal-key`, `AGENT_INTERNAL_API_SHARED_KEY`) on every `/internal/*` request; refuses traffic when no key is configured ([src/auth.ts](../../services/agent-janitor/src/auth.ts))
+- [x] `/health` and `/metrics` are open (no key required)
+- [x] Tests: route-level happy/sad paths + auth gating with a `FakeSessionQuery` ([src/server.test.ts](../../services/agent-janitor/src/server.test.ts))
+- [ ] Tests: end-to-end against a real Postgres (extend the existing DB-gated suite)
+- [ ] Cursor-style pagination on `/internal/sessions` once the UI needs it
+- [ ] Mirror cancel to `agent-ingress` / `agent-runner` (broadcast on the bus) so an in-flight turn aborts promptly rather than waiting for the next heartbeat
+- [ ] Internal-API transport: mTLS vs `x-internal-key` — settle alongside agent-core's outbound transport decision
 
 ### Cross-package / system level
 
