@@ -509,10 +509,9 @@ export class LiveMetricsSlidingWindow {
             return [...this._globalReferrerCounts.values()]
                 .sort((a, b) => b.count - a.count)
                 .slice(0, limit)
-                .map(({ source, kind, confidence, count }) => ({
+                .map(({ source, kind, count }) => ({
                     source,
                     kind,
-                    confidence,
                     views: count,
                 }))
         }
@@ -523,7 +522,6 @@ export class LiveMetricsSlidingWindow {
             .map(([source, views]) => ({
                 source,
                 kind: source === DIRECT_REFERRER ? 'direct' : 'referrer',
-                confidence: 'high',
                 views,
             }))
     }

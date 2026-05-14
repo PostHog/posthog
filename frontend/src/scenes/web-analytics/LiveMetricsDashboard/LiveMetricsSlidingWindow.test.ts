@@ -13,15 +13,7 @@ const WALL_CLOCK_MS = new Date(WALL_CLOCK).getTime()
 
 const relativeTime = (offsetMs: number): string => new Date(WALL_CLOCK_MS + offsetMs).toISOString()
 const toUnixSeconds = (isoString: string): number => new Date(isoString).getTime() / 1000
-const source = (
-    source: string,
-    kind: ResolvedTrafficSource['kind'],
-    confidence: ResolvedTrafficSource['confidence'] = kind === 'click_id'
-        ? 'medium'
-        : kind === 'user_agent'
-          ? 'low'
-          : 'high'
-): ResolvedTrafficSource => ({ source, kind, confidence })
+const source = (source: string, kind: ResolvedTrafficSource['kind']): ResolvedTrafficSource => ({ source, kind })
 
 describe('LiveMetricsSlidingWindow', () => {
     const WINDOW_SIZE_MINUTES = 30
@@ -980,8 +972,8 @@ describe('LiveMetricsSlidingWindow', () => {
             })
 
             expect(window.getTopReferrers(10)).toEqual([
-                { source: 'google.com', kind: 'referrer', confidence: 'high', views: 2 },
-                { source: 'google.com', kind: 'click_id', confidence: 'medium', views: 1 },
+                { source: 'google.com', kind: 'referrer', views: 2 },
+                { source: 'google.com', kind: 'click_id', views: 1 },
             ])
         })
 
@@ -996,10 +988,10 @@ describe('LiveMetricsSlidingWindow', () => {
             window.addDataPoint(ts, 'user-5', { pageviews: 1, source: source('instagram', 'utm') })
 
             expect(window.getTopReferrers(10)).toEqual([
-                { source: 'instagram', kind: 'utm', confidence: 'high', views: 2 },
-                { source: 'facebook.com', kind: 'referrer', confidence: 'high', views: 1 },
-                { source: 'reddit.com', kind: 'user_agent', confidence: 'low', views: 1 },
-                { source: DIRECT_REFERRER, kind: 'direct', confidence: 'high', views: 1 },
+                { source: 'instagram', kind: 'utm', views: 2 },
+                { source: 'facebook.com', kind: 'referrer', views: 1 },
+                { source: 'reddit.com', kind: 'user_agent', views: 1 },
+                { source: DIRECT_REFERRER, kind: 'direct', views: 1 },
             ])
         })
 
@@ -1039,9 +1031,7 @@ describe('LiveMetricsSlidingWindow', () => {
             tickMinute()
             window.prune()
 
-            expect(window.getTopReferrers(10)).toEqual([
-                { source: 'google.com', kind: 'referrer', confidence: 'high', views: 1 },
-            ])
+            expect(window.getTopReferrers(10)).toEqual([{ source: 'google.com', kind: 'referrer', views: 1 }])
         })
 
         describe('with showResolvedSources=false', () => {
@@ -1058,10 +1048,9 @@ describe('LiveMetricsSlidingWindow', () => {
                     {
                         source: DIRECT_REFERRER,
                         kind: 'direct',
-                        confidence: 'high',
                         views: 3,
                     },
-                    { source: 'google.com', kind: 'referrer', confidence: 'high', views: 1 },
+                    { source: 'google.com', kind: 'referrer', views: 1 },
                 ])
             })
 
@@ -1076,7 +1065,6 @@ describe('LiveMetricsSlidingWindow', () => {
                     {
                         source: DIRECT_REFERRER,
                         kind: 'direct',
-                        confidence: 'high',
                         views: 2,
                     },
                 ])
@@ -1104,9 +1092,9 @@ describe('LiveMetricsSlidingWindow', () => {
             })
 
             expect(window.getTopReferrers(10)).toEqual([
-                { source: 'google.com', kind: 'referrer', confidence: 'high', views: 10 },
-                { source: DIRECT_REFERRER, kind: 'direct', confidence: 'high', views: 5 },
-                { source: 'instagram', kind: 'utm', confidence: 'high', views: 3 },
+                { source: 'google.com', kind: 'referrer', views: 10 },
+                { source: DIRECT_REFERRER, kind: 'direct', views: 5 },
+                { source: 'instagram', kind: 'utm', views: 3 },
             ])
         })
 

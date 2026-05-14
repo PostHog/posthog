@@ -2,7 +2,6 @@ import {
     DIRECT_REFERRER,
     type ReferrerBucketEntry,
     type ResolvedTrafficSource,
-    type TrafficSourceConfidence,
     type TrafficSourceKind,
 } from './LiveWebAnalyticsMetricsTypes'
 
@@ -37,28 +36,20 @@ const UA_RULES = TRAFFIC_SOURCE_DEFINITIONS.flatMap((definition) =>
 
 export const CLICK_ID_PROPERTIES: readonly string[] = CLICK_ID_RULES.map((rule) => rule.property)
 
-const CONFIDENCE_BY_KIND: Record<TrafficSourceKind, TrafficSourceConfidence> = {
-    utm: 'high',
-    referrer: 'high',
-    click_id: 'medium',
-    user_agent: 'low',
-    direct: 'high',
-}
-
 export const resolveTrafficSource = (properties: Record<string, unknown> | undefined): ResolvedTrafficSource => {
     const utmSource = trimmedString(properties?.$utm_source)
     if (utmSource) {
-        return { source: utmSource, kind: 'utm', confidence: 'high' }
+        return { source: utmSource, kind: 'utm' }
     }
 
     const referringDomain = trimmedString(properties?.$referring_domain)
     if (referringDomain && referringDomain !== DIRECT_REFERRER) {
-        return { source: referringDomain, kind: 'referrer', confidence: 'high' }
+        return { source: referringDomain, kind: 'referrer' }
     }
 
     for (const rule of CLICK_ID_RULES) {
         if (trimmedString(properties?.[rule.property])) {
-            return { source: rule.source, kind: 'click_id', confidence: 'medium' }
+            return { source: rule.source, kind: 'click_id' }
         }
     }
 
@@ -66,12 +57,12 @@ export const resolveTrafficSource = (properties: Record<string, unknown> | undef
     if (rawUserAgent) {
         for (const rule of UA_RULES) {
             if (rawUserAgent.includes(rule.pattern)) {
-                return { source: rule.source, kind: 'user_agent', confidence: 'low' }
+                return { source: rule.source, kind: 'user_agent' }
             }
         }
     }
 
-    return { source: DIRECT_REFERRER, kind: 'direct', confidence: 'high' }
+    return { source: DIRECT_REFERRER, kind: 'direct' }
 }
 
 export const trafficSourceKey = (source: string, kind: TrafficSourceKind): string => `${kind}:${source}`
@@ -115,87 +106,63 @@ export const subtractReferrerEntry = (
 
 export const collapseToRawReferrerEntries = (source: Map<string, ReferrerBucketEntry>): Map<string, number> => {
     const collapsed = new Map<string, number>()
-    const addViews = (domain: string, views: number): void => {
-        if (views > 0) {
-            collapsed.set(domain, (collapsed.get(domain) ?? 0) + views)
-        }
-    }
-
     for (const entry of source.values()) {
-        if (entry.kind === 'referrer') {
-            addViews(entry.source, entry.count)
-        } else {
-            addViews(DIRECT_REFERRER, entry.count)
+        if (entry.count <= 0) {
+            continue
         }
+        const key = entry.kind === 'referrer' ? entry.source : DIRECT_REFERRER
+        collapsed.set(key, (collapsed.get(key) ?? 0) + entry.count)
     }
-
     return collapsed
 }
 
 const stringHogQL = (expr: string): string => `trim(toString(ifNull(${expr}, '')))`
-
-interface BranchSpec {
-    predicate: string
-    sourceValue: string
-    kindValue: TrafficSourceKind
-}
-
-const buildBranches = (
-    utmSourceExpr: string,
-    referringDomainExpr: string,
-    rawUserAgentExpr: string
-): readonly BranchSpec[] => {
-    const utm = stringHogQL(utmSourceExpr)
-    const ref = stringHogQL(referringDomainExpr)
-    const ua = stringHogQL(rawUserAgentExpr)
-
-    return [
-        { predicate: `${utm} != ''`, sourceValue: utm, kindValue: 'utm' },
-        {
-            predicate: `${ref} != '' AND ${ref} != '${DIRECT_REFERRER}'`,
-            sourceValue: ref,
-            kindValue: 'referrer',
-        },
-        ...CLICK_ID_RULES.map(
-            (rule): BranchSpec => ({
-                predicate: `${stringHogQL(`properties.${rule.property}`)} != ''`,
-                sourceValue: `'${rule.source}'`,
-                kindValue: 'click_id',
-            })
-        ),
-        ...UA_RULES.map(
-            (rule): BranchSpec => ({
-                predicate: `position(${ua}, '${rule.pattern}') > 0`,
-                sourceValue: `'${rule.source}'`,
-                kindValue: 'user_agent',
-            })
-        ),
-    ]
-}
-
-const renderMultiIf = (
-    branches: readonly BranchSpec[],
-    project: (branch: BranchSpec) => string,
-    fallback: string
-): string => {
-    const body = branches.map((branch) => `                        ${branch.predicate}, ${project(branch)}`).join(',\n')
-    return `multiIf(\n${body},\n                        ${fallback}\n                    )`
-}
 
 export const buildTrafficSourceExpressions = (
     utmSourceExpr: string,
     referringDomainExpr: string,
     rawUserAgentExpr: string
 ): { sourceExpr: string; kindExpr: string } => {
-    const branches = buildBranches(utmSourceExpr, referringDomainExpr, rawUserAgentExpr)
+    const utm = stringHogQL(utmSourceExpr)
+    const ref = stringHogQL(referringDomainExpr)
+    const ua = stringHogQL(rawUserAgentExpr)
+
+    const branches: [predicate: string, sourceValue: string, kindValue: TrafficSourceKind][] = [
+        [`${utm} != ''`, utm, 'utm'],
+        [`${ref} != '' AND ${ref} != '${DIRECT_REFERRER}'`, ref, 'referrer'],
+        ...CLICK_ID_RULES.map(
+            (rule) =>
+                [`${stringHogQL(`properties.${rule.property}`)} != ''`, `'${rule.source}'`, 'click_id'] as [
+                    string,
+                    string,
+                    TrafficSourceKind,
+                ]
+        ),
+        ...UA_RULES.map(
+            (rule) =>
+                [`position(${ua}, '${rule.pattern}') > 0`, `'${rule.source}'`, 'user_agent'] as [
+                    string,
+                    string,
+                    TrafficSourceKind,
+                ]
+        ),
+    ]
+
+    const multiIf = (cases: string[], fallback: string): string => `multiIf(${cases.join(', ')}, ${fallback})`
+
     return {
-        sourceExpr: renderMultiIf(branches, (branch) => branch.sourceValue, `'${DIRECT_REFERRER}'`),
-        kindExpr: renderMultiIf(branches, (branch) => `'${branch.kindValue}'`, `'direct'`),
+        sourceExpr: multiIf(
+            branches.map(([predicate, sourceValue]) => `${predicate}, ${sourceValue}`),
+            `'${DIRECT_REFERRER}'`
+        ),
+        kindExpr: multiIf(
+            branches.map(([predicate, , kindValue]) => `${predicate}, '${kindValue}'`),
+            `'direct'`
+        ),
     }
 }
 
 export const resolvedTrafficSourceFromHogQL = (source: string, kind: TrafficSourceKind): ResolvedTrafficSource => ({
     source: source || DIRECT_REFERRER,
     kind,
-    confidence: CONFIDENCE_BY_KIND[kind],
 })

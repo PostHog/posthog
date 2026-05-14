@@ -28,25 +28,21 @@ export interface PathItem {
 export const DIRECT_REFERRER = '$direct'
 
 export type TrafficSourceKind = 'utm' | 'referrer' | 'click_id' | 'user_agent' | 'direct'
-export type TrafficSourceConfidence = 'high' | 'medium' | 'low'
 
 export interface ResolvedTrafficSource {
     source: string
     kind: TrafficSourceKind
-    confidence: TrafficSourceConfidence
 }
 
 export interface ReferrerItem {
     source: string
     views: number
     kind: TrafficSourceKind
-    confidence: TrafficSourceConfidence
 }
 
 export interface ReferrerBucketEntry {
     source: string
     kind: TrafficSourceKind
-    confidence: TrafficSourceConfidence
     count: number
 }
 

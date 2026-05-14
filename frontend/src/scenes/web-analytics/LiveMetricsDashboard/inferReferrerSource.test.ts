@@ -6,18 +6,9 @@ import {
     resolveTrafficSource,
     subtractReferrerEntry,
 } from './inferReferrerSource'
-import {
-    DIRECT_REFERRER,
-    type ResolvedTrafficSource,
-    type TrafficSourceConfidence,
-    type TrafficSourceKind,
-} from './LiveWebAnalyticsMetricsTypes'
+import { DIRECT_REFERRER, type ResolvedTrafficSource, type TrafficSourceKind } from './LiveWebAnalyticsMetricsTypes'
 
-const source = (
-    source: string,
-    kind: ResolvedTrafficSource['kind'],
-    confidence: ResolvedTrafficSource['confidence']
-): ResolvedTrafficSource => ({ source, kind, confidence })
+const source = (source: string, kind: ResolvedTrafficSource['kind']): ResolvedTrafficSource => ({ source, kind })
 
 describe('resolveTrafficSource', () => {
     it('uses utm_source before referrer, click ID, and UA signals', () => {
@@ -28,7 +19,7 @@ describe('resolveTrafficSource', () => {
                 gclid: 'abc',
                 $raw_user_agent: 'Mozilla/5.0 Reddit/2024.10.0',
             })
-        ).toEqual(source('instagram', 'utm', 'high'))
+        ).toEqual(source('instagram', 'utm'))
     })
 
     it('uses the browser referrer before click ID and UA signals', () => {
@@ -38,7 +29,7 @@ describe('resolveTrafficSource', () => {
                 fbclid: 'abc',
                 $raw_user_agent: 'Mozilla/5.0 Instagram 305.0.0.45.109',
             })
-        ).toEqual(source('reddit.com', 'referrer', 'high'))
+        ).toEqual(source('reddit.com', 'referrer'))
     })
 
     it.each<{ property: string; value: string; expected: string }>([
@@ -50,7 +41,7 @@ describe('resolveTrafficSource', () => {
         { property: 'msclkid', value: 'xyz', expected: 'bing.com' },
         { property: 'gclid', value: 'Cj0KCQ', expected: 'google.com' },
     ])('maps $property to $expected', ({ property, value, expected }) => {
-        expect(resolveTrafficSource({ [property]: value })).toEqual(source(expected, 'click_id', 'medium'))
+        expect(resolveTrafficSource({ [property]: value })).toEqual(source(expected, 'click_id'))
     })
 
     it('prefers the first matching click ID rule over later rules and UA signals', () => {
@@ -60,7 +51,7 @@ describe('resolveTrafficSource', () => {
                 gclid: 'b',
                 $raw_user_agent: 'Mozilla/5.0 Instagram 305.0.0.45.109',
             })
-        ).toEqual(source('google.com', 'click_id', 'medium'))
+        ).toEqual(source('google.com', 'click_id'))
     })
 
     it.each<{ ua: string; expected: string }>([
@@ -94,7 +85,7 @@ describe('resolveTrafficSource', () => {
         { ua: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Reddit/2024.10.0', expected: 'reddit.com' },
         { ua: 'Mozilla/5.0 (Linux; Android 13) Reddit/2024.41.1', expected: 'reddit.com' },
     ])('infers $expected from in-app UA', ({ ua, expected }) => {
-        expect(resolveTrafficSource({ $raw_user_agent: ua })).toEqual(source(expected, 'user_agent', 'low'))
+        expect(resolveTrafficSource({ $raw_user_agent: ua })).toEqual(source(expected, 'user_agent'))
     })
 
     it.each<{ ua: string }>([
@@ -105,7 +96,7 @@ describe('resolveTrafficSource', () => {
         { ua: 'no social signals here' },
         { ua: '' },
     ])('returns direct for browser UA without app signals "$ua"', ({ ua }) => {
-        expect(resolveTrafficSource({ $raw_user_agent: ua })).toEqual(source(DIRECT_REFERRER, 'direct', 'high'))
+        expect(resolveTrafficSource({ $raw_user_agent: ua })).toEqual(source(DIRECT_REFERRER, 'direct'))
     })
 
     it.each<{ value: unknown }>([
@@ -125,7 +116,7 @@ describe('resolveTrafficSource', () => {
         { value: true },
     ])('falls through blank, non-string, or direct referrer value "$value"', ({ value }) => {
         expect(resolveTrafficSource({ $referring_domain: value, fbclid: 'abc' })).toEqual(
-            source('facebook.com', 'click_id', 'medium')
+            source('facebook.com', 'click_id')
         )
     })
 
@@ -140,7 +131,7 @@ describe('resolveTrafficSource', () => {
         { value: false },
         { value: true },
     ])('falls through blank or non-string click ID value "$value"', ({ value }) => {
-        expect(resolveTrafficSource({ gclid: value })).toEqual(source(DIRECT_REFERRER, 'direct', 'high'))
+        expect(resolveTrafficSource({ gclid: value })).toEqual(source(DIRECT_REFERRER, 'direct'))
     })
 
     it.each<{ property: string; value: string; expected: string }>([
@@ -148,7 +139,7 @@ describe('resolveTrafficSource', () => {
         { property: 'fbclid', value: '\tIwAR0\n', expected: 'facebook.com' },
         { property: 'ttclid', value: '   E.C.P.AAB', expected: 'tiktok.com' },
     ])('resolves whitespace-padded click ID $property to $expected', ({ property, value, expected }) => {
-        expect(resolveTrafficSource({ [property]: value })).toEqual(source(expected, 'click_id', 'medium'))
+        expect(resolveTrafficSource({ [property]: value })).toEqual(source(expected, 'click_id'))
     })
 
     it.each<{ value: unknown }>([
@@ -160,50 +151,44 @@ describe('resolveTrafficSource', () => {
         { value: 0 },
         { value: false },
     ])('falls through blank or non-string utm_source value "$value"', ({ value }) => {
-        expect(resolveTrafficSource({ $utm_source: value })).toEqual(source(DIRECT_REFERRER, 'direct', 'high'))
+        expect(resolveTrafficSource({ $utm_source: value })).toEqual(source(DIRECT_REFERRER, 'direct'))
     })
 
     it('trims UTM and referrer source values', () => {
-        expect(resolveTrafficSource({ $utm_source: ' instagram ' })).toEqual(source('instagram', 'utm', 'high'))
-        expect(resolveTrafficSource({ $referring_domain: ' reddit.com ' })).toEqual(
-            source('reddit.com', 'referrer', 'high')
-        )
+        expect(resolveTrafficSource({ $utm_source: ' instagram ' })).toEqual(source('instagram', 'utm'))
+        expect(resolveTrafficSource({ $referring_domain: ' reddit.com ' })).toEqual(source('reddit.com', 'referrer'))
     })
 
     it('returns direct when no signal is present', () => {
-        expect(resolveTrafficSource(undefined)).toEqual(source(DIRECT_REFERRER, 'direct', 'high'))
+        expect(resolveTrafficSource(undefined)).toEqual(source(DIRECT_REFERRER, 'direct'))
     })
 
     it('returns direct when properties is an empty object', () => {
-        expect(resolveTrafficSource({})).toEqual(source(DIRECT_REFERRER, 'direct', 'high'))
+        expect(resolveTrafficSource({})).toEqual(source(DIRECT_REFERRER, 'direct'))
     })
 
-    it.each<{ kind: TrafficSourceKind; expected: TrafficSourceConfidence }>([
-        { kind: 'utm', expected: 'high' },
-        { kind: 'referrer', expected: 'high' },
-        { kind: 'click_id', expected: 'medium' },
-        { kind: 'user_agent', expected: 'low' },
-        { kind: 'direct', expected: 'high' },
-    ])('resolvedTrafficSourceFromHogQL maps kind $kind to confidence $expected', ({ kind, expected }) => {
-        expect(resolvedTrafficSourceFromHogQL('foo.com', kind)).toEqual({
-            source: 'foo.com',
-            kind,
-            confidence: expected,
-        })
+    it.each<{ kind: TrafficSourceKind }>([
+        { kind: 'utm' },
+        { kind: 'referrer' },
+        { kind: 'click_id' },
+        { kind: 'user_agent' },
+        { kind: 'direct' },
+    ])('resolvedTrafficSourceFromHogQL round-trips kind $kind', ({ kind }) => {
+        expect(resolvedTrafficSourceFromHogQL('foo.com', kind)).toEqual({ source: 'foo.com', kind })
     })
 
     it('defaults resolvedTrafficSourceFromHogQL to DIRECT_REFERRER when source is empty', () => {
-        expect(resolvedTrafficSourceFromHogQL('', 'direct')).toEqual(source(DIRECT_REFERRER, 'direct', 'high'))
+        expect(resolvedTrafficSourceFromHogQL('', 'direct')).toEqual(source(DIRECT_REFERRER, 'direct'))
     })
 
     describe('source count helpers', () => {
         it('adds, subtracts, and collapses non-referrer sources to direct', () => {
             const entries = new Map()
 
-            addReferrerEntry(entries, source('facebook.com', 'referrer', 'high'), 3)
-            addReferrerEntry(entries, source('facebook.com', 'click_id', 'medium'), 2)
-            addReferrerEntry(entries, source('instagram', 'utm', 'high'), 1)
-            subtractReferrerEntry(entries, source('facebook.com', 'click_id', 'medium'), 1)
+            addReferrerEntry(entries, source('facebook.com', 'referrer'), 3)
+            addReferrerEntry(entries, source('facebook.com', 'click_id'), 2)
+            addReferrerEntry(entries, source('instagram', 'utm'), 1)
+            subtractReferrerEntry(entries, source('facebook.com', 'click_id'), 1)
 
             expect(collapseToRawReferrerEntries(entries)).toEqual(
                 new Map([
@@ -217,23 +202,23 @@ describe('resolveTrafficSource', () => {
             'addReferrerEntry ignores non-positive count $count',
             ({ count }) => {
                 const entries = new Map()
-                addReferrerEntry(entries, source('facebook.com', 'referrer', 'high'), count)
+                addReferrerEntry(entries, source('facebook.com', 'referrer'), count)
                 expect(entries.size).toBe(0)
             }
         )
 
         it('addReferrerEntry accumulates counts for the same source and kind', () => {
             const entries = new Map()
-            addReferrerEntry(entries, source('reddit.com', 'referrer', 'high'), 2)
-            addReferrerEntry(entries, source('reddit.com', 'referrer', 'high'), 5)
+            addReferrerEntry(entries, source('reddit.com', 'referrer'), 2)
+            addReferrerEntry(entries, source('reddit.com', 'referrer'), 5)
 
             expect(collapseToRawReferrerEntries(entries)).toEqual(new Map([['reddit.com', 7]]))
         })
 
         it('addReferrerEntry keeps entries with the same source but different kinds separate', () => {
             const entries = new Map()
-            addReferrerEntry(entries, source('facebook.com', 'referrer', 'high'), 4)
-            addReferrerEntry(entries, source('facebook.com', 'click_id', 'medium'), 6)
+            addReferrerEntry(entries, source('facebook.com', 'referrer'), 4)
+            addReferrerEntry(entries, source('facebook.com', 'click_id'), 6)
 
             expect(entries.size).toBe(2)
             expect(collapseToRawReferrerEntries(entries)).toEqual(
@@ -246,7 +231,7 @@ describe('resolveTrafficSource', () => {
 
         it('subtractReferrerEntry is a no-op when the entry is missing', () => {
             const entries = new Map()
-            subtractReferrerEntry(entries, source('facebook.com', 'referrer', 'high'), 5)
+            subtractReferrerEntry(entries, source('facebook.com', 'referrer'), 5)
             expect(entries.size).toBe(0)
         })
 
@@ -254,16 +239,16 @@ describe('resolveTrafficSource', () => {
             'subtractReferrerEntry removes the entry when subtraction reaches or exceeds the count ($subtract)',
             ({ subtract }) => {
                 const entries = new Map()
-                addReferrerEntry(entries, source('reddit.com', 'referrer', 'high'), 3)
-                subtractReferrerEntry(entries, source('reddit.com', 'referrer', 'high'), subtract)
+                addReferrerEntry(entries, source('reddit.com', 'referrer'), 3)
+                subtractReferrerEntry(entries, source('reddit.com', 'referrer'), subtract)
                 expect(entries.size).toBe(0)
             }
         )
 
         it('subtractReferrerEntry decrements the count when subtraction is partial', () => {
             const entries = new Map()
-            addReferrerEntry(entries, source('reddit.com', 'referrer', 'high'), 10)
-            subtractReferrerEntry(entries, source('reddit.com', 'referrer', 'high'), 3)
+            addReferrerEntry(entries, source('reddit.com', 'referrer'), 10)
+            subtractReferrerEntry(entries, source('reddit.com', 'referrer'), 3)
 
             expect(collapseToRawReferrerEntries(entries)).toEqual(new Map([['reddit.com', 7]]))
         })
@@ -274,9 +259,9 @@ describe('resolveTrafficSource', () => {
 
         it('collapseToRawReferrerEntries merges different non-referrer kinds into direct', () => {
             const entries = new Map()
-            addReferrerEntry(entries, source('google.com', 'click_id', 'medium'), 4)
-            addReferrerEntry(entries, source('instagram', 'utm', 'high'), 2)
-            addReferrerEntry(entries, source('tiktok.com', 'user_agent', 'low'), 1)
+            addReferrerEntry(entries, source('google.com', 'click_id'), 4)
+            addReferrerEntry(entries, source('instagram', 'utm'), 2)
+            addReferrerEntry(entries, source('tiktok.com', 'user_agent'), 1)
 
             expect(collapseToRawReferrerEntries(entries)).toEqual(new Map([[DIRECT_REFERRER, 7]]))
         })
