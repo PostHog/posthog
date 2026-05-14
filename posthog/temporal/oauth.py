@@ -66,7 +66,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 
 
-def get_array_app() -> OAuthApplication:
+def get_posthog_code_oauth_application() -> OAuthApplication:
     region = get_instance_region()
     if region == "EU":
         client_id = ARRAY_APP_CLIENT_ID_EU

@@ -14,7 +14,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.redis import get_client
-from posthog.temporal.oauth import create_oauth_access_and_refresh_tokens_for_user, get_array_app
+from posthog.temporal.oauth import create_oauth_access_and_refresh_tokens_for_user, get_posthog_code_oauth_application
 
 logger = structlog.get_logger(__name__)
 
@@ -90,7 +90,7 @@ def _mint_task_tokens(user: User, team_id: int) -> tuple[str, str, int] | None:
         return create_oauth_access_and_refresh_tokens_for_user(
             user,
             team_id,
-            app=get_array_app(),
+            app=get_posthog_code_oauth_application(),
             scopes=_TASK_TOKEN_SCOPES,
             include_internal_scopes=False,
         )

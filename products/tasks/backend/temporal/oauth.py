@@ -5,7 +5,7 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_US,
     PosthogMcpScopes,
     create_oauth_access_token_for_user as _create_oauth_access_token_for_user,
-    get_array_app,
+    get_posthog_code_oauth_application,
 )
 
 from products.tasks.backend.models import Task
@@ -32,7 +32,9 @@ def create_oauth_access_token(task: Task, *, scopes: PosthogMcpScopes = "read_on
             cause=RuntimeError(f"Task {task.id} missing created_by field"),
         )
 
-    return create_oauth_access_token_for_user(task.created_by, task.team_id, app=get_array_app(), scopes=scopes)
+    return create_oauth_access_token_for_user(
+        task.created_by, task.team_id, app=get_posthog_code_oauth_application(), scopes=scopes
+    )
 
 
 def create_oauth_access_token_for_user(
