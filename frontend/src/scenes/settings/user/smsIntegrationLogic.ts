@@ -20,6 +20,7 @@ export const smsIntegrationLogic = kea<smsIntegrationLogicType>([
         startVerification: (phoneNumber: string) => ({ phoneNumber }),
         verificationStarted: (phoneNumber: string) => ({ phoneNumber }),
         verifyCode: (phoneNumber: string, code: string) => ({ phoneNumber, code }),
+        verifyCodeFailed: true,
         verificationCompleted: true,
         cancelVerification: true,
         removePhone: (phoneNumber: string) => ({ phoneNumber }),
@@ -46,6 +47,7 @@ export const smsIntegrationLogic = kea<smsIntegrationLogicType>([
             false,
             {
                 verifyCode: () => true,
+                verifyCodeFailed: () => false,
                 verificationCompleted: () => false,
                 cancelVerification: () => false,
             },
@@ -82,7 +84,9 @@ export const smsIntegrationLogic = kea<smsIntegrationLogicType>([
                 actions.verificationCompleted()
                 actions.loadSMS()
             } catch (error: unknown) {
-                actions.verificationCompleted()
+                // Keep the pending phone number so the user can correct their code
+                // without requesting a brand-new SMS for every typo.
+                actions.verifyCodeFailed()
                 const detail = error instanceof Error && 'detail' in error ? (error as any).detail : undefined
                 lemonToast.error(detail || 'Could not verify code.')
             }
