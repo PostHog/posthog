@@ -157,7 +157,7 @@ export function UptimeMonitorScene(): JSX.Element {
             <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
                 <div className="flex items-center justify-between gap-2">
                     <div className="flex items-baseline gap-3">
-                        <div className="font-semibold">30-day uptime history</div>
+                        <div className="font-semibold">90-day uptime history</div>
                         <div className="text-xs text-secondary">
                             {summary.daily_buckets.filter((b) => b.status === 'up').length} of{' '}
                             {summary.daily_buckets.length} days clean
