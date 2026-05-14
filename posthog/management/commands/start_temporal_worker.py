@@ -169,6 +169,10 @@ from products.logs.backend.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
 )
+from products.referrals.backend.temporal import (
+    ACTIVITIES as REFERRALS_ACTIVITIES,
+    WORKFLOWS as REFERRALS_WORKFLOWS,
+)
 from products.replay_vision.backend.temporal import (
     ACTIVITIES as REPLAY_VISION_ACTIVITIES,
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
@@ -257,8 +261,8 @@ _task_queue_specs = [
     ),
     (
         settings.TASKS_TASK_QUEUE,
-        TASKS_WORKFLOWS,
-        TASKS_ACTIVITIES,
+        TASKS_WORKFLOWS + REFERRALS_WORKFLOWS,
+        TASKS_ACTIVITIES + REFERRALS_ACTIVITIES,
     ),
     (
         settings.MAX_AI_TASK_QUEUE,

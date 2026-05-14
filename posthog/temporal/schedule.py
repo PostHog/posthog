@@ -76,6 +76,10 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.referrals.backend.temporal.schedules import (
+    create_internal_referral_research_schedule,
+    create_twitter_referral_research_schedule,
+)
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
@@ -605,6 +609,8 @@ schedules = [
     create_logs_alert_check_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
+    create_twitter_referral_research_schedule,
+    create_internal_referral_research_schedule,
 ]
 
 if settings.CLOUD_DEPLOYMENT:
