@@ -45,7 +45,7 @@ broaden your investigation (read the CLI source, dump the parquet header, sanity
   is empty or `pyproject.toml` is missing, sandbox provisioning didn't wire it.
   Not fixable from inside.
 - **Training population is genuinely too small** (you've verified the count
-  via HogQL and it's below 1000). The user needs more data; bootstrap can't
+  via HogQL and it's below 200). The user needs more data; bootstrap can't
   proceed.
 - **AutoGluon crashes on clean data.** If the parquet schema looks right
   (verified via `python3 -c "import polars; print(polars.read_parquet('./training_snapshot.parquet').describe())"`) and AutoGluon still errors, it's a CLI / dep bug. Surface the stderr tail and stop.

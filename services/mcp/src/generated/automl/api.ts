@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -149,6 +149,106 @@ export const AutomlPipelinesArchiveCreateParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * List every trained model version on a pipeline, newest first.
+
+Archived versions are included — they're the audit trail and the
+``$model_version_id`` on past prediction events still needs to resolve.
+ */
+export const AutomlPipelinesModelVersionsListParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AutomlPipelinesModelVersionsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Persist a completed training run as a new model version.
+
+Always recorded as ``challenger`` by default — promotion to champion is
+the explicit ``promote`` action below. Called by the bootstrap and
+retraining agents from inside their sandbox after the trainer returns.
+ */
+export const AutomlPipelinesModelVersionsCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AutomlPipelinesModelVersionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        metrics: zod.record(zod.string(), zod.unknown()),
+        leaderboard: zod.array(zod.record(zod.string(), zod.unknown())),
+        role: zod
+            .enum(['champion', 'challenger', 'archived'])
+            .optional()
+            .describe('* `champion` - CHAMPION\n* `challenger` - CHALLENGER\n* `archived` - ARCHIVED'),
+        training_params: zod.record(zod.string(), zod.unknown()).optional(),
+        tracking_metadata: zod.record(zod.string(), zod.unknown()).optional(),
+        eval_metric: zod.string().optional(),
+        problem_type: zod.string().optional(),
+        artifact_uri: zod.string().optional(),
+        features_hash: zod.string().optional(),
+        rows_train: zod.number().nullish(),
+        rows_val: zod.number().nullish(),
+        rows_test: zod.number().nullish(),
+        training_task_id: zod.uuid().nullish(),
+    })
+    .describe(
+        'Request body for ``POST /automl_pipelines/{id}/model_versions/``.\n\nCalled by the bootstrap / retraining agent when a training run finishes.\n``role`` defaults to ``challenger`` so a fresh run never auto-displaces the\nexisting champion — promotion is a separate explicit step.'
+    )
+
+/**
+ * Make ``version_id`` the champion for its pipeline.
+
+Atomic: the prior champion (if any) is archived in the same transaction
+the target is set to champion. Idempotent — promoting an existing
+champion is a no-op. Returns 404 if the version doesn't belong to the
+team or pipeline.
+ */
+export const AutomlPipelinesModelVersionsPromoteCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    version_id: zod.string(),
+})
+
+/**
+ * Get the model version currently holding a role on a pipeline.
+
+The partial unique constraint guarantees at most one champion and one
+challenger per pipeline. Returns 404 when no version holds the role —
+the most common cause is a pipeline that hasn't completed bootstrap yet.
+ */
+export const AutomlPipelinesModelVersionsActiveRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AutomlPipelinesModelVersionsActiveRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    role: zod
+        .string()
+        .optional()
+        .describe("Role to look up. Defaults to 'champion'. One of: champion, challenger, archived."),
 })
 
 /**

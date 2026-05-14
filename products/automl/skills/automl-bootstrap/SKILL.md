@@ -30,7 +30,7 @@ training query is not a terminal failure — it's a parse error you can fix.
 The only times to give up:
 
 1. The PostHog API rejects credentials (your `POSTHOG_PERSONAL_API_KEY` is wrong; you can't fix this from inside the sandbox)
-2. The training population genuinely has too few rows (you've verified the count via HogQL, and it's below the 1000-row floor)
+2. The training population genuinely has too few rows (you've verified the count via HogQL, and it's below the 200-row floor — see step 2 for the hackathon-grade threshold; production will raise this once we have realistic data volume)
 3. AutoGluon training itself crashes on data you can't fix (e.g., the target column is structurally absent and the SQL can't be adjusted to produce it)
 
 For everything else — bad SQL, missing column, wrong CLI argument, transient
@@ -100,8 +100,13 @@ Then check the result:
   (fix and retry).
 - `columns` does not include `config.target` (for classification/regression) →
   the SELECT clause needs the `target` column. Adjust the SQL and retry.
-- `rows < 1000` → below the trainer's useful-model floor. Stop with a clear
-  message; the user needs more data before this pipeline is trainable.
+- `rows < 200` → below the trainer's useful-model floor. **This is the
+  hackathon-grade threshold** — generalization on a binary classifier with
+  <200 rows is unreliable, and AutoGluon's stratified split + cross-validation
+  routines start to misbehave below that. Stop with a clear message; the user
+  needs more data before this pipeline is trainable. (Production will raise
+  this floor once we have realistic volumes; for now, 200 lets the local-dev
+  Hedgebox run complete end-to-end against the synthetic ~217-signer cohort.)
 
 Record the exact HogQL you ran in a scratch note — it goes into the outcome
 report's reproducibility section.

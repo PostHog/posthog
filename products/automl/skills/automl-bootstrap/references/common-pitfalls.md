@@ -63,7 +63,7 @@ label expression in the SELECT clause, or rename the existing label column.
 ## Empty / too-few rows in the snapshot
 
 **Symptom:** `prepare-from-hogql` returns successfully but `rows` is 0 or
-below the 1000-row training floor.
+below the 200-row training floor.
 
 **Causes (try in order):**
 
