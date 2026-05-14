@@ -505,6 +505,12 @@ SPECTACULAR_SETTINGS = {
         "RuntimeAdapterEnum": ["claude", "codex"],
         "ClaudeRuntimeAdapterEnum": ["claude"],
         "CodexRuntimeAdapterEnum": ["codex"],
+        # Founder mode validation/landing-page schemas share low/medium/high choice sets
+        # across `severity` (Risk), `confidence` (Assumption, Verdict), and `priority`
+        # (SEOKeyword). drf-spectacular normalizes set order, so all three collapse into a
+        # single enum component — give it one stable name rather than the auto-derived
+        # `*AfeEnum` collision-resolved variants.
+        "FounderModeLevelEnum": ["low", "medium", "high"],
     },
 }
 

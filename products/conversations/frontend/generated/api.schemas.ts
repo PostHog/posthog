@@ -366,9 +366,9 @@ export const TicketStatusEnumApi = {
  * `medium` - Medium
  * `high` - High
  */
-export type PriorityEnumApi = (typeof PriorityEnumApi)[keyof typeof PriorityEnumApi]
+export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
 
-export const PriorityEnumApi = {
+export const TicketPriorityEnumApi = {
     Low: 'low',
     Medium: 'medium',
     High: 'high',
@@ -433,7 +433,7 @@ export interface TicketApi {
   * `low` - Low
   * `medium` - Medium
   * `high` - High */
-    priority?: PriorityEnumApi | BlankEnumApi | null
+    priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
@@ -511,7 +511,7 @@ export interface PatchedTicketApi {
   * `low` - Low
   * `medium` - Medium
   * `high` - High */
-    priority?: PriorityEnumApi | BlankEnumApi | null
+    priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee?: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown

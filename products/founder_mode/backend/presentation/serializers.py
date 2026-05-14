@@ -1,9 +1,53 @@
-"""DRF serializers for founder_mode."""
+"""DRF serializers for founder_mode.
+
+JSONField columns on `FounderProject` carry stage-specific envelopes. Each envelope's shape
+is defined by a Pydantic model in `logic/<stage>/schemas.py`; we attach those models to
+typed `JSONField` subclasses via `@extend_schema_field` so drf-spectacular emits real
+component schemas in the OpenAPI doc — which then flow through Orval into TypeScript types
+and Zod schemas on the frontend. Bare `JSONField` would generate `z.unknown()` instead.
+"""
 
 from rest_framework import serializers
 
+from posthog.api.documentation import extend_schema_field
+
+from products.founder_mode.backend.logic.gtm.schemas import GTMEnvelope
 from products.founder_mode.backend.logic.hashing import ideation_hash
+from products.founder_mode.backend.logic.landing_page.schemas import MarketingPageEnvelope
+from products.founder_mode.backend.logic.mvp.schemas import MVPEnvelope
+from products.founder_mode.backend.logic.practical_steps.schemas import MarketingStepsEnvelope
+from products.founder_mode.backend.logic.validation.schemas import IdeationInput, ValidationEnvelope
 from products.founder_mode.backend.models import FounderProject
+
+
+@extend_schema_field(IdeationInput)  # type: ignore[arg-type]
+class IdeationField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(ValidationEnvelope)  # type: ignore[arg-type]
+class ValidationField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(GTMEnvelope)  # type: ignore[arg-type]
+class GTMField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(MVPEnvelope)  # type: ignore[arg-type]
+class MVPField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(MarketingPageEnvelope)  # type: ignore[arg-type]
+class MarketingPageField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(MarketingStepsEnvelope)  # type: ignore[arg-type]
+class MarketingStepsField(serializers.JSONField):
+    pass
 
 
 class FounderProjectSerializer(serializers.ModelSerializer):
@@ -11,23 +55,51 @@ class FounderProjectSerializer(serializers.ModelSerializer):
         max_length=200,
         help_text='Founder-chosen label for the startup idea, e.g. "AI-powered HOA management".',
     )
-    ideation = serializers.JSONField(
+    ideation = IdeationField(
         required=False,
         help_text=(
-            "Stage 1 output. Expected shape: {what, how, who, problem}. Writing here triggers "
-            "the validation Celery task asynchronously."
+            "Stage 1 output. Shape: {what, how, who, problem}. Writing here triggers the "
+            "validation Celery task asynchronously."
         ),
     )
-    validation = serializers.JSONField(
+    validation = ValidationField(
         read_only=True,
         help_text=(
-            "Stage 2 output, server-managed. Shape: {status, current_pass, report, error, "
-            "ideation_hash, started_at, completed_at|failed_at, trace_id}. Clients poll this "
-            "while status is running."
+            "Stage 2 envelope, server-managed. Triggered via the `run_validation` action. "
+            "Clients poll the detail endpoint while status is `pending` or `running`."
         ),
     )
-    gtm = serializers.JSONField(required=False, help_text="Stage 3 (go-to-market) output. Shape owned by stage 3.")
-    mvp = serializers.JSONField(required=False, help_text="Stage 4 (MVP/landing page) output. Shape owned by stage 4.")
+    gtm = GTMField(
+        read_only=True,
+        help_text=(
+            "Stage 3 envelope, server-managed. Conceptual GTM summary (positioning, target "
+            "segments, pricing tiers, channels). Triggered via the `run_gtm` action."
+        ),
+    )
+    mvp = MVPField(
+        read_only=True,
+        help_text=(
+            "Stage 4 envelope, server-managed. MVP happy-path spec (one-liner, core flow, "
+            "must-haves, deliberately-excluded). Triggered via the `run_mvp` action. Schema "
+            "is a placeholder and may change."
+        ),
+    )
+    marketing_page = MarketingPageField(
+        read_only=True,
+        help_text=(
+            "Stage 5a envelope, server-managed. Landing page build spec (copy hooks, design "
+            "notes, shadcn/ui recipes, PostHog events, acceptance criteria). Triggered via "
+            "the `run_landing_page` action."
+        ),
+    )
+    marketing_steps = MarketingStepsField(
+        read_only=True,
+        help_text=(
+            "Stage 5b envelope, server-managed. Practical launch playbook with "
+            "ready-to-publish posts for Product Hunt, LinkedIn, Twitter, Reddit, HN, etc. "
+            "Triggered via the `run_practical_steps` action."
+        ),
+    )
     created_by = serializers.PrimaryKeyRelatedField(
         read_only=True,
         help_text="The user who created this founder project. Set automatically on create.",
@@ -50,11 +122,24 @@ class FounderProjectSerializer(serializers.ModelSerializer):
             "validation",
             "gtm",
             "mvp",
+            "marketing_page",
+            "marketing_steps",
             "created_by",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "ideation_hash", "validation", "created_by", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "ideation_hash",
+            "validation",
+            "gtm",
+            "mvp",
+            "marketing_page",
+            "marketing_steps",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
 
     def get_ideation_hash(self, obj: FounderProject) -> str:
         return ideation_hash(obj.ideation)

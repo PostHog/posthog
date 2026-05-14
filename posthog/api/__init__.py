@@ -76,7 +76,6 @@ from products.error_tracking.backend.api import (
     ErrorTrackingSymbolSetViewSet,
     GitProviderFileLinksViewSet,
 )
-from products.founder_mode.backend.presentation.go_to_market import GoToMarketViewSet as FounderGoToMarketViewSet
 from products.llm_analytics.backend.api import (
     ClusteringConfigViewSet,
     ClusteringJobViewSet,
@@ -319,12 +318,6 @@ projects_router.register(
     r"founder_projects",
     founder_mode.FounderProjectViewSet,
     "project_founder_projects",
-    ["project_id"],
-)
-projects_router.register(
-    r"founder/go-to-market",
-    FounderGoToMarketViewSet,
-    "project_founder_go_to_market",
     ["project_id"],
 )
 

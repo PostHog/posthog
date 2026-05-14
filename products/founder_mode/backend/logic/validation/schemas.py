@@ -12,6 +12,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from products.founder_mode.backend.logic.envelope import StageStatus
+
 Confidence = Literal["low", "medium", "high"]
 Severity = Literal["low", "medium", "high"]
 RiskCategory = Literal["market", "technical", "regulatory", "execution", "timing", "other"]
@@ -92,3 +94,34 @@ class ValidationReport(BaseModel):
     )
     risks: list[Risk] = Field(description="Three to six top risks across the listed categories.")
     verdict: Verdict
+
+
+ValidationPass = Literal["research", "synthesis"]
+
+
+class ValidationEnvelope(BaseModel):
+    """API-facing envelope for the `validation` JSON column.
+
+    Drives the generated TypeScript + Zod types via drf-spectacular → Orval. The Celery task
+    is the sole writer; clients are read-only and poll until `status` is terminal.
+    """
+
+    status: StageStatus | None = Field(default=None, description="Lifecycle state of the validation run.")
+    current_pass: ValidationPass | None = Field(
+        default=None,
+        description="Which Gemini pass is currently in flight while `status='running'`. Null otherwise.",
+    )
+    report: ValidationReport | None = Field(
+        default=None, description="The synthesized validation output. Present once `status='completed'`."
+    )
+    ideation_hash: str | None = Field(
+        default=None,
+        description="SHA-256 of the ideation payload at the time this run started. Used by clients to detect a stale report after the founder edits ideation.",
+    )
+    started_at: str | None = Field(default=None, description="ISO timestamp when the run kicked off.")
+    completed_at: str | None = Field(default=None, description="ISO timestamp when the run finished successfully.")
+    failed_at: str | None = Field(default=None, description="ISO timestamp when the run failed.")
+    trace_id: str | None = Field(
+        default=None, description="Trace id linking to the underlying LLM calls in PostHog LLM analytics."
+    )
+    error: str = Field(default="", description="Human-readable error message when `status='failed'`. Empty otherwise.")
