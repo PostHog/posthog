@@ -26,6 +26,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.embedding_worker import emit_embedding_request
 from posthog.constants import AvailableFeature
 from posthog.models.sharing_configuration import SharingConfiguration
 
@@ -220,4 +221,59 @@ def vapi_webhook(request: Request) -> Response:
         interview_id=str(interview.id),
         interviewee=interviewee_context.interviewee_identifier,
     )
+
+    # Emit embedding request for the transcript so it's searchable via vector similarity.
+    # Done outside the transaction — embedding is best-effort and shouldn't block the webhook response.
+    transcript = interview.transcript
+    if transcript:
+        try:
+            emit_embedding_request(
+                content=transcript,
+                team_id=sharing_config.team_id,
+                product="user-interviews",
+                document_type="interview-transcript",
+                rendering="plain",
+                document_id=str(interview.id),
+                models=["text-embedding-3-small-1536"],
+                timestamp=interview.created_at,
+                metadata={
+                    "topic_id": str(topic.id),
+                    "topic": topic.topic or "",
+                    "interviewee_identifier": interviewee_context.interviewee_identifier,
+                    "interview_id": str(interview.id),
+                },
+            )
+        except Exception:
+            logger.exception(
+                "user_interviews_transcript_embedding_failed",
+                team_id=sharing_config.team_id,
+                interview_id=str(interview.id),
+            )
+
+    summary = interview.summary
+    if summary:
+        try:
+            emit_embedding_request(
+                content=summary,
+                team_id=sharing_config.team_id,
+                product="user-interviews",
+                document_type="interview-summary",
+                rendering="plain",
+                document_id=str(interview.id),
+                models=["text-embedding-3-small-1536"],
+                timestamp=interview.created_at,
+                metadata={
+                    "topic_id": str(topic.id),
+                    "topic": topic.topic or "",
+                    "interviewee_identifier": interviewee_context.interviewee_identifier,
+                    "interview_id": str(interview.id),
+                },
+            )
+        except Exception:
+            logger.exception(
+                "user_interviews_summary_embedding_failed",
+                team_id=sharing_config.team_id,
+                interview_id=str(interview.id),
+            )
+
     return Response({"status": "created", "interview_id": str(interview.id)}, status=status.HTTP_201_CREATED)
