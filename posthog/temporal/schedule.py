@@ -523,9 +523,11 @@ async def create_mcp_sessions_backfill_schedule(client: Client):
 async def create_mcp_session_intent_summary_schedule(client: Client):
     """Create or update the schedule that backfills MCPSession.intent with an LLM summary.
 
-    Runs every 10 minutes; each run picks up to 25 MCPSession rows with NULL intent,
-    pulls their per-tool-call $mcp_intent strings, and asks OpenAI to summarise the
-    overall agent goal in 2-3 sentences.
+    Runs every 5 minutes (matches the backfill cadence so new sessions become
+    'complete' quickly). Each run picks up to 100 MCPSession rows whose intent is
+    unset and whose last event is older than 30 minutes (so we don't summarise
+    sessions that may still be receiving tool calls), then dispatches the LLM
+    calls in parallel inside the activity.
     """
     summary_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -538,7 +540,7 @@ async def create_mcp_session_intent_summary_schedule(client: Client):
             ),
         ),
         spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=timedelta(minutes=10))],
+            intervals=[ScheduleIntervalSpec(every=timedelta(minutes=5))],
         ),
     )
 
