@@ -32,7 +32,7 @@ function ReferralsAttributedSignupsIntro({
                 </p>
                 <p className="m-0 text-secondary text-[15px] leading-relaxed text-balance">
                     The moment someone waltzes into PostHog through your link, they&apos;ll flop into this tidy little
-                    list with timestamps and onboarding progress sprinkled in for context. Until then—air out your link
+                    list with timestamps and onboarding progress sprinkled in for context. Until then, air out your link
                     somewhere fun and check back like someone peeking into a warmed-up oven.
                 </p>
                 <div className="flex flex-wrap gap-2 justify-center sm:justify-start pt-0.5">
@@ -121,7 +121,7 @@ export function ReferralsScene(): JSX.Element {
                                     Your signup link
                                 </p>
                                 <p className="m-0 mt-1 text-secondary text-[15px] leading-snug max-w-2xl">
-                                    Drop this wherever you yak about analytics—your team chat, timeline, sleepy
+                                    Drop this wherever you yak about analytics: your team chat, timeline, sleepy
                                     newsletter footer, whichever. Anyone who swings by and joins shows up below as yours
                                     ✨
                                 </p>
@@ -134,10 +134,10 @@ export function ReferralsScene(): JSX.Element {
                                 Preparing your link…
                             </div>
                         ) : (
-                            <div className="flex flex-col sm:flex-row gap-3 sm:items-stretch">
+                            <div className="flex flex-col sm:flex-row gap-3 sm:items-stretch w-full max-w-2xl">
                                 <div
                                     data-attr="social-referral-link"
-                                    className="flex-1 min-w-0 rounded-lg border border-primary bg-fill-secondary px-3.5 py-3 shadow-[inset_0_1px_0_rgba(0,0,0,0.04)] dark:shadow-none"
+                                    className="min-w-0 flex-1 rounded-lg border border-primary bg-fill-secondary px-3.5 py-3 shadow-[inset_0_1px_0_rgba(0,0,0,0.04)] dark:shadow-none"
                                 >
                                     <span className="block font-mono text-[13px] text-default truncate select-all cursor-default">
                                         {referralShareUrl}

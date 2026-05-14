@@ -486,9 +486,29 @@ export const signupLogic = kea<signupLogicType>([
         loginUrl: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, string>) => {
+                const params = new URLSearchParams()
                 const nextParam = getRelativeNextPath(searchParams['next'], location)
-                return nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : '/login'
+                if (nextParam) {
+                    params.set('next', nextParam)
+                }
+                const ref = searchParams['referral_program_id']
+                if (ref) {
+                    params.set('referral_program_id', ref)
+                }
+                for (const key of ['utm_medium', 'utm_campaign', 'utm_source'] as const) {
+                    const v = searchParams[key]
+                    if (v) {
+                        params.set(key, v)
+                    }
+                }
+                const qs = params.toString()
+                return qs ? `/login?${qs}` : '/login'
             },
+        ],
+        showReferralSignupBanner: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, string>): boolean =>
+                Boolean(searchParams.referral_program_id) || searchParams.utm_campaign === 'social-referral',
         ],
         passkeySignupEnabled: [
             (s) => [s.featureFlags],
@@ -632,7 +652,8 @@ export const signupLogic = kea<signupLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/signup': (_, { email, maintenanceRedirect }) => {
+        '/signup': (_, searchParams) => {
+            const { email, maintenanceRedirect } = searchParams
             if (values.preflight?.cloud) {
                 // Redirect to a different region if we are doing maintenance on one of them
                 const regionOverrideFlag = values.featureFlags[FEATURE_FLAGS.REDIRECT_SIGNUPS_TO_INSTANCE]
