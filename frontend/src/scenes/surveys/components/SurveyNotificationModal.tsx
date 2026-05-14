@@ -75,7 +75,7 @@ function TestResultPanel({
                     />
                 ) : null}
             </div>
-            {result?.logs && result.logs.length > 0 ? (
+            {!loading && result?.logs && result.logs.length > 0 ? (
                 <details>
                     <summary className="cursor-pointer text-xs text-muted">Show logs ({result.logs.length})</summary>
                     <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap rounded bg-bg-3000 p-2 text-xs">

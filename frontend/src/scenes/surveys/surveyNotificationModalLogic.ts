@@ -271,26 +271,26 @@ export function buildLastSurveyResponseQuery(surveyId: string): EventsQuery | nu
     }
 }
 
-async function fetchLastSurveyResponseGlobals(
-    query: EventsQuery | null
-): Promise<CyclotronJobInvocationGlobals | null> {
+type LastSurveyResponseResult =
+    | { status: 'ok'; globals: CyclotronJobInvocationGlobals }
+    | { status: 'empty' }
+    | { status: 'failed' }
+
+async function fetchLastSurveyResponseGlobals(query: EventsQuery | null): Promise<LastSurveyResponseResult> {
     if (!query) {
-        return null
+        return { status: 'empty' }
     }
     try {
         const response = await performQuery(query)
         const row = response?.results?.[0]
-        if (!row) {
-            return null
-        }
-        const event = row[0] as EventType | undefined
-        const person = row[1] as PersonType | undefined
+        const event = row?.[0] as EventType | undefined
+        const person = row?.[1] as PersonType | undefined
         if (!event || !person) {
-            return null
+            return { status: 'empty' }
         }
-        return convertToHogFunctionInvocationGlobals(event, person)
+        return { status: 'ok', globals: convertToHogFunctionInvocationGlobals(event, person) }
     } catch {
-        return null
+        return { status: 'failed' }
     }
 }
 
@@ -855,9 +855,13 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
 
                     let globals: CyclotronJobInvocationGlobals = values.templateGlobals
                     if (source === 'last_response') {
-                        const realGlobals = await fetchLastSurveyResponseGlobals(values.lastResponseEventQuery)
-                        if (realGlobals) {
-                            globals = realGlobals
+                        const lookup = await fetchLastSurveyResponseGlobals(values.lastResponseEventQuery)
+                        if (lookup.status === 'ok') {
+                            globals = lookup.globals
+                        } else if (lookup.status === 'failed') {
+                            lemonToast.warning(
+                                'Could not fetch the last response — sent the test with sample data instead.'
+                            )
                         } else {
                             lemonToast.info('No survey responses yet — sent the test with sample data instead.')
                         }
