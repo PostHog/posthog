@@ -65,7 +65,11 @@ export class ApiClient {
                 throw new Error(`API request failed: ${response.status} ${response.statusText} - ${errorText}`)
             }
 
-            return await response.json()
+            if (response.status === 204) {
+                return undefined as T
+            }
+            const text = await response.text()
+            return (text ? JSON.parse(text) : undefined) as T
         } catch (error) {
             if (error instanceof Error) {
                 throw error
