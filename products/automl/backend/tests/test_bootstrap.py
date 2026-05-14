@@ -122,9 +122,11 @@ def test_brief_mentions_each_canonical_contract_step(team):
     brief = bootstrap._build_orchestration_brief(pipeline)
 
     expected_anchors = [
-        # Step 1 — install the CLI from the bind-mounted source. The
-        # --break-system-packages flag is required on Ubuntu 24.04 per PEP 668.
-        "pip install --break-system-packages -e /tmp/workspace/repos/posthog/automl-cli",
+        # Step 1 — install the CLI from the bind-mounted source via uv (much
+        # faster resolver than pip on autogluon's transitive dep graph). Both
+        # commands need --break-system-packages on Ubuntu 24.04 per PEP 668.
+        "pip install --break-system-packages uv",
+        "uv pip install --system --break-system-packages -e /tmp/workspace/repos/posthog/automl-cli",
         "automl --version",
         # Step 2 — fetch the snapshot via the CLI.
         "automl prepare-from-hogql",

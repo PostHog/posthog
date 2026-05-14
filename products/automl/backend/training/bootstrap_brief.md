@@ -42,17 +42,23 @@ do not invert their order, do not add steps that mutate user-visible state
 
 You are in a fresh sandbox with the `posthog-automl-cli` source bind-mounted
 at `/tmp/workspace/repos/posthog/automl-cli/`. Install it editable so the
-`automl` console command is on `PATH`:
+`automl` console command is on `PATH`. Use `uv` (not plain `pip`) — it
+parallelizes downloads + has a much faster resolver, which on a fresh
+sandbox cuts the AutoGluon dep install from ~18 min down to ~5 min:
 
 ```bash
-pip install --break-system-packages -e /tmp/workspace/repos/posthog/automl-cli
+pip install --break-system-packages uv
+uv pip install --system --break-system-packages -e /tmp/workspace/repos/posthog/automl-cli
 automl --version  # sanity check; non-zero exit aborts the run
 ```
 
-The `--break-system-packages` flag is required because the sandbox base image
+Both commands need `--break-system-packages` because the sandbox base image
 is Ubuntu 24.04, whose system Python is marked externally-managed per
-[PEP 668](https://peps.python.org/pep-0668/). The sandbox is single-use and
-disposable, so installing into the system site-packages is safe here.
+[PEP 668](https://peps.python.org/pep-0668/). `uv pip install --system` is
+uv's flag for "install into the system Python, do not create a venv" — the
+sandbox is single-use and disposable so a venv adds no value here. Do not
+fall back to plain `pip install -e` if `uv` errors — bail with
+`unknown_error: AutoML CLI install failed` and surface uv's stderr.
 
 The sandbox already has these env vars set — do **not** override them:
 
