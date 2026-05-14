@@ -11,7 +11,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from .enums import AutonomyLevel, Cadence, ModelRole, PipelineStatus, TaskType
+from .enums import AutonomyLevel, Cadence, ModelRole, PipelineStatus, RunKind, RunStatus, TaskType
 
 
 class ValidationSeverity(StrEnum):
@@ -158,6 +158,95 @@ class PipelineStateTransitionError(Exception):
 
 class ModelVersionNotFoundError(Exception):
     """Raised by the facade when a model-version lookup misses (wrong team or wrong id)."""
+
+
+class PipelineRunNotFoundError(Exception):
+    """Raised by the facade when a pipeline-run lookup misses (wrong team or wrong id)."""
+
+
+@dataclass(frozen=True)
+class AutoMLPipelineRunDTO:
+    """The public shape of a single pipeline run.
+
+    One row per bootstrap / retrain / inference attempt, regardless of outcome.
+    Durable home for the agent's outcome report, EDA summary, and failure
+    reason — anything that lives inside the sandbox container and would
+    otherwise die with it. ``id`` shows up on the pipeline detail page and
+    in the retraining loop's iteration chain (``parent_run_id``).
+
+    See `io-spec.md`'s "Per pipeline run (durable record)" section in the
+    `/phs automl` skill for the full design rationale.
+    """
+
+    id: UUID
+    pipeline_id: UUID
+    team_id: int
+    run_kind: RunKind
+    status: RunStatus
+    task_slug: str
+    task_workspace_root: str
+    cli_run_id: str
+    agent_session_id: str
+    task_id: UUID | None
+    started_at: datetime
+    completed_at: datetime | None
+    outcome_report: str
+    eda_result: dict[str, Any]
+    training_result: dict[str, Any]
+    failure_reason: str
+    created_model_version_id: UUID | None
+    parent_run_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class CreatePipelineRunInput:
+    """Inputs for opening a new ``AutoMLPipelineRun`` row.
+
+    Called by lifecycle helpers (bootstrap enqueue, scheduled retrain dispatch,
+    scheduled inference dispatch) — not exposed via MCP. The row starts in
+    ``status=running`` with the workspace + slug already pinned, so subsequent
+    record_* calls just slot in their pieces.
+    """
+
+    run_kind: RunKind
+    task_slug: str
+    task_workspace_root: str
+    task_id: UUID | None = None
+    parent_run_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class RecordEdaResultInput:
+    """Inputs for the ``automl-record-eda-result`` MCP tool.
+
+    Called by the agent between EDA and training. Holds the structured EDA
+    summary (class balance, top-signal features, dropped features, leakage
+    warnings, full `eda_uri` from the CLI's `eda.yaml`). Schemaless on purpose
+    — the CLI's output format will evolve and we don't want to gate updates
+    on a migration.
+    """
+
+    eda_result: dict[str, Any]
+    cli_run_id: str = ""
+
+
+@dataclass(frozen=True)
+class RecordBootstrapOutcomeInput:
+    """Inputs for the ``automl-record-bootstrap-outcome`` MCP tool.
+
+    Called by the agent as the final checkpoint of a bootstrap run. The agent
+    writes the full markdown outcome report and a terminal status. Pipeline
+    status transitions hang off this — ``succeeded`` with a champion lifts
+    the pipeline into ``ACTIVE``; ``failed`` lifts it into ``FAILED``.
+    """
+
+    status: RunStatus
+    outcome_report: str
+    failure_reason: str = ""
+    cli_run_id: str = ""
+    agent_session_id: str = ""
 
 
 @dataclass(frozen=True)

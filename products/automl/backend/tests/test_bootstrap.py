@@ -2,6 +2,7 @@
 
 import re
 import json
+import uuid
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,22 @@ from products.tasks.backend.services.sandbox import SandboxTemplate
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _SKILL_ROOT = _REPO_ROOT / "products" / "automl" / "skills" / "automl-bootstrap"
+
+# Default workspace shape used when a test just needs the brief built — the
+# concrete values are unit-test fixtures, not assertions about real workspaces.
+_TEST_RUN_ID = uuid.UUID("00000000-0000-0000-0000-0000000feed1")
+_TEST_TASK_SLUG = "bootstrap_unit"
+_TEST_WORKSPACE_ROOT = f"s3://automl/tasks/{_TEST_TASK_SLUG}"
+
+
+def _build_brief(pipeline) -> str:
+    """Build the brief with stable fixture args. Tests assert on the contents."""
+    return bootstrap._build_orchestration_brief(
+        pipeline,
+        run_id=_TEST_RUN_ID,
+        task_slug=_TEST_TASK_SLUG,
+        task_workspace_root=_TEST_WORKSPACE_ROOT,
+    )
 
 
 def _make_pipeline(
@@ -89,7 +106,7 @@ def test_build_pipeline_spec_excludes_server_only_fields(team):
 @pytest.mark.django_db
 def test_build_orchestration_brief_contains_serializable_pipeline_spec(team):
     pipeline = _make_pipeline(team.id)
-    brief = bootstrap._build_orchestration_brief(pipeline)
+    brief = _build_brief(pipeline)
 
     assert pipeline.name in brief
     assert pipeline.task_type in brief
@@ -102,7 +119,7 @@ def test_build_orchestration_brief_contains_serializable_pipeline_spec(team):
 @pytest.mark.django_db
 def test_build_orchestration_brief_embeds_gates_block(team):
     pipeline = _make_pipeline(team.id)
-    brief = bootstrap._build_orchestration_brief(pipeline)
+    brief = _build_brief(pipeline)
 
     gates = _extract_named_json_block(brief, "Promotion gates")
     # Default classification gate — sensible permissive floor.
@@ -124,7 +141,7 @@ def test_brief_is_a_thin_pointer_to_the_skill(team):
     following a frozen contract embedded in the task description.
     """
     pipeline = _make_pipeline(team.id)
-    brief = bootstrap._build_orchestration_brief(pipeline)
+    brief = _build_brief(pipeline)
 
     # The skill name is the load-bearing pointer.
     assert "automl-bootstrap" in brief
@@ -151,7 +168,7 @@ def test_brief_is_a_thin_pointer_to_the_skill(team):
 def test_brief_inlines_training_query_as_hogql_block(team):
     """The training-population HogQL is substituted inline as a labeled code block."""
     pipeline = _make_pipeline(team.id)
-    brief = bootstrap._build_orchestration_brief(pipeline)
+    brief = _build_brief(pipeline)
     # The query lands in a fenced `hogql` block under the Training-population HogQL heading.
     assert "```hogql\nSELECT 1\n```" in brief
 
@@ -226,7 +243,7 @@ def test_brief_carries_user_success_criteria_over_defaults(team):
             },
         },
     )
-    brief = bootstrap._build_orchestration_brief(pipeline)
+    brief = _build_brief(pipeline)
 
     gates = _extract_named_json_block(brief, "Promotion gates")
     assert gates == {
@@ -269,7 +286,7 @@ def test_default_gates_per_task_type(team):
     ]
     for task_type, config, expected in cases:
         pipeline = _make_pipeline(team.id, task_type=task_type, config=config, name=f"defaults_{task_type.value}")
-        gates = _extract_named_json_block(bootstrap._build_orchestration_brief(pipeline), "Promotion gates")
+        gates = _extract_named_json_block(_build_brief(pipeline), "Promotion gates")
         assert gates == expected, f"unexpected default gates for {task_type.value}"
 
 
@@ -277,7 +294,13 @@ def test_default_gates_per_task_type(team):
 def test_enqueue_bootstrap_training_passes_canonical_args(team, user):
     pipeline = _make_pipeline(team.id)
     with patch.object(Task, "create_and_run") as mock_create:
-        bootstrap.enqueue_bootstrap_training(pipeline=pipeline, user_id=user.id)
+        bootstrap.enqueue_bootstrap_training(
+            pipeline=pipeline,
+            user_id=user.id,
+            run_id=_TEST_RUN_ID,
+            task_slug=_TEST_TASK_SLUG,
+            task_workspace_root=_TEST_WORKSPACE_ROOT,
+        )
 
     mock_create.assert_called_once()
     kwargs = mock_create.call_args.kwargs
@@ -301,3 +324,75 @@ def test_enqueue_bootstrap_training_passes_canonical_args(team, user):
     # Routed onto the dedicated AutoML sandbox image — heavy ML deps preinstalled
     # so the bind-mounted CLI's editable install resolves in seconds, not minutes.
     assert kwargs["sandbox_template"] == SandboxTemplate.AUTOML
+
+
+@pytest.mark.django_db
+def test_brief_includes_run_context_block(team):
+    """The brief carries `run_id`, `task_slug`, `task_workspace_root`, `s3_endpoint`
+    so the agent can thread them through every CLI invocation + MCP call."""
+    pipeline = _make_pipeline(team.id)
+    brief = _build_brief(pipeline)
+
+    ctx = _extract_named_json_block(brief, "Run context")
+    assert ctx["run_id"] == str(_TEST_RUN_ID)
+    assert ctx["pipeline_id"] == str(pipeline.id)
+    assert ctx["task_slug"] == _TEST_TASK_SLUG
+    assert ctx["task_workspace_root"] == _TEST_WORKSPACE_ROOT
+    # Local-dev MinIO endpoint — production gets an empty value once the
+    # inference workflow lands and we wire this off a setting per env.
+    assert ctx["s3_endpoint"] == "http://localhost:19000"
+
+
+@pytest.mark.django_db
+def test_brief_points_at_cli_skills_decision_tree(team):
+    """The brief delegates ML/EDA/training flow to the CLI's own skill bundle —
+    keeps the productization side from drifting against the CLI's contract."""
+    pipeline = _make_pipeline(team.id)
+    brief = _build_brief(pipeline)
+
+    # The cross-reference to the CLI's decision tree must be present and
+    # all four CLI skill names show up — the brief should not be guessing
+    # at the CLI flow shape.
+    assert "automl-cli/skills/README.md" in brief
+    for cli_skill_name in ("scope-modeling-task", "tune-hogql-query", "eda-on-features", "run-train-predict"):
+        assert cli_skill_name in brief, f"missing reference to CLI skill {cli_skill_name!r}"
+
+
+def test_derive_task_slug_uses_snake_case_for_typical_names():
+    """The CLI's `scope-modeling-task` examples use snake_case task names
+    (`weekly_churn`, `user_activity_tier`) — match that convention."""
+
+    class _FakePipeline:
+        def __init__(self, name, pid):
+            self.name = name
+            self.id = pid
+
+    cases = [
+        ("Weekly Churn Q2 2026", "weekly_churn_q2_2026"),
+        ("user-activity-tier", "user_activity_tier"),
+        ("Power Users (v2)", "power_users_v2"),
+    ]
+    for name, expected in cases:
+        pid = uuid.uuid4()
+        assert bootstrap.derive_task_slug(_FakePipeline(name, pid)) == expected  # type: ignore[arg-type]
+
+
+def test_derive_task_slug_falls_back_to_pipeline_id_when_name_is_all_garbage():
+    """A name that slugifies to empty (all special chars) must still produce
+    a usable `--task` value — falling back to a deterministic id-based slug."""
+
+    class _FakePipeline:
+        def __init__(self, name, pid):
+            self.name = name
+            self.id = pid
+
+    pid = uuid.UUID("12345678-1234-5678-1234-567812345678")
+    slug = bootstrap.derive_task_slug(_FakePipeline("!!!", pid))  # type: ignore[arg-type]
+    # `1234567812345678123456781234`5678` — first 8 hex chars of the UUID.
+    assert slug == "pipeline_12345678"
+
+
+def test_derive_task_workspace_root_matches_cli_convention():
+    """Workspace root must match the layout `automl-cli/CLAUDE.md` documents:
+    `s3://automl/tasks/<task_slug>/`."""
+    assert bootstrap.derive_task_workspace_root("weekly_churn") == "s3://automl/tasks/weekly_churn"

@@ -7,14 +7,15 @@ converts ORM models to frozen dataclasses.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from django.db import transaction
 
 from ..facade import contracts
-from ..facade.enums import ModelRole, PipelineStatus
-from ..models import AutoMLModelVersion, AutoMLPipeline
+from ..facade.enums import ModelRole, PipelineStatus, RunStatus
+from ..models import AutoMLModelVersion, AutoMLPipeline, AutoMLPipelineRun
 from .validation import run_validation
 
 __all__ = [
@@ -29,6 +30,12 @@ __all__ = [
     "list_model_versions",
     "get_active_model",
     "promote_to_champion",
+    "create_pipeline_run",
+    "get_pipeline_run",
+    "list_pipeline_runs",
+    "record_eda_result",
+    "record_bootstrap_outcome",
+    "mark_run_failed",
 ]
 
 # Allowed status transitions: source -> set of allowed destinations.
@@ -185,34 +192,64 @@ def record_training_result(
     team_id: int,
     pipeline_id: UUID,
     params: contracts.RecordTrainingResultInput,
+    run_id: UUID | None = None,
 ) -> AutoMLModelVersion:
     """Persist one trained model version on a pipeline.
 
     Looks the pipeline up scoped to the team so cross-team writes fail closed.
     Default role is challenger — promotion to champion is a separate explicit
     step via ``promote_to_champion`` (and never happens implicitly here).
+
+    When ``run_id`` is provided, the matching ``AutoMLPipelineRun`` is
+    updated in the same transaction: ``created_model_version_id`` points at
+    the new version and ``training_result`` gets a compact denormalized
+    summary (metrics, top-5 leaderboard rows, eval_metric) so the
+    pipeline-detail run history doesn't need to join across tables to
+    render. Same-pipeline / same-team scoping is enforced so a leaked
+    ``run_id`` can't be coaxed into writing the wrong record.
     """
     pipeline = get_pipeline(team_id=team_id, pipeline_id=pipeline_id)
     if pipeline is None:
         raise contracts.PipelineNotFoundError(f"pipeline {pipeline_id} not found in team {team_id}")
 
-    return AutoMLModelVersion.objects.create(
-        team_id=team_id,
-        pipeline=pipeline,
-        role=params.role.value,
-        metrics=params.metrics,
-        leaderboard=params.leaderboard,
-        training_params=params.training_params,
-        tracking_metadata=params.tracking_metadata,
-        eval_metric=params.eval_metric,
-        problem_type=params.problem_type,
-        artifact_uri=params.artifact_uri,
-        features_hash=params.features_hash,
-        rows_train=params.rows_train,
-        rows_val=params.rows_val,
-        rows_test=params.rows_test,
-        training_task_id=params.training_task_id,
-    )
+    with transaction.atomic():
+        version = AutoMLModelVersion.objects.create(
+            team_id=team_id,
+            pipeline=pipeline,
+            role=params.role.value,
+            metrics=params.metrics,
+            leaderboard=params.leaderboard,
+            training_params=params.training_params,
+            tracking_metadata=params.tracking_metadata,
+            eval_metric=params.eval_metric,
+            problem_type=params.problem_type,
+            artifact_uri=params.artifact_uri,
+            features_hash=params.features_hash,
+            rows_train=params.rows_train,
+            rows_val=params.rows_val,
+            rows_test=params.rows_test,
+            training_task_id=params.training_task_id,
+        )
+
+        if run_id is not None:
+            run = AutoMLPipelineRun.objects.filter(team_id=team_id, pipeline_id=pipeline_id, id=run_id).first()
+            if run is None:
+                raise contracts.PipelineRunNotFoundError(
+                    f"run {run_id} not found for pipeline {pipeline_id} in team {team_id}"
+                )
+            run.created_model_version_id = version.id
+            run.training_result = {
+                "metrics": params.metrics,
+                # Keep the denormalized summary compact — the full leaderboard
+                # lives on AutoMLModelVersion. Top 5 is enough for the
+                # pipeline-detail run history's at-a-glance render.
+                "leaderboard_top5": params.leaderboard[:5],
+                "eval_metric": params.eval_metric,
+                "problem_type": params.problem_type,
+            }
+            run.save(update_fields=["created_model_version_id", "training_result", "updated_at"])
+
+        return version
 
 
 def list_model_versions(*, team_id: int, pipeline_id: UUID) -> list[AutoMLModelVersion]:
@@ -271,3 +308,149 @@ def promote_to_champion(*, team_id: int, model_version_id: UUID) -> AutoMLModelV
         target.role = ModelRole.CHAMPION.value
         target.save(update_fields=["role", "updated_at"])
         return target
+
+
+# ---- Pipeline-run lifecycle ----
+#
+# Bootstrap / retrain / inference runs each get one `AutoMLPipelineRun` row.
+# Created up-front (status=running) by the surrounding lifecycle helper (e.g.
+# `bootstrap.enqueue_bootstrap_training`); progressively populated by the
+# agent's MCP checkpoints; flipped to a terminal state by `record_bootstrap_outcome`
+# or `mark_run_failed`. See `io-spec.md`'s "Per pipeline run (durable record)".
+
+
+def create_pipeline_run(
+    *,
+    team_id: int,
+    pipeline_id: UUID,
+    params: contracts.CreatePipelineRunInput,
+) -> AutoMLPipelineRun:
+    """Open a new run row for a pipeline. Always starts in ``status=running``.
+
+    Looks the pipeline up scoped to the team so cross-team writes fail closed.
+    Pipelines that exist but already have an in-progress run are still allowed
+    to open another — the retraining loop relies on chained runs.
+    """
+    pipeline = get_pipeline(team_id=team_id, pipeline_id=pipeline_id)
+    if pipeline is None:
+        raise contracts.PipelineNotFoundError(f"pipeline {pipeline_id} not found in team {team_id}")
+
+    return AutoMLPipelineRun.objects.create(
+        team_id=team_id,
+        pipeline=pipeline,
+        run_kind=params.run_kind.value,
+        task_slug=params.task_slug,
+        task_workspace_root=params.task_workspace_root,
+        task_id=params.task_id,
+        parent_run_id=params.parent_run_id,
+    )
+
+
+def get_pipeline_run(*, team_id: int, run_id: UUID) -> AutoMLPipelineRun | None:
+    """Fetch one run by ID, scoped to a team. Returns ``None`` when not found."""
+    return AutoMLPipelineRun.objects.filter(team_id=team_id, id=run_id).first()
+
+
+def list_pipeline_runs(*, team_id: int, pipeline_id: UUID) -> list[AutoMLPipelineRun]:
+    """List every run for a pipeline, newest first. No status filter — the
+    pipeline-detail page shows the full timeline including failures."""
+    return list(AutoMLPipelineRun.objects.filter(team_id=team_id, pipeline_id=pipeline_id).order_by("-started_at"))
+
+
+def record_eda_result(
+    *,
+    team_id: int,
+    run_id: UUID,
+    params: contracts.RecordEdaResultInput,
+) -> AutoMLPipelineRun:
+    """Stash the agent's EDA output on an in-progress run.
+
+    Called after `automl eda --task <slug>` completes but before training
+    starts. The `eda_result` shape is whatever the CLI's `eda.yaml` plus
+    stdout JSON give us — kept JSON for schemaless evolution. ``cli_run_id``
+    is also persisted now so the workspace's `runs/<run_id>/` path is
+    addressable from the row alone.
+    """
+    run = get_pipeline_run(team_id=team_id, run_id=run_id)
+    if run is None:
+        raise contracts.PipelineRunNotFoundError(f"run {run_id} not found in team {team_id}")
+
+    run.eda_result = params.eda_result
+    update_fields = ["eda_result", "updated_at"]
+    if params.cli_run_id:
+        run.cli_run_id = params.cli_run_id
+        update_fields.append("cli_run_id")
+    run.save(update_fields=update_fields)
+    return run
+
+
+def record_bootstrap_outcome(
+    *,
+    team_id: int,
+    run_id: UUID,
+    params: contracts.RecordBootstrapOutcomeInput,
+) -> AutoMLPipelineRun:
+    """Flip a run to a terminal state and write the agent's final outcome report.
+
+    Accepts ``status=succeeded`` / ``failed`` / ``aborted`` — ``running`` is
+    rejected because that's an open-state hint, not a terminal one. The
+    write is single-shot: once a run reaches a terminal state, this method
+    no-ops (it returns the already-terminal row). That's deliberate — a
+    misbehaving agent can't repeatedly overwrite the outcome and the
+    pipeline-detail page's timeline stays stable.
+    """
+    if params.status == RunStatus.RUNNING:
+        raise ValueError("record_bootstrap_outcome requires a terminal status")
+
+    run = get_pipeline_run(team_id=team_id, run_id=run_id)
+    if run is None:
+        raise contracts.PipelineRunNotFoundError(f"run {run_id} not found in team {team_id}")
+
+    if run.status != RunStatus.RUNNING.value:
+        # Already terminal — no-op. We don't raise: the agent may retry the
+        # MCP call after a transient network blip, and idempotent behavior
+        # is friendlier than a 409.
+        return run
+
+    run.status = params.status.value
+    run.outcome_report = params.outcome_report
+    run.failure_reason = params.failure_reason
+    if params.cli_run_id:
+        run.cli_run_id = params.cli_run_id
+    if params.agent_session_id:
+        run.agent_session_id = params.agent_session_id
+    run.completed_at = datetime.now(UTC)
+    run.save(
+        update_fields=[
+            "status",
+            "outcome_report",
+            "failure_reason",
+            "cli_run_id",
+            "agent_session_id",
+            "completed_at",
+            "updated_at",
+        ]
+    )
+    return run
+
+
+def mark_run_failed(
+    *,
+    run: AutoMLPipelineRun,
+    failure_reason: str,
+) -> AutoMLPipelineRun:
+    """Mark a run as failed when the failure originates outside the agent.
+
+    Called by the surrounding workflow when something blew up before the
+    agent could write its own outcome report — e.g. `Task.create_and_run`
+    raises, the sandbox refuses to provision, or the Temporal workflow
+    self-cancels. Idempotent: no-op if the run is already terminal.
+    """
+    if run.status != RunStatus.RUNNING.value:
+        return run
+
+    run.status = RunStatus.FAILED.value
+    run.failure_reason = failure_reason
+    run.completed_at = datetime.now(UTC)
+    run.save(update_fields=["status", "failure_reason", "completed_at", "updated_at"])
+    return run

@@ -18,6 +18,9 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from uuid import UUID
+
+from django.utils.text import slugify
 
 from posthog.models import Team
 
@@ -26,6 +29,32 @@ from products.tasks.backend.services.sandbox import SandboxTemplate
 
 from ..facade.enums import TaskType
 from ..models import AutoMLPipeline
+
+# Local-dev MinIO endpoint. Production runs without an endpoint override
+# (real AWS S3 via instance role). For now this is hardcoded — once the
+# scheduled inference workflow lands we'll wire it off a setting per env.
+_LOCAL_S3_ENDPOINT = "http://localhost:19000"
+
+
+def derive_task_slug(pipeline: AutoMLPipeline) -> str:
+    """Derive the ``--task <slug>`` name passed to `automl-cli`.
+
+    Uses Django's `slugify` (kebab-case) then converts to snake_case since
+    the CLI's `scope-modeling-task.md` examples use snake (`weekly_churn`,
+    `user_activity_tier`). Stable across runs of the same pipeline so the
+    workspace path is predictable.
+
+    Falls back to a deterministic id-based slug if the pipeline name is all
+    non-slug characters — the CLI rejects an empty `--task`.
+    """
+    slug = slugify(pipeline.name).replace("-", "_")
+    return slug or f"pipeline_{pipeline.id.hex[:8]}"
+
+
+def derive_task_workspace_root(task_slug: str) -> str:
+    """The ``s3://automl/tasks/<task_slug>/`` prefix the CLI writes to."""
+    return f"s3://automl/tasks/{task_slug}"
+
 
 # Per-task-type fallback gates used when the pipeline's config doesn't carry
 # its own ``success_criteria``. These are deliberately permissive — the goal
@@ -55,19 +84,35 @@ _DEFAULT_GATES: dict[TaskType, dict[str, Any]] = {
 }
 
 
-def enqueue_bootstrap_training(*, pipeline: AutoMLPipeline, user_id: int) -> Task:
+def enqueue_bootstrap_training(
+    *,
+    pipeline: AutoMLPipeline,
+    user_id: int,
+    run_id: UUID,
+    task_slug: str,
+    task_workspace_root: str,
+) -> Task:
     """Create a `Task` that will train the pipeline's first model in a sandbox.
 
-    Returns the created `Task` so the caller can persist its id on the pipeline.
+    Pure brief-builder + Task-creator. The surrounding facade owns the
+    ``AutoMLPipelineRun`` row's lifecycle — it creates the row before this
+    call (so ``run_id`` exists) and marks it failed on the way out if this
+    call raises. Returns the created `Task` so the caller can stash its id.
+
     Raises whatever `Task.create_and_run` raises (missing User, GitHub integration
-    issues, etc.) — the caller is responsible for marking the pipeline FAILED on
-    bubble-up.
+    issues, etc.) — the caller is responsible for marking the pipeline FAILED
+    and the run failed on bubble-up.
     """
     team = Team.objects.get(id=pipeline.team_id)
     return Task.create_and_run(
         team=team,
         title=f"AutoML bootstrap: {pipeline.name}",
-        description=_build_orchestration_brief(pipeline),
+        description=_build_orchestration_brief(
+            pipeline,
+            run_id=run_id,
+            task_slug=task_slug,
+            task_workspace_root=task_workspace_root,
+        ),
         origin_product=Task.OriginProduct.AUTOML,
         user_id=user_id,
         # Batch training, no live user interaction — matches the Signals research pattern.
@@ -85,34 +130,65 @@ def enqueue_bootstrap_training(*, pipeline: AutoMLPipeline, user_id: int) -> Tas
     )
 
 
-def _build_orchestration_brief(pipeline: AutoMLPipeline) -> str:
+def _build_orchestration_brief(
+    pipeline: AutoMLPipeline,
+    *,
+    run_id: UUID,
+    task_slug: str,
+    task_workspace_root: str,
+) -> str:
     """Build the task description handed to the bootstrap agent.
 
     The description is intentionally thin: a pointer to the
-    ``automl-bootstrap`` skill (which carries the workflow, CLI reference,
-    pitfalls, and recovery framework) plus the per-pipeline payload the agent
-    consumes (spec, gates, training query). The skill is loaded by the
-    agent's normal skill-discovery mechanism inside the sandbox.
+    ``automl-bootstrap`` skill (which itself points to `automl-cli`'s own
+    `skills/README.md` decision tree for the ML/EDA/training flow), plus
+    the per-pipeline payload the agent consumes (spec, gates, training
+    query, task slug, workspace root, run id, S3 endpoint).
 
-    Keeping the dynamic content small keeps the prompt cheap and lets the
-    skill evolve without rebuilding image artifacts or re-substituting
-    Python templates.
+    The skill loads via the agent's normal skill-discovery mechanism inside
+    the sandbox — keeping the dynamic content small keeps the prompt cheap
+    and lets the skill evolve without rebuilding image artifacts.
     """
     spec_json = json.dumps(_build_pipeline_spec(pipeline), indent=2, default=str)
     gates_json = json.dumps(_build_gate_config(pipeline), indent=2, default=str)
     training_query = _extract_training_query(pipeline)
+    run_ctx_json = json.dumps(
+        {
+            "run_id": str(run_id),
+            "pipeline_id": str(pipeline.id),
+            "task_slug": task_slug,
+            "task_workspace_root": task_workspace_root,
+            "s3_endpoint": _LOCAL_S3_ENDPOINT,
+        },
+        indent=2,
+    )
 
     return (
         f"# AutoML bootstrap: {pipeline.name}\n"
         "\n"
-        "Run the `automl-bootstrap` skill. The skill carries the workflow, the\n"
-        "`automl` CLI surface, the common-pitfalls catalog, and the failure-\n"
-        "recovery framework. Iterate on recoverable errors; don't bail at the\n"
+        "Run the `automl-bootstrap` skill. The skill carries the PostHog-side\n"
+        "workflow contract (CLI install, MCP checkpoints, promotion gates, run\n"
+        "lifecycle); the ML/EDA/training flow itself lives on the CLI side in\n"
+        "`automl-cli/skills/README.md` (decision tree) and the four CLI skills it\n"
+        "links to (`scope-modeling-task`, `tune-hogql-query`, `eda-on-features`,\n"
+        "`run-train-predict`). Iterate on recoverable errors; don't bail at the\n"
         "first non-zero exit.\n"
+        "\n"
+        "## Run context\n"
+        "\n"
+        "Pass `--task` and `--s3-endpoint` on every CLI invocation. Surface\n"
+        "`run_id` on every `automl-record-*` MCP call so the same\n"
+        "`AutoMLPipelineRun` row gets EDA / training / outcome updates.\n"
+        "\n"
+        "```json\n"
+        f"{run_ctx_json}\n"
+        "```\n"
         "\n"
         "## Pipeline spec\n"
         "\n"
-        "Treat every field as authoritative; do not edit the config.\n"
+        "Treat every field as authoritative; do not edit the config. Convert this\n"
+        "to the CLI's `spec.yaml` via `Workspace.write_spec(...)` after\n"
+        "`scope-modeling-task` confirms the task is well-scoped (see CLI skill).\n"
         "\n"
         "```json\n"
         f"{spec_json}\n"
@@ -120,8 +196,9 @@ def _build_orchestration_brief(pipeline: AutoMLPipeline) -> str:
         "\n"
         "## Promotion gates\n"
         "\n"
-        "Apply per step 5 of the skill. Bootstrap never auto-displaces an\n"
-        "existing champion; see step 6 for the precondition check.\n"
+        "Apply after training reports back. Bootstrap never auto-displaces an\n"
+        "existing champion — see the bootstrap skill's promotion section for the\n"
+        "precondition check.\n"
         "\n"
         "```json\n"
         f"{gates_json}\n"
@@ -129,10 +206,11 @@ def _build_orchestration_brief(pipeline: AutoMLPipeline) -> str:
         "\n"
         "## Training-population HogQL\n"
         "\n"
-        "Write this to a file in step 2 (the skill shows the heredoc pattern).\n"
-        "If `prepare-from-hogql` rejects it with a parse / type error, read\n"
-        "the response body and fix the query — see the skill's common-pitfalls\n"
-        "reference for known gotchas (especially `AND ... BETWEEN ...` precedence).\n"
+        "Write this to a file and pass via `prepare-from-hogql --task` so it lands\n"
+        "versioned in the workspace at `queries/v{N}.sql`. If the CLI rejects it\n"
+        "with a parse / type error, iterate using the CLI's `tune-hogql-query`\n"
+        "skill — do not look at `dev_queries/`, that directory is poison per the\n"
+        "CLI's own hard rules.\n"
         "\n"
         "```hogql\n"
         f"{training_query}\n"

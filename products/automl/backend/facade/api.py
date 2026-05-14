@@ -11,15 +11,41 @@ from __future__ import annotations
 from uuid import UUID
 
 from .. import logic
-from ..models import AutoMLModelVersion, AutoMLPipeline
+from ..models import AutoMLModelVersion, AutoMLPipeline, AutoMLPipelineRun
 from ..training import bootstrap
 from . import contracts
-from .enums import AutonomyLevel, Cadence, ModelRole, PipelineStatus, TaskType
+from .enums import AutonomyLevel, Cadence, ModelRole, PipelineStatus, RunKind, RunStatus, TaskType
 
 # Re-export domain exceptions so callers don't have to dig into contracts.
 PipelineNotFoundError = contracts.PipelineNotFoundError
 PipelineStateTransitionError = contracts.PipelineStateTransitionError
 ModelVersionNotFoundError = contracts.ModelVersionNotFoundError
+PipelineRunNotFoundError = contracts.PipelineRunNotFoundError
+
+
+def _run_to_dto(obj: AutoMLPipelineRun) -> contracts.AutoMLPipelineRunDTO:
+    return contracts.AutoMLPipelineRunDTO(
+        id=obj.id,
+        pipeline_id=obj.pipeline_id,  # type: ignore[attr-defined]
+        team_id=obj.team_id,
+        run_kind=RunKind(obj.run_kind),
+        status=RunStatus(obj.status),
+        task_slug=obj.task_slug,
+        task_workspace_root=obj.task_workspace_root,
+        cli_run_id=obj.cli_run_id,
+        agent_session_id=obj.agent_session_id,
+        task_id=obj.task_id,
+        started_at=obj.started_at,
+        completed_at=obj.completed_at,
+        outcome_report=obj.outcome_report,
+        eda_result=obj.eda_result,
+        training_result=obj.training_result,
+        failure_reason=obj.failure_reason,
+        created_model_version_id=obj.created_model_version_id,
+        parent_run_id=obj.parent_run_id,
+        created_at=obj.created_at,
+        updated_at=obj.updated_at,
+    )
 
 
 def _version_to_dto(obj: AutoMLModelVersion) -> contracts.AutoMLModelVersionDTO:
@@ -103,29 +129,57 @@ def update(
 def start(*, team_id: int, pipeline_id: UUID, user_id: int) -> contracts.AutoMLPipelineDTO:
     """Transition a draft pipeline to BOOTSTRAP_PENDING and enqueue training.
 
-    Two-phase:
+    Three-phase:
       1. State transition (DRAFT/FAILED -> BOOTSTRAP_PENDING). Fails fast on
          disallowed moves via ``PipelineStateTransitionError``.
-      2. Enqueue a Task in the ``tasks`` product (single-shot agent run in a
-         sandbox). On enqueue failure the pipeline is transitioned to FAILED
-         with the error stashed in ``runtime.bootstrap_error`` so the user can
-         see why and retry.
+      2. Open an ``AutoMLPipelineRun`` row in ``status=running`` with the
+         task slug and workspace pre-pinned. The agent uses ``run_id`` on
+         every ``automl-record-*`` MCP call so the same row accumulates EDA,
+         training, and outcome updates.
+      3. Enqueue the orchestrating Task. On enqueue failure both the
+         pipeline and the run flip to a failed state, and the error is
+         stashed in ``runtime.bootstrap_error`` so the user can retry.
 
-    The Task's id lands on the pipeline as ``runtime.bootstrap_task_id``.
-    Returns the post-enqueue DTO.
+    The Task's id lands on the pipeline as ``runtime.bootstrap_task_id`` and
+    on the run row as ``task_id``. Returns the post-enqueue DTO.
     """
     obj = logic.transition_pipeline(
         team_id=team_id, pipeline_id=pipeline_id, new_status=PipelineStatus.BOOTSTRAP_PENDING
     )
 
+    task_slug = bootstrap.derive_task_slug(obj)
+    task_workspace_root = bootstrap.derive_task_workspace_root(task_slug)
+
+    run = logic.create_pipeline_run(
+        team_id=team_id,
+        pipeline_id=pipeline_id,
+        params=contracts.CreatePipelineRunInput(
+            run_kind=RunKind.BOOTSTRAP,
+            task_slug=task_slug,
+            task_workspace_root=task_workspace_root,
+        ),
+    )
+
     try:
-        task = bootstrap.enqueue_bootstrap_training(pipeline=obj, user_id=user_id)
+        task = bootstrap.enqueue_bootstrap_training(
+            pipeline=obj,
+            user_id=user_id,
+            run_id=run.id,
+            task_slug=task_slug,
+            task_workspace_root=task_workspace_root,
+        )
     except Exception as exc:
         # Surface the failure so the user can retry. Use str(exc) only — the
         # full traceback stays in logs, not in user-visible runtime state.
+        logic.mark_run_failed(run=run, failure_reason="task_create_failed")
         logic.set_runtime(pipeline=obj, bootstrap_error=str(exc))
         logic.transition_pipeline(team_id=team_id, pipeline_id=pipeline_id, new_status=PipelineStatus.FAILED)
         raise
+
+    # Wire the task id onto the run row so the pipeline-detail page and any
+    # ops queries (find the Task for this run) can navigate either direction.
+    run.task_id = task.id
+    run.save(update_fields=["task_id", "updated_at"])
 
     obj = logic.set_runtime(pipeline=obj, bootstrap_task_id=str(task.id))
     return _to_dto(obj)
@@ -154,6 +208,7 @@ def record_training_result(
     team_id: int,
     pipeline_id: UUID,
     params: contracts.RecordTrainingResultInput,
+    run_id: UUID | None = None,
 ) -> contracts.AutoMLModelVersionDTO:
     """Persist a completed training run as an ``AutoMLModelVersion``.
 
@@ -161,8 +216,14 @@ def record_training_result(
     a training run finishes. Default role is challenger — promotion to
     champion is a separate explicit step. Raises ``PipelineNotFoundError``
     if the pipeline doesn't exist on the team.
+
+    When ``run_id`` is provided, the matching ``AutoMLPipelineRun`` is
+    linked to the new version in the same transaction — its
+    ``created_model_version_id`` is set and a compact training summary
+    is denormalized onto its ``training_result``. Raises
+    ``PipelineRunNotFoundError`` if the run id doesn't resolve.
     """
-    obj = logic.record_training_result(team_id=team_id, pipeline_id=pipeline_id, params=params)
+    obj = logic.record_training_result(team_id=team_id, pipeline_id=pipeline_id, params=params, run_id=run_id)
     return _version_to_dto(obj)
 
 
@@ -231,3 +292,58 @@ def validate(
     validation, so the caller always gets a structured response.
     """
     return logic.run_validation(team_id=team_id, params=params)
+
+
+def list_runs_for_pipeline(
+    *,
+    team_id: int,
+    pipeline_id: UUID,
+) -> list[contracts.AutoMLPipelineRunDTO]:
+    """List every run (bootstrap / retrain / inference) for a pipeline, newest first.
+
+    Includes terminal runs (succeeded / failed / aborted) — the pipeline-detail
+    timeline surfaces the full history. Use ``get_run`` to fetch one by id when
+    the agent wants to look up its own run mid-flight.
+    """
+    return [_run_to_dto(obj) for obj in logic.list_pipeline_runs(team_id=team_id, pipeline_id=pipeline_id)]
+
+
+def get_run(*, team_id: int, run_id: UUID) -> contracts.AutoMLPipelineRunDTO | None:
+    """Fetch one pipeline run by id, scoped to the team. Returns ``None`` when not found."""
+    obj = logic.get_pipeline_run(team_id=team_id, run_id=run_id)
+    return _run_to_dto(obj) if obj else None
+
+
+def record_eda_result(
+    *,
+    team_id: int,
+    run_id: UUID,
+    params: contracts.RecordEdaResultInput,
+) -> contracts.AutoMLPipelineRunDTO:
+    """Stash the agent's EDA output on an in-progress run.
+
+    Called between `automl eda` and `automl train` (step 3 → step 4 of the
+    CLI flow). Raises ``PipelineRunNotFoundError`` if the run doesn't exist
+    on the team.
+    """
+    obj = logic.record_eda_result(team_id=team_id, run_id=run_id, params=params)
+    return _run_to_dto(obj)
+
+
+def record_bootstrap_outcome(
+    *,
+    team_id: int,
+    run_id: UUID,
+    params: contracts.RecordBootstrapOutcomeInput,
+) -> contracts.AutoMLPipelineRunDTO:
+    """Flip a run to a terminal state and write the agent's final outcome report.
+
+    Single-shot — once a run reaches a terminal state, re-calling this
+    no-ops (returns the already-terminal DTO). Lets the agent retry the
+    MCP call after a transient network blip without overwriting the
+    timeline. Raises ``ValueError`` if ``params.status`` is ``RUNNING``
+    (terminal status required) and ``PipelineRunNotFoundError`` if the
+    run doesn't exist on the team.
+    """
+    obj = logic.record_bootstrap_outcome(team_id=team_id, run_id=run_id, params=params)
+    return _run_to_dto(obj)

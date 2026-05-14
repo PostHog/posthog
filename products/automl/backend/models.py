@@ -12,7 +12,7 @@ from django.db import models
 from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import uuid7
 
-from .facade.enums import AutonomyLevel, Cadence, ModelRole, PipelineStatus, TaskType
+from .facade.enums import AutonomyLevel, Cadence, ModelRole, PipelineStatus, RunKind, RunStatus, TaskType
 
 
 class AutoMLPipeline(ProductTeamModel):
@@ -271,3 +271,168 @@ class AutoMLModelVersion(ProductTeamModel):
 
     def __str__(self) -> str:
         return f"{self.id} ({self.role})"
+
+
+class AutoMLPipelineRun(ProductTeamModel):
+    """A single bootstrap / retrain / inference run on an AutoML pipeline.
+
+    One row per training or scoring attempt, regardless of outcome. This is
+    the durable home for the agent's outcome report, EDA summary, and
+    failure reason — anything that lives inside the sandbox container and
+    would otherwise die with it. The retraining loop uses ``parent_run_id``
+    to thread a Karpathy-style iteration chain.
+
+    Distinct from ``AutoMLModelVersion`` — that's the artifact record (one
+    per *trained* model, with metrics + leaderboard + role). A run that
+    bails before training has no model version but still has a row here.
+    A run that produces a model version writes ``created_model_version_id``
+    so the pipeline-detail page can join them.
+
+    See `io-spec.md`'s "Per pipeline run (durable record)" section in the
+    `/phs automl` skill for the full design rationale.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+
+    pipeline = models.ForeignKey(
+        AutoMLPipeline,
+        on_delete=models.CASCADE,
+        # Stay explicit about traversal direction — callers go through the
+        # facade so this product stays portable to a separate database later.
+        related_name="+",
+        help_text="The pipeline this run belongs to.",
+    )
+
+    run_kind = models.CharField(
+        max_length=16,
+        choices=[(k.value, k.value) for k in RunKind],
+        help_text="Which workflow drove this run: bootstrap / retrain / inference.",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=[(s.value, s.value) for s in RunStatus],
+        default=RunStatus.RUNNING.value,
+        help_text="Lifecycle: running / succeeded / failed / aborted.",
+    )
+
+    task_slug = models.CharField(
+        max_length=128,
+        help_text=(
+            "The ``--task`` name passed to the automl-cli; default is "
+            "``slugify(pipeline.name)``. Persisted so the workspace path is "
+            "reconstructable without parsing it back out of the brief."
+        ),
+    )
+    task_workspace_root = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "The ``s3://automl/tasks/<task_slug>/`` prefix the CLI wrote to. "
+            "Workspace shape documented in ``automl-cli/CLAUDE.md``."
+        ),
+    )
+    cli_run_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text=(
+            "The CLI's ``runs/<run_id>/`` UTC timestamp, e.g. ``20260514T130000Z``. "
+            "Empty when the run failed before training started."
+        ),
+    )
+    agent_session_id = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text="Sandbox session id from the orchestrating Task; lets us replay the agent transcript.",
+    )
+
+    # Plain UUID — not a FK — keeps us free to move tasks/automl to separate
+    # databases later (per products/architecture.md).
+    task_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Back-reference to the ``tasks.Task`` row that drove this run.",
+    )
+    parent_run_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Predecessor run when this is a retraining iteration. Drives the "
+            "iteration chain for the retraining skill. Null for the first run "
+            "in a chain (bootstrap, the first retrain) and for inference runs."
+        ),
+    )
+
+    started_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When the run was opened (row created).",
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the run reached a terminal state. Null while running.",
+    )
+
+    outcome_report = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Structured markdown report the agent writes at the end of the run. "
+            "Surfaced on the pipeline detail page; empty until the agent finishes."
+        ),
+    )
+    eda_result = models.JSONField(
+        blank=True,
+        default=dict,
+        help_text=(
+            "Output of ``automl-record-eda-result``: class balance, top-signal "
+            "features, dropped features, leakage warnings, full ``eda_uri``. "
+            "Empty until the agent runs EDA."
+        ),
+    )
+    training_result = models.JSONField(
+        blank=True,
+        default=dict,
+        help_text=(
+            "Compact summary of the ``automl-record-training-result`` call: "
+            "metrics, leaderboard top-5, gate verdict. Mirrors fields on the "
+            "full ``AutoMLModelVersion`` record but stays denormalized here so "
+            "the run-history view doesn't need to join."
+        ),
+    )
+    failure_reason = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text=(
+            "Compact tag (snapshot_fetch_failed / population_too_small / "
+            "training_crash / mcp_unavailable / task_create_failed / ...) when "
+            "``status`` is failed or aborted. Empty otherwise."
+        ),
+    )
+
+    created_model_version_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The ``AutoMLModelVersion`` this run produced, if any. Null for "
+            "runs that bailed before training landed a model. Plain UUID — "
+            "the relationship is one-shot and a FK would over-couple this "
+            "row to the model-version table's lifecycle."
+        ),
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta(ProductTeamModel.Meta):
+        indexes = [
+            # Pipeline-detail page: every run for this pipeline, newest first.
+            models.Index(fields=["team_id", "pipeline", "-started_at"]),
+            # Ops queries: stuck runs (running too long), failed-run sweeps.
+            models.Index(fields=["team_id", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.id} ({self.run_kind}/{self.status})"

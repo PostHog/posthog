@@ -63,3 +63,35 @@ class ModelRole(StrEnum):
     CHAMPION = "champion"
     CHALLENGER = "challenger"
     ARCHIVED = "archived"
+
+
+class RunKind(StrEnum):
+    """Which workflow drove a pipeline run.
+
+    Bootstrap is the first-model run; retrain is a scheduled or on-demand
+    retraining run; inference is a scheduled scoring run. Same `AutoMLPipelineRun`
+    table holds all three so the pipeline-detail page renders one chronological
+    timeline.
+
+    See `io-spec.md`'s "Per pipeline run (durable record)" section.
+    """
+
+    BOOTSTRAP = "bootstrap"
+    RETRAIN = "retrain"
+    INFERENCE = "inference"
+
+
+class RunStatus(StrEnum):
+    """Lifecycle status of an `AutoMLPipelineRun`.
+
+    `running` — agent is mid-flight. `succeeded` — agent reported a clean
+    finish via `automl-record-bootstrap-outcome`. `failed` — the agent (or
+    the surrounding workflow) reported a structured failure with a
+    `failure_reason`. `aborted` — externally cancelled (Task termination,
+    workflow signal), reconciled in.
+    """
+
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    ABORTED = "aborted"
