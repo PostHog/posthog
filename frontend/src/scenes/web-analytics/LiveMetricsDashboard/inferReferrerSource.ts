@@ -6,70 +6,72 @@ import {
     type TrafficSourceKind,
 } from './LiveWebAnalyticsMetricsTypes'
 
-const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0
+const trimmedString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 
-export const CLICK_ID_RULES: readonly { property: string; source: string }[] = [
-    { property: 'gclid', source: 'google.com' },
-    { property: 'fbclid', source: 'facebook.com' },
-    { property: 'msclkid', source: 'bing.com' },
-    { property: 'ttclid', source: 'tiktok.com' },
-    { property: 'igshid', source: 'instagram.com' },
-    { property: 'twclid', source: 'x.com' },
-    { property: 'li_fat_id', source: 'linkedin.com' },
+interface TrafficSourceDefinition {
+    source: string
+    clickId?: string
+    userAgentPatterns?: readonly string[]
+}
+
+export const TRAFFIC_SOURCE_DEFINITIONS: readonly TrafficSourceDefinition[] = [
+    { source: 'google.com', clickId: 'gclid' },
+    { source: 'facebook.com', clickId: 'fbclid', userAgentPatterns: ['FBAV', 'FBAN'] },
+    { source: 'bing.com', clickId: 'msclkid' },
+    { source: 'tiktok.com', clickId: 'ttclid', userAgentPatterns: ['TikTok', 'musical_ly', 'BytedanceWebview'] },
+    { source: 'instagram.com', clickId: 'igshid', userAgentPatterns: ['Instagram '] },
+    { source: 'x.com', clickId: 'twclid' },
+    { source: 'linkedin.com', clickId: 'li_fat_id', userAgentPatterns: ['LinkedInApp'] },
+    { source: 'pinterest.com', userAgentPatterns: ['Pinterest/'] },
+    { source: 'snapchat.com', userAgentPatterns: ['Snapchat'] },
+    { source: 'reddit.com', userAgentPatterns: ['Reddit/'] },
 ]
 
-export const UA_RULES: readonly { pattern: string; source: string }[] = [
-    { pattern: 'FBAV', source: 'facebook.com' },
-    { pattern: 'FBAN', source: 'facebook.com' },
-    { pattern: 'Instagram ', source: 'instagram.com' },
-    { pattern: 'TikTok', source: 'tiktok.com' },
-    { pattern: 'musical_ly', source: 'tiktok.com' },
-    { pattern: 'BytedanceWebview', source: 'tiktok.com' },
-    { pattern: 'LinkedInApp', source: 'linkedin.com' },
-    { pattern: 'Pinterest/', source: 'pinterest.com' },
-    { pattern: 'Snapchat', source: 'snapchat.com' },
-    { pattern: 'Reddit/', source: 'reddit.com' },
-]
+const CLICK_ID_RULES = TRAFFIC_SOURCE_DEFINITIONS.flatMap((definition) =>
+    definition.clickId ? [{ property: definition.clickId, source: definition.source }] : []
+)
+
+const UA_RULES = TRAFFIC_SOURCE_DEFINITIONS.flatMap((definition) =>
+    (definition.userAgentPatterns ?? []).map((pattern) => ({ pattern, source: definition.source }))
+)
 
 export const CLICK_ID_PROPERTIES: readonly string[] = CLICK_ID_RULES.map((rule) => rule.property)
 
-const confidenceForKind = (kind: TrafficSourceKind): TrafficSourceConfidence => {
-    if (kind === 'user_agent') {
-        return 'low'
-    }
-    if (kind === 'click_id') {
-        return 'medium'
-    }
-    return 'high'
+const CONFIDENCE_BY_KIND: Record<TrafficSourceKind, TrafficSourceConfidence> = {
+    utm: 'high',
+    referrer: 'high',
+    click_id: 'medium',
+    user_agent: 'low',
+    direct: 'high',
 }
 
 export const resolveTrafficSource = (properties: Record<string, unknown> | undefined): ResolvedTrafficSource => {
-    const utmSource = properties?.$utm_source
-    if (isNonEmptyString(utmSource)) {
-        return { source: utmSource.trim(), kind: 'utm', confidence: confidenceForKind('utm') }
+    const utmSource = trimmedString(properties?.$utm_source)
+    if (utmSource) {
+        return { source: utmSource, kind: 'utm', confidence: 'high' }
     }
 
-    const referringDomain = properties?.$referring_domain
-    if (isNonEmptyString(referringDomain) && referringDomain !== DIRECT_REFERRER) {
-        return { source: referringDomain, kind: 'referrer', confidence: confidenceForKind('referrer') }
+    const referringDomain = trimmedString(properties?.$referring_domain)
+    if (referringDomain && referringDomain !== DIRECT_REFERRER) {
+        return { source: referringDomain, kind: 'referrer', confidence: 'high' }
     }
 
     for (const rule of CLICK_ID_RULES) {
-        if (isNonEmptyString(properties?.[rule.property])) {
-            return { source: rule.source, kind: 'click_id', confidence: confidenceForKind('click_id') }
+        if (trimmedString(properties?.[rule.property])) {
+            return { source: rule.source, kind: 'click_id', confidence: 'medium' }
         }
     }
 
-    const rawUserAgent = properties?.$raw_user_agent
-    if (isNonEmptyString(rawUserAgent)) {
+    const rawUserAgent = trimmedString(properties?.$raw_user_agent)
+    if (rawUserAgent) {
         for (const rule of UA_RULES) {
             if (rawUserAgent.includes(rule.pattern)) {
-                return { source: rule.source, kind: 'user_agent', confidence: confidenceForKind('user_agent') }
+                return { source: rule.source, kind: 'user_agent', confidence: 'low' }
             }
         }
     }
 
-    return { source: DIRECT_REFERRER, kind: 'direct', confidence: confidenceForKind('direct') }
+    return { source: DIRECT_REFERRER, kind: 'direct', confidence: 'high' }
 }
 
 export const trafficSourceKey = (source: string, kind: TrafficSourceKind): string => `${kind}:${source}`
@@ -130,67 +132,70 @@ export const collapseToRawReferrerEntries = (source: Map<string, ReferrerBucketE
     return collapsed
 }
 
-const isSetHogQL = (expr: string): string => `${expr} IS NOT NULL AND ${expr} != ''`
+const stringHogQL = (expr: string): string => `trim(toString(ifNull(${expr}, '')))`
 
-export const buildTrafficSourceHogQL = (
-    utmSourceExpr: string,
-    referringDomainExpr: string,
-    rawUserAgentExpr: string
-): string => {
-    const clickIdBranches = CLICK_ID_RULES.map(
-        (rule) => `                        ${isSetHogQL(`properties.${rule.property}`)}, '${rule.source}'`
-    ).join(',\n')
-    const uaBranches = UA_RULES.map(
-        (rule) =>
-            `                        ${rawUserAgentExpr} IS NOT NULL AND position(${rawUserAgentExpr}, '${rule.pattern}') > 0, '${rule.source}'`
-    ).join(',\n')
-
-    return `multiIf(
-                        ${isSetHogQL(utmSourceExpr)},
-                            ${utmSourceExpr},
-
-                        ${isSetHogQL(referringDomainExpr)}
-                            AND ${referringDomainExpr} != '${DIRECT_REFERRER}',
-                            ${referringDomainExpr},
-
-${clickIdBranches},
-
-${uaBranches},
-
-                        '${DIRECT_REFERRER}'
-                    )`
+interface BranchSpec {
+    predicate: string
+    sourceValue: string
+    kindValue: TrafficSourceKind
 }
 
-export const buildTrafficSourceKindHogQL = (
+const buildBranches = (
     utmSourceExpr: string,
     referringDomainExpr: string,
     rawUserAgentExpr: string
+): readonly BranchSpec[] => {
+    const utm = stringHogQL(utmSourceExpr)
+    const ref = stringHogQL(referringDomainExpr)
+    const ua = stringHogQL(rawUserAgentExpr)
+
+    return [
+        { predicate: `${utm} != ''`, sourceValue: utm, kindValue: 'utm' },
+        {
+            predicate: `${ref} != '' AND ${ref} != '${DIRECT_REFERRER}'`,
+            sourceValue: ref,
+            kindValue: 'referrer',
+        },
+        ...CLICK_ID_RULES.map(
+            (rule): BranchSpec => ({
+                predicate: `${stringHogQL(`properties.${rule.property}`)} != ''`,
+                sourceValue: `'${rule.source}'`,
+                kindValue: 'click_id',
+            })
+        ),
+        ...UA_RULES.map(
+            (rule): BranchSpec => ({
+                predicate: `position(${ua}, '${rule.pattern}') > 0`,
+                sourceValue: `'${rule.source}'`,
+                kindValue: 'user_agent',
+            })
+        ),
+    ]
+}
+
+const renderMultiIf = (
+    branches: readonly BranchSpec[],
+    project: (branch: BranchSpec) => string,
+    fallback: string
 ): string => {
-    const clickIdBranches = CLICK_ID_RULES.map(
-        (rule) => `                        ${isSetHogQL(`properties.${rule.property}`)}, 'click_id'`
-    ).join(',\n')
-    const uaBranches = UA_RULES.map(
-        (rule) =>
-            `                        ${rawUserAgentExpr} IS NOT NULL AND position(${rawUserAgentExpr}, '${rule.pattern}') > 0, 'user_agent'`
-    ).join(',\n')
+    const body = branches.map((branch) => `                        ${branch.predicate}, ${project(branch)}`).join(',\n')
+    return `multiIf(\n${body},\n                        ${fallback}\n                    )`
+}
 
-    return `multiIf(
-                        ${isSetHogQL(utmSourceExpr)}, 'utm',
-
-                        ${isSetHogQL(referringDomainExpr)}
-                            AND ${referringDomainExpr} != '${DIRECT_REFERRER}',
-                            'referrer',
-
-${clickIdBranches},
-
-${uaBranches},
-
-                        'direct'
-                    )`
+export const buildTrafficSourceExpressions = (
+    utmSourceExpr: string,
+    referringDomainExpr: string,
+    rawUserAgentExpr: string
+): { sourceExpr: string; kindExpr: string } => {
+    const branches = buildBranches(utmSourceExpr, referringDomainExpr, rawUserAgentExpr)
+    return {
+        sourceExpr: renderMultiIf(branches, (branch) => branch.sourceValue, `'${DIRECT_REFERRER}'`),
+        kindExpr: renderMultiIf(branches, (branch) => `'${branch.kindValue}'`, `'direct'`),
+    }
 }
 
 export const resolvedTrafficSourceFromHogQL = (source: string, kind: TrafficSourceKind): ResolvedTrafficSource => ({
     source: source || DIRECT_REFERRER,
     kind,
-    confidence: confidenceForKind(kind),
+    confidence: CONFIDENCE_BY_KIND[kind],
 })

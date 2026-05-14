@@ -980,8 +980,8 @@ describe('LiveMetricsSlidingWindow', () => {
             })
 
             expect(window.getTopReferrers(10)).toEqual([
-                { source: 'google.com', referrer: 'google.com', kind: 'referrer', confidence: 'high', views: 2 },
-                { source: 'google.com', referrer: 'google.com', kind: 'click_id', confidence: 'medium', views: 1 },
+                { source: 'google.com', kind: 'referrer', confidence: 'high', views: 2 },
+                { source: 'google.com', kind: 'click_id', confidence: 'medium', views: 1 },
             ])
         })
 
@@ -996,10 +996,10 @@ describe('LiveMetricsSlidingWindow', () => {
             window.addDataPoint(ts, 'user-5', { pageviews: 1, source: source('instagram', 'utm') })
 
             expect(window.getTopReferrers(10)).toEqual([
-                { source: 'instagram', referrer: 'instagram', kind: 'utm', confidence: 'high', views: 2 },
-                { source: 'facebook.com', referrer: 'facebook.com', kind: 'referrer', confidence: 'high', views: 1 },
-                { source: 'reddit.com', referrer: 'reddit.com', kind: 'user_agent', confidence: 'low', views: 1 },
-                { source: DIRECT_REFERRER, referrer: DIRECT_REFERRER, kind: 'direct', confidence: 'high', views: 1 },
+                { source: 'instagram', kind: 'utm', confidence: 'high', views: 2 },
+                { source: 'facebook.com', kind: 'referrer', confidence: 'high', views: 1 },
+                { source: 'reddit.com', kind: 'user_agent', confidence: 'low', views: 1 },
+                { source: DIRECT_REFERRER, kind: 'direct', confidence: 'high', views: 1 },
             ])
         })
 
@@ -1040,7 +1040,7 @@ describe('LiveMetricsSlidingWindow', () => {
             window.prune()
 
             expect(window.getTopReferrers(10)).toEqual([
-                { source: 'google.com', referrer: 'google.com', kind: 'referrer', confidence: 'high', views: 1 },
+                { source: 'google.com', kind: 'referrer', confidence: 'high', views: 1 },
             ])
         })
 
@@ -1057,12 +1057,11 @@ describe('LiveMetricsSlidingWindow', () => {
                 expect(window.getTopReferrers(10, false)).toEqual([
                     {
                         source: DIRECT_REFERRER,
-                        referrer: DIRECT_REFERRER,
                         kind: 'direct',
                         confidence: 'high',
                         views: 3,
                     },
-                    { source: 'google.com', referrer: 'google.com', kind: 'referrer', confidence: 'high', views: 1 },
+                    { source: 'google.com', kind: 'referrer', confidence: 'high', views: 1 },
                 ])
             })
 
@@ -1076,7 +1075,6 @@ describe('LiveMetricsSlidingWindow', () => {
                 expect(window.getTopReferrers(10, false)).toEqual([
                     {
                         source: DIRECT_REFERRER,
-                        referrer: DIRECT_REFERRER,
                         kind: 'direct',
                         confidence: 'high',
                         views: 2,
@@ -1106,9 +1104,9 @@ describe('LiveMetricsSlidingWindow', () => {
             })
 
             expect(window.getTopReferrers(10)).toEqual([
-                { source: 'google.com', referrer: 'google.com', kind: 'referrer', confidence: 'high', views: 10 },
-                { source: DIRECT_REFERRER, referrer: DIRECT_REFERRER, kind: 'direct', confidence: 'high', views: 5 },
-                { source: 'instagram', referrer: 'instagram', kind: 'utm', confidence: 'high', views: 3 },
+                { source: 'google.com', kind: 'referrer', confidence: 'high', views: 10 },
+                { source: DIRECT_REFERRER, kind: 'direct', confidence: 'high', views: 5 },
+                { source: 'instagram', kind: 'utm', confidence: 'high', views: 3 },
             ])
         })
 

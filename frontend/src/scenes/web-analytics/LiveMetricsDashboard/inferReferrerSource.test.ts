@@ -1,12 +1,17 @@
 import {
     addReferrerEntry,
-    buildTrafficSourceHogQL,
-    buildTrafficSourceKindHogQL,
+    buildTrafficSourceExpressions,
     collapseToRawReferrerEntries,
+    resolvedTrafficSourceFromHogQL,
     resolveTrafficSource,
     subtractReferrerEntry,
 } from './inferReferrerSource'
-import { DIRECT_REFERRER, type ResolvedTrafficSource } from './LiveWebAnalyticsMetricsTypes'
+import {
+    DIRECT_REFERRER,
+    type ResolvedTrafficSource,
+    type TrafficSourceConfidence,
+    type TrafficSourceKind,
+} from './LiveWebAnalyticsMetricsTypes'
 
 const source = (
     source: string,
@@ -48,7 +53,7 @@ describe('resolveTrafficSource', () => {
         expect(resolveTrafficSource({ [property]: value })).toEqual(source(expected, 'click_id', 'medium'))
     })
 
-    it('uses the first matching click ID before UA signals', () => {
+    it('prefers the first matching click ID rule over later rules and UA signals', () => {
         expect(
             resolveTrafficSource({
                 fbclid: 'a',
@@ -67,6 +72,8 @@ describe('resolveTrafficSource', () => {
             ua: 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 [FBAN/EMA;FBLC/en_US]',
             expected: 'facebook.com',
         },
+        { ua: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 [FBAV/444.0]', expected: 'facebook.com' },
+        { ua: 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 [FBAN/EMA]', expected: 'facebook.com' },
         {
             ua: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile/15E148 Instagram 305.0.0.45.109',
             expected: 'instagram.com',
@@ -75,26 +82,118 @@ describe('resolveTrafficSource', () => {
             ua: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 musical_ly_29.5.0 JsSdk/2.0 BytedanceWebview/d8a21c5',
             expected: 'tiktok.com',
         },
+        { ua: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 BytedanceWebview/d8a21c5', expected: 'tiktok.com' },
+        { ua: 'Mozilla/5.0 (Linux; Android 13) musical_ly_29.5.0', expected: 'tiktok.com' },
         { ua: 'Mozilla/5.0 (Linux; Android 13) TikTok 29.5.0', expected: 'tiktok.com' },
         { ua: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 LinkedInApp/9.27.1234', expected: 'linkedin.com' },
+        { ua: 'Mozilla/5.0 (Android 13) com.linkedin.android LinkedInApp/4.1.999', expected: 'linkedin.com' },
         { ua: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 [Pinterest/iOS]', expected: 'pinterest.com' },
+        { ua: 'Mozilla/5.0 (Android) Pinterest/Android 11.40.0', expected: 'pinterest.com' },
         { ua: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Snapchat/12.45.0.30', expected: 'snapchat.com' },
+        { ua: 'Mozilla/5.0 (Linux; Android 13) Snapchat/12.45.0.30', expected: 'snapchat.com' },
         { ua: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Reddit/2024.10.0', expected: 'reddit.com' },
+        { ua: 'Mozilla/5.0 (Linux; Android 13) Reddit/2024.41.1', expected: 'reddit.com' },
     ])('infers $expected from in-app UA', ({ ua, expected }) => {
         expect(resolveTrafficSource({ $raw_user_agent: ua })).toEqual(source(expected, 'user_agent', 'low'))
     })
 
-    it.each([{ value: '' }, { value: '   ' }, { value: null }, { value: undefined }, { value: DIRECT_REFERRER }])(
-        'falls through blank or direct referrer value "$value"',
-        ({ value }) => {
-            expect(resolveTrafficSource({ $referring_domain: value, fbclid: 'abc' })).toEqual(
-                source('facebook.com', 'click_id', 'medium')
-            )
-        }
-    )
+    it.each<{ ua: string }>([
+        { ua: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Safari/604.1' },
+        { ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0' },
+        { ua: 'Mozilla/5.0 (Linux; Android 13) Chrome/120.0.0.0 Mobile' },
+        { ua: 'instagram lowercase should not match' },
+        { ua: 'no social signals here' },
+        { ua: '' },
+    ])('returns direct for browser UA without app signals "$ua"', ({ ua }) => {
+        expect(resolveTrafficSource({ $raw_user_agent: ua })).toEqual(source(DIRECT_REFERRER, 'direct', 'high'))
+    })
+
+    it.each<{ value: unknown }>([
+        { value: '' },
+        { value: '   ' },
+        { value: '\t' },
+        { value: '\n' },
+        { value: '\r\n' },
+        { value: null },
+        { value: undefined },
+        { value: DIRECT_REFERRER },
+        { value: ` ${DIRECT_REFERRER} ` },
+        { value: `\t${DIRECT_REFERRER}\n` },
+        { value: 0 },
+        { value: 42 },
+        { value: false },
+        { value: true },
+    ])('falls through blank, non-string, or direct referrer value "$value"', ({ value }) => {
+        expect(resolveTrafficSource({ $referring_domain: value, fbclid: 'abc' })).toEqual(
+            source('facebook.com', 'click_id', 'medium')
+        )
+    })
+
+    it.each<{ value: unknown }>([
+        { value: '' },
+        { value: '   ' },
+        { value: '\t\n' },
+        { value: null },
+        { value: undefined },
+        { value: 0 },
+        { value: 42 },
+        { value: false },
+        { value: true },
+    ])('falls through blank or non-string click ID value "$value"', ({ value }) => {
+        expect(resolveTrafficSource({ gclid: value })).toEqual(source(DIRECT_REFERRER, 'direct', 'high'))
+    })
+
+    it.each<{ property: string; value: string; expected: string }>([
+        { property: 'gclid', value: '  Cj0KCQ  ', expected: 'google.com' },
+        { property: 'fbclid', value: '\tIwAR0\n', expected: 'facebook.com' },
+        { property: 'ttclid', value: '   E.C.P.AAB', expected: 'tiktok.com' },
+    ])('resolves whitespace-padded click ID $property to $expected', ({ property, value, expected }) => {
+        expect(resolveTrafficSource({ [property]: value })).toEqual(source(expected, 'click_id', 'medium'))
+    })
+
+    it.each<{ value: unknown }>([
+        { value: '' },
+        { value: '   ' },
+        { value: '\t\n' },
+        { value: null },
+        { value: undefined },
+        { value: 0 },
+        { value: false },
+    ])('falls through blank or non-string utm_source value "$value"', ({ value }) => {
+        expect(resolveTrafficSource({ $utm_source: value })).toEqual(source(DIRECT_REFERRER, 'direct', 'high'))
+    })
+
+    it('trims UTM and referrer source values', () => {
+        expect(resolveTrafficSource({ $utm_source: ' instagram ' })).toEqual(source('instagram', 'utm', 'high'))
+        expect(resolveTrafficSource({ $referring_domain: ' reddit.com ' })).toEqual(
+            source('reddit.com', 'referrer', 'high')
+        )
+    })
 
     it('returns direct when no signal is present', () => {
         expect(resolveTrafficSource(undefined)).toEqual(source(DIRECT_REFERRER, 'direct', 'high'))
+    })
+
+    it('returns direct when properties is an empty object', () => {
+        expect(resolveTrafficSource({})).toEqual(source(DIRECT_REFERRER, 'direct', 'high'))
+    })
+
+    it.each<{ kind: TrafficSourceKind; expected: TrafficSourceConfidence }>([
+        { kind: 'utm', expected: 'high' },
+        { kind: 'referrer', expected: 'high' },
+        { kind: 'click_id', expected: 'medium' },
+        { kind: 'user_agent', expected: 'low' },
+        { kind: 'direct', expected: 'high' },
+    ])('resolvedTrafficSourceFromHogQL maps kind $kind to confidence $expected', ({ kind, expected }) => {
+        expect(resolvedTrafficSourceFromHogQL('foo.com', kind)).toEqual({
+            source: 'foo.com',
+            kind,
+            confidence: expected,
+        })
+    })
+
+    it('defaults resolvedTrafficSourceFromHogQL to DIRECT_REFERRER when source is empty', () => {
+        expect(resolvedTrafficSourceFromHogQL('', 'direct')).toEqual(source(DIRECT_REFERRER, 'direct', 'high'))
     })
 
     describe('source count helpers', () => {
@@ -114,26 +213,111 @@ describe('resolveTrafficSource', () => {
             )
         })
 
-        it('builds HogQL guards and emits source kind metadata', () => {
-            const sourceHogql = buildTrafficSourceHogQL(
-                'properties.$utm_source',
-                'properties.$referring_domain',
-                'properties.$raw_user_agent'
+        it.each<{ count: number }>([{ count: 0 }, { count: -1 }, { count: -100 }])(
+            'addReferrerEntry ignores non-positive count $count',
+            ({ count }) => {
+                const entries = new Map()
+                addReferrerEntry(entries, source('facebook.com', 'referrer', 'high'), count)
+                expect(entries.size).toBe(0)
+            }
+        )
+
+        it('addReferrerEntry accumulates counts for the same source and kind', () => {
+            const entries = new Map()
+            addReferrerEntry(entries, source('reddit.com', 'referrer', 'high'), 2)
+            addReferrerEntry(entries, source('reddit.com', 'referrer', 'high'), 5)
+
+            expect(collapseToRawReferrerEntries(entries)).toEqual(new Map([['reddit.com', 7]]))
+        })
+
+        it('addReferrerEntry keeps entries with the same source but different kinds separate', () => {
+            const entries = new Map()
+            addReferrerEntry(entries, source('facebook.com', 'referrer', 'high'), 4)
+            addReferrerEntry(entries, source('facebook.com', 'click_id', 'medium'), 6)
+
+            expect(entries.size).toBe(2)
+            expect(collapseToRawReferrerEntries(entries)).toEqual(
+                new Map([
+                    ['facebook.com', 4],
+                    [DIRECT_REFERRER, 6],
+                ])
             )
-            const kindHogql = buildTrafficSourceKindHogQL(
+        })
+
+        it('subtractReferrerEntry is a no-op when the entry is missing', () => {
+            const entries = new Map()
+            subtractReferrerEntry(entries, source('facebook.com', 'referrer', 'high'), 5)
+            expect(entries.size).toBe(0)
+        })
+
+        it.each<{ subtract: number }>([{ subtract: 3 }, { subtract: 5 }, { subtract: 100 }])(
+            'subtractReferrerEntry removes the entry when subtraction reaches or exceeds the count ($subtract)',
+            ({ subtract }) => {
+                const entries = new Map()
+                addReferrerEntry(entries, source('reddit.com', 'referrer', 'high'), 3)
+                subtractReferrerEntry(entries, source('reddit.com', 'referrer', 'high'), subtract)
+                expect(entries.size).toBe(0)
+            }
+        )
+
+        it('subtractReferrerEntry decrements the count when subtraction is partial', () => {
+            const entries = new Map()
+            addReferrerEntry(entries, source('reddit.com', 'referrer', 'high'), 10)
+            subtractReferrerEntry(entries, source('reddit.com', 'referrer', 'high'), 3)
+
+            expect(collapseToRawReferrerEntries(entries)).toEqual(new Map([['reddit.com', 7]]))
+        })
+
+        it('collapseToRawReferrerEntries returns an empty map for an empty input', () => {
+            expect(collapseToRawReferrerEntries(new Map())).toEqual(new Map())
+        })
+
+        it('collapseToRawReferrerEntries merges different non-referrer kinds into direct', () => {
+            const entries = new Map()
+            addReferrerEntry(entries, source('google.com', 'click_id', 'medium'), 4)
+            addReferrerEntry(entries, source('instagram', 'utm', 'high'), 2)
+            addReferrerEntry(entries, source('tiktok.com', 'user_agent', 'low'), 1)
+
+            expect(collapseToRawReferrerEntries(entries)).toEqual(new Map([[DIRECT_REFERRER, 7]]))
+        })
+
+        it('builds HogQL guards and emits source kind metadata', () => {
+            const { sourceExpr, kindExpr } = buildTrafficSourceExpressions(
                 'properties.$utm_source',
                 'properties.$referring_domain',
                 'properties.$raw_user_agent'
             )
 
-            expect(sourceHogql).toContain('properties.$utm_source IS NOT NULL')
-            expect(sourceHogql).toContain('properties.$referring_domain IS NOT NULL')
-            expect(sourceHogql).toContain('properties.gclid IS NOT NULL')
-            expect(sourceHogql).toContain('properties.$raw_user_agent IS NOT NULL')
-            expect(kindHogql).toContain("'utm'")
-            expect(kindHogql).toContain("'referrer'")
-            expect(kindHogql).toContain("'click_id'")
-            expect(kindHogql).toContain("'user_agent'")
+            expect(sourceExpr).toContain("trim(toString(ifNull(properties.$utm_source, ''))) != ''")
+            expect(sourceExpr).toContain("trim(toString(ifNull(properties.$referring_domain, ''))) != ''")
+            expect(sourceExpr).toContain("trim(toString(ifNull(properties.gclid, ''))) != ''")
+            expect(sourceExpr).toContain(
+                "position(trim(toString(ifNull(properties.$raw_user_agent, ''))), 'Instagram ')"
+            )
+            expect(kindExpr).toContain("'utm'")
+            expect(kindExpr).toContain("'referrer'")
+            expect(kindExpr).toContain("'click_id'")
+            expect(kindExpr).toContain("'user_agent'")
+        })
+
+        it('emits the same branch predicates for source and kind expressions', () => {
+            const { sourceExpr, kindExpr } = buildTrafficSourceExpressions(
+                'properties.$utm_source',
+                'properties.$referring_domain',
+                'properties.$raw_user_agent'
+            )
+
+            const countOccurrences = (haystack: string, needle: string): number => haystack.split(needle).length - 1
+
+            for (const predicate of [
+                "trim(toString(ifNull(properties.gclid, ''))) != ''",
+                "trim(toString(ifNull(properties.fbclid, ''))) != ''",
+                "position(trim(toString(ifNull(properties.$raw_user_agent, ''))), 'Instagram ')",
+                "position(trim(toString(ifNull(properties.$raw_user_agent, ''))), 'Reddit/')",
+            ]) {
+                expect(countOccurrences(sourceExpr, predicate)).toBe(countOccurrences(kindExpr, predicate))
+                expect(countOccurrences(sourceExpr, predicate)).toBeGreaterThan(0)
+            }
         })
     })
 })

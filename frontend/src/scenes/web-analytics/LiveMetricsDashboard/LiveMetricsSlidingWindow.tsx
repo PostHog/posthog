@@ -511,7 +511,6 @@ export class LiveMetricsSlidingWindow {
                 .slice(0, limit)
                 .map(({ source, kind, confidence, count }) => ({
                     source,
-                    referrer: source,
                     kind,
                     confidence,
                     views: count,
@@ -523,7 +522,6 @@ export class LiveMetricsSlidingWindow {
             .slice(0, limit)
             .map(([source, views]) => ({
                 source,
-                referrer: source,
                 kind: source === DIRECT_REFERRER ? 'direct' : 'referrer',
                 confidence: 'high',
                 views,

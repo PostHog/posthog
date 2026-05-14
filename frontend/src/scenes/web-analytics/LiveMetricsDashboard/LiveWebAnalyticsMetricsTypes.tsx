@@ -41,7 +41,6 @@ export interface ReferrerItem {
     views: number
     kind: TrafficSourceKind
     confidence: TrafficSourceConfidence
-    referrer?: string
 }
 
 export interface ReferrerBucketEntry {

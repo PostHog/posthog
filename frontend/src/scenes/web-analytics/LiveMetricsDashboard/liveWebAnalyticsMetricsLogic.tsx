@@ -30,8 +30,7 @@ import { BaseMathType, LiveEvent, PropertyFilterType, PropertyOperator } from '~
 import { createStreamConnection } from './createStreamConnection'
 import {
     addReferrerEntry,
-    buildTrafficSourceHogQL,
-    buildTrafficSourceKindHogQL,
+    buildTrafficSourceExpressions,
     CLICK_ID_PROPERTIES,
     resolveTrafficSource,
     resolvedTrafficSourceFromHogQL,
@@ -124,7 +123,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         resumeStream: true,
         clearRecentEvents: true,
         clearFilteredLiveUsers: true,
-        setShowInferredReferrers: (showInferred: boolean) => ({ showInferred }),
+        setShowResolvedSources: (showResolvedSources: boolean) => ({ showResolvedSources }),
     })),
     reducers({
         slidingWindow: [
@@ -251,11 +250,11 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 clearRecentEvents: () => [],
             },
         ],
-        showInferredReferrers: [
+        showResolvedSources: [
             true,
             { persist: true },
             {
-                setShowInferredReferrers: (_, { showInferred }) => showInferred,
+                setShowResolvedSources: (_, { showResolvedSources }) => showResolvedSources,
             },
         ],
     }),
@@ -340,9 +339,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             { resultEqualityCheck: equal },
         ],
         topReferrers: [
-            (s) => [s.slidingWindow, s.eventsVersion, s.showInferredReferrers],
-            (slidingWindow: LiveMetricsSlidingWindow, _v: number, showInferredReferrers: boolean): ReferrerItem[] =>
-                slidingWindow.getTopReferrers(10, showInferredReferrers),
+            (s) => [s.slidingWindow, s.eventsVersion, s.showResolvedSources],
+            (slidingWindow: LiveMetricsSlidingWindow, _v: number, showResolvedSources: boolean): ReferrerItem[] =>
+                slidingWindow.getTopReferrers(10, showResolvedSources),
             { resultEqualityCheck: equal },
         ],
         totalPageviews: [
@@ -799,12 +798,7 @@ const loadQueryData = async ({
         properties: filtersEnabled ? filters : [],
     }
 
-    const sourceExpr = buildTrafficSourceHogQL(
-        'properties.$utm_source',
-        'properties.$referring_domain',
-        'properties.$raw_user_agent'
-    )
-    const sourceKindExpr = buildTrafficSourceKindHogQL(
+    const { sourceExpr, kindExpr } = buildTrafficSourceExpressions(
         'properties.$utm_source',
         'properties.$referring_domain',
         'properties.$raw_user_agent'
@@ -814,7 +808,7 @@ const loadQueryData = async ({
         query: `SELECT
                     toStartOfMinute(timestamp) AS minute_bucket,
                     ${sourceExpr} AS source,
-                    ${sourceKindExpr} AS source_kind,
+                    ${kindExpr} AS source_kind,
                     count() AS view_count
                 FROM events
                 WHERE ${whereClause}
