@@ -40,6 +40,12 @@ SANDBOX_PROVIDER: str | None = get_from_env(
 SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
+SANDBOX_MODAL_DOCKER_DEFAULT_APP_NAME: str = get_from_env(
+    "SANDBOX_MODAL_DOCKER_DEFAULT_APP_NAME", "posthog-sandbox-modal-docker-default"
+)
+SANDBOX_MODAL_DOCKER_NOTEBOOK_APP_NAME: str = get_from_env(
+    "SANDBOX_MODAL_DOCKER_NOTEBOOK_APP_NAME", "posthog-sandbox-modal-docker-notebook"
+)
 
 # When True, cloud-to-cloud resume boots from a Modal filesystem snapshot taken at
 # end-of-run. When False, no Modal snapshot is taken and resume relies on the
