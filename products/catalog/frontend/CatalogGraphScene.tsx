@@ -61,7 +61,7 @@ function CatalogGraphSceneContent(): JSX.Element {
         return (
             <SceneContent>
                 <SceneTitleSection
-                    name="Catalog"
+                    name="Semantic layer"
                     description="Tables, saved queries, and system tables tracked by the semantic layer."
                     resourceType={{ type: 'data_warehouse' }}
                 />
@@ -76,7 +76,7 @@ function CatalogGraphSceneContent(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Catalog"
+                name="Semantic layer"
                 description={`${graph.nodes.length} nodes · ${graph.relationships.length} relationships`}
                 resourceType={{ type: 'data_warehouse' }}
             />

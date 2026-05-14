@@ -164,7 +164,7 @@ export const catalogGraphSceneLogic = kea<catalogGraphSceneLogicType>([
                 })
             },
         ],
-        breadcrumbs: [() => [], (): Breadcrumb[] => [{ key: 'catalog', name: 'Catalog' }]],
+        breadcrumbs: [() => [], (): Breadcrumb[] => [{ key: 'catalog', name: 'Semantic layer' }]],
     }),
 
     listeners(({ actions }) => ({

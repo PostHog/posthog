@@ -41,7 +41,7 @@ export const catalogListSceneLogic = kea<catalogListSceneLogicType>([
     })),
 
     selectors({
-        breadcrumbs: [() => [], (): Breadcrumb[] => [{ key: 'catalog', name: 'Catalog' }]],
+        breadcrumbs: [() => [], (): Breadcrumb[] => [{ key: 'catalog', name: 'Semantic layer' }]],
     }),
 
     urlToAction(({ actions }) => ({

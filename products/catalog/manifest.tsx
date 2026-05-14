@@ -5,12 +5,12 @@ import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/s
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
-    name: 'Catalog',
+    name: 'Semantic layer',
     scenes: {
         CatalogProposals: {
             import: () => import('./frontend/CatalogProposalsScene'),
             projectBased: true,
-            name: 'Proposals',
+            name: 'Inbox',
             activityScope: 'CatalogNode',
             layout: 'app-container',
             iconType: 'data_warehouse',
@@ -18,7 +18,7 @@ export const manifest: ProductManifest = {
         CatalogList: {
             import: () => import('./frontend/CatalogListScene'),
             projectBased: true,
-            name: 'Catalog',
+            name: 'Semantic layer',
             activityScope: 'CatalogNode',
             layout: 'app-container',
             iconType: 'data_warehouse',
@@ -26,7 +26,7 @@ export const manifest: ProductManifest = {
         CatalogGraph: {
             import: () => import('./frontend/CatalogGraphScene'),
             projectBased: true,
-            name: 'Catalog graph',
+            name: 'Lineage',
             activityScope: 'CatalogNode',
             layout: 'app-container',
             iconType: 'data_warehouse',
@@ -34,7 +34,7 @@ export const manifest: ProductManifest = {
         CatalogDefinition: {
             import: () => import('./frontend/CatalogDefinitionScene'),
             projectBased: true,
-            name: 'Catalog definition',
+            name: 'Node',
             activityScope: 'CatalogNode',
             layout: 'app-container',
             iconType: 'data_warehouse',
@@ -58,7 +58,7 @@ export const manifest: ProductManifest = {
     treeItemsNew: [],
     treeItemsProducts: [
         {
-            path: 'Catalog',
+            path: 'Semantic layer',
             intents: [ProductKey.CATALOG],
             category: ProductItemCategory.UNRELEASED,
             href: '/catalog',
