@@ -457,7 +457,12 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                onClick={streamRun}
+                                onClick={() => {
+                                    streamRun()
+                                    if (currentTab !== 'runs') {
+                                        router.actions.push(`/agentic_tests/${id}?tab=runs`)
+                                    }
+                                }}
                                 loading={streaming}
                                 disabledReason={streaming ? 'A run is already in progress' : undefined}
                                 data-attr="agentic-test-run-detail"
