@@ -378,7 +378,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         name: 'Deployments',
         iconType: 'deployments',
-        description: 'Build and ship your project site straight from PostHog.',
+        description: 'View, redeploy, and roll back deployments of your app.',
     },
     Deployment: { projectBased: true, name: 'Deployment' },
     EarlyAccessFeatures: {
@@ -1047,6 +1047,13 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.dashboard(ref),
         iconColor: ['var(--color-product-dashboards-light)'],
         filterKey: 'dashboard',
+    },
+    deployments: {
+        name: 'Deployment',
+        iconType: 'deployments',
+        iconColor: ['var(--color-product-deployments-light)'] as FileSystemIconColor,
+        href: () => urls.deployments(),
+        filterKey: 'deployments',
     },
     early_access_feature: {
         name: 'Early access feature',

@@ -13,7 +13,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Deployments',
             iconType: 'deployments',
-            description: 'Build and ship your project site straight from PostHog.',
+            description: 'View, redeploy, and roll back deployments of your app.',
         },
         Deployment: {
             import: () => import('./frontend/Deployment'),
@@ -29,7 +29,15 @@ export const manifest: ProductManifest = {
         deployments: (): string => '/deployments',
         deployment: (id: string): string => `/deployments/${id}`,
     },
-    fileSystemTypes: {},
+    fileSystemTypes: {
+        deployments: {
+            name: 'Deployment',
+            iconType: 'deployments',
+            iconColor: ['var(--color-product-deployments-light)'] as FileSystemIconColor,
+            href: () => urls.deployments(),
+            filterKey: 'deployments',
+        },
+    },
     treeItemsNew: [],
     treeItemsProducts: [
         {
