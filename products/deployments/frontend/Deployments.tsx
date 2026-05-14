@@ -36,7 +36,7 @@ export function Deployments(): JSX.Element {
                 }
                 resourceType={{ type: 'deployments' }}
                 actions={
-                    !hasNoProjects && (
+                    hasNoProjects ? undefined : (
                         <LemonButton
                             type="primary"
                             size="small"
