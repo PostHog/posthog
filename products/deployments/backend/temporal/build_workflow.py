@@ -96,11 +96,14 @@ class DeploymentBuildWorkflow:
                 install_dependencies, step, start_to_close_timeout=_BUILD_TIMEOUT, retry_policy=_BUILD_RETRY
             )
 
+            # `start_building` is the gateway to the BUILD phase — a
+            # failure transitioning into building should report
+            # `error_step=build`, not `install`.
+            current_step = ErrorStep.BUILD
             await workflow.execute_activity(
                 start_building, step, start_to_close_timeout=_API_TIMEOUT, retry_policy=_API_RETRY
             )
 
-            current_step = ErrorStep.BUILD
             await workflow.execute_activity(
                 build_site, step, start_to_close_timeout=_BUILD_TIMEOUT, retry_policy=_BUILD_RETRY
             )

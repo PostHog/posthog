@@ -50,9 +50,14 @@ def _raise_for_status(*, method: str, path: str, status_code: int, body: str) ->
 def _base_url() -> str:
     base = getattr(settings, "DEPLOYMENTS_INTERNAL_API_BASE_URL", "") or getattr(settings, "SITE_URL", "")
     if not base:
-        raise InternalApiError(
+        # Missing env vars won't fix themselves between retries — raise
+        # a non-retryable error so the activity fails immediately rather
+        # than burning the full _API_RETRY budget on a misconfiguration.
+        raise ApplicationError(
             "Missing setting: DEPLOYMENTS_INTERNAL_API_BASE_URL (or SITE_URL). "
-            "The deployments worker needs a URL to call back to the web pods."
+            "The deployments worker needs a URL to call back to the web pods.",
+            type="InternalApiConfigError",
+            non_retryable=True,
         )
     return base.rstrip("/")
 
@@ -60,7 +65,11 @@ def _base_url() -> str:
 def _headers() -> dict[str, str]:
     secret = getattr(settings, "INTERNAL_API_SECRET", "")
     if not secret:
-        raise InternalApiError("Missing setting: INTERNAL_API_SECRET.")
+        raise ApplicationError(
+            "Missing setting: INTERNAL_API_SECRET.",
+            type="InternalApiConfigError",
+            non_retryable=True,
+        )
     return {"X-Internal-Api-Secret": secret, "Content-Type": "application/json"}
 
 
