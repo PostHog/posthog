@@ -385,13 +385,22 @@ async def test_captures_event_with_team_prefixed_distinct_id_when_no_creator(tea
     assert events[0]["distinct_id"] == f"team_{team.id}"
 
 
-async def test_core_memory_flows_into_change_summary(team, user, monkeypatch):
+@pytest.mark.parametrize(
+    "stored_memory_text,expected_fragments",
+    [
+        pytest.param(
+            "Company is PostHog.\nFlagship product is product analytics.",
+            ["Company is PostHog.", "Flagship product is product analytics."],
+            id="memory_present",
+        ),
+        pytest.param("", [], id="no_memory_row"),
+    ],
+)
+async def test_core_memory_flows_into_change_summary(team, user, monkeypatch, stored_memory_text, expected_fragments):
     subscription = await _create_subscription(team, user)
     await _set_ai_consent(subscription, approved=True)
-    await sync_to_async(CoreMemory.objects.create)(
-        team=team,
-        text="Company is PostHog.\nFlagship product is product analytics.",
-    )
+    if stored_memory_text:
+        await sync_to_async(CoreMemory.objects.create)(team=team, text=stored_memory_text)
     delivery = await _create_delivery(
         subscription,
         {
@@ -425,47 +434,12 @@ async def test_core_memory_flows_into_change_summary(team, user, monkeypatch):
     )
 
     assert len(seen_core_memory) == 1
-    assert "Company is PostHog." in seen_core_memory[0]
-    assert "Flagship product is product analytics." in seen_core_memory[0]
-
-
-async def test_core_memory_is_empty_string_when_no_memory_exists(team, user, monkeypatch):
-    subscription = await _create_subscription(team, user)
-    await _set_ai_consent(subscription, approved=True)
-    # Intentionally do not create a CoreMemory row for the team.
-    delivery = await _create_delivery(
-        subscription,
-        {
-            "insights": [
-                {
-                    "id": subscription.insight_id,
-                    "name": "Pageviews",
-                    "query_results": {"result": [{"label": "Pageviews", "data": [1, 2, 3]}]},
-                }
-            ]
-        },
-    )
-
-    seen_core_memory: list[str] = []
-
-    def fake_generate(previous_states, current_states, *, core_memory_text: str = "", **kwargs):
-        seen_core_memory.append(core_memory_text)
-        return "- Pageviews is trending up"
-
-    monkeypatch.setattr(
-        "posthog.temporal.subscriptions.snapshot_activities.generate_change_summary",
-        fake_generate,
-    )
-
-    await _run(
-        SnapshotInsightsInputs(
-            subscription_id=subscription.id,
-            team_id=subscription.team_id,
-            delivery_id=str(delivery.id),
-        )
-    )
-
-    assert seen_core_memory == [""]
+    if expected_fragments:
+        for fragment in expected_fragments:
+            assert fragment in seen_core_memory[0]
+    else:
+        # No memory row → activity must pass through the empty string, not raise.
+        assert seen_core_memory[0] == ""
 
 
 async def test_unhandled_exception_is_logged_and_reraised(team, user, monkeypatch):

@@ -9,7 +9,10 @@ SERIES_LABEL_MAX_LEN = 200
 SUBSCRIPTION_TITLE_MAX_LEN = 200
 GENERIC_VALUE_MAX_LEN = 200
 PROMPT_GUIDE_MAX_LEN = 500
-CORE_MEMORY_MAX_LEN = 5000
+# `CoreMemory.formatted_text` returns `text[:2500] + "…" + text[-2500:]` when the
+# raw text exceeds 5000 chars — that's 5001 chars total. Match what the upstream
+# helper can actually produce so we don't silently drop the last tail character.
+CORE_MEMORY_MAX_LEN = 5001
 
 _TAG_RE = re.compile(r"</?[a-zA-Z_][^>]*>")
 _LLM_MARKER_RE = re.compile(
