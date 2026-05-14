@@ -38,7 +38,7 @@ except ImportError:
     sys.exit(1)
 
 import sandbox_tools
-from sandbox_tools import TOOLS_FILE, Tool, ToolCopy, ToolsError
+from sandbox_tools import TOOLS_FILE, Tool, ToolsError
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -683,6 +683,16 @@ def _host_compose_env() -> dict[str, str]:
     return env
 
 
+def _compose_env(port: int) -> dict[str, str]:
+    """Env vars threaded through every docker compose invocation."""
+    return {
+        **_host_compose_env(),
+        "SANDBOX_PORT": str(port),
+        "SANDBOX_VITE_PORT": str(port + 1000),
+        "SANDBOX_SSH_PORT": str(port + 2000),
+    }
+
+
 def compose(
     project: str,
     port: int,
@@ -690,38 +700,36 @@ def compose(
     check: bool = True,
     capture: bool = False,
     profiles: list[str] | None = None,
-    env_overrides: dict[str, str] | None = None,
     use_tools: bool = True,
 ) -> subprocess.CompletedProcess:
-    # When tools.yaml has entries and use_tools is set, a Dockerfile.user and
-    # compose override are regenerated and stacked under the base compose
-    # files. Cache-init style callers that need a tool-free image set
-    # use_tools=False.
-    env = {
-        **_host_compose_env(),
-        "SANDBOX_PORT": str(port),
-        "SANDBOX_VITE_PORT": str(port + 1000),
-        "SANDBOX_SSH_PORT": str(port + 2000),
-    }
-    if env_overrides:
-        env.update(env_overrides)
-
-    compose_files = [str(COMPOSE_FILE), str(PROFILES_FILE)]
-    tools = sandbox_tools.load_user_tools() if use_tools else []
-    if tools:
+    """Run `docker compose` with sandbox env vars."""
+    tool_auth_flag: list[str] = []
+    if use_tools and (tools := sandbox_tools.load_user_tools()):
         dockerfile = sandbox_tools.write_user_dockerfile(tools, base_dockerfile=SANDBOX_DOCKERFILE)
         override = sandbox_tools.write_tool_auth_compose(tools, dockerfile=dockerfile)
-        compose_files.append(str(override))
+        tool_auth_flag = ["-f", str(override)]
 
     profile_flags: list[str] = []
     for p in profiles or []:
         profile_flags.extend(["--profile", p])
-    file_flags = [arg for f in compose_files for arg in ("-f", f)]
     return run(
-        ["docker", "compose", "--progress=quiet", "-p", project, *file_flags, *profile_flags, *args],
+        [
+            "docker",
+            "compose",
+            "--progress=quiet",
+            "-p",
+            project,
+            "-f",
+            str(COMPOSE_FILE),
+            "-f",
+            str(PROFILES_FILE),
+            *tool_auth_flag,
+            *profile_flags,
+            *args,
+        ],
         check=check,
         capture=capture,
-        env_extra=env,
+        env_extra=_compose_env(port),
     )
 
 
@@ -874,13 +882,10 @@ def _rev_parse(ref: str) -> str | None:
 
 def _is_ancestor(maybe_ancestor: str, of_descendant: str) -> bool:
     """True if *maybe_ancestor* is reachable from *of_descendant* on the host."""
-    return (
-        run(
-            ["git", "merge-base", "--is-ancestor", maybe_ancestor, of_descendant],
-            check=False,
-        ).returncode
-        == 0
-    )
+    return run(
+        ["git", "merge-base", "--is-ancestor", maybe_ancestor, of_descendant],
+        check=False,
+    ).returncode == 0  # fmt: skip
 
 
 def _first_existing_ref(*refs: str) -> tuple[str, str] | None:
@@ -1367,7 +1372,7 @@ def cmd_start(branch: str) -> None:
     info(f"Starting sandbox '{project}' on port {entry.port} (Vite: {vite_port})...")
     if profiles:
         info(f"Docker profiles: {', '.join(profiles)}")
-    compose(project, entry.port, "up", "-d", "--build", capture=True, profiles=profiles)
+    compose(project, entry.port, "up", "-d", capture=True, profiles=profiles)
 
     container = f"{project}-app-1"
     health_url = f"http://localhost:{entry.port}/_health"
