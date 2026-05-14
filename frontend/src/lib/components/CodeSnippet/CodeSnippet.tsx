@@ -49,6 +49,7 @@ export enum Language {
     CSharp = 'csharp',
     TypeScript = 'typescript',
     HCL = 'terraform',
+    Diff = 'diff',
 }
 
 export const getLanguage = (lang: string): Language => {

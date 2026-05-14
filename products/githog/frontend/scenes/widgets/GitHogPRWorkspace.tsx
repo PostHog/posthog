@@ -4,21 +4,23 @@
 import './GitHogPRWorkspace.css'
 
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 
 import { IconCheck, IconCode, IconDrag, IconGitBranch, IconGithub, IconPlus, IconRefresh, IconX } from '@posthog/icons'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { DataFlowGraph, computeFlowDiff } from '../DataFlowGraph'
+import { DataFlowGraph, DiffStatus, computeFlowDiff } from '../DataFlowGraph'
 import {
     GitHogLayoutItem,
     GitHogPRLayoutLogicProps,
@@ -33,6 +35,7 @@ import {
 } from '../gitHogPRReviewLogic'
 import {
     GitHogDataFlowStep,
+    GitHogFlowNode,
     GitHogPullRequestDataFlowLogicProps,
     gitHogPullRequestDataFlowLogic,
 } from '../gitHogPullRequestDataFlowLogic'
@@ -287,10 +290,22 @@ function LegendDot({ color, label }: { color: string; label: string }): JSX.Elem
     )
 }
 
-function DataFlowWidgetForPR({ owner, name, number }: GitHogPullRequestDataFlowLogicProps): JSX.Element {
+interface NodeDiffSelection {
+    node: GitHogFlowNode
+    diff: DiffStatus
+    file?: GitHogPullRequestFile
+}
+
+function DataFlowWidgetForPR({
+    owner,
+    name,
+    number,
+    files,
+}: GitHogPullRequestDataFlowLogicProps & { files: GitHogPullRequestFile[] }): JSX.Element {
     const logic = gitHogPullRequestDataFlowLogic({ owner, name, number })
     const { dataFlow, dataFlowLoading, view } = useValues(logic)
     const { setView, refreshDataFlow } = useActions(logic)
+    const [selected, setSelected] = useState<NodeDiffSelection | null>(null)
 
     const diff = useMemo(() => {
         if (!dataFlow) {
@@ -298,6 +313,24 @@ function DataFlowWidgetForPR({ owner, name, number }: GitHogPullRequestDataFlowL
         }
         return computeFlowDiff(dataFlow.flow_before, dataFlow.flow_after)
     }, [dataFlow])
+
+    const filesByName = useMemo(() => {
+        const m = new Map<string, GitHogPullRequestFile>()
+        files.forEach((f) => m.set(f.filename, f))
+        return m
+    }, [files])
+
+    const handleNodeClick = useCallback(
+        (node: GitHogFlowNode, status: DiffStatus) => {
+            // Kept = unchanged conceptually — nothing useful to show.
+            if (status === 'kept') {
+                return
+            }
+            const file = node.file ? filesByName.get(node.file) : undefined
+            setSelected({ node, diff: status, file })
+        },
+        [filesByName]
+    )
 
     const renderBody = (): JSX.Element => {
         if (dataFlowLoading && !dataFlow) {
@@ -334,7 +367,12 @@ function DataFlowWidgetForPR({ owner, name, number }: GitHogPullRequestDataFlowL
                     </div>
                     <div className="flex flex-col gap-2 min-w-0">
                         <div className="text-xs uppercase tracking-wide text-muted">After</div>
-                        <DataFlowGraph graph={dataFlow.flow_after} heightClass="h-[24rem]" />
+                        <DataFlowGraph
+                            graph={dataFlow.flow_after}
+                            nodeDiff={diff?.nodeDiff}
+                            onNodeClick={handleNodeClick}
+                            heightClass="h-[24rem]"
+                        />
                     </div>
                 </div>
             )
@@ -348,6 +386,7 @@ function DataFlowWidgetForPR({ owner, name, number }: GitHogPullRequestDataFlowL
                 graph={diff.unionGraph}
                 nodeDiff={diff.nodeDiff}
                 edgeDiff={diff.edgeDiff}
+                onNodeClick={handleNodeClick}
                 heightClass="h-[32rem]"
             />
         )
@@ -399,7 +438,7 @@ function DataFlowWidgetForPR({ owner, name, number }: GitHogPullRequestDataFlowL
                 </div>
             </div>
             <div className="px-4 py-4 flex flex-col gap-3">
-                {dataFlow?.summary && <p className="text-sm text-secondary my-0 leading-relaxed">{dataFlow.summary}</p>}
+                {/* Summary intentionally hidden in UI; still returned by the API for callers. */}
                 {dataFlow?.truncated && (
                     <LemonTag type="warning" size="small">
                         Truncated — files were too large for full context, flow inferred from diff
@@ -414,7 +453,68 @@ function DataFlowWidgetForPR({ owner, name, number }: GitHogPullRequestDataFlowL
                     </div>
                 )}
             </div>
+            <NodeDiffModal selection={selected} onClose={() => setSelected(null)} />
         </div>
+    )
+}
+
+function NodeDiffModal({
+    selection,
+    onClose,
+}: {
+    selection: NodeDiffSelection | null
+    onClose: () => void
+}): JSX.Element {
+    const isOpen = selection !== null
+    const node = selection?.node
+    const diff = selection?.diff
+    const file = selection?.file
+    const tagType = diff === 'added' ? 'success' : diff === 'removed' ? 'danger' : 'default'
+    const tagLabel = diff === 'added' ? 'Added' : diff === 'removed' ? 'Removed' : 'Kept'
+    return (
+        <LemonModal
+            isOpen={isOpen}
+            onClose={onClose}
+            title={
+                node ? (
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <span>{node.label}</span>
+                        <LemonTag type={tagType} size="small">
+                            {tagLabel}
+                        </LemonTag>
+                    </div>
+                ) : (
+                    'Node detail'
+                )
+            }
+            description={node?.detail || undefined}
+            width={900}
+        >
+            {node && (
+                <div className="flex flex-col gap-3">
+                    {node.file && <div className="text-xs text-muted font-mono break-all">{node.file}</div>}
+                    {file ? (
+                        file.patch ? (
+                            <div className="max-h-[60vh] overflow-auto">
+                                <CodeSnippet language={Language.Diff} wrap>
+                                    {file.patch}
+                                </CodeSnippet>
+                            </div>
+                        ) : (
+                            <p className="text-sm text-secondary italic my-0">
+                                No patch available for this file ({file.status}).
+                            </p>
+                        )
+                    ) : node.file ? (
+                        <p className="text-sm text-secondary italic my-0">
+                            This file isn't in the PR's changed files — the change may live in a referenced file.
+                        </p>
+                    ) : (
+                        <p className="text-sm text-secondary italic my-0">No file associated with this node.</p>
+                    )}
+                </div>
+            )}
+        </LemonModal>
     )
 }
 
@@ -662,7 +762,7 @@ function GitHogPRWorkspaceInner({
             case 'agent':
                 return <AgentWidget owner={owner} repo={repoName} pr={pr} files={prDetail.files} diff={prDetail.diff} />
             case 'dataFlow':
-                return <DataFlowWidgetForPR owner={owner} name={repoName} number={number} />
+                return <DataFlowWidgetForPR owner={owner} name={repoName} number={number} files={prDetail.files} />
             case 'riskScore':
                 return <RiskScoreWidgetForPR owner={owner} name={repoName} number={number} />
             case 'stats':

@@ -15,7 +15,7 @@ import {
     type NodeChange,
 } from '@xyflow/react'
 import { useValues } from 'kea'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { getElk } from 'lib/elk'
 
@@ -159,6 +159,8 @@ export interface DataFlowGraphProps {
     edgeDiff?: Map<string, DiffStatus>
     /** Tailwind height class, e.g. "h-96". */
     heightClass?: string
+    /** Called when a node is clicked. `diff` indicates whether the node was added / removed / kept. */
+    onNodeClick?: (node: GitHogFlowNode, diff: DiffStatus) => void
 }
 
 function DataFlowGraphInner({
@@ -166,6 +168,7 @@ function DataFlowGraphInner({
     nodeDiff,
     edgeDiff,
     heightClass = 'h-96',
+    onNodeClick,
 }: DataFlowGraphProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     // Memoize `safeGraph` so the effect dep is stable across re-renders. Without this,
@@ -201,6 +204,16 @@ function DataFlowGraphInner({
         []
     )
 
+    const onNodeClickInternal = useCallback(
+        (_evt: ReactMouseEvent, node: Node<DataFlowNodeData>) => {
+            if (!onNodeClick) {
+                return
+            }
+            onNodeClick(node.data.node, node.data.diff)
+        },
+        [onNodeClick]
+    )
+
     if (!graph.nodes.length) {
         return (
             <div
@@ -222,6 +235,7 @@ function DataFlowGraphInner({
                 nodes={nodes}
                 edges={edges}
                 onNodesChange={onNodesChange}
+                onNodeClick={onNodeClickInternal}
                 nodeTypes={NODE_TYPES}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 fitView
