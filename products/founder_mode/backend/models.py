@@ -18,11 +18,19 @@ from django.db import models
 from posthog.models.utils import UUIDModel
 
 
+class FounderStepChoices(models.TextChoices):
+    IDEATION = "ideation"
+    VALIDATION = "validation"
+    GTM = "gtm"
+    MVP = "mvp"
+    MARKETING = "marketing"
+
+
 class FounderProject(UUIDModel):
-    team = models.ForeignKey(
+    team = models.OneToOneField(
         "posthog.Team",
         on_delete=models.CASCADE,
-        related_name="founder_projects",
+        related_name="founder_project",
     )
     created_by = models.ForeignKey(
         "posthog.User",
@@ -32,6 +40,11 @@ class FounderProject(UUIDModel):
         related_name="+",
     )
     name = models.CharField(max_length=200)
+    current_step = models.CharField(
+        max_length=20,
+        choices=FounderStepChoices.choices,
+        default=FounderStepChoices.IDEATION,
+    )
     ideation = models.JSONField(default=dict, blank=True)
     validation = models.JSONField(default=dict, blank=True)
     gtm = models.JSONField(default=dict, blank=True)

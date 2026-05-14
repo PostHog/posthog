@@ -41,7 +41,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.founder_mode.backend.logic.cofounder_chat.schemas import TurnRequest, TurnResponse
 from products.founder_mode.backend.logic.cofounder_chat.service import run_chat_turn
-from products.founder_mode.backend.models import FounderProject
+from products.founder_mode.backend.models import FounderProject, FounderStepChoices
 from products.founder_mode.backend.tasks.tasks import (
     run_gtm_task,
     run_landing_page_task,
@@ -63,9 +63,8 @@ from .serializers import FounderProjectSerializer
 @extend_schema_view(
     list=extend_schema(
         description=(
-            "List all founder projects for the current team. Used by the frontend to find an "
-            "existing project on session restore (the FE doesn't persist the project id across "
-            "reloads). One row per startup idea."
+            "List the founder project for the current team (at most one row). Used by the "
+            "frontend to find the existing project on session restore."
         ),
     ),
     retrieve=extend_schema(
@@ -80,7 +79,9 @@ from .serializers import FounderProjectSerializer
             "Stage 1 (Ideation) commit. Called by the FE when the cofounder chat reaches "
             "`should_end_chat=true`. Body carries `{name, ideation: {what, how, who, problem}}`. "
             "**Side effect:** if `ideation` is non-empty, validation (stage 2) is auto-fired on "
-            "commit — saves a round-trip vs creating then POSTing `run_validation/`."
+            "commit — saves a round-trip vs creating then POSTing `run_validation/`. "
+            "**Idempotent:** if a project already exists for this team, the existing row is "
+            "updated and returned instead of creating a duplicate."
         ),
     ),
     update=extend_schema(
@@ -112,11 +113,21 @@ class FounderProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset: QuerySet[FounderProject]) -> QuerySet[FounderProject]:
         return queryset.filter(team_id=self.team_id)
 
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Upsert: if a project already exists for this team, update it instead of 409-ing."""
+        existing = FounderProject.objects.filter(team_id=self.team_id).first()
+        if existing:
+            serializer = self.get_serializer(existing, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return super().create(request, *args, **kwargs)
+
     def perform_create(self, serializer: FounderProjectSerializer) -> None:
         instance = serializer.save(team_id=self.team_id, created_by=self.request.user)
-        # Fire validation immediately if the create included an ideation payload — saves the
-        # founder a round-trip when they paste stage 1 results into a new project.
         if instance.ideation:
+            instance.current_step = FounderStepChoices.VALIDATION
+            instance.save(update_fields=["current_step"])
             user_id = self.request.user.id
             transaction.on_commit(lambda: run_validation_task.delay(str(instance.id), user_id))
 
@@ -126,8 +137,19 @@ class FounderProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         previous_ideation = serializer.instance.ideation
         instance = serializer.save()
         if instance.ideation and instance.ideation != previous_ideation:
+            instance.current_step = FounderStepChoices.VALIDATION
+            instance.save(update_fields=["current_step"])
             user_id = self.request.user.id
             transaction.on_commit(lambda: run_validation_task.delay(str(instance.id), user_id))
+
+    # Maps stage DB column → the FounderStepChoices value that column belongs to.
+    _COLUMN_TO_STEP: dict[str, str] = {
+        "validation": FounderStepChoices.VALIDATION,
+        "gtm": FounderStepChoices.GTM,
+        "mvp": FounderStepChoices.MVP,
+        "marketing_page": FounderStepChoices.MARKETING,
+        "marketing_steps": FounderStepChoices.MARKETING,
+    }
 
     def _kick_stage(
         self,
@@ -152,7 +174,12 @@ class FounderProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # The task will overwrite to `running` before its first save.
         current = getattr(instance, column) or {}
         setattr(instance, column, {**current, "status": "pending"})
-        instance.save(update_fields=[column, "updated_at"])
+        update_fields = [column, "updated_at"]
+        step = self._COLUMN_TO_STEP.get(column)
+        if step:
+            instance.current_step = step
+            update_fields.append("current_step")
+        instance.save(update_fields=update_fields)
         return Response(self.get_serializer(instance).data, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(

@@ -1,12 +1,21 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { founderLogic } from './scenes/founderLogic'
+
 export function FounderMode(): JSX.Element {
     const { push } = useActions(router)
+    const { hasExistingProject, projectLoaded } = useValues(founderLogic)
+
+    if (projectLoaded && hasExistingProject) {
+        push(urls.founderModeLayout())
+        return <></>
+    }
+
     return (
         <main className="min-h-screen flex items-center justify-center bg-bg-primary px-6 py-16">
             <div className="w-full max-w-3xl">
@@ -37,4 +46,5 @@ export function FounderMode(): JSX.Element {
 
 export const scene: SceneExport = {
     component: FounderMode,
+    logic: founderLogic,
 }

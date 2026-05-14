@@ -17,7 +17,7 @@ from products.founder_mode.backend.logic.landing_page.schemas import MarketingPa
 from products.founder_mode.backend.logic.mvp.schemas import MVPEnvelope
 from products.founder_mode.backend.logic.practical_steps.schemas import MarketingStepsEnvelope
 from products.founder_mode.backend.logic.validation.schemas import IdeationInput, ValidationEnvelope
-from products.founder_mode.backend.models import FounderProject
+from products.founder_mode.backend.models import FounderProject, FounderStepChoices
 
 
 @extend_schema_field(IdeationInput)  # type: ignore[arg-type]
@@ -54,6 +54,15 @@ class FounderProjectSerializer(serializers.ModelSerializer):
     name = serializers.CharField(
         max_length=200,
         help_text='Founder-chosen label for the startup idea, e.g. "AI-powered HOA management".',
+    )
+    current_step = serializers.ChoiceField(
+        choices=FounderStepChoices.choices,
+        default=FounderStepChoices.IDEATION,
+        help_text=(
+            "Which stage the founder is currently on. One of: ideation, validation, gtm, mvp, marketing. "
+            "Set by the frontend when the user advances through the flow. Persisted so returning "
+            "users resume where they left off."
+        ),
     )
     ideation = IdeationField(
         required=False,
@@ -117,6 +126,7 @@ class FounderProjectSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "current_step",
             "ideation",
             "ideation_hash",
             "validation",

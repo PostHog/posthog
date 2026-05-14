@@ -366,6 +366,7 @@ export const founderChatLogic = kea<founderChatLogicType>([
                 })
                 breakpoint()
                 founderLogic.actions.setCurrentProjectId(project.id)
+                founderLogic.actions.setCurrentStep('validation')
             } catch (e: any) {
                 actions.setValidationError(e?.message ?? 'Could not create founder project')
             }

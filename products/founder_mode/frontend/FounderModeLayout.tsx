@@ -7,12 +7,125 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { cofounderFlowLogic, STEP_ORDER, StepKey } from './cofounderFlowLogic'
 import { founderValidationLogic, ValidationReport } from './components/founderValidationLogic'
+import { Step2 } from './components/Step2'
+import { Step3 } from './components/Step3'
+import { Step4 } from './components/Step4'
 import { ValidationReportView } from './components/ValidationReportView'
-import { founderLogic } from './scenes/founderLogic'
+import { founderLogic, FounderStep, FOUNDER_STEPS } from './scenes/founderLogic'
 
 const FADE_MASK_HEIGHT = 160
 
+const STEP_LABELS: Record<FounderStep, string> = {
+    ideation: 'Ideation',
+    validation: 'Validation',
+    gtm: 'Go-to-market',
+    mvp: 'MVP',
+    marketing: 'Marketing',
+}
+
+function StepNav(): JSX.Element {
+    const { currentStep } = useValues(founderLogic)
+    const { advanceStep } = useActions(founderLogic)
+    const currentIdx = FOUNDER_STEPS.indexOf(currentStep)
+
+    return (
+        <nav className="flex items-center gap-1 px-4 py-2 border-b border-border bg-white/80 backdrop-blur-sm">
+            {FOUNDER_STEPS.map((step, idx) => {
+                const isActive = step === currentStep
+                const isPast = idx < currentIdx
+                return (
+                    <React.Fragment key={step}>
+                        {idx > 0 && <span className="text-border mx-1 select-none">›</span>}
+                        <button
+                            type="button"
+                            onClick={() => isPast && advanceStep(step)}
+                            className={cn(
+                                'px-2.5 py-1 rounded text-xs font-medium transition-colors',
+                                isActive && 'bg-primary/10 text-primary',
+                                isPast && 'text-text-secondary hover:text-text-primary cursor-pointer',
+                                !isActive && !isPast && 'text-text-secondary/50 cursor-default'
+                            )}
+                            disabled={!isPast}
+                        >
+                            {STEP_LABELS[step]}
+                        </button>
+                    </React.Fragment>
+                )
+            })}
+        </nav>
+    )
+}
+
+function StepContent({ step }: { step: FounderStep }): JSX.Element {
+    switch (step) {
+        case 'validation':
+            return (
+                <div className="p-6 max-w-3xl mx-auto">
+                    <Step2 />
+                </div>
+            )
+        case 'gtm':
+            return (
+                <div className="p-6 max-w-3xl mx-auto">
+                    <Step3 />
+                </div>
+            )
+        case 'mvp':
+            return (
+                <div className="p-6 max-w-3xl mx-auto flex flex-col items-center justify-center gap-4 text-center min-h-[50vh]">
+                    <h2 className="text-2xl font-semibold">MVP</h2>
+                    <p className="text-text-secondary max-w-md">
+                        The MVP spec stage is coming soon. For now, continue to marketing.
+                    </p>
+                    <Button variant="primary" size="sm" onClick={() => founderLogic.actions.advanceStep('marketing')}>
+                        Continue to marketing →
+                    </Button>
+                </div>
+            )
+        case 'marketing':
+            return (
+                <div className="p-6 max-w-3xl mx-auto">
+                    <Step4 />
+                </div>
+            )
+        default:
+            return <></>
+    }
+}
+
 export function FounderModeLayout(): JSX.Element {
+    const { currentStep, hasExistingProject, projectLoaded } = useValues(founderLogic)
+
+    // If there's an existing project past ideation, skip the cofounder flow and go
+    // straight to the persisted step's UI.
+    const resumingPastIdeation = hasExistingProject && currentStep !== 'ideation'
+
+    if (!projectLoaded) {
+        return (
+            <main className="fixed inset-0 top-[54px] flex items-center justify-center bg-white">
+                <Spinner />
+            </main>
+        )
+    }
+
+    if (resumingPastIdeation) {
+        return (
+            <main
+                className="fixed inset-0 top-[54px] flex flex-col bg-white overflow-hidden"
+                style={{
+                    backgroundColor: '#fff',
+                    backgroundSize: '13px 13px',
+                    backgroundImage: 'radial-gradient(1px, var(--color-gray-300), var(--color-gray-50))',
+                }}
+            >
+                <StepNav />
+                <section className="flex-1 relative overflow-y-auto">
+                    <StepContent step={currentStep} />
+                </section>
+            </main>
+        )
+    }
+
     return (
         <main
             className="fixed inset-0 top-[54px] flex flex-col bg-white overflow-hidden"
