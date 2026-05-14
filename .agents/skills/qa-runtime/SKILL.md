@@ -228,6 +228,15 @@ python3 "<skill_dir>/scripts/url-walker.py" \
   --files-json .qa-runtime/runs/<run-id>/changed-files.json
 ```
 
+The walker is most useful when the PR has narrow touch points (a single
+scene, a few endpoints) and you want a confident file-to-route mapping.
+For broad refactors that touch dozens of files across many scenes (e.g. a
+shared component or hook renamed everywhere), the walker output becomes
+overwhelming and adds little. In that case, skip the walker and identify
+2-5 representative scenes where the changed surface is visible by reading
+the diff directly. Note the choice in `run-notes.md` so the reviewer knows
+coverage was sampled rather than exhaustive.
+
 The test plan is a list of targets:
 
 ```json
@@ -436,7 +445,23 @@ if you copy any script output into the comment, double-check the line.
 
 ## Output
 
-Read `references/pr-comment-template.md` before composing output.
+**Re-read `<skill_dir>/references/pr-comment-template.md` immediately before
+composing the comment, not just once at activation.** The template defines
+the exact banner, verdict line, coverage table format, finding layout, and
+footer. Do not improvise from memory or fall back to a generic "QA: PASS"
+header - that produces inconsistent reports across runs.
+
+Before posting, sanity-check the rendered comment:
+
+- First line is the literal `## 🦔 PostHog QA Swarm · Frontend Report`
+  banner.
+- Second line is a verdict line matching one of the templates (PASS /
+  FIXED / FAIL / REPORT-ONLY) with pass count, runtime, and commit SHA.
+- Last line is the `<sub>🦔 PostHog QA Swarm · Frontend Report</sub>`
+  footer.
+
+If any of these are missing, you did not read the template - go back and
+read it.
 
 Every run writes two artifacts before rendering anything user-facing:
 
