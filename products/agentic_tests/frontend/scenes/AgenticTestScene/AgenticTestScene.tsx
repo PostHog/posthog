@@ -204,7 +204,7 @@ function ConfigurationTab({ id }: { id: string | 'new' }): JSX.Element {
                         ) : !isNew ? (
                             <p className="text-xs text-muted mb-0">
                                 {persistedStatus === 'proposed'
-                                    ? 'Accept this proposal to start enabling it.'
+                                    ? 'Accepting this proposal will enable the test and start running it on schedule.'
                                     : 'This test is rejected. Restore it from the list view to re-enable.'}
                             </p>
                         ) : (
@@ -396,16 +396,6 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                                 Reject proposal
                             </LemonButton>
                         )}
-                        {!isNew && test?.status === 'proposed' && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={activate}
-                                data-attr="agentic-test-accept-detail"
-                            >
-                                Accept proposal
-                            </LemonButton>
-                        )}
                         {!isNew && (
                             <LemonButton
                                 type="secondary"
@@ -416,7 +406,7 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                                 Run now
                             </LemonButton>
                         )}
-                        {!isNew && testFormChanged && (
+                        {!isNew && testFormChanged && test?.status !== 'proposed' && (
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -428,17 +418,28 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                                 Clear changes
                             </LemonButton>
                         )}
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            htmlType="submit"
-                            onClick={submitTestForm}
-                            loading={isTestFormSubmitting}
-                            disabledReason={!testFormChanged && !isNew ? 'No changes' : undefined}
-                            data-attr="agentic-test-save"
-                        >
-                            {saveLabel}
-                        </LemonButton>
+                        {test?.status === 'proposed' ? (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={activate}
+                                data-attr="agentic-test-accept-detail"
+                            >
+                                Accept proposal
+                            </LemonButton>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                htmlType="submit"
+                                onClick={submitTestForm}
+                                loading={isTestFormSubmitting}
+                                disabledReason={!testFormChanged && !isNew ? 'No changes' : undefined}
+                                data-attr="agentic-test-save"
+                            >
+                                {saveLabel}
+                            </LemonButton>
+                        )}
                     </>
                 }
             />
