@@ -1,11 +1,13 @@
 """Celery tasks for founder_mode.
 
-Three async tasks live here, one per stage that needs LLM work:
-- `run_validation_task` (stage 2, two-pass Gemini with grounded search)
-- `run_gtm_task` (stage 3, OpenAI strict-JSON for launch playbook)
-- `run_landing_page_task` (stage 4, single-pass Gemini for the build spec)
+One task per stage that needs LLM work:
+- `run_validation_task` (stage 2) — two-pass Gemini with grounded search → `validation`
+- `run_gtm_task` (stage 3) — single Gemini call, conceptual positioning + pricing → `gtm`
+- `run_mvp_task` (stage 4) — single Gemini call, MVP happy path (placeholder prompt) → `mvp`
+- `run_landing_page_task` (stage 5a) — single Gemini call, landing page build spec → `marketing_page`
+- `run_practical_steps_task` (stage 5b) — single OpenAI call, launch playbook → `marketing_steps`
 
-All three follow the same shape — write a `running` envelope → call the service → write
+All tasks share the same shape: write a `running` envelope → call the service → write
 `completed` or `failed` back to the stage's JSON column. Tasks are the sole writers to
 their respective columns during a run.
 
@@ -13,23 +15,18 @@ Architectural note: skipping the facade for now since no other product consumes 
 Tasks call logic/ directly. Reintroduce a facade once a cross-product consumer appears.
 """
 
-import os
 from datetime import UTC, datetime
-from typing import Any, cast
-
-from django.conf import settings
 
 import structlog
-from asgiref.sync import async_to_sync
 from celery import shared_task
-from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletionMessageParam
-from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.models.user import User
 
+from products.founder_mode.backend.logic.gtm.service import generate_gtm_summary
 from products.founder_mode.backend.logic.hashing import ideation_hash
 from products.founder_mode.backend.logic.landing_page.service import generate_landing_page
+from products.founder_mode.backend.logic.mvp.service import generate_mvp_happy_path
+from products.founder_mode.backend.logic.practical_steps.service import generate_practical_steps
 from products.founder_mode.backend.logic.validation.service import run_validation
 from products.founder_mode.backend.models import FounderProject
 
@@ -40,12 +37,12 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+# --- Validation (stage 2) ---
+
+
 @shared_task(ignore_result=True)
 def run_validation_task(founder_project_id: str, user_id: int | None = None) -> None:
     """Run the validation flow for a FounderProject and write the result back to its `validation` JSON.
-
-    The task is fail-tolerant: any exception from the service is captured into the column
-    so the frontend can render a failed state instead of polling forever.
 
     Writes `current_pass` between Gemini calls so the frontend can render real staged
     progress instead of estimating from elapsed time.
@@ -114,127 +111,132 @@ def run_validation_task(founder_project_id: str, user_id: int | None = None) -> 
     project.save(update_fields=["validation", "updated_at"])
 
 
-# --- GTM task (stage 3) ---
-
-
-class SocialPost(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    platform: str = Field(description="Platform: 'linkedin', 'twitter', 'reddit', 'indie_hackers', or 'hacker_news'")
-    content: str = Field(description="The full post text, ready to copy-paste and publish")
-    tips: str = Field(description="Timing/format tips for this specific post")
-
-
-class LaunchStep(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    title: str = Field(description="Short title for the action")
-    description: str = Field(description="What to do and why it matters")
-    channel: str = Field(description="Where this happens (e.g. 'Product Hunt', 'LinkedIn', 'Twitter/X', 'Reddit')")
-    timeline: str = Field(description="When to do this relative to launch day (e.g. 'D-7', 'Launch day', 'D+1')")
-    ready_to_use_content: list[SocialPost] = Field(description="Pre-written posts/content for this step")
-
-
-class GTMStrategyResult(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    launch_summary: str = Field(description="2-3 sentence overview of the launch strategy")
-    target_communities: list[str] = Field(description="Specific communities where the target audience hangs out")
-    steps: list[LaunchStep] = Field(description="Ordered list of launch actions")
-
-
-GTM_SYSTEM_PROMPT = """You are an expert startup launch strategist.
-The user already has an MVP built. Your job is to create a concrete, manual launch playbook
-with ready-to-use content they can copy-paste and publish TODAY.
-
-Focus ONLY on promotion and distribution — NOT on building, coding, or product development.
-
-Your strategy should include:
-- A Product Hunt launch plan (tagline, description, first comment, hunter outreach)
-- LinkedIn posts (personal story angle, product announcement, lessons learned)
-- Twitter/X threads (hook + thread structure, engagement bait)
-- Reddit/community posts tailored to relevant subreddits
-- Hacker News "Show HN" post if appropriate
-- Indie Hackers or niche community posts
-
-For each step, provide ACTUAL ready-to-publish content — full post text, not templates.
-Make the content authentic, non-spammy, founder-voice, and optimized for each platform's algorithm.
-
-Order steps chronologically: pre-launch buildup (D-7 to D-1), launch day, post-launch follow-up.
-Include 5-8 steps total."""
-
-GTM_TIMEOUT = 90
-
-
-async def _call_openai_gtm(product_description: str) -> GTMStrategyResult:
-    client = AsyncOpenAI(base_url=settings.OPENAI_BASE_URL, timeout=GTM_TIMEOUT)
-
-    messages: list[ChatCompletionMessageParam] = [
-        {"role": "system", "content": GTM_SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": f"Generate a go-to-market strategy for the following product:\n\n{product_description}",
-        },
-    ]
-
-    response = await client.chat.completions.create(
-        model="gpt-4.1",
-        messages=messages,
-        response_format=cast(
-            Any,
-            {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "gtm_strategy_response",
-                    "strict": True,
-                    "schema": GTMStrategyResult.model_json_schema(),
-                },
-            },
-        ),
-    )
-
-    content = response.choices[0].message.content
-    if not content:
-        raise ValueError("OpenAI returned empty response")
-    return GTMStrategyResult.model_validate_json(content)
+# --- Conceptual GTM (stage 3) ---
 
 
 @shared_task(ignore_result=True)
-def run_gtm_task(founder_project_id: str, product_description: str) -> None:
-    """Generate a GTM launch plan via OpenAI and write the result to FounderProject.gtm."""
-    project = FounderProject.objects.get(id=founder_project_id)
+def run_gtm_task(founder_project_id: str, user_id: int | None = None) -> None:
+    """Generate the conceptual GTM summary (positioning, pricing, channels) → `gtm` column."""
+    project = FounderProject.objects.select_related("team").get(id=founder_project_id)
 
-    if not os.getenv("OPENAI_API_KEY"):
-        project.gtm = {"status": "failed", "result": None, "error": "OpenAI API key not configured"}
-        project.save(update_fields=["gtm", "updated_at"])
+    if not project.ideation:
+        logger.warning("Skipping GTM, no ideation set", project_id=founder_project_id)
         return
 
-    project.gtm = {"status": "running", "result": None, "error": ""}
+    user = User.objects.filter(id=user_id).first() if user_id else project.created_by
+    if user is None:
+        logger.warning("No user to run GTM as", project_id=founder_project_id)
+        return
+
+    started_at = _now_iso()
+    project.gtm = {
+        "status": "running",
+        "started_at": started_at,
+        "result": None,
+        "trace_id": None,
+        "error": "",
+    }
     project.save(update_fields=["gtm", "updated_at"])
 
     try:
-        result = async_to_sync(_call_openai_gtm)(product_description)
+        summary, trace_id = generate_gtm_summary(
+            ideation=project.ideation,
+            validation=project.validation or {},
+            team=project.team,
+            user=user,
+        )
     except Exception as exc:
-        logger.exception("GTM generation failed", project_id=founder_project_id)
-        project.gtm = {"status": "failed", "result": None, "error": str(exc)}
+        logger.exception("GTM run failed", project_id=founder_project_id)
+        project.gtm = {
+            "status": "failed",
+            "started_at": started_at,
+            "failed_at": _now_iso(),
+            "result": None,
+            "trace_id": None,
+            "error": str(exc),
+        }
         project.save(update_fields=["gtm", "updated_at"])
         return
 
-    project.gtm = {"status": "completed", "result": result.model_dump(), "error": ""}
+    project.gtm = {
+        "status": "completed",
+        "started_at": started_at,
+        "completed_at": _now_iso(),
+        "result": summary.model_dump(),
+        "trace_id": trace_id,
+        "error": "",
+    }
     project.save(update_fields=["gtm", "updated_at"])
 
 
-# --- Landing-page build-spec task (stage 4) ---
+# --- MVP happy path (stage 4) ---
+
+
+@shared_task(ignore_result=True)
+def run_mvp_task(founder_project_id: str, user_id: int | None = None) -> None:
+    """Generate the MVP happy-path spec → `mvp` column.
+
+    Placeholder prompt — content shape still in flux. See logic/mvp/service.py.
+    """
+    project = FounderProject.objects.select_related("team").get(id=founder_project_id)
+
+    if not project.ideation:
+        logger.warning("Skipping MVP, no ideation set", project_id=founder_project_id)
+        return
+
+    user = User.objects.filter(id=user_id).first() if user_id else project.created_by
+    if user is None:
+        logger.warning("No user to run MVP as", project_id=founder_project_id)
+        return
+
+    started_at = _now_iso()
+    project.mvp = {
+        "status": "running",
+        "started_at": started_at,
+        "result": None,
+        "trace_id": None,
+        "error": "",
+    }
+    project.save(update_fields=["mvp", "updated_at"])
+
+    try:
+        spec, trace_id = generate_mvp_happy_path(
+            ideation=project.ideation,
+            validation=project.validation or {},
+            gtm=project.gtm or {},
+            team=project.team,
+            user=user,
+        )
+    except Exception as exc:
+        logger.exception("MVP run failed", project_id=founder_project_id)
+        project.mvp = {
+            "status": "failed",
+            "started_at": started_at,
+            "failed_at": _now_iso(),
+            "result": None,
+            "trace_id": None,
+            "error": str(exc),
+        }
+        project.save(update_fields=["mvp", "updated_at"])
+        return
+
+    project.mvp = {
+        "status": "completed",
+        "started_at": started_at,
+        "completed_at": _now_iso(),
+        "result": spec.model_dump(),
+        "trace_id": trace_id,
+        "error": "",
+    }
+    project.save(update_fields=["mvp", "updated_at"])
+
+
+# --- Marketing: landing page build spec (stage 5a) ---
 
 
 @shared_task(ignore_result=True)
 def run_landing_page_task(founder_project_id: str, user_id: int | None = None) -> None:
-    """Generate a landing page from the project's accumulated state and write it to `mvp`.
-
-    Same fail-tolerant pattern as validation: exceptions are captured into the column so the
-    frontend renders a failed state instead of polling forever. Single Gemini pass — no
-    `current_pass` field needed.
-    """
+    """Generate a landing page build spec → `marketing_page` column."""
     project = FounderProject.objects.select_related("team").get(id=founder_project_id)
 
     if not project.ideation:
@@ -247,14 +249,14 @@ def run_landing_page_task(founder_project_id: str, user_id: int | None = None) -
         return
 
     started_at = _now_iso()
-    project.mvp = {
+    project.marketing_page = {
         "status": "running",
         "started_at": started_at,
         "page": None,
         "trace_id": None,
         "error": "",
     }
-    project.save(update_fields=["mvp", "updated_at"])
+    project.save(update_fields=["marketing_page", "updated_at"])
 
     try:
         page, trace_id = generate_landing_page(
@@ -267,7 +269,7 @@ def run_landing_page_task(founder_project_id: str, user_id: int | None = None) -
         )
     except Exception as exc:
         logger.exception("Landing page generation failed", project_id=founder_project_id)
-        project.mvp = {
+        project.marketing_page = {
             "status": "failed",
             "started_at": started_at,
             "failed_at": _now_iso(),
@@ -275,10 +277,10 @@ def run_landing_page_task(founder_project_id: str, user_id: int | None = None) -
             "trace_id": None,
             "error": str(exc),
         }
-        project.save(update_fields=["mvp", "updated_at"])
+        project.save(update_fields=["marketing_page", "updated_at"])
         return
 
-    project.mvp = {
+    project.marketing_page = {
         "status": "completed",
         "started_at": started_at,
         "completed_at": _now_iso(),
@@ -286,4 +288,68 @@ def run_landing_page_task(founder_project_id: str, user_id: int | None = None) -
         "trace_id": trace_id,
         "error": "",
     }
-    project.save(update_fields=["mvp", "updated_at"])
+    project.save(update_fields=["marketing_page", "updated_at"])
+
+
+# --- Marketing: practical launch playbook (stage 5b) ---
+
+
+@shared_task(ignore_result=True)
+def run_practical_steps_task(founder_project_id: str, user_id: int | None = None) -> None:
+    """Generate the practical launch playbook → `marketing_steps` column.
+
+    Replaces the old standalone `run_gtm_task` (OpenAI launch-playbook generator). Reads
+    project state instead of taking a fresh `product_description`.
+    """
+    project = FounderProject.objects.select_related("team").get(id=founder_project_id)
+
+    if not project.ideation:
+        logger.warning("Skipping practical steps, no ideation set", project_id=founder_project_id)
+        return
+
+    user = User.objects.filter(id=user_id).first() if user_id else project.created_by
+    if user is None:
+        logger.warning("No user to generate practical steps as", project_id=founder_project_id)
+        return
+
+    started_at = _now_iso()
+    project.marketing_steps = {
+        "status": "running",
+        "started_at": started_at,
+        "result": None,
+        "trace_id": None,
+        "error": "",
+    }
+    project.save(update_fields=["marketing_steps", "updated_at"])
+
+    try:
+        result, trace_id = generate_practical_steps(
+            ideation=project.ideation,
+            validation=project.validation or {},
+            gtm=project.gtm or {},
+            mvp=project.mvp or {},
+            team=project.team,
+            user=user,
+        )
+    except Exception as exc:
+        logger.exception("Practical steps generation failed", project_id=founder_project_id)
+        project.marketing_steps = {
+            "status": "failed",
+            "started_at": started_at,
+            "failed_at": _now_iso(),
+            "result": None,
+            "trace_id": None,
+            "error": str(exc),
+        }
+        project.save(update_fields=["marketing_steps", "updated_at"])
+        return
+
+    project.marketing_steps = {
+        "status": "completed",
+        "started_at": started_at,
+        "completed_at": _now_iso(),
+        "result": result.model_dump(),
+        "trace_id": trace_id,
+        "error": "",
+    }
+    project.save(update_fields=["marketing_steps", "updated_at"])

@@ -1,14 +1,16 @@
 """Django models for founder_mode.
 
-One row per startup idea a founder is working through. Each of the four stages
-(ideation, validation, GTM, MVP) writes into its own JSON column so teammates
-can iterate on their stage independently without schema coordination.
+One row per startup idea a founder is working through. Stages each own a JSON column:
 
-Expected shapes (not enforced at the DB layer — see logic.py for the schemas):
-    ideation:   {what, how, who, problem}
-    validation: {status, report, error, ideation_hash, started_at, updated_at}
-    gtm:        defined by the GTM stage owner
-    mvp:        defined by the MVP stage owner
+    ideation:        {what, how, who, problem}
+    validation:      stage 2 envelope — competitor research + verdict (Gemini)
+    gtm:             stage 3 envelope — conceptual positioning, pricing, channels (Gemini)
+    mvp:             stage 4 envelope — MVP happy path (Gemini, placeholder for now)
+    marketing_page:  stage 5a envelope — landing page build spec (Gemini)
+    marketing_steps: stage 5b envelope — practical launch playbook with social posts (OpenAI)
+
+Each envelope is server-managed and follows the same shape:
+    {status: pending|running|completed|failed, started_at, completed_at|failed_at, result, error}
 """
 
 from django.db import models
@@ -34,6 +36,8 @@ class FounderProject(UUIDModel):
     validation = models.JSONField(default=dict, blank=True)
     gtm = models.JSONField(default=dict, blank=True)
     mvp = models.JSONField(default=dict, blank=True)
+    marketing_page = models.JSONField(default=dict, blank=True)
+    marketing_steps = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

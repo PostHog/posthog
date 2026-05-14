@@ -5307,6 +5307,7 @@ export type APIScopeObject =
     | 'feature_flag'
     | 'file_system'
     | 'file_system_shortcut'
+    | 'founder_project'
     | 'group'
     | 'health_issue'
     | 'heatmap'

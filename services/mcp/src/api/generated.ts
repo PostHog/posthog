@@ -4231,6 +4231,24 @@ export namespace Schemas {
       Role: 'role',
     } as const;
 
+    export type FounderModeLevelEnum = typeof FounderModeLevelEnum[keyof typeof FounderModeLevelEnum];
+
+
+    export const FounderModeLevelEnum = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+    } as const;
+
+    export interface Assumption {
+      /** A single testable assumption that must be true for the idea to work. */
+      statement: string;
+      /** What breaks if this assumption is wrong. */
+      risk_if_false: string;
+      /** Honest assessment of how much evidence currently supports this assumption. */
+      current_confidence: FounderModeLevelEnum;
+    }
+
     export interface AsyncDeletionStatus {
       /** The UUID of the person whose events are queued for deletion. */
       person_uuid: string;
@@ -4261,6 +4279,14 @@ export namespace Schemas {
       Linear: 'linear',
       TimeDecay: 'time_decay',
       PositionBased: 'position_based',
+    } as const;
+
+    export type AuthorEnum = typeof AuthorEnum[keyof typeof AuthorEnum];
+
+
+    export const AuthorEnum = {
+      Agent: 'agent',
+      User: 'user',
     } as const;
 
     export interface UserBasicInfo {
@@ -6267,6 +6293,46 @@ export namespace Schemas {
       false_label?: string;
     }
 
+    export type BrandDirectionSourceEnum = typeof BrandDirectionSourceEnum[keyof typeof BrandDirectionSourceEnum];
+
+
+    export const BrandDirectionSourceEnum = {
+      Notebook: 'notebook',
+      Synthesized: 'synthesized',
+      UserQuestions: 'user_questions',
+    } as const;
+
+    /**
+     * A claim paired with the upstream stages it came from. Used everywhere a fact in the
+    spec needs traceability back to ideation / validation / gtm / brand.
+     */
+    export interface SourcedText {
+      /** The claim itself, in plain prose. */
+      text: string;
+      /**
+         * Short source tokens identifying where this claim came from. Use stage names ("ideation", "validation", "gtm", "brand notebook") or more specific tags ("validation.poll", "validation.Sara", "gtm.Persona1"). At least one entry.
+         * @minItems 1
+         */
+      sources: string[];
+    }
+
+    export interface BrandDirection {
+      /** "notebook" when the brand stage filled in all dimensions cleanly; "synthesized" when the spec is inferring from ideation/validation/gtm without explicit brand input; "user_questions" when key dimensions need to be confirmed by the founder. */
+      source: BrandDirectionSourceEnum;
+      tone: SourcedText;
+      voice: SourcedText;
+      /** Color palette. Include hex codes when known. e.g. "warm monochrome — #0E0E0C off-black, #F6F2EA bone, #C5F33D lime accent for CTAs." */
+      palette: SourcedText;
+      /** Font choices with usage. e.g. 'Geist Sans (headings) / Inter (body)'. */
+      typography: SourcedText;
+      /** Visual direction — what's allowed, what aesthetic. */
+      imagery: SourcedText;
+      /** Three to five sites that nail the vibe. */
+      references: SourcedText;
+      /** Looks the page must NOT have. Be specific. */
+      anti_references: SourcedText;
+    }
+
     export interface BreakdownItem {
       label: string;
       value: string | number;
@@ -6524,6 +6590,39 @@ export namespace Schemas {
       event_count: number;
       /** List of detected UTM configuration issues */
       issues: UtmIssue[];
+    }
+
+    export type KeyEnum = typeof KeyEnum[keyof typeof KeyEnum];
+
+
+    export const KeyEnum = {
+      Idea: 'idea',
+      Pain: 'pain',
+      Audience: 'audience',
+      CurrentSolution: 'currentSolution',
+      WorstCase: 'worstCase',
+      Success: 'success',
+      KillerFeature: 'killerFeature',
+    } as const;
+
+    /**
+     * A canvas slot that's already been filled. Used so the agent knows what's left to ask.
+     */
+    export interface CanvasNoteInput {
+      key: KeyEnum;
+      label: string;
+      value: string;
+    }
+
+    /**
+     * The agent's decision about which canvas slot the latest answer should fill.
+     */
+    export interface CanvasSlotChoice {
+      key: KeyEnum;
+      /** Display label for this slot, lifted from the frontend vocabulary. */
+      label: string;
+      /** The crystallized value to write into this slot, extracted from the founder's answer. Should be a tightened version of what they said, not a verbatim quote. */
+      value: string;
     }
 
     /**
@@ -6889,10 +6988,27 @@ export namespace Schemas {
       yAxisAtZero?: boolean | null;
     }
 
+    /**
+     * A prior message in the conversation. Used to give the agent context.
+     */
+    export interface ChatMessageInput {
+      author: AuthorEnum;
+      value: string;
+    }
+
     export interface CheckDatabaseNameResponse {
       name: string;
       available: boolean;
     }
+
+    export type ClassificationEnum = typeof ClassificationEnum[keyof typeof ClassificationEnum];
+
+
+    export const ClassificationEnum = {
+      Core: 'core',
+      OptionalIncluded: 'optional_included',
+      OptionalSkipped: 'optional_skipped',
+    } as const;
 
     /**
      * * `claude` - claude
@@ -7609,6 +7725,42 @@ export namespace Schemas {
       value: string;
     }
 
+    export interface Competitor {
+      /** The actual company name. Be specific — no generic categories. */
+      name: string;
+      /** One sentence on what they do. */
+      description: string;
+      /** How they go to market — pricing, channel, target segment. */
+      positioning: string;
+      /** Rough pricing if publicly known; null otherwise. */
+      pricing?: string | null;
+      /** What they do well (max 3 bullets). */
+      strengths: string[];
+      /** Where they fall short (max 3 bullets). */
+      weaknesses: string[];
+      /** Primary URL cited in the research findings for this competitor (homepage, pricing page, or press article). Null if no source was cited. Must be one of the URLs that appeared in the research findings — do not invent URLs. */
+      source_url?: string | null;
+    }
+
+    export interface CompetitorPositioning {
+      /** Company name. */
+      name: string;
+      /** Primary URL. Copy from validation.report.competitors[].source_url verbatim. */
+      url: string;
+      /** Paths that were (or would have been) inspected. e.g. ['/', '/pricing']. If unknown, default to ['/'] only. */
+      pages_fetched: string[];
+      /** One-sentence positioning statement. */
+      positioning: string;
+      /** Their stated or inferred target customer. */
+      icp: string;
+      /** Pricing summary. e.g. 'Free / Pro $24/mo / Business $74/mo'. */
+      pricing: string;
+      /** Primary CTA copy on their homepage. e.g. 'Start your free trial'. */
+      cta: string;
+      /** A few words on tone — 'friendly', 'enterprise', 'developer-y', etc. */
+      voice_notes: string;
+    }
+
     /**
      * * `won` - won
     * `lost` - lost
@@ -7985,6 +8137,15 @@ export namespace Schemas {
       filter: unknown;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface CoverageGap {
+      /** Competitor name we couldn't fully cover. */
+      competitor: string;
+      /** URL that failed to yield content. */
+      url?: string | null;
+      /** What failed. e.g. 'Heavy client-side JS, empty content via static fetch'. */
+      reason: string;
     }
 
     /**
@@ -12072,6 +12233,15 @@ export namespace Schemas {
       summary: DiagnosticReportSummary;
       /** Per-check results in execution order. */
       checks: DiagnosticCheckResult[];
+    }
+
+    export interface Differentiation {
+      /** One-line "we are X for Y" positioning vs the competitive landscape. */
+      summary: string;
+      /** What makes this defensible long-term. If unclear, return "unclear" and explain why. */
+      moat: string;
+      /** The specific gap existing players miss that this idea fills. */
+      gap_in_market: string;
     }
 
     /**
@@ -16218,6 +16388,500 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    /**
+     * The shape of stage 1 output that validation consumes. Mirrors the JSON column on CofounderProject.
+     */
+    export interface IdeationInput {
+      /** The product or service the founder wants to build. */
+      what: string;
+      /** How the product works — the mechanism, technology, or delivery model. */
+      how: string;
+      /** The target customer or user segment. */
+      who: string;
+      /** The problem this solves and why it matters to the target customer. */
+      problem: string;
+    }
+
+    export interface ValidationExperiment {
+      /** Zero-indexed position of the assumption this experiment tests. */
+      assumption_index: number;
+      /** Short label for the experiment (3-6 words). */
+      name: string;
+      /** Concrete steps the founder runs. Should be actionable today. */
+      description: string;
+      /** Cost in dollars and time, e.g. "$0, 2 hours" or "$200, 1 week". */
+      cost_estimate: string;
+      /** What outcome would tell the founder the assumption holds. */
+      success_signal: string;
+    }
+
+    export type RiskCategoryEnum = typeof RiskCategoryEnum[keyof typeof RiskCategoryEnum];
+
+
+    export const RiskCategoryEnum = {
+      Market: 'market',
+      Technical: 'technical',
+      Regulatory: 'regulatory',
+      Execution: 'execution',
+      Timing: 'timing',
+      Other: 'other',
+    } as const;
+
+    export interface Risk {
+      /** Which dimension this risk lives in. */
+      category: RiskCategoryEnum;
+      /** Specific risk — not generic. Name the actual failure mode. */
+      description: string;
+      /** How damaging if it materializes. */
+      severity: FounderModeLevelEnum;
+    }
+
+    export interface Verdict {
+      /**
+         * Overall 1-10 score weighing market, defensibility, and feasibility.
+         * @minimum 1
+         * @maximum 10
+         */
+      score: number;
+      /** How confident in this score given the information provided. */
+      confidence: FounderModeLevelEnum;
+      /** One short paragraph explaining the score. Honest, not flattering. */
+      reasoning: string;
+      /** Three to five concrete actions the founder should take next, ordered by priority. */
+      next_steps: string[];
+    }
+
+    /**
+     * The full structured output the LLM produces. Stored as JSON on ValidationReport.report.
+     */
+    export interface ValidationReport {
+      /** Three to six real competitors, direct and indirect. */
+      competitors: Competitor[];
+      differentiation: Differentiation;
+      /** Three to five critical assumptions ordered by riskiness, riskiest first. */
+      assumptions: Assumption[];
+      /** One concrete validation experiment per assumption, indexed by assumption_index. */
+      experiments: ValidationExperiment[];
+      /** Three to six top risks across the listed categories. */
+      risks: Risk[];
+      verdict: Verdict;
+    }
+
+    /**
+     * API-facing envelope for the `validation` JSON column.
+
+    Drives the generated TypeScript + Zod types via drf-spectacular → Orval. The Celery task
+    is the sole writer; clients are read-only and poll until `status` is terminal.
+     */
+    export interface ValidationEnvelope {
+      /** Lifecycle state of the validation run. */
+      status?: 'pending' | 'running' | 'completed' | 'failed' | null;
+      /** Which Gemini pass is currently in flight while `status='running'`. Null otherwise. */
+      current_pass?: 'research' | 'synthesis' | null;
+      /** The synthesized validation output. Present once `status='completed'`. */
+      report?: ValidationReport | null;
+      /** SHA-256 of the ideation payload at the time this run started. Used by clients to detect a stale report after the founder edits ideation. */
+      ideation_hash?: string | null;
+      /** ISO timestamp when the run kicked off. */
+      started_at?: string | null;
+      /** ISO timestamp when the run finished successfully. */
+      completed_at?: string | null;
+      /** ISO timestamp when the run failed. */
+      failed_at?: string | null;
+      /** Trace id linking to the underlying LLM calls in PostHog LLM analytics. */
+      trace_id?: string | null;
+      /** Human-readable error message when `status='failed'`. Empty otherwise. */
+      error?: string;
+    }
+
+    export interface TargetSegment {
+      /** Short label for this audience segment (e.g. 'Solo SaaS founders, pre-launch'). */
+      name: string;
+      /** Who they are, where they hang out, what they care about, what signals identify them. */
+      description: string;
+      /** Why this segment is reachable and buyable right now — concrete, time-anchored reasoning. */
+      why_reachable_now: string;
+    }
+
+    export interface PricingTier {
+      /** Tier name (e.g. Free, Pro, Team, Enterprise). */
+      name: string;
+      /** Price point with cadence and currency (e.g. '$29/mo', '$0', 'Contact us'). */
+      price: string;
+      /** Which TargetSegment this tier is aimed at — reference by name. */
+      target_segment: string;
+      /** What the founder is selling at this tier in plain language. */
+      value: string;
+    }
+
+    export interface GTMSummary {
+      /** One-paragraph positioning: who it's for, what category, what makes it different. Should read like a founder-voice deck slide, not marketing copy. */
+      positioning_statement: string;
+      /** The wedge audience — the single segment the founder should chase first. */
+      primary_segment: TargetSegment;
+      /** 1-3 adjacent segments to expand into once the primary wedge is proven. */
+      secondary_segments: TargetSegment[];
+      /** Where this plays. New category, existing category, or wedge inside an existing category. */
+      category: string;
+      /** What makes this defensible over a 12-24 month horizon — be specific, not 'network effects'. */
+      moat: string;
+      /** How this should be priced and why — per-seat vs usage vs flat vs freemium, and the reasoning. */
+      pricing_philosophy: string;
+      /** 2-4 concrete pricing tiers ordered low to high. */
+      pricing_tiers: PricingTier[];
+      /** The single highest-leverage acquisition channel — community, content, paid, partnerships, or sales-led. */
+      primary_channel: string;
+      /** 2-4 supporting channels in priority order. */
+      secondary_channels: string[];
+    }
+
+    /**
+     * API-facing envelope for the `gtm` JSON column.
+     */
+    export interface GTMEnvelope {
+      /** Lifecycle state of the GTM generation run. */
+      status?: 'pending' | 'running' | 'completed' | 'failed' | null;
+      /** The synthesized GTM summary. Present once `status='completed'`. */
+      result?: GTMSummary | null;
+      /** ISO timestamp when the run kicked off. */
+      started_at?: string | null;
+      /** ISO timestamp when the run finished successfully. */
+      completed_at?: string | null;
+      /** ISO timestamp when the run failed. */
+      failed_at?: string | null;
+      /** Trace id linking to the underlying LLM calls. */
+      trace_id?: string | null;
+      /** Human-readable error message when `status='failed'`. Empty otherwise. */
+      error?: string;
+    }
+
+    export interface HappyPathStep {
+      /** 1-indexed step number in the user journey. */
+      step: number;
+      /** What the user does at this step — concrete, observable. */
+      user_action: string;
+      /** What the product does in response — concrete, observable. */
+      system_response: string;
+      /** How we know this step worked — what the user sees, what gets logged, what state changes. */
+      success_signal: string;
+    }
+
+    export interface MVPHappyPath {
+      /** One sentence describing what the MVP does end-to-end. No marketing language. */
+      one_liner: string;
+      /** 3-7 step happy-path user journey from first touch to value delivered. */
+      core_flow: HappyPathStep[];
+      /** Features that must ship in v1 to make the happy path work. */
+      must_haves: string[];
+      /** Features explicitly NOT in v1 — the anti-bloat list. Each entry is one feature with a one-line reason. */
+      deliberately_excluded: string[];
+    }
+
+    /**
+     * API-facing envelope for the `mvp` JSON column.
+     */
+    export interface MVPEnvelope {
+      /** Lifecycle state of the MVP generation run. */
+      status?: 'pending' | 'running' | 'completed' | 'failed' | null;
+      /** The MVP happy-path spec. Present once `status='completed'`. */
+      result?: MVPHappyPath | null;
+      /** ISO timestamp when the run kicked off. */
+      started_at?: string | null;
+      /** ISO timestamp when the run finished successfully. */
+      completed_at?: string | null;
+      /** ISO timestamp when the run failed. */
+      failed_at?: string | null;
+      /** Trace id linking to the underlying LLM calls. */
+      trace_id?: string | null;
+      /** Human-readable error message when `status='failed'`. Empty otherwise. */
+      error?: string;
+    }
+
+    export interface Persona {
+      /** Short persona name, ≤8 words. e.g. 'Pre-launch solo SaaS founders'. */
+      label: string;
+      /** One-sentence description with demographics + behavior signals. */
+      description: string;
+      /**
+         * Source tokens (see SourcedText.sources).
+         * @minItems 1
+         */
+      sources: string[];
+    }
+
+    export interface UserPain {
+      /** Pain in the founder's own words (or a faithful paraphrase). ≤12 words. */
+      label: string;
+      /** One sentence expanding on the pain. */
+      description: string;
+      /** Numbers or counts that quantify the pain, if available. e.g. "41% of poll respondents, 4/4 interviewees". Null if only qualitative. */
+      quantitative_evidence?: string | null;
+      /**
+         * Source tokens.
+         * @minItems 1
+         */
+      sources: string[];
+    }
+
+    export type ProofPointKindEnum = typeof ProofPointKindEnum[keyof typeof ProofPointKindEnum];
+
+
+    export const ProofPointKindEnum = {
+      Quantitative: 'quantitative',
+      Qualitative: 'qualitative',
+    } as const;
+
+    export interface ProofPoint {
+      kind: ProofPointKindEnum;
+      /** The proof point. For quantitative, include numbers. For qualitative, a direct quote. */
+      statement: string;
+      /**
+         * Source tokens.
+         * @minItems 1
+         */
+      sources: string[];
+    }
+
+    export interface ProjectBrief {
+      product_name: SourcedText;
+      one_line_value_prop: SourcedText;
+      primary_persona: Persona;
+      /** Optional second ICP. Null if only one persona is clear from the inputs. */
+      secondary_persona?: Persona | null;
+      /** Three to five pains, ordered by severity. */
+      top_user_pains: UserPain[];
+      /** Features in order of pull (what attracts the target persona most). Plain strings — no markdown — three to six entries. */
+      top_features: string[];
+      /** Two to six proof points mixing quantitative and qualitative. */
+      proof_points: ProofPoint[];
+    }
+
+    export interface SEOKeyword {
+      /** The search phrase, lowercase, no quotes. */
+      phrase: string;
+      /**
+         * Where the keyword came from. e.g. "competitor:prefinery.com" or "search:waitlist tool referral". At least one.
+         * @minItems 1
+         */
+      sources: string[];
+      priority: FounderModeLevelEnum;
+    }
+
+    export interface PageSection {
+      /** Section order. Start at 1, monotonically increasing. */
+      number: number;
+      /** Section name. e.g. 'Hero', 'Pricing', 'Comparison table'. */
+      name: string;
+      /** "core" for sections present on essentially every landing page (nav, hero, social proof, features, how-it-works, pricing, FAQ, final CTA, footer). "optional_included" when an optional section (problem statement, use cases, comparison table) was added for a justified reason. "optional_skipped" is not used here — those go in `skipped_sections` instead. */
+      classification: ClassificationEnum;
+      /** REQUIRED if classification is 'optional_included'. One short paragraph citing the upstream data that justifies including this optional section. Null for core sections. */
+      why_included?: string | null;
+      /** One short sentence on what this section is for from the visitor's POV. */
+      purpose: string;
+      /** Concrete copy: section eyebrow, H1/H2, supporting text, CTA labels. Use markdown bullets and **bold** to emphasize headings within the copy. The founder should be able to read this and ship the copy as-is. */
+      copy_hooks: string;
+      /** Layout + styling specifics. Tailwind class hints (`grid grid-cols-3`), responsive behavior, image treatment, spacing scale. Markdown bullets OK. */
+      design_notes: string;
+      /** Which shadcn/ui (or other) components to compose, in markdown bullets or a short prose list. e.g. '<Card> + <CardHeader> + <Button variant="default">'. */
+      component_recipe: string;
+      /** Event signatures fired from this section. e.g. `cta_clicked { location: "hero", label: "Start free" }`. Empty list if only autocapture. */
+      posthog_events: string[];
+      /** Three to six acceptance criteria. Each is a single declarative sentence. */
+      acceptance_criteria: string[];
+    }
+
+    export interface SkippedSection {
+      name: string;
+      /** Why this section was skipped. Be honest — cite the upstream gap. */
+      reason: string;
+    }
+
+    export interface SEOFrontMatter {
+      /**
+         * <title> tag content. ≤60 characters. Embed the primary keyword.
+         * @maxLength 60
+         */
+      title: string;
+      /**
+         * <meta name="description"> content. 130-160 characters. Embed a secondary keyword.
+         * @maxLength 160
+         */
+      description: string;
+      /** Alt text for the og:image. Brief, image-describing. */
+      og_image_alt?: string | null;
+      /** Schema.org type for JSON-LD. e.g. "SoftwareApplication". */
+      json_ld_type: string;
+    }
+
+    export interface PerformanceFloor {
+      /** Largest Contentful Paint ceiling, 4G simulated. */
+      lcp_max_seconds?: number;
+      /** Cumulative Layout Shift ceiling. */
+      cls_max?: number;
+      /** Minimum Lighthouse a11y score. */
+      lighthouse_a11y_min?: number;
+      /** Implementation notes for hitting the targets — image priority, font loading, etc. */
+      notes?: string[];
+    }
+
+    export interface PostHogCustomEvent {
+      /** Snake_case event name, e.g. 'cta_clicked'. */
+      name: string;
+      /** When the event fires, plain language. */
+      when: string;
+      /** Property names, optional with '?' suffix. e.g. ['location', 'label', 'plan?']. */
+      properties: string[];
+    }
+
+    export interface InstrumentationGuide {
+      /** One-line shell command for SDK setup. */
+      sdk_install_cmd?: string;
+      /** Bullet points for posthog.init overrides — autocapture, persistence, session replay masking, etc. */
+      init_notes: string[];
+      /** When and how to call posthog.identify — typically on signup completion. */
+      identify_notes: string[];
+      /** Custom events beyond autocapture. */
+      custom_events: PostHogCustomEvent[];
+      /** DNT handling, PII boundaries, paths that should disable session replay. */
+      privacy_notes?: string[];
+    }
+
+    export interface GlobalAcceptanceCriterion {
+      /** A single, testable statement. e.g. 'Lighthouse a11y ≥ 95'. */
+      statement: string;
+    }
+
+    /**
+     * Full structured build spec. Stored as JSON on FounderProject.mvp.page.
+
+    Note the field is still called `page` on the envelope so the frontend doesn't need to
+    relearn the shape — the meaning shifted from 'rendered page' to 'spec for the page'.
+     */
+    export interface LandingPageBuildSpec {
+      /** Founder's project name, as it appears on the FounderProject row. */
+      project_name: string;
+      /** Three to six punchy bullets summarizing what this spec contains: project + ICPs + top keywords + brand direction + sections included/skipped + competitors covered. Markdown bullets OK. */
+      tldr: string[];
+      project_brief: ProjectBrief;
+      brand: BrandDirection;
+      /** Six to twelve keywords. Sort by priority. */
+      seo_keywords: SEOKeyword[];
+      /** One entry per real competitor in validation.report.competitors. Skip any with no source_url. */
+      competitor_profiles: CompetitorPositioning[];
+      /** Competitors we couldn't profile fully. Empty list if every validation competitor had a usable URL. */
+      coverage_gaps?: CoverageGap[];
+      /** Ordered list of sections to build. Always include core sections in this order: Nav, Hero, Social proof, Features, How it works, Pricing, FAQ, Final CTA, Footer. Insert optional sections (Problem statement, Use cases, Comparison table) where justified. */
+      page_sections: PageSection[];
+      /** Optional sections that were deliberately omitted, with reason citing the upstream gap. */
+      skipped_sections?: SkippedSection[];
+      seo_front_matter: SEOFrontMatter;
+      performance_floor: PerformanceFloor;
+      instrumentation: InstrumentationGuide;
+      /** Six to twelve global criteria — performance, a11y, instrumentation, brand consistency. */
+      global_acceptance_criteria: GlobalAcceptanceCriterion[];
+    }
+
+    /**
+     * API-facing envelope for the `marketing_page` JSON column.
+
+    Field is still called `page` (not `result`) — the value is the *spec* for the landing
+    page, named for what the founder ends up shipping rather than the generation step.
+     */
+    export interface MarketingPageEnvelope {
+      /** Lifecycle state of the landing page generation run. */
+      status?: 'pending' | 'running' | 'completed' | 'failed' | null;
+      /** The landing page build spec. Present once `status='completed'`. */
+      page?: LandingPageBuildSpec | null;
+      /** ISO timestamp when the run kicked off. */
+      started_at?: string | null;
+      /** ISO timestamp when the run finished successfully. */
+      completed_at?: string | null;
+      /** ISO timestamp when the run failed. */
+      failed_at?: string | null;
+      /** Trace id linking to the underlying LLM calls. */
+      trace_id?: string | null;
+      /** Human-readable error message when `status='failed'`. Empty otherwise. */
+      error?: string;
+    }
+
+    export interface SocialPost {
+      /** Platform: 'linkedin', 'twitter', 'reddit', 'indie_hackers', or 'hacker_news'. */
+      platform: string;
+      /** Full post text, ready to copy-paste and publish. */
+      content: string;
+      /** Timing and format tips for this specific post. */
+      tips: string;
+    }
+
+    export interface PracticalStep {
+      /** Short title for the action (e.g. 'Hunter outreach for Product Hunt launch'). */
+      title: string;
+      /** What to do and why it matters. */
+      description: string;
+      /** Where this happens (e.g. 'Product Hunt', 'LinkedIn', 'Twitter/X', 'Reddit'). */
+      channel: string;
+      /** When to do this relative to launch day (e.g. 'D-7', 'Launch day', 'D+1'). */
+      timeline: string;
+      /** Pre-written posts for this step (may be empty). */
+      ready_to_use_content: SocialPost[];
+    }
+
+    export interface PracticalStepsResult {
+      /** 2-3 sentence overview of the launch strategy. */
+      launch_summary: string;
+      /** Specific communities where the target audience hangs out (e.g. subreddits, Discord servers, Slack groups). */
+      target_communities: string[];
+      /** Ordered list of launch actions, chronological from pre-launch to post-launch. */
+      steps: PracticalStep[];
+    }
+
+    /**
+     * API-facing envelope for the `marketing_steps` JSON column.
+     */
+    export interface MarketingStepsEnvelope {
+      /** Lifecycle state of the practical steps generation run. */
+      status?: 'pending' | 'running' | 'completed' | 'failed' | null;
+      /** The launch playbook. Present once `status='completed'`. */
+      result?: PracticalStepsResult | null;
+      /** ISO timestamp when the run kicked off. */
+      started_at?: string | null;
+      /** ISO timestamp when the run finished successfully. */
+      completed_at?: string | null;
+      /** ISO timestamp when the run failed. */
+      failed_at?: string | null;
+      /** Trace id linking to the underlying LLM calls. */
+      trace_id?: string | null;
+      /** Human-readable error message when `status='failed'`. Empty otherwise. */
+      error?: string;
+    }
+
+    export interface FounderProject {
+      readonly id: string;
+      /**
+         * Founder-chosen label for the startup idea, e.g. "AI-powered HOA management".
+         * @maxLength 200
+         */
+      name: string;
+      /** Stage 1 output. Shape: {what, how, who, problem}. Writing here triggers the validation Celery task asynchronously. */
+      ideation?: IdeationInput;
+      /** Stable SHA-256 of the current ideation payload. Clients compare this to `validation.ideation_hash` to detect a stale report (founder edited ideation since the last validation run). */
+      readonly ideation_hash: string;
+      /** Stage 2 envelope, server-managed. Triggered via the `run_validation` action. Clients poll the detail endpoint while status is `pending` or `running`. */
+      readonly validation: ValidationEnvelope;
+      /** Stage 3 envelope, server-managed. Conceptual GTM summary (positioning, target segments, pricing tiers, channels). Triggered via the `run_gtm` action. */
+      readonly gtm: GTMEnvelope;
+      /** Stage 4 envelope, server-managed. MVP happy-path spec (one-liner, core flow, must-haves, deliberately-excluded). Triggered via the `run_mvp` action. Schema is a placeholder and may change. */
+      readonly mvp: MVPEnvelope;
+      /** Stage 5a envelope, server-managed. Landing page build spec (copy hooks, design notes, shadcn/ui recipes, PostHog events, acceptance criteria). Triggered via the `run_landing_page` action. */
+      readonly marketing_page: MarketingPageEnvelope;
+      /** Stage 5b envelope, server-managed. Practical launch playbook with ready-to-publish posts for Product Hunt, LinkedIn, Twitter, Reddit, HN, etc. Triggered via the `run_practical_steps` action. */
+      readonly marketing_steps: MarketingStepsEnvelope;
+      /** The user who created this founder project. Set automatically on create. */
+      readonly created_by: number;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export type GenerateRequestStepsItem = { [key: string]: unknown };
 
     export interface GenerateRequest {
@@ -18221,6 +18885,25 @@ export namespace Schemas {
       source: string;
       /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
       tags?: TagDefinition[];
+    }
+
+    /**
+     * Prose-form synthesis of the chat, ready to feed into the validation stage.
+
+    This is NOT a copy of the canvas slot values. It's the agent's coherent retelling of
+    the idea — written so the validation prompt has rich, narrative context instead of
+    seven disconnected one-liners. Each field should be 1-3 sentences weaving in detail
+    from the relevant slots.
+     */
+    export interface IdeationPayload {
+      /** What the founder is building, in 1-3 sentences. Synthesizes from idea + killerFeature, with concrete texture about the mechanism. */
+      what: string;
+      /** How it works, in 1-2 sentences. The mechanism, channel, and delivery model — derived from idea + killerFeature. */
+      how: string;
+      /** Who it's for, in 1-2 sentences. Concrete demographic + behavioral signals — derived from audience. Use the founder's words where vivid. */
+      who: string;
+      /** The problem this solves, in 2-4 sentences. Pull from pain + currentSolution + worstCase + success to capture not just the surface pain but the stakes and what success looks like. This is the richest field — validation reads it most carefully. */
+      problem: string;
     }
 
     /**
@@ -21391,6 +22074,15 @@ export namespace Schemas {
       results: FileSystemShortcut[];
     }
 
+    export interface PaginatedFounderProjectList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: FounderProject[];
+    }
+
     export interface PaginatedGroupUsageMetricList {
       count: number;
       /** @nullable */
@@ -23872,10 +24564,10 @@ export namespace Schemas {
     * `medium` - Medium
     * `high` - High
      */
-    export type PriorityEnum = typeof PriorityEnum[keyof typeof PriorityEnum];
+    export type TicketPriorityEnum = typeof TicketPriorityEnum[keyof typeof TicketPriorityEnum];
 
 
-    export const PriorityEnum = {
+    export const TicketPriorityEnum = {
       Low: 'low',
       Medium: 'medium',
       High: 'high',
@@ -23940,7 +24632,7 @@ export namespace Schemas {
       * `low` - Low
       * `medium` - Medium
       * `high` - High */
-      priority?: PriorityEnum | BlankEnum | null;
+      priority?: TicketPriorityEnum | BlankEnum | null;
       readonly assignee: TicketAssignment;
       /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
@@ -26189,6 +26881,33 @@ export namespace Schemas {
          */
       order?: number;
       readonly created_at?: string;
+    }
+
+    export interface PatchedFounderProject {
+      readonly id?: string;
+      /**
+         * Founder-chosen label for the startup idea, e.g. "AI-powered HOA management".
+         * @maxLength 200
+         */
+      name?: string;
+      /** Stage 1 output. Shape: {what, how, who, problem}. Writing here triggers the validation Celery task asynchronously. */
+      ideation?: IdeationInput;
+      /** Stable SHA-256 of the current ideation payload. Clients compare this to `validation.ideation_hash` to detect a stale report (founder edited ideation since the last validation run). */
+      readonly ideation_hash?: string;
+      /** Stage 2 envelope, server-managed. Triggered via the `run_validation` action. Clients poll the detail endpoint while status is `pending` or `running`. */
+      readonly validation?: ValidationEnvelope;
+      /** Stage 3 envelope, server-managed. Conceptual GTM summary (positioning, target segments, pricing tiers, channels). Triggered via the `run_gtm` action. */
+      readonly gtm?: GTMEnvelope;
+      /** Stage 4 envelope, server-managed. MVP happy-path spec (one-liner, core flow, must-haves, deliberately-excluded). Triggered via the `run_mvp` action. Schema is a placeholder and may change. */
+      readonly mvp?: MVPEnvelope;
+      /** Stage 5a envelope, server-managed. Landing page build spec (copy hooks, design notes, shadcn/ui recipes, PostHog events, acceptance criteria). Triggered via the `run_landing_page` action. */
+      readonly marketing_page?: MarketingPageEnvelope;
+      /** Stage 5b envelope, server-managed. Practical launch playbook with ready-to-publish posts for Product Hunt, LinkedIn, Twitter, Reddit, HN, etc. Triggered via the `run_practical_steps` action. */
+      readonly marketing_steps?: MarketingStepsEnvelope;
+      /** The user who created this founder project. Set automatically on create. */
+      readonly created_by?: number;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PatchedGroupType {
@@ -29699,7 +30418,7 @@ export namespace Schemas {
       * `low` - Low
       * `medium` - Medium
       * `high` - High */
-      priority?: PriorityEnum | BlankEnum | null;
+      priority?: TicketPriorityEnum | BlankEnum | null;
       readonly assignee?: TicketAssignment;
       /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
@@ -34921,6 +35640,41 @@ export namespace Schemas {
          * @maxLength 10
          */
       target_language?: string;
+    }
+
+    /**
+     * What the frontend POSTs each turn.
+     */
+    export interface TurnRequest {
+      /** The founder's latest reply. */
+      user_answer: string;
+      /** The agent's previous question this answer is responding to. */
+      last_question?: string | null;
+      /** Full conversation history so the agent can reference prior context. */
+      messages?: ChatMessageInput[];
+      /** Slots already filled. The agent should not ask questions for these. */
+      canvas_notes?: CanvasNoteInput[];
+    }
+
+    /**
+     * What the backend returns each turn.
+     */
+    export interface TurnResponse {
+      /**
+         * The cofounder's next message — usually a question, sometimes a declarative claim. ≤30 words for the question proper; ≤2 short sentences if there's a preamble.
+         * @maxLength 400
+         */
+      agent_message: string;
+      /** If the user's preceding answer filled a slot, this is what to write. Null when the turn was conversational repair (clarifying question, banter) and didn't produce a slot value. */
+      canvas_slot?: CanvasSlotChoice | null;
+      /** True when at least the core slots (idea + pain + audience + one of currentSolution/worstCase/killerFeature) are filled AND the most recent answer was substantive enough to wrap. The frontend transitions to the review phase on true. */
+      should_end_chat?: boolean;
+      /** Which slot the user's NEXT answer will most likely fill, given the question being asked in `agent_message`. UI hint only — used to label the input box. The actual slot extraction happens on the next turn via `canvas_slot`. Null when the agent is just doing conversational repair / banter and the next answer isn't tied to a slot. */
+      next_slot_hint?: 'idea' | 'pain' | 'audience' | 'currentSolution' | 'worstCase' | 'success' | 'killerFeature' | null;
+      /** REQUIRED when `should_end_chat` is true; null otherwise. A prose-form synthesis of everything learned in the chat, shaped for the validation stage's {what, how, who, problem} contract. This is what gets written to FounderProject.ideation. Do not copy slot values verbatim — synthesize coherently across slots. */
+      ideation_payload?: IdeationPayload | null;
+      /** Internal — what the agent noticed and what it most needs to know next, 1-2 sentences. Not shown to the founder, but logged for prompt tuning. */
+      reasoning: string;
     }
 
     /**
@@ -41393,6 +42147,17 @@ export namespace Schemas {
      * The flag ID
      */
     key?: string;
+    };
+
+    export type FounderProjectsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type GroupsListParams = {

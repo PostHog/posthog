@@ -16,6 +16,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from products.founder_mode.backend.logic.envelope import StageStatus
+
 BrandSource = Literal["notebook", "synthesized", "user_questions"]
 SectionClassification = Literal["core", "optional_included", "optional_skipped"]
 KeywordPriority = Literal["high", "medium", "low"]
@@ -304,3 +306,21 @@ class LandingPageBuildSpec(BaseModel):
     global_acceptance_criteria: list[GlobalAcceptanceCriterion] = Field(
         description="Six to twelve global criteria — performance, a11y, instrumentation, brand consistency."
     )
+
+
+class MarketingPageEnvelope(BaseModel):
+    """API-facing envelope for the `marketing_page` JSON column.
+
+    Field is still called `page` (not `result`) — the value is the *spec* for the landing
+    page, named for what the founder ends up shipping rather than the generation step.
+    """
+
+    status: StageStatus | None = Field(default=None, description="Lifecycle state of the landing page generation run.")
+    page: LandingPageBuildSpec | None = Field(
+        default=None, description="The landing page build spec. Present once `status='completed'`."
+    )
+    started_at: str | None = Field(default=None, description="ISO timestamp when the run kicked off.")
+    completed_at: str | None = Field(default=None, description="ISO timestamp when the run finished successfully.")
+    failed_at: str | None = Field(default=None, description="ISO timestamp when the run failed.")
+    trace_id: str | None = Field(default=None, description="Trace id linking to the underlying LLM calls.")
+    error: str = Field(default="", description="Human-readable error message when `status='failed'`. Empty otherwise.")

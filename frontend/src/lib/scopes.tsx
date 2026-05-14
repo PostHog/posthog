@@ -51,6 +51,7 @@ export const API_SCOPES: APIScope[] = [
         disabledActions: ['write'],
     },
     { key: 'file_system_shortcut', objectName: 'File system shortcut', objectPlural: 'file system shortcuts' },
+    { key: 'founder_project', objectName: 'Founder project', objectPlural: 'founder projects' },
     { key: 'group', objectName: 'Group', objectPlural: 'groups' },
     { key: 'health_issue', objectName: 'Health issue', objectPlural: 'health issues' },
     { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
