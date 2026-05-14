@@ -251,7 +251,6 @@ const AdLevelInfoBanner = ({ drillDownLevel, sourcesHierarchyStatus }: AdLevelIn
         isAdGroup ? s.adGroupUnsupported : s.adUnsupported
     )
     const dismissKey = isAdGroup ? 'marketing-analytics-ad-group-level-info' : 'marketing-analytics-ad-level-info'
-    const hasGaps = fixableSources.length > 0 || platformUnsupportedSources.length > 0
 
     // The "fix it" link opens settings in a new tab. When the user returns here
     // after enabling the missing schemas, the banner state is stale until we
@@ -313,11 +312,6 @@ const AdLevelInfoBanner = ({ drillDownLevel, sourcesHierarchyStatus }: AdLevelIn
                     {platformUnsupportedSources.length === 1 ? "doesn't" : "don't"} yet expose{' '}
                     {isAdGroup ? 'ad-group' : 'ad'}-level data through PostHog's data warehouse import — coming in a
                     follow-up.
-                </div>
-            )}
-            {!hasGaps && (
-                <div className="mt-2">
-                    Make sure the ad group and ad tables are enabled in your source sync settings to see data here.
                 </div>
             )}
         </LemonBanner>
