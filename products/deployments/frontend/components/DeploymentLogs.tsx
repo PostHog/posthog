@@ -22,7 +22,7 @@ interface DeploymentLogsProps {
 
 export function DeploymentLogs({ projectId, id }: DeploymentLogsProps): JSX.Element {
     const { deploymentLogs, deploymentLogsLoading } = useValues(deploymentLogic({ projectId, id }))
-    const { refreshDeploymentLogs } = useActions(deploymentLogic({ projectId, id }))
+    const { loadDeploymentLogs } = useActions(deploymentLogic({ projectId, id }))
 
     const rows = deploymentLogs?.results ?? []
     const hasMore = deploymentLogs?.has_more ?? false
@@ -84,7 +84,7 @@ export function DeploymentLogs({ projectId, id }: DeploymentLogsProps): JSX.Elem
                     type="secondary"
                     size="small"
                     icon={<IconRefresh />}
-                    onClick={() => refreshDeploymentLogs()}
+                    onClick={() => loadDeploymentLogs()}
                     loading={deploymentLogsLoading}
                 >
                     Refresh
@@ -98,9 +98,12 @@ export function DeploymentLogs({ projectId, id }: DeploymentLogsProps): JSX.Elem
             <LemonTable
                 dataSource={rows}
                 columns={columns}
-                loading={deploymentLogsLoading && rows.length === 0}
+                // Treat "never fetched" (deploymentLogs === null) as loading
+                // so the empty state doesn't flash on the first render before
+                // `afterMount` has dispatched the loader.
+                loading={deploymentLogsLoading || deploymentLogs === null}
                 rowKey={(row, index) => `${row.timestamp}-${index}`}
-                emptyState="No build logs yet — the build hasn't emitted any $log events with this deployment id set."
+                emptyState="No build logs yet — the deployment pipeline hasn't produced any log output."
                 data-attr="deployment-logs-table"
             />
         </div>

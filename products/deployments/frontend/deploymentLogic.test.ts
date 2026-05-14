@@ -157,7 +157,7 @@ describe('deploymentLogic', () => {
         }
     })
 
-    it('refreshDeploymentLogs re-fires the logs loader', async () => {
+    it('loadDeploymentLogs can be called again to refresh', async () => {
         let logsRequestCount = 0
         useMocks({
             get: {
@@ -175,7 +175,7 @@ describe('deploymentLogic', () => {
             const initialCount = logsRequestCount
 
             await expectLogic(detail, () => {
-                detail.actions.refreshDeploymentLogs()
+                detail.actions.loadDeploymentLogs()
             }).toFinishAllListeners()
 
             expect(logsRequestCount).toEqual(initialCount + 1)

@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { Scene } from 'scenes/sceneTypes'
@@ -31,9 +31,6 @@ export const deploymentLogic = kea<deploymentLogicType>([
         ],
         actions: [deploymentProjectLogic({ projectId: props.projectId }), ['redeployDeployment', 'rollbackDeployment']],
     })),
-    actions({
-        refreshDeploymentLogs: true,
-    }),
     loaders(({ values, props }) => ({
         deployment: [
             null as Deployment | null,
@@ -62,11 +59,6 @@ export const deploymentLogic = kea<deploymentLogicType>([
                 },
             },
         ],
-    })),
-    listeners(({ actions }) => ({
-        refreshDeploymentLogs: () => {
-            actions.loadDeploymentLogs()
-        },
     })),
     selectors(({ props }) => ({
         deploymentMissing: [
