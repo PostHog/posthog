@@ -55,9 +55,9 @@ jobs:
                       -H 'content-type: application/json' \
                       -d "{\"branch\": \"$BRANCH\"}")
                   echo "Switch response: $resp"
-                  task_id=$(echo "$resp" | jq -r '.id')
+                  task_id=$(echo "$resp" | jq -r '.task_id')
                   if [ -z "$task_id" ] || [ "$task_id" = "null" ]; then
-                    echo "Did not receive task id from hobbyctl"
+                    echo "Did not receive task_id from hobbyctl"
                     exit 1
                   fi
                   echo "task_id=$task_id" >> "$GITHUB_OUTPUT"
