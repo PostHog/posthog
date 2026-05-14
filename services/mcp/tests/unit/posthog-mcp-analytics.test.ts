@@ -215,34 +215,38 @@ describe('initPostHogMcpAnalytics', () => {
 
     it.each([
         {
-            scenario: 'adds the property when the resolver returns a description',
-            resolverReturn: 'Run a HogQL/SQL query.',
-            expectedValue: 'Run a HogQL/SQL query.',
+            scenario: 'adds name + description when the resolver returns an inner tool',
+            resolverReturn: { name: 'execute-sql', description: 'Run a HogQL/SQL query.' },
+            expectedName: 'execute-sql',
+            expectedDescription: 'Run a HogQL/SQL query.',
         },
         {
-            scenario: 'omits the property when the resolver returns undefined',
+            scenario: 'omits both properties when the resolver returns undefined',
             resolverReturn: undefined,
-            expectedValue: undefined,
+            expectedName: undefined,
+            expectedDescription: undefined,
         },
-    ])('eventProperties $scenario', async ({ resolverReturn, expectedValue }) => {
+    ])('eventProperties $scenario', async ({ resolverReturn, expectedName, expectedDescription }) => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
-        const resolveExecInnerToolDescription = vi.fn().mockReturnValue(resolverReturn)
+        const resolveExecInnerToolCall = vi.fn().mockReturnValue(resolverReturn)
 
         await initPostHogMcpAnalytics(server, identity, {
             contextEnabled: false,
             reportMissingEnabled: false,
-            resolveExecInnerToolDescription,
+            resolveExecInnerToolCall,
         })
 
         const fakeRequest = { params: { name: 'exec', arguments: { command: 'call execute-sql {}' } } }
         const properties = await getTrackOptions().eventProperties(fakeRequest)
 
-        expect(resolveExecInnerToolDescription).toHaveBeenCalledWith(fakeRequest)
-        if (expectedValue === undefined) {
+        expect(resolveExecInnerToolCall).toHaveBeenCalledWith(fakeRequest)
+        if (expectedDescription === undefined) {
+            expect(properties).not.toHaveProperty('$mcp_exec_tool_call_name')
             expect(properties).not.toHaveProperty('$mcp_exec_tool_call_description')
         } else {
-            expect(properties.$mcp_exec_tool_call_description).toBe(expectedValue)
+            expect(properties.$mcp_exec_tool_call_name).toBe(expectedName)
+            expect(properties.$mcp_exec_tool_call_description).toBe(expectedDescription)
         }
         // Identity-derived properties should always be there regardless of resolver outcome.
         expect(properties.$mcp_organization_id).toBe('org-789')
@@ -258,6 +262,7 @@ describe('initPostHogMcpAnalytics', () => {
             params: { name: 'exec', arguments: { command: 'call execute-sql {}' } },
         })
 
+        expect(properties).not.toHaveProperty('$mcp_exec_tool_call_name')
         expect(properties).not.toHaveProperty('$mcp_exec_tool_call_description')
     })
 

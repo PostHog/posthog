@@ -14,12 +14,15 @@ export type PostHogMcpAnalyticsOptions = {
     reportMissingEnabled: boolean
     // In single-exec mode, every event's `$mcp_tool_name` is `exec` — the real
     // tool the LLM was invoking lives inside `arguments.command`. This callback
-    // lets the caller resolve that inner tool's description from the request so
-    // it can be surfaced as `$mcp_exec_tool_call_description`. Returns undefined
-    // when the request isn't an exec call or the inner tool isn't recognized.
-    // Type accepts `| undefined` explicitly so callers can pass the value
-    // through unconditionally under `exactOptionalPropertyTypes: true`.
-    resolveExecInnerToolDescription?: ((request: unknown) => string | undefined) | undefined
+    // lets the caller resolve that inner tool's name + description from the
+    // request so they can be surfaced as `$mcp_exec_tool_call_name` /
+    // `$mcp_exec_tool_call_description`. Returns undefined when the request
+    // isn't an exec call or the inner tool isn't recognized. Type accepts
+    // `| undefined` explicitly so callers can pass the value through
+    // unconditionally under `exactOptionalPropertyTypes: true`.
+    resolveExecInnerToolCall?:
+        | ((request: unknown) => { name: string; description: string } | undefined)
+        | undefined
 }
 
 export type PostHogMcpAnalyticsInitResult =
@@ -153,9 +156,13 @@ export async function initPostHogMcpAnalytics(
             eventTags: async () => buildEventTags(identity),
             eventProperties: async (request) => {
                 const base = await buildEventProperties(identity)
-                const innerToolDescription = options.resolveExecInnerToolDescription?.(request)
-                return innerToolDescription
-                    ? { ...base, $mcp_exec_tool_call_description: innerToolDescription }
+                const innerToolCall = options.resolveExecInnerToolCall?.(request)
+                return innerToolCall
+                    ? {
+                          ...base,
+                          $mcp_exec_tool_call_name: innerToolCall.name,
+                          $mcp_exec_tool_call_description: innerToolCall.description,
+                      }
                     : base
             },
             redactSensitiveInformation: (text) => Promise.resolve(redactSensitiveInformation(text)),

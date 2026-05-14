@@ -790,10 +790,11 @@ export class MCP extends McpAgent<Env> {
         if (posthogMcpAnalyticsOn) {
             // In single-exec mode every event's `$mcp_tool_name` is `exec`, so the
             // SDK's `$mcp_tool_description` would be the dispatcher's static text on
-            // every call. Resolve the inner tool's description from the command and
-            // surface it as `$mcp_exec_tool_call_description` instead.
-            const resolveExecInnerToolDescription = useSingleExec
-                ? (request: unknown): string | undefined => {
+            // every call. Resolve the inner tool the agent was actually invoking
+            // from the command and surface its name + description as
+            // `$mcp_exec_tool_call_name` / `$mcp_exec_tool_call_description`.
+            const resolveExecInnerToolCall = useSingleExec
+                ? (request: unknown): { name: string; description: string } | undefined => {
                       const params = (request as { params?: { name?: unknown; arguments?: { command?: unknown } } })
                           ?.params
                       if (params?.name !== 'exec' || typeof params.arguments?.command !== 'string') {
@@ -803,14 +804,15 @@ export class MCP extends McpAgent<Env> {
                       if (!innerName) {
                           return
                       }
-                      return allTools.find((t) => t.name === innerName)?.description
+                      const tool = allTools.find((t) => t.name === innerName)
+                      return tool ? { name: tool.name, description: tool.description } : undefined
                   }
                 : undefined
 
             const initResult = await initPostHogMcpAnalytics(this.server, mcpAnalyticsIdentity, {
                 contextEnabled: true,
                 reportMissingEnabled: !useSingleExec,
-                resolveExecInnerToolDescription,
+                resolveExecInnerToolCall,
             })
             Object.assign(this.requestProperties, {
                 posthogMcpAnalyticsInitAction: initResult.action,

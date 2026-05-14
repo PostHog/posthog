@@ -1,7 +1,8 @@
-// Real end-to-end check that $mcp_exec_tool_call_description actually lands
-// on the captured PostHog event when an agent runs `exec("call <tool> {}")`.
-// Bypasses the global @posthog/mcp-analytics mock (set in tests/setup.ts) and
-// drives the real SDK with a stub posthog-node client to capture events.
+// Real end-to-end check that $mcp_exec_tool_call_name and
+// $mcp_exec_tool_call_description actually land on the captured PostHog event
+// when an agent runs `exec("call <tool> {}")`. Bypasses the global
+// @posthog/mcp-analytics mock (set in tests/setup.ts) and drives the real SDK
+// with a stub posthog-node client to capture events.
 import { vi } from 'vitest'
 vi.unmock('@posthog/mcp-analytics')
 
@@ -56,8 +57,10 @@ const mockContext = { getDistinctId: async () => 'distinct-1' } as unknown as Co
 
 // Mirrors the resolver wired in mcp.ts for single-exec mode. Kept inline so
 // the test exercises the same shape mcp.ts builds.
-function buildResolveExecInnerToolDescription(allTools: Tool<ZodObjectAny>[]): (request: unknown) => string | undefined {
-    return (request: unknown): string | undefined => {
+function buildResolveExecInnerToolCall(
+    allTools: Tool<ZodObjectAny>[]
+): (request: unknown) => { name: string; description: string } | undefined {
+    return (request: unknown) => {
         const params = (request as { params?: { name?: unknown; arguments?: { command?: unknown } } })?.params
         if (params?.name !== 'exec' || typeof params.arguments?.command !== 'string') {
             return
@@ -66,7 +69,8 @@ function buildResolveExecInnerToolDescription(allTools: Tool<ZodObjectAny>[]): (
         if (!innerName) {
             return
         }
-        return allTools.find((t) => t.name === innerName)?.description
+        const tool = allTools.find((t) => t.name === innerName)
+        return tool ? { name: tool.name, description: tool.description } : undefined
     }
 }
 
@@ -90,7 +94,7 @@ async function buildExecHarness(allTools: Tool<ZodObjectAny>[]): Promise<ExecHar
         }) as Parameters<typeof server.registerTool>[2]
     )
 
-    const resolveExecInnerToolDescription = buildResolveExecInnerToolDescription(allTools)
+    const resolveExecInnerToolCall = buildResolveExecInnerToolCall(allTools)
 
     track(server, {
         apiKey: 'phc_test',
@@ -98,8 +102,13 @@ async function buildExecHarness(allTools: Tool<ZodObjectAny>[]): Promise<ExecHar
         posthogOptions: { flushAt: 1, flushInterval: 0, host: 'https://test.posthog.com' },
         enableTracing: true,
         eventProperties: (request) => {
-            const description = resolveExecInnerToolDescription(request)
-            return description ? { $mcp_exec_tool_call_description: description } : {}
+            const innerCall = resolveExecInnerToolCall(request)
+            return innerCall
+                ? {
+                      $mcp_exec_tool_call_name: innerCall.name,
+                      $mcp_exec_tool_call_description: innerCall.description,
+                  }
+                : {}
         },
     })
 
@@ -136,7 +145,7 @@ async function waitForEvent(
     return events.find(predicate)
 }
 
-describe('$mcp_exec_tool_call_description end-to-end', () => {
+describe('$mcp_exec_tool_call_* end-to-end', () => {
     it('lands on the mcp_tool_call event when exec invokes a known inner tool', async () => {
         const allTools = [
             makeTool({ name: 'execute-sql', description: 'Run a HogQL/SQL query against PostHog.' }),
@@ -158,9 +167,10 @@ describe('$mcp_exec_tool_call_description end-to-end', () => {
             expect(toolCallEvent, 'mcp_tool_call event should be captured').not.toBeUndefined()
             expect(toolCallEvent?.properties.$mcp_tool_name).toBe('exec')
             // The SDK property reports the *outer* tool's description (exec) — which is
-            // exactly the uninformative case the dotcom property exists to fix.
+            // exactly the uninformative case the dotcom properties exist to fix.
             expect(toolCallEvent?.properties.$mcp_tool_description).toBe('exec tool')
-            // The dotcom-side property carries the real inner-tool description.
+            // The dotcom-side properties carry the real inner-tool name + description.
+            expect(toolCallEvent?.properties.$mcp_exec_tool_call_name).toBe('execute-sql')
             expect(toolCallEvent?.properties.$mcp_exec_tool_call_description).toBe(
                 'Run a HogQL/SQL query against PostHog.'
             )
@@ -169,13 +179,13 @@ describe('$mcp_exec_tool_call_description end-to-end', () => {
         }
     })
 
-    it('omits $mcp_exec_tool_call_description for non-call verbs', async () => {
+    it('omits $mcp_exec_tool_call_* for non-call verbs', async () => {
         const allTools = [makeTool({ name: 'execute-sql', description: 'Run a HogQL/SQL query against PostHog.' })]
         const { client, events, cleanup } = await buildExecHarness(allTools)
 
         try {
             // `info` verb references a tool but doesn't invoke it — should NOT
-            // emit the description.
+            // emit the inner-call name or description.
             await client.request(
                 {
                     method: 'tools/call',
@@ -187,6 +197,7 @@ describe('$mcp_exec_tool_call_description end-to-end', () => {
             const toolCallEvent = await waitForEvent(events, (e) => e.event === 'mcp_tool_call')
 
             expect(toolCallEvent).not.toBeUndefined()
+            expect(toolCallEvent?.properties).not.toHaveProperty('$mcp_exec_tool_call_name')
             expect(toolCallEvent?.properties).not.toHaveProperty('$mcp_exec_tool_call_description')
         } finally {
             await cleanup()
