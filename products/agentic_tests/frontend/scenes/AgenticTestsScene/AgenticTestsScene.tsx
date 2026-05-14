@@ -106,7 +106,7 @@ function HealthSummary({
 
 function EmptyState(): JSX.Element {
     const { openFormModal } = useActions(detectFlowsLogic)
-    const { bannerVisible } = useValues(detectFlowsLogic)
+    const { bannerVisible, isTerminal } = useValues(detectFlowsLogic)
 
     return (
         <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
@@ -120,7 +120,7 @@ function EmptyState(): JSX.Element {
                     type="primary"
                     icon={<IconSparkles />}
                     onClick={openFormModal}
-                    disabledReason={bannerVisible ? 'Detection already in progress' : undefined}
+                    disabledReason={bannerVisible && !isTerminal ? 'Detection already in progress' : undefined}
                 >
                     Auto-detect key flows
                 </LemonButton>
@@ -138,7 +138,7 @@ export function AgenticTestsScene(): JSX.Element {
     const { deleteTest, runNow, pauseTest, activateTest, rejectTest, setSearchTerm, setStatusFilter } =
         useActions(agenticTestsSceneLogic)
     const { openFormModal } = useActions(detectFlowsLogic)
-    const { bannerVisible } = useValues(detectFlowsLogic)
+    const { bannerVisible, isTerminal: detectionTerminal } = useValues(detectFlowsLogic)
 
     const confirmReject = (test: AgenticTest): void => {
         LemonDialog.open({
@@ -183,7 +183,9 @@ export function AgenticTestsScene(): JSX.Element {
                                 size="small"
                                 icon={<IconSparkles />}
                                 onClick={openFormModal}
-                                disabledReason={bannerVisible ? 'Detection already in progress' : undefined}
+                                disabledReason={
+                                    bannerVisible && !detectionTerminal ? 'Detection already in progress' : undefined
+                                }
                                 data-attr="agentic-tests-detect-flows"
                             >
                                 Auto-detect key flows
