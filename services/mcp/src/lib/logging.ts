@@ -38,23 +38,22 @@ export function withLogging<Props>(handler: FetchHandler<Props>) {
             headers[key] = SENSITIVE_HEADERS.includes(key.toLowerCase()) ? '[REDACTED]' : value
         })
 
-        // Promote the MCP session id to a top-level field so it can be filtered without
-        // parsing the headers blob. The header itself stays in `headers` verbatim.
+        const requestSessionId = request.headers.get('mcp-session-id') ?? undefined
         log.extend({
             method: request.method,
             pathname: url.pathname,
             search: url.search,
-            mcpSessionId: request.headers.get('mcp-session-id') ?? undefined,
+            // Promoted to a top-level field so it can be filtered without parsing the headers blob.
+            mcpSessionId: requestSessionId,
             headers,
         })
 
         try {
             const response = await handler(request, env, ctx, log)
-            // On `initialize`, the server mints a new session id and returns it in the response
-            // header — the inbound request had none (or a stale one). Overwrite so the mint event
-            // surfaces the freshly assigned id rather than undefined.
+            // On `initialize` the inbound request has no session id and the server mints one in
+            // the response header. Overwrite so the mint event surfaces the assigned id.
             const responseSessionId = response.headers.get('mcp-session-id')
-            if (responseSessionId && responseSessionId !== request.headers.get('mcp-session-id')) {
+            if (responseSessionId && responseSessionId !== requestSessionId) {
                 log.extend({ mcpSessionId: responseSessionId })
             }
             log.emit(response.status)
