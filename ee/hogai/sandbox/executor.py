@@ -53,8 +53,16 @@ def handle_sandbox_message(
     user: User,
     team: Team,
     is_new_conversation: bool,
+    system_context: str | None = None,
 ) -> StreamingHttpResponse:
-    """Handle a sandbox-mode message: create/resume a task run and stream events back."""
+    """Handle a sandbox-mode message: create/resume a task run and stream events back.
+
+    ``system_context`` is an optional preamble prepended to ``content`` for the
+    *initial* task description only. It's how callers inject scene-specific
+    context (e.g. PR diff + metadata for the GitHog PR review widget) into the
+    agent's first turn without it appearing in the chat transcript. Subsequent
+    follow-ups ignore it because the sandbox task is already running.
+    """
     if not settings.DEBUG and not has_sandbox_mode_feature_flag(team, user):
         raise exceptions.PermissionDenied("Sandbox mode is not enabled for this user.")
 
@@ -142,11 +150,12 @@ def handle_sandbox_message(
     else:
         # First message: create task + run
         # TODO(@tatoalo): hardcoding repo for now, already built repo selection wiring
+        agent_description = f"{system_context}\n\n---\n\n{content}" if system_context else content
         try:
             task = Task.create_and_run(
                 team=team,
                 title=content[:80],
-                description=content,
+                description=agent_description,
                 origin_product=Task.OriginProduct.USER_CREATED,
                 user_id=user.pk,
                 repository="posthog/posthog",

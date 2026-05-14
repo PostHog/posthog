@@ -20,6 +20,9 @@ export interface GitHogPullRequest {
     base_branch: string
     created_at: string
     updated_at: string
+    draft?: boolean
+    author?: string
+    author_avatar_url?: string
 }
 
 export const gitHogRepoLogic = kea<gitHogRepoLogicType>([

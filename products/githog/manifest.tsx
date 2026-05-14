@@ -21,17 +21,13 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/GitHogRepoScene'),
             iconType: 'default_icon_type',
         },
-        GitHogPRReview: {
-            name: 'PR review',
-            projectBased: true,
-            import: () => import('./frontend/scenes/GitHogPRReviewScene'),
-            iconType: 'default_icon_type',
-        },
     },
     routes: {
         '/githog': ['GitHog', 'gitHog'],
         '/githog/repos/:owner/:name': ['GitHogRepo', 'gitHogRepo'],
-        '/githog/repos/:owner/:name/pulls/:number': ['GitHogPRReview', 'gitHogPullRequest'],
+        // Same scene as the repo inbox — the :number param drives which PR is
+        // selected in the right-hand workspace.
+        '/githog/repos/:owner/:name/pulls/:number': ['GitHogRepo', 'gitHogPullRequest'],
     },
     redirects: {},
     urls: {

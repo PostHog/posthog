@@ -6366,6 +6366,11 @@ const api = {
                 conversation?: string | null
                 trace_id: string
                 agent_mode?: AgentMode | null
+                /**
+                 * Optional sandbox-mode preamble prepended to the agent's first
+                 * task description (not shown in chat). See MessageSerializer.
+                 */
+                system_context?: string
                 resume_payload?: {
                     action: 'approve' | 'reject'
                     proposal_id: string

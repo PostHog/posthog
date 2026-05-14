@@ -32,15 +32,27 @@ from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.integration import GitHubIntegration, Integration
 
+from products.githog.backend.logic.data_flow import compute_data_flow
+from products.githog.backend.logic.risk_score import compute_risk_score
+from products.githog.backend.models import GitHogPullRequestLayout
+
 from ..facade.api import compute_pr_impact
 from ..facade.contracts import PRImpactRequest
 from ..logic.cache import get_cached_impact, impact_cache_key, set_cached_impact
 from .serializers import (
-    GitHogPullRequestDiffQuerySerializer,
+    GitHogDataFlowQuerySerializer,
+    GitHogDataFlowResponseSerializer,
+    GitHogPullRequestDetailQuerySerializer,
+    GitHogPullRequestDetailResponseSerializer,
     GitHogPullRequestDiffResponseSerializer,
+    GitHogPullRequestLayoutQuerySerializer,
+    GitHogPullRequestLayoutRequestSerializer,
+    GitHogPullRequestLayoutResponseSerializer,
     GitHogPullRequestListQuerySerializer,
     GitHogPullRequestListResponseSerializer,
     GitHogRepositoryListResponseSerializer,
+    GitHogRiskScoreQuerySerializer,
+    GitHogRiskScoreResponseSerializer,
     PRImpactFromPRRequestSerializer,
     PRImpactRequestSerializer,
     PRImpactResponseSerializer,
@@ -121,29 +133,6 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response({"repositories": repositories})
 
     @extend_schema(
-        parameters=[GitHogPullRequestDiffQuerySerializer],
-        responses={200: GitHogPullRequestDiffResponseSerializer},
-    )
-    @rf_action(methods=["GET"], detail=False, url_path="pull_request_diff")
-    def pull_request_diff(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        query = GitHogPullRequestDiffQuerySerializer(data=request.query_params)
-        query.is_valid(raise_exception=True)
-        repository: str = query.validated_data["repository"]
-        pr_number: int = query.validated_data["pr_number"]
-
-        match = self._find_integration_for_repository(repository)
-        if match is None:
-            raise NotFound("No GitHub integration on this team has access to that repository")
-
-        integration, _owner, name = match
-        github = GitHubIntegration(integration)
-        result = github.get_pull_request_diff(name, pr_number)
-        if not result.get("success"):
-            raise ValidationError(result.get("error") or "Failed to fetch pull request diff")
-
-        return Response({"repository": repository, "pr_number": pr_number, "diff": result["diff"]})
-
-    @extend_schema(
         parameters=[GitHogPullRequestListQuerySerializer],
         responses={200: GitHogPullRequestListResponseSerializer},
     )
@@ -168,6 +157,195 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             {
                 "repository": repository,
                 "pull_requests": result.get("pull_requests", []),
+            }
+        )
+
+    @extend_schema(
+        parameters=[GitHogPullRequestDetailQuerySerializer],
+        responses={200: GitHogPullRequestDetailResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="pull_request")
+    def pull_request(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = GitHogPullRequestDetailQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        repository: str = query.validated_data["repository"]
+        pr_number: int = query.validated_data["number"]
+
+        match = self._find_integration_for_repository(repository)
+        if match is None:
+            raise NotFound("No GitHub integration on this team has access to that repository")
+        integration, _owner, name = match
+
+        result = GitHubIntegration(integration).get_pull_request(name, pr_number)
+        if not result.get("success"):
+            raise ValidationError(result.get("error") or "Failed to fetch pull request")
+        result.pop("success", None)
+        return Response(result)
+
+    @extend_schema(
+        parameters=[GitHogPullRequestDetailQuerySerializer],
+        responses={200: GitHogPullRequestDiffResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="pull_request_diff")
+    def pull_request_diff(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Return PR metadata + changed files + unified diff.
+
+        Used by the agent chat widget to pipe the diff into the LLM context.
+        """
+        query = GitHogPullRequestDetailQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        repository: str = query.validated_data["repository"]
+        number: int = query.validated_data["number"]
+
+        match = self._find_integration_for_repository(repository)
+        if match is None:
+            raise NotFound("No GitHub integration on this team has access to that repository")
+
+        integration, _owner, name = match
+        github = GitHubIntegration(integration)
+        result = github.get_pull_request_detail(name, number)
+        if not result.get("success"):
+            raise ValidationError(result.get("error") or "Failed to fetch pull request")
+
+        return Response(
+            {
+                "repository": repository,
+                "pull_request": result["pull_request"],
+                "files": result.get("files", []),
+                "diff": result.get("diff"),
+            }
+        )
+
+    @extend_schema(
+        parameters=[GitHogDataFlowQuerySerializer],
+        responses={200: GitHogDataFlowResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="pull_request_data_flow")
+    def pull_request_data_flow(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = GitHogDataFlowQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        repository: str = query.validated_data["repository"]
+        pr_number: int = query.validated_data["number"]
+        refresh: bool = query.validated_data.get("refresh", False)
+
+        match = self._find_integration_for_repository(repository)
+        if match is None:
+            raise NotFound("No GitHub integration on this team has access to that repository")
+        integration, _owner, _name = match
+
+        try:
+            row, is_cached = compute_data_flow(
+                team=self.team,
+                user=request.user,
+                integration=integration,
+                repository=repository,
+                pr_number=pr_number,
+                refresh=refresh,
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        return Response(
+            {
+                "repository": row.repository,
+                "pr_number": row.pr_number,
+                "head_sha": row.head_sha,
+                "base_sha": row.base_sha,
+                "flow_before": row.flow_before,
+                "flow_after": row.flow_after,
+                "steps_before": row.steps_before,
+                "steps_after": row.steps_after,
+                "summary": row.summary,
+                "files_total": row.files_total,
+                "files_with_content": row.files_with_content,
+                "truncated": row.truncated,
+                "cached": is_cached,
+                "computed_at": row.updated_at,
+            }
+        )
+
+    @extend_schema(
+        parameters=[GitHogRiskScoreQuerySerializer],
+        responses={200: GitHogRiskScoreResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="pull_request_risk_score")
+    def pull_request_risk_score(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = GitHogRiskScoreQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        repository: str = query.validated_data["repository"]
+        pr_number: int = query.validated_data["number"]
+        refresh: bool = query.validated_data.get("refresh", False)
+
+        match = self._find_integration_for_repository(repository)
+        if match is None:
+            raise NotFound("No GitHub integration on this team has access to that repository")
+        integration, _owner, _name = match
+
+        try:
+            response, _is_cached = compute_risk_score(
+                team=self.team,
+                user=request.user,
+                integration=integration,
+                repository=repository,
+                pr_number=pr_number,
+                refresh=refresh,
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        return Response(response)
+
+    @extend_schema(
+        methods=["GET"],
+        parameters=[GitHogPullRequestLayoutQuerySerializer],
+        responses={200: GitHogPullRequestLayoutResponseSerializer},
+    )
+    @extend_schema(
+        methods=["PUT"],
+        request=GitHogPullRequestLayoutRequestSerializer,
+        responses={200: GitHogPullRequestLayoutResponseSerializer},
+    )
+    @action(methods=["GET", "PUT"], detail=False, url_path="pull_request_layout")
+    def pull_request_layout(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if request.method == "PUT":
+            payload = GitHogPullRequestLayoutRequestSerializer(data=request.data)
+            payload.is_valid(raise_exception=True)
+            repository = payload.validated_data["repository"]
+            pr_number = payload.validated_data["number"]
+            items = payload.validated_data["items"]
+            row, _ = GitHogPullRequestLayout.objects.update_or_create(
+                team_id=self.team_id,
+                user=request.user,
+                repository=repository,
+                pr_number=pr_number,
+                defaults={"layout": {"items": items}},
+            )
+            return Response(
+                {
+                    "repository": row.repository,
+                    "pr_number": row.pr_number,
+                    "items": (row.layout or {}).get("items", []),
+                    "exists": True,
+                }
+            )
+
+        query = GitHogPullRequestLayoutQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        repository = query.validated_data["repository"]
+        pr_number = query.validated_data["number"]
+        row = GitHogPullRequestLayout.objects.filter(
+            team_id=self.team_id,
+            user=request.user,
+            repository=repository,
+            pr_number=pr_number,
+        ).first()
+        items = (row.layout or {}).get("items", []) if row else []
+        return Response(
+            {
+                "repository": repository,
+                "pr_number": pr_number,
+                "items": items,
+                "exists": row is not None,
             }
         )
 

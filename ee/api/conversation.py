@@ -105,6 +105,13 @@ class MessageSerializer(MessageMinimalSerializer):
     session_id = serializers.CharField(required=False)
     agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
     is_sandbox = serializers.BooleanField(required=False, default=False)
+    # Optional preamble that's prepended to the first sandbox-mode message's content
+    # before it's used as the agent's initial task description. Not shown in the
+    # chat UI — only the user-typed `content` is persisted to messages_json.
+    # Used by callers (e.g. the GitHog PR review widget) to inject scene-specific
+    # context (PR diff, repo metadata) into the agent's starting prompt without
+    # cluttering the user's visible message.
+    system_context = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=200000)
     resume_payload = serializers.JSONField(required=False, allow_null=True)
 
     def validate(self, attrs):
@@ -398,6 +405,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 user=cast(User, request.user),
                 team=self.team,
                 is_new_conversation=is_new_conversation,
+                system_context=serializer.validated_data.get("system_context") or None,
             )
 
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
