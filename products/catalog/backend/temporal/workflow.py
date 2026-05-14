@@ -18,6 +18,7 @@ from temporalio import workflow
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.catalog.backend.temporal.activities.agent import (
+    SpawnAgentTaskArgs,
     count_descriptions_for_run,
     spawn_catalog_agent_task,
     wait_for_task_run_completion,
@@ -173,7 +174,7 @@ class CatalogTraversalWorkflow(PostHogWorkflow):
             traversal_started_at = workflow.now().isoformat()
             task_run_id = await workflow.execute_activity(
                 spawn_catalog_agent_task,
-                inputs.team_id,
+                SpawnAgentTaskArgs(team_id=inputs.team_id, traversal_run_id=run_id),
                 start_to_close_timeout=AGENT_SPAWN_ACTIVITY_TIMEOUT,
                 retry_policy=DEFAULT_RETRY_POLICY,
             )
@@ -205,7 +206,7 @@ class CatalogTraversalWorkflow(PostHogWorkflow):
             metric_pass_started_at = workflow.now().isoformat()
             metric_task_run_id = await workflow.execute_activity(
                 spawn_catalog_metric_proposal_task,
-                inputs.team_id,
+                SpawnAgentTaskArgs(team_id=inputs.team_id, traversal_run_id=run_id),
                 start_to_close_timeout=AGENT_METRIC_SPAWN_ACTIVITY_TIMEOUT,
                 retry_policy=DEFAULT_RETRY_POLICY,
             )

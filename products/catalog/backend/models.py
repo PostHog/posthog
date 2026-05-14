@@ -155,6 +155,14 @@ class CatalogTraversalRun(UUIDModel):
     descriptions_generated = models.IntegerField(default=0)
     metrics_proposed = models.IntegerField(default=0)
 
+    # Sandboxed agent tasks spawned by this run. Stored as raw UUIDs (not FKs) so the
+    # catalog product stays loosely coupled to products.tasks — the frontend uses these
+    # to fetch streaming logs from the tasks API.
+    description_task_id = models.UUIDField(null=True, blank=True)
+    description_task_run_id = models.UUIDField(null=True, blank=True)
+    metric_task_id = models.UUIDField(null=True, blank=True)
+    metric_task_run_id = models.UUIDField(null=True, blank=True)
+
     generator_model = models.CharField(max_length=64, null=True, blank=True)
     config = models.JSONField(default=dict, blank=True)
     error = models.TextField(null=True, blank=True)

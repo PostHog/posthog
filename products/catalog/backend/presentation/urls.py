@@ -7,12 +7,19 @@ registered viewsets and isn't imported anywhere.
 
 from rest_framework.routers import DefaultRouter
 
-from .views import CatalogColumnViewSet, CatalogMetricViewSet, CatalogNodeViewSet, CatalogRelationshipViewSet
+from .views import (
+    CatalogColumnViewSet,
+    CatalogMetricViewSet,
+    CatalogNodeViewSet,
+    CatalogRelationshipViewSet,
+    CatalogTraversalRunViewSet,
+)
 
 router = DefaultRouter()
 router.register(r"catalog/nodes", CatalogNodeViewSet, basename="catalog_nodes")
 router.register(r"catalog/columns", CatalogColumnViewSet, basename="catalog_columns")
 router.register(r"catalog/relationships", CatalogRelationshipViewSet, basename="catalog_relationships")
 router.register(r"catalog/metrics", CatalogMetricViewSet, basename="catalog_metrics")
+router.register(r"catalog/runs", CatalogTraversalRunViewSet, basename="catalog_runs")
 
 urlpatterns = router.urls

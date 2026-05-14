@@ -16,8 +16,11 @@ import type {
     CatalogNodeDTOApi,
     CatalogNodesListParams,
     CatalogRelationshipDTOApi,
+    CatalogRunsListParams,
+    CatalogSyncResponseApi,
     PaginatedCatalogMetricDTOListApi,
     PaginatedCatalogNodeDTOListApi,
+    PaginatedCatalogTraversalRunDTOListApi,
     PatchedUpdateColumnInputApi,
     PatchedUpdateMetricInputApi,
     PatchedUpdateNodeInputApi,
@@ -338,5 +341,56 @@ export const catalogRelationshipsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedUpdateRelationshipInputApi),
+    })
+}
+
+export const getCatalogRunsListUrl = (projectId: string, params?: CatalogRunsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/catalog/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/catalog/runs/`
+}
+
+/**
+ * Return recent catalog traversal runs for the team, newest first.
+ */
+export const catalogRunsList = async (
+    projectId: string,
+    params?: CatalogRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedCatalogTraversalRunDTOListApi> => {
+    return apiMutator<PaginatedCatalogTraversalRunDTOListApi>(getCatalogRunsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCatalogRunsSyncCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/catalog/runs/sync/`
+}
+
+/**
+ * Kick off a catalog traversal asynchronously and return immediately.
+
+The workflow id is per-team and reusable, so triggering while a run is
+already in-flight is fine — Temporal queues the new run after the
+current one completes.
+ */
+export const catalogRunsSyncCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CatalogSyncResponseApi> => {
+    return apiMutator<CatalogSyncResponseApi>(getCatalogRunsSyncCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }

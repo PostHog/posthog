@@ -31,8 +31,8 @@ from temporalio import activity
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import MCP_READ_SCOPES
 
-from products.catalog.backend.models import CatalogMetric
-from products.catalog.backend.temporal.activities.agent import _resolve_catalog_task_user
+from products.catalog.backend.models import CatalogMetric, CatalogTraversalRun
+from products.catalog.backend.temporal.activities.agent import SpawnAgentTaskArgs, _resolve_catalog_task_user
 from products.catalog.backend.temporal.agent_prompts import CATALOG_METRIC_PROPOSAL_SYSTEM_PROMPT
 from products.tasks.backend.models import Task
 
@@ -43,13 +43,13 @@ logger = structlog.get_logger(__name__)
 
 
 @activity.defn
-async def spawn_catalog_metric_proposal_task(team_id: int) -> str:
+async def spawn_catalog_metric_proposal_task(args: SpawnAgentTaskArgs) -> str:
     """Create a Task + TaskRun for the metric-proposal pass and return the run id."""
-    return await asyncio.to_thread(_spawn_catalog_metric_proposal_task_sync, team_id)
+    return await asyncio.to_thread(_spawn_catalog_metric_proposal_task_sync, args)
 
 
-def _spawn_catalog_metric_proposal_task_sync(team_id: int) -> str:
-    team = Team.objects.select_related("organization").get(id=team_id)
+def _spawn_catalog_metric_proposal_task_sync(args: SpawnAgentTaskArgs) -> str:
+    team = Team.objects.select_related("organization").get(id=args.team_id)
     user = _resolve_catalog_task_user(team)
 
     task = Task.create_and_run(
@@ -57,7 +57,7 @@ def _spawn_catalog_metric_proposal_task_sync(team_id: int) -> str:
         title="Catalog metric proposal pass",
         # Prompt has JSON examples with literal `{`/`}`; use replace() with a
         # non-brace placeholder rather than .format() to avoid KeyError on them.
-        description=CATALOG_METRIC_PROPOSAL_SYSTEM_PROMPT.replace("<<TEAM_ID>>", str(team_id)),
+        description=CATALOG_METRIC_PROPOSAL_SYSTEM_PROMPT.replace("<<TEAM_ID>>", str(args.team_id)),
         origin_product=Task.OriginProduct.AUTOMATION,
         user_id=user.id,
         repository=None,
@@ -71,6 +71,11 @@ def _spawn_catalog_metric_proposal_task_sync(team_id: int) -> str:
     run = task.runs.order_by("-created_at").first()
     if run is None:
         raise RuntimeError(f"Task {task.id} did not produce a TaskRun")
+    if args.traversal_run_id is not None:
+        CatalogTraversalRun.objects.filter(id=args.traversal_run_id).update(
+            metric_task_id=task.id,
+            metric_task_run_id=run.id,
+        )
     return str(run.id)
 
 

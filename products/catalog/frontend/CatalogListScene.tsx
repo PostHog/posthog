@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconRefresh } from '@posthog/icons'
 import {
     LemonButton,
     LemonDropdown,
@@ -58,8 +59,9 @@ export function CatalogListScene(): JSX.Element {
         tagFilter,
         availableTags,
         hasActiveFilters,
+        syncing,
     } = useValues(catalogListSceneLogic)
-    const { setSearchTerm, setKindFilter, setStatusFilter, setTagFilter, clearFilters } =
+    const { setSearchTerm, setKindFilter, setStatusFilter, setTagFilter, clearFilters, startSync } =
         useActions(catalogListSceneLogic)
 
     const tableColumns: LemonTableColumns<CatalogNodeDTOApi> = [
@@ -126,6 +128,18 @@ export function CatalogListScene(): JSX.Element {
                 name="Semantic layer"
                 description="Tables, saved queries, and system tables tracked by the semantic layer."
                 resourceType={{ type: 'data_warehouse' }}
+                actions={
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        icon={<IconRefresh />}
+                        onClick={startSync}
+                        loading={syncing}
+                        disabledReason={syncing ? 'Sync already running' : undefined}
+                    >
+                        Sync
+                    </LemonButton>
+                }
             />
             <CatalogPageTabs activeTab="list" />
             <div className="flex flex-wrap items-center gap-2">

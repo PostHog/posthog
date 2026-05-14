@@ -1,12 +1,15 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { catalogNodesList } from 'products/catalog/frontend/generated/api'
+import { catalogNodesList, catalogRunsSyncCreate } from 'products/catalog/frontend/generated/api'
 import type { CatalogNodeDTOApi } from 'products/catalog/frontend/generated/api.schemas'
 
 import type { catalogListSceneLogicType } from './catalogListSceneLogicType'
@@ -26,6 +29,9 @@ export const catalogListSceneLogic = kea<catalogListSceneLogicType>([
         setStatusFilter: (status: CatalogStatusFilter) => ({ status }),
         setTagFilter: (tags: string[]) => ({ tags }),
         clearFilters: true,
+        startSync: true,
+        syncStarted: (workflowId: string) => ({ workflowId }),
+        syncFailed: true,
     }),
 
     reducers({
@@ -39,6 +45,14 @@ export const catalogListSceneLogic = kea<catalogListSceneLogicType>([
             { setStatusFilter: (_, { status }) => status, clearFilters: () => 'all' as CatalogStatusFilter },
         ],
         tagFilter: [[] as string[], { setTagFilter: (_, { tags }) => tags, clearFilters: () => [] as string[] }],
+        syncing: [
+            false,
+            {
+                startSync: () => true,
+                syncStarted: () => false,
+                syncFailed: () => false,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -105,6 +119,21 @@ export const catalogListSceneLogic = kea<catalogListSceneLogicType>([
                 searchTerm.trim() !== '' || kindFilter !== 'all' || statusFilter !== 'all' || tagFilter.length > 0,
         ],
     }),
+
+    listeners(({ actions, values }) => ({
+        startSync: async () => {
+            try {
+                const response = await catalogRunsSyncCreate(String(values.currentProjectId))
+                actions.syncStarted(response.workflow_id)
+                lemonToast.success('Catalog sync started', {
+                    button: { label: 'View logs', action: () => (window.location.href = urls.catalogLogs()) },
+                })
+            } catch (e) {
+                actions.syncFailed()
+                lemonToast.error(`Failed to start catalog sync: ${(e as Error).message ?? 'unknown error'}`)
+            }
+        },
+    })),
 
     urlToAction(({ actions }) => ({
         '/catalog/list': () => {

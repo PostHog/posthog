@@ -46,6 +46,7 @@ from products.catalog.backend.presentation.views import (
     CatalogMetricViewSet,
     CatalogNodeViewSet,
     CatalogRelationshipViewSet,
+    CatalogTraversalRunViewSet,
 )
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
@@ -1331,6 +1332,12 @@ projects_router.register(
     r"catalog/metrics",
     CatalogMetricViewSet,
     "project_catalog_metrics",
+    ["project_id"],
+)
+projects_router.register(
+    r"catalog/runs",
+    CatalogTraversalRunViewSet,
+    "project_catalog_runs",
     ["project_id"],
 )
 
