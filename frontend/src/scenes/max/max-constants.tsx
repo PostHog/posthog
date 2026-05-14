@@ -704,6 +704,17 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Fixing SQL...'
         },
     },
+    write_hogql_expression: {
+        name: 'Write SQL expression',
+        description: 'Write SQL expression for a breakdown, filter, or computed column',
+        icon: iconForType('data_warehouse'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Wrote SQL expression'
+            }
+            return 'Writing SQL expression...'
+        },
+    },
     filter_revenue_analytics: {
         name: 'Filter revenue analytics',
         description: 'Filter revenue analytics to find the most impactful revenue insights',

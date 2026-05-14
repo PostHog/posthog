@@ -44,10 +44,9 @@ export function InlineHogQLEditor({
             <div className="px-2 pt-2">
                 {aiSnippetEnabled ? (
                     <MaxTool
-                        identifier="fix_hogql_query"
+                        identifier="write_hogql_expression"
                         context={{
-                            hogql_query: currentExpression,
-                            error_message: '',
+                            current_expression: currentExpression,
                         }}
                         contextDescription={{
                             text: 'Current SQL expression',
@@ -63,6 +62,7 @@ export function InlineHogQLEditor({
                             headline: 'What SQL expression do you need?',
                             description: 'Let me help you write or refine a SQL expression.',
                         }}
+                        position="bottom-right"
                     >
                         {editor}
                     </MaxTool>

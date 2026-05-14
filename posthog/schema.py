@@ -657,6 +657,7 @@ class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
 class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     FIX_HOGQL_QUERY = "fix_hogql_query"
+    WRITE_HOGQL_EXPRESSION = "write_hogql_expression"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
