@@ -1,0 +1,8 @@
+from posthog.temporal.mcp_analytics.summarize_session_intents.activities import summarize_mcp_session_intents
+from posthog.temporal.mcp_analytics.summarize_session_intents.workflow import SummarizeMCPSessionIntentsWorkflow
+
+MCP_ANALYTICS_SUMMARIZE_SESSION_INTENTS_WORKFLOWS = [
+    SummarizeMCPSessionIntentsWorkflow,
+]
+
+MCP_ANALYTICS_SUMMARIZE_SESSION_INTENTS_ACTIVITIES = [summarize_mcp_session_intents]
