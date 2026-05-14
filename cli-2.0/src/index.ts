@@ -182,13 +182,25 @@ async function main() {
                         [subcommandName, ...subcommandAliases],
                         subcommand.description,
                         (yargs) => {
-                            return yargs
+                            let yargsBuilder = yargs
                                 .option('id', {
                                     type: 'string',
                                     describe: 'Resource ID',
                                     demandOption: requiresId,
                                 })
-                                .strictOptions(false) // Allow additional API parameters
+                            
+                            // Add options from inputs definition
+                            if (subcommand.inputs && subcommand.inputs.properties) {
+                                for (const [paramName, paramDef] of Object.entries(subcommand.inputs.properties as Record<string, any>)) {
+                                    yargsBuilder = yargsBuilder.option(paramName, {
+                                        type: paramDef.type === 'number' ? 'number' : paramDef.type === 'boolean' ? 'boolean' : 'string',
+                                        describe: paramDef.description,
+                                        default: paramDef.default,
+                                    })
+                                }
+                            }
+                            
+                            return yargsBuilder.strictOptions(false) // Allow additional API parameters
                         },
                         async (argv) => {
                             const params = buildCommandParams(argv)

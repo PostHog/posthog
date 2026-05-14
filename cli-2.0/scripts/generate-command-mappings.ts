@@ -271,6 +271,7 @@ interface ParsedTool {
     file?: string
     endpoint?: string
     method?: string
+    schema?: any
 }
 
 function parseGeneratedTools(): Record<string, ParsedTool> {
@@ -291,6 +292,127 @@ function parseGeneratedTools(): Record<string, ParsedTool> {
             if (!map[name]) {
                 map[name] = { file, method, endpoint: cleanupEndpoint(rawPath) }
             }
+        }
+
+        // Try to import the tool functions to get schema information
+        try {
+            // Import the tools module dynamically
+            const toolsModulePath = path.join(GENERATED_TOOLS_DIR, file)
+            const relativeModulePath = path.relative(__dirname, toolsModulePath).replace(/\.ts$/, '.js')
+            
+            // Check if there's an export named GENERATED_TOOLS in the content
+            if (content.includes('export const GENERATED_TOOLS')) {
+                // We'll extract tool schemas using the zod-to-json-schema approach later
+                // For now, keep the regex approach but improve it
+                const toolExportsRegex = /export const GENERATED_TOOLS[^{]*\{([^}]+)\}/
+                const exportsMatch = toolExportsRegex.exec(content)
+                if (exportsMatch) {
+                    const exportsBody = exportsMatch[1]
+                    // Extract tool names from the exports
+                    const toolNameRegex = /'([^']+)':\s*(\w+)/g
+                    let toolExportMatch: RegExpExecArray | null
+                    while ((toolExportMatch = toolNameRegex.exec(exportsBody)) !== null) {
+                        const [, toolName, functionName] = toolExportMatch
+                        if (map[toolName]) {
+                            // Look for the tool function definition and its schema
+                            const toolFunctionRegex = new RegExp(`const\\s+${functionName}\\s*=\\s*\\(\\)[^{]*\\{[^}]*name:\\s*'${toolName}'[^}]*schema:\\s*(\\w+)`);
+                            const functionMatch = toolFunctionRegex.exec(content)
+                            if (functionMatch) {
+                                const [, schemaName] = functionMatch
+                                // Find the schema definition
+                                const schemaDefRegex = new RegExp(`const\\s+${schemaName}\\s*=\\s*([^\\n]+)`);
+                                const schemaDefMatch = schemaDefRegex.exec(content)
+                                if (schemaDefMatch) {
+                                    const schemaDef = schemaDefMatch[1]
+                                    // For schemas that extend other schemas, we need to extract the extended fields
+                                    if (schemaDef.includes('.extend({')) {
+                                        const extendBodyMatch = content.match(new RegExp(`const\\s+${schemaName}\\s*=\\s*[^{]+\\{([^}]+)\\}`));
+                                        if (extendBodyMatch) {
+                                            const fields: Record<string, any> = {}
+                                            const fieldLines = extendBodyMatch[1].split(',').filter(line => line.trim())
+                                            
+                                            for (const fieldLine of fieldLines) {
+                                                const fieldMatch = fieldLine.match(/(\w+):\s*(.+)/);
+                                                if (fieldMatch) {
+                                                    const [, fieldName, fieldDef] = fieldMatch
+                                                    let fieldSchema: any = { type: 'string' }
+                                                    
+                                                    if (fieldDef.includes('castStringToInt') || fieldDef.includes('z.number()')) {
+                                                        fieldSchema = { 
+                                                            type: 'number',
+                                                            description: fieldName === 'limit' ? 'Number of results to return per page' :
+                                                                       fieldName === 'offset' ? 'Number of results to skip for pagination' :
+                                                                       `${fieldName} parameter`
+                                                        }
+                                                    } else if (fieldDef.includes('z.boolean()')) {
+                                                        fieldSchema = { type: 'boolean', description: `${fieldName} parameter` }
+                                                    } else if (fieldDef.includes('.describe(')) {
+                                                        const descMatch = fieldDef.match(/\.describe\(\s*['"`]([^'"`]+)['"`]/);
+                                                        fieldSchema = { 
+                                                            type: 'string', 
+                                                            description: descMatch ? descMatch[1] : `${fieldName} parameter`
+                                                        }
+                                                    }
+                                                    
+                                                    fields[fieldName] = fieldSchema
+                                                }
+                                            }
+                                            
+                                            if (Object.keys(fields).length > 0) {
+                                                map[toolName].schema = {
+                                                    type: 'object',
+                                                    properties: fields
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // For imported schemas (like CreateFeatureFlagSchema = FeatureFlagsCreateBody)
+                                    else {
+                                        // Extract parameters from the tool handler body
+                                        const handlerRegex = new RegExp(`const\\s+${functionName}[\\s\\S]*?handler:[\\s\\S]*?=>\\s*\\{([\\s\\S]*?)\\}\\s*,?\\s*\\}\\)`);
+                                        const handlerMatch = handlerRegex.exec(content);
+                                        if (handlerMatch) {
+                                            const handlerBody = handlerMatch[1];
+                                            const fields: Record<string, any> = {};
+                                            
+                                            // Extract parameters from if (params.field !== undefined) patterns
+                                            const paramRegex = /if\s*\(\s*params\.(\w+)\s*!==\s*undefined\s*\)/g;
+                                            let paramMatch: RegExpExecArray | null;
+                                            while ((paramMatch = paramRegex.exec(handlerBody)) !== null) {
+                                                const fieldName = paramMatch[1];
+                                                // Infer types based on common field names
+                                                let fieldSchema: any = { type: 'string' };
+                                                
+                                                if (fieldName === 'active' || fieldName.includes('enabled') || fieldName.includes('is_')) {
+                                                    fieldSchema = { type: 'boolean', description: `${fieldName} parameter` };
+                                                } else if (fieldName.includes('_id') || fieldName === 'limit' || fieldName === 'offset') {
+                                                    fieldSchema = { type: 'number', description: `${fieldName} parameter` };
+                                                } else if (fieldName === 'filters' || fieldName === 'evaluation_contexts' || fieldName === 'tags') {
+                                                    fieldSchema = { type: 'array', description: `${fieldName} parameter` };
+                                                } else {
+                                                    fieldSchema = { type: 'string', description: `${fieldName} parameter` };
+                                                }
+                                                
+                                                fields[fieldName] = fieldSchema;
+                                            }
+                                            
+                                            if (Object.keys(fields).length > 0) {
+                                                map[toolName].schema = {
+                                                    type: 'object',
+                                                    properties: fields
+                                                };
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            // Fallback to regex parsing if dynamic import fails
+            console.warn(`Could not dynamically import ${file}, falling back to regex parsing`)
         }
 
         // Also catch tools that didn't expose an api.request (e.g. wrappers)
@@ -493,6 +615,11 @@ async function generateEnhancedMapping(): Promise<void> {
         }
 
         const inputSchema = toolInputs.definitions?.[inputSchemaKeyFor(p.toolName)]
+        // Prefer schema from MCP tool files if available, fallback to tool-inputs.json
+        const finalInputs = p.parsed?.schema ?? inputSchema ?? {}
+        
+        
+        
         commands[p.group].subcommands[finalName] = {
             name: finalName,
             humanName: finalName,
@@ -500,7 +627,7 @@ async function generateEnhancedMapping(): Promise<void> {
             category: p.toolDef.category,
             endpoint: p.parsed?.endpoint,
             method: p.parsed?.method,
-            inputs: inputSchema ?? {},
+            inputs: finalInputs,
             mcp_tool: p.toolName,
         }
     }
