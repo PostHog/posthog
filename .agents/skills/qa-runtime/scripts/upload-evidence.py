@@ -32,8 +32,20 @@ EXIT_NO_CREDENTIALS = 2
 EXIT_FATAL = 3
 MAX_DESCRIPTION_LEN = 60
 
-# Repo root is four parents up: scripts -> qa-runtime -> skills -> .agents -> repo.
-REPO_ROOT = Path(__file__).resolve().parents[4]
+
+def _repo_root() -> Path | None:
+    # Ask git for the repo root rather than hardcoding `parents[N]`. Makes the
+    # script work regardless of how/where the skill is installed (`.agents/skills/`,
+    # `skills/`, or anywhere else under a git checkout).
+    try:
+        output = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    return Path(output) if output else None
 
 
 def _load_repo_dotenv() -> None:
@@ -44,7 +56,10 @@ def _load_repo_dotenv() -> None:
     the package is unavailable. `override=False` means anything already in
     `os.environ` wins.
     """
-    env_path = REPO_ROOT / ".env"
+    repo_root = _repo_root()
+    if repo_root is None:
+        return
+    env_path = repo_root / ".env"
     if not env_path.is_file():
         return
     try:

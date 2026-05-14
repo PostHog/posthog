@@ -2,9 +2,19 @@
 
 Post one comment per completed run. Do not edit the PR body.
 
+## Banner
+
+Every comment starts with a fixed banner so reviewers immediately recognize
+the source. Use this exact line (level-1 heading) as the very first line of
+the comment, before the verdict:
+
+```markdown
+# PostHog QA Swarm - Frontend Report
+```
+
 ## Verdict Header
 
-Use one of:
+Immediately after the banner, render one of:
 
 ```text
 QA runtime: PASS - no reproducible runtime issues found.
@@ -16,6 +26,8 @@ QA runtime: fork PR read-only mode - findings reported as suggested patches.
 ## Structure
 
 ```markdown
+# PostHog QA Swarm - Frontend Report
+
 QA runtime: PASS - no reproducible runtime issues found.
 
 ### What was tested
@@ -40,6 +52,8 @@ exercised alongside what was.
 For findings:
 
 ```markdown
+# PostHog QA Swarm - Frontend Report
+
 QA runtime: 1 fix pushed - reproducible issue fixed and re-verified.
 
 ### What was tested

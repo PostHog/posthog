@@ -7,10 +7,30 @@ import re
 import sys
 import json
 import argparse
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[4]
+
+def _repo_root() -> Path:
+    # Ask git for the repo root rather than hardcoding `parents[N]`. Makes the
+    # script work regardless of how/where the skill is installed under a git
+    # checkout. Fall back to a parents-based guess so the script still runs
+    # outside a git working tree (e.g. tarball-extracted skills).
+    try:
+        output = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        if output:
+            return Path(output)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return Path(__file__).resolve().parents[4]
+
+
+ROOT = _repo_root()
 
 
 @dataclass(frozen=True)
