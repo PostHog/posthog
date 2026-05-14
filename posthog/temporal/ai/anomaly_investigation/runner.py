@@ -26,15 +26,13 @@ from posthog.temporal.ai.anomaly_investigation.prompts import SYSTEM_PROMPT
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.tools import (
     FetchMetricSeriesArgs,
-    GetLiveDebuggerEventsArgs,
-    InstallLiveDebuggerProgramArgs,
     InvestigationToolkit,
     RecentEventsArgs,
     RunHogQLQueryArgs,
     SimulateDetectorArgs,
     TopBreakdownArgs,
-    UninstallLiveDebuggerProgramArgs,
 )
+from posthog.temporal.ai.live_investigation.schemas import StartLiveInvestigationArgs
 
 logger = logging.getLogger(__name__)
 
@@ -82,14 +80,8 @@ async def run_investigation(
         "recent_events": lambda raw: toolkit.recent_events(RecentEventsArgs.model_validate(raw)),
         "fetch_metric_series": lambda raw: toolkit.fetch_metric_series(FetchMetricSeriesArgs.model_validate(raw)),
         "simulate_detector": lambda raw: toolkit.simulate_detector(SimulateDetectorArgs.model_validate(raw)),
-        "install_live_debugger_program": lambda raw: toolkit.install_live_debugger_program(
-            InstallLiveDebuggerProgramArgs.model_validate(raw)
-        ),
-        "get_live_debugger_events": lambda raw: toolkit.get_live_debugger_events(
-            GetLiveDebuggerEventsArgs.model_validate(raw)
-        ),
-        "uninstall_live_debugger_program": lambda raw: toolkit.uninstall_live_debugger_program(
-            UninstallLiveDebuggerProgramArgs.model_validate(raw)
+        "start_live_investigation": lambda raw: toolkit.start_live_investigation(
+            StartLiveInvestigationArgs.model_validate(raw)
         ),
     }
 
@@ -128,30 +120,16 @@ async def run_investigation(
             SimulateDetectorArgs,
         ),
         (
-            "install_live_debugger_program",
+            "start_live_investigation",
             (
-                "Install a hogtrace program that emits $data_breakpoint_hit events when its probes fire. "
-                "Returns the program_id — save it to fetch events and uninstall later. "
-                "Use when you need to observe live runtime behaviour to investigate the anomaly."
+                "Hand off runtime instrumentation to a durable, agent-driven live investigation. "
+                "Installs a hogtrace program with a hypothesis brief; a followup agent will analyze "
+                "the probe data when min_events arrives or max_duration_minutes elapses, and write "
+                "structured findings. Returns immediately with the investigation_id — do NOT wait "
+                "for it, your job ends after calling this. Use when the anomaly's root cause can "
+                "only be confirmed by observing live runtime behavior."
             ),
-            InstallLiveDebuggerProgramArgs,
-        ),
-        (
-            "get_live_debugger_events",
-            (
-                "Fetch probe-hit events emitted by a live debugger program. Returns captured local "
-                "variables and the stack trace at the time each probe fired. "
-                "Call this after installing a program and giving it time to collect data."
-            ),
-            GetLiveDebuggerEventsArgs,
-        ),
-        (
-            "uninstall_live_debugger_program",
-            (
-                "Soft-uninstall a live debugger program by ID. Always call this when you are done "
-                "investigating — programs consume resources and should not be left running."
-            ),
-            UninstallLiveDebuggerProgramArgs,
+            StartLiveInvestigationArgs,
         ),
     ]
 

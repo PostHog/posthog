@@ -192,6 +192,65 @@ class LiveDebuggerBreakpoint(UUIDModel):
         repo_str = f"{self.repository}/" if self.repository else ""
         return f"Breakpoint at {repo_str}{self.filename}:{self.line_number} for team {self.team.pk}"
 
+
+class LiveInvestigation(UUIDModel):
+    """A durable agent-driven investigation backed by a LiveDebuggerProgram.
+
+    See products/live_debugger/docs/live-investigation-primitive-design.md for design.
+    """
+
+    class Status(models.TextChoices):
+        WATCHING = "watching", "Watching"
+        ANALYZING = "analyzing", "Analyzing"
+        COMPLETE = "complete", "Complete"
+        CANCELLED = "cancelled", "Cancelled"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    program = models.ForeignKey(
+        LiveDebuggerProgram,
+        on_delete=models.PROTECT,
+        related_name="investigations",
+    )
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="children",
+    )
+    chain_depth = models.PositiveIntegerField(default=0)
+
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.WATCHING,
+    )
+    workflow_id = models.CharField(max_length=255)
+
+    min_events = models.PositiveIntegerField()
+    max_duration_seconds = models.PositiveIntegerField()
+
+    signal_source_type = models.CharField(max_length=64)
+    signal_source_id = models.CharField(max_length=128, blank=True, default="")
+
+    brief = models.JSONField()
+    findings = models.JSONField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_liveinvestigation"
+        managed = True
+        indexes = [
+            models.Index(fields=["status"], name="live_inv_status_idx"),
+            models.Index(fields=["team_id", "status"], name="live_inv_team_status_idx"),
+            models.Index(fields=["program_id"], name="live_inv_program_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Investigation {self.pk} ({self.status}) for team {self.team_id}"
+
     @classmethod
     def get_breakpoint_hits(
         cls,

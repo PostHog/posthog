@@ -23,7 +23,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 from posthog.models.alert import AlertConfiguration
-from products.live_debugger.backend.models import LiveDebuggerProgram
+from posthog.temporal.ai.live_investigation.schemas import StartLiveInvestigationArgs
+
+from products.live_debugger.backend.facade.api import start_live_investigation as start_live_investigation_facade
 
 MAX_HOGQL_ROWS = 50
 MAX_SERIES_POINTS = 120
@@ -82,22 +84,6 @@ class SimulateDetectorArgs(BaseModel):
             "number of samples — the helper extends this window automatically if needed."
         ),
     )
-
-
-class InstallLiveDebuggerProgramArgs(BaseModel):
-    code: str = Field(description="Hogtrace program source code to install.")
-    description: str = Field(
-        description="Short human-readable description of what this program observes and why it was installed."
-    )
-
-
-class GetLiveDebuggerEventsArgs(BaseModel):
-    program_id: str = Field(description="Program ID returned by install_live_debugger_program.")
-    limit: int = Field(default=20, description="Max events to return.", ge=1, le=50)
-
-
-class UninstallLiveDebuggerProgramArgs(BaseModel):
-    program_id: str = Field(description="Program ID returned by install_live_debugger_program.")
 
 
 def _compact(seq: list[Any]) -> list[Any]:
@@ -241,33 +227,30 @@ class InvestigationToolkit:
         }
         return json.dumps(payload, default=str)
 
-    async def install_live_debugger_program(self, args: InstallLiveDebuggerProgramArgs) -> str:
-        program = await LiveDebuggerProgram.objects.acreate(
-            team=self.team,
-            code=args.code,
-            description=args.description,
-        )
-        return json.dumps({"program_id": str(program.id), "status": program.status})
+    async def start_live_investigation(self, args: StartLiveInvestigationArgs) -> str:
+        """Hand off runtime instrumentation to a durable, agent-driven investigation.
 
-    async def get_live_debugger_events(self, args: GetLiveDebuggerEventsArgs) -> str:
-        events = await sync_to_async(LiveDebuggerProgram.get_program_events, thread_sensitive=False)(
+        Returns immediately with the investigation_id; the followup agent will run
+        later when probe data has accumulated. The calling agent's job ends here —
+        no polling, no babysitting.
+        """
+        investigation_id = await start_live_investigation_facade(
             team=self.team,
-            program_id=args.program_id,
-            limit=args.limit,
+            signal_source_type="anomaly_alert",
+            signal_source_id=str(self.alert.id) if self.alert else "",
+            args=args,
         )
         return json.dumps(
-            {"event_count": len(events), "events": [e.to_json() for e in events]},
-            default=str,
+            {
+                "investigation_id": investigation_id,
+                "status": "watching",
+                "note": (
+                    "Investigation kicked off. A followup agent will analyze the probe "
+                    "data and write structured findings when min_events is reached or "
+                    "max_duration elapses."
+                ),
+            }
         )
-
-    async def uninstall_live_debugger_program(self, args: UninstallLiveDebuggerProgramArgs) -> str:
-        updated = await LiveDebuggerProgram.objects.filter(
-            id=args.program_id,
-            team=self.team,
-        ).aupdate(status=LiveDebuggerProgram.Status.UNINSTALLED)
-        if updated == 0:
-            return json.dumps({"ok": False, "error": "Program not found or does not belong to this team."})
-        return json.dumps({"ok": True, "program_id": args.program_id, "status": "uninstalled"})
 
 
 def _escape_literal(value: str) -> str:
