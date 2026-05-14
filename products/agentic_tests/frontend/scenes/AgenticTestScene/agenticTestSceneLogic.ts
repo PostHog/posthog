@@ -186,12 +186,24 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
         // Poll runs every 3s while any run is in 'running' state, so the Runs tab
         // shows live progress (refresh-resilient — backend persists log_entries every
         // ~1.5s so a page reload picks the stream up right where it left off).
+        // Also poll every 15s for investigation_conversation_id to appear on failed
+        // runs (the Signals pipeline takes 30s–5min).
         loadRunsSuccess: () => {
             if (values.hasRunningRuns) {
                 cache.disposables.add(() => {
                     const t = setTimeout(() => actions.loadRuns(), 3000)
                     return () => clearTimeout(t)
                 }, 'pollRuns')
+            } else if (values.hasFailedRunsPendingInvestigation) {
+                cache.investigationPollCount = (cache.investigationPollCount ?? 0) + 1
+                if (cache.investigationPollCount <= 20) {
+                    cache.disposables.add(() => {
+                        const t = setTimeout(() => actions.loadRuns(), 15_000)
+                        return () => clearTimeout(t)
+                    }, 'pollInvestigation')
+                }
+            } else {
+                cache.investigationPollCount = 0
             }
         },
         loadTestSuccess: ({ test }) => {
@@ -371,6 +383,11 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
             },
         ],
         hasRunningRuns: [(s) => [s.runs], (runs: AgenticTestRun[]) => runs.some((r) => r.status === 'running')],
+        hasFailedRunsPendingInvestigation: [
+            (s) => [s.runs],
+            (runs: AgenticTestRun[]): boolean =>
+                runs.some((r) => r.status === 'failed' && !(r as any).investigation_conversation_id),
+        ],
     }),
     events(({ actions, props }) => ({
         afterMount: () => {
