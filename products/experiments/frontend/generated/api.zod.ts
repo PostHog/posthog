@@ -226,3 +226,43 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
     conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
     variant_key: zod.string().describe('The key of the variant to ship to 100% of users.'),
 })
+
+/**
+ * Create an experiment that compares N versions of an LLM prompt using a metric template.
+
+The user picks 2+ versions of an existing LLMPrompt and a template (cost / latency /
+eval_pass_rate). The endpoint builds the matching variants (control + test-N, each
+named after its prompt version) and attaches the template metric scoped to the prompt's
+$ai_prompt_name. Resulting experiment is in draft state.
+ */
+
+export const experimentsCreateFromPromptCreateBodyVersionsMin = 2
+export const experimentsCreateFromPromptCreateBodyVersionsMax = 10
+
+export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object({
+    prompt_name: zod
+        .string()
+        .describe('The name of the LLM prompt to experiment on. Must already exist for this team.'),
+    versions: zod
+        .array(zod.number().min(1))
+        .min(experimentsCreateFromPromptCreateBodyVersionsMin)
+        .max(experimentsCreateFromPromptCreateBodyVersionsMax)
+        .describe(
+            'Ordered list of prompt version numbers to assign to experiment variants. The first entry is the control variant. Must contain between 2 and 10 distinct versions.'
+        ),
+    template: zod
+        .enum(['cost', 'latency', 'eval_pass_rate'])
+        .describe('\* `cost` - cost\n\* `latency` - latency\n\* `eval_pass_rate` - eval_pass_rate')
+        .describe(
+            "The metric template to attach as the experiment's primary metric.\n\n\* `cost` - cost\n\* `latency` - latency\n\* `eval_pass_rate` - eval_pass_rate"
+        ),
+    name: zod
+        .string()
+        .optional()
+        .describe('Optional experiment name. If omitted, a name is generated from the prompt and versions.'),
+    feature_flag_key: zod
+        .string()
+        .optional()
+        .describe('Optional feature flag key. If omitted, a slug is derived from the experiment name.'),
+    description: zod.string().optional().describe('Optional experiment description.'),
+})

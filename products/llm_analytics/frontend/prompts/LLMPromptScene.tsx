@@ -19,6 +19,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { PromptLogicProps, PromptMode, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import {
     PromptEditForm,
+    PromptExperiments,
     PromptRelatedTraces,
     PromptUsage,
     PromptVersionSidebar,
@@ -55,7 +56,8 @@ export function LLMPromptScene(): JSX.Element {
     } = useValues(llmPromptLogic)
     const { searchParams } = useValues(router)
     const currentSearchParams = searchParams ?? {}
-    const activeViewTab = searchParams?.tab === 'usage' ? 'usage' : 'overview'
+    const activeViewTab =
+        searchParams?.tab === 'usage' ? 'usage' : searchParams?.tab === 'experiments' ? 'experiments' : 'overview'
 
     const { submitPromptForm, deletePrompt, setMode, setPromptFormValues, loadMoreVersions } =
         useActions(llmPromptLogic)
@@ -185,6 +187,11 @@ export function LLMPromptScene(): JSX.Element {
                                     key: 'usage',
                                     label: 'Usage',
                                     content: <PromptUsage prompt={prompt} />,
+                                },
+                                {
+                                    key: 'experiments',
+                                    label: 'Experiments',
+                                    content: <PromptExperiments prompt={prompt} />,
                                 },
                             ]}
                         />

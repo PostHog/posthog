@@ -78,6 +78,21 @@ _TEMPLATES = {
     "eval_pass_rate": build_eval_pass_rate_metric,
 }
 
+_TEMPLATE_METADATA: dict[str, dict[str, str]] = {
+    "cost": {
+        "label": "Cost",
+        "description": "Compares total $ai_total_cost_usd from $ai_generation events tagged with this prompt.",
+    },
+    "latency": {
+        "label": "Latency",
+        "description": "Compares total $ai_latency from $ai_generation events tagged with this prompt.",
+    },
+    "eval_pass_rate": {
+        "label": "Eval pass rate",
+        "description": "Ratio of passing $ai_evaluation events for this prompt.",
+    },
+}
+
 TEMPLATE_NAMES = tuple(_TEMPLATES)
 
 
@@ -85,6 +100,10 @@ def build_template(name: str, prompt_name: str) -> LLMMetric:
     if name not in _TEMPLATES:
         raise ValueError(f"Unknown LLM metric template: {name!r}. Known: {sorted(_TEMPLATES)}")
     return _TEMPLATES[name](prompt_name)
+
+
+def list_templates() -> list[dict[str, str]]:
+    return [{"key": name, **_TEMPLATE_METADATA[name]} for name in _TEMPLATES]
 
 
 def apply_metric_to_experiment(
