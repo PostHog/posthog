@@ -375,6 +375,65 @@
             ],
             "type": "string"
         },
+        "AgenticTestFailureSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "agentic_test_id": {
+                    "type": "string"
+                },
+                "agentic_test_name": {
+                    "type": "string"
+                },
+                "agentic_test_run_id": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "region": {
+                    "type": "string"
+                },
+                "target_url": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "agentic_test_id",
+                "agentic_test_run_id",
+                "agentic_test_name",
+                "target_url",
+                "region",
+                "error_message"
+            ],
+            "type": "object"
+        },
+        "AgenticTestFailureSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/AgenticTestFailureSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "agentic_tests",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "test_failure",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "AggregatedSpanRow": {
             "additionalProperties": false,
             "description": "One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view.",
@@ -18957,6 +19016,7 @@
                 "llm_prompts",
                 "llm_clusters",
                 "exports",
+                "agentic_tests",
                 "deployments"
             ],
             "type": "string"
@@ -27151,6 +27211,7 @@
         "ProductKey": {
             "enum": [
                 "actions",
+                "agentic_tests",
                 "alerts",
                 "annotations",
                 "cohorts",
@@ -35655,6 +35716,9 @@
                 },
                 {
                     "$ref": "#/definitions/EndpointExecutionFailedSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/AgenticTestFailureSignalInput"
                 }
             ]
         },
@@ -35689,7 +35753,8 @@
                 "zendesk",
                 "conversations",
                 "error_tracking",
-                "endpoints"
+                "endpoints",
+                "agentic_tests"
             ],
             "type": "string"
         },
@@ -35704,7 +35769,8 @@
                 "issue_created",
                 "issue_reopened",
                 "issue_spiking",
-                "endpoint_execution_failed"
+                "endpoint_execution_failed",
+                "test_failure"
             ],
             "type": "string"
         },

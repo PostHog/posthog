@@ -1,7 +1,10 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+
+import { SignalSourceProduct, SignalSourceType } from '~/queries/schema/schema-signals'
 
 import {
     agenticTestsActivateCreate,
@@ -18,6 +21,11 @@ export type AgenticTestStatus = AgenticTestStatusEnumApi
 import type { agenticTestsSceneLogicType } from './agenticTestsSceneLogicType'
 
 export type StatusFilter = 'all' | 'proposed' | 'active' | 'paused' | 'rejected'
+
+interface ResolutionAgentConfig {
+    id: string | null
+    enabled: boolean
+}
 
 const STATUS_ORDER: Record<AgenticTestStatus, number> = {
     active: 0,
@@ -38,10 +46,19 @@ export const agenticTestsSceneLogic = kea<agenticTestsSceneLogicType>([
         rejectTest: (id: string) => ({ id }),
         setSearchTerm: (search: string) => ({ search }),
         setStatusFilter: (status: StatusFilter) => ({ status }),
+        toggleResolutionAgent: true,
     }),
     reducers({
         searchTerm: ['' as string, { setSearchTerm: (_, { search }) => search }],
         statusFilter: ['all' as StatusFilter, { setStatusFilter: (_, { status }) => status }],
+        resolutionAgentToggling: [
+            false,
+            {
+                toggleResolutionAgent: () => true,
+                loadResolutionAgentConfigSuccess: () => false,
+                loadResolutionAgentConfigFailure: () => false,
+            },
+        ],
     }),
     loaders({
         tests: [
@@ -53,8 +70,40 @@ export const agenticTestsSceneLogic = kea<agenticTestsSceneLogicType>([
                 },
             },
         ],
+        resolutionAgentConfig: [
+            { id: null, enabled: false } as ResolutionAgentConfig,
+            {
+                loadResolutionAgentConfig: async (): Promise<ResolutionAgentConfig> => {
+                    const response = await api.signalSourceConfigs.list()
+                    const config = response.results.find(
+                        (c) =>
+                            c.source_product === SignalSourceProduct.AGENTIC_TESTS &&
+                            c.source_type === SignalSourceType.TEST_FAILURE
+                    )
+                    return config ? { id: config.id, enabled: config.enabled } : { id: null, enabled: false }
+                },
+            },
+        ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
+        toggleResolutionAgent: async () => {
+            const { resolutionAgentConfig } = values
+            const desiredEnabled = !resolutionAgentConfig.enabled
+            try {
+                if (resolutionAgentConfig.id) {
+                    await api.signalSourceConfigs.update(resolutionAgentConfig.id, { enabled: desiredEnabled })
+                } else {
+                    await api.signalSourceConfigs.create({
+                        source_product: SignalSourceProduct.AGENTIC_TESTS,
+                        source_type: SignalSourceType.TEST_FAILURE,
+                        enabled: true,
+                        config: {},
+                    })
+                }
+            } finally {
+                actions.loadResolutionAgentConfig()
+            }
+        },
         deleteTest: async ({ id }) => {
             await agenticTestsDestroy(projectId(), id)
             actions.loadTests()
@@ -103,6 +152,7 @@ export const agenticTestsSceneLogic = kea<agenticTestsSceneLogicType>([
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadTests()
+            actions.loadResolutionAgentConfig()
         },
     })),
 ])

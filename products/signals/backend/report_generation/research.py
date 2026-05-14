@@ -145,6 +145,20 @@ Principles:
         return v
 
 
+class ImplementationResult(BaseModel):
+    implemented: bool = Field(
+        description="Whether a fix was implemented and a PR opened.",
+    )
+    pr_url: str | None = Field(
+        default=None,
+        description="Full URL of the pull request, if one was created. None if no PR was opened.",
+    )
+    changes_summary: str = Field(
+        default="",
+        description="Brief summary of the changes made.",
+    )
+
+
 class ReportResearchOutput(BaseModel):
     title: str = Field(description="Generated report title.")
     summary: str = Field(description="Generated factual report summary.")
@@ -155,6 +169,7 @@ class ReportResearchOutput(BaseModel):
     priority: PriorityAssessment | None = Field(
         default=None, description="Priority assessment. None when not actionable."
     )
+    pr_url: str | None = Field(default=None, description="URL of the implementation PR, if one was created.")
 
 
 def _render_existing_report_context(previous_report_id: str | None) -> str:
@@ -263,6 +278,19 @@ def _render_signal_for_research(signal: SignalData, index: int, total: int) -> s
         lines.append("#### Extras")
         lines.extend(_render_extra_to_text(signal.extra))
     return "\n".join(lines)
+
+
+_PRIORITY_RANKS: dict[Priority, int] = {
+    Priority.P0: 0,
+    Priority.P1: 1,
+    Priority.P2: 2,
+    Priority.P3: 3,
+    Priority.P4: 4,
+}
+
+
+def _priority_rank(priority: Priority) -> int:
+    return _PRIORITY_RANKS[priority]
 
 
 _RESEARCH_PREAMBLE = """You are a research agent investigating a signal report for the PostHog codebase.
@@ -470,6 +498,37 @@ Respond with a JSON object matching this schema:
 </jsonschema>"""
 
 
+def build_implementation_prompt(title: str, summary: str) -> str:
+    """Build the prompt asking the agent to implement the fix and open a PR."""
+    schema = json.dumps(ImplementationResult.model_json_schema(), indent=2)
+
+    return f"""You have completed research and assessed this report as immediately actionable.
+
+**Report title:** {title}
+**Report summary:**
+{summary}
+
+Now **implement the fix** based on your research findings. You already have the codebase checked out and all your research context.
+
+## Instructions
+
+1. Create a new branch from `main` with a descriptive name (e.g., `fix/signal-report-<short-description>`)
+2. Make the code changes to fix the issue
+3. Commit with a conventional commit message matching the report title
+4. Push the branch to origin
+5. Open a draft pull request using `gh pr create --draft`
+
+Keep the changes minimal and focused — fix only what the report describes. Do not refactor surrounding code.
+
+If you cannot implement a fix (e.g., the issue requires architectural changes, environment access you don't have, or human judgment), set `implemented` to false and explain in `changes_summary`.
+
+Respond with a JSON object matching this schema:
+
+<jsonschema>
+{schema}
+</jsonschema>"""
+
+
 def _enforce_signal_id(finding: SignalFinding, expected_id: str) -> SignalFinding:
     """Correct the finding's signal_id if the model returned a wrong one."""
     if finding.signal_id != expected_id:
@@ -494,6 +553,7 @@ async def run_multi_turn_research(
     verbose: bool = False,
     output_fn: OutputFn = None,
     signal_report_id: str | None = None,
+    autostart_priority_threshold: Priority | None = None,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
     from products.tasks.backend.models import Task
@@ -547,6 +607,23 @@ async def run_multi_turn_research(
             task_id=str(session.task.id),
             relationship=SignalReportTask.Relationship.RESEARCH,
         )
+
+    # Create a Conversation linked to the investigation Task so the PostHog AI
+    # thread UI can display the research stream (tool calls, thinking, agent text).
+    # Store signal source IDs in messages_json so the conversation can be looked up
+    # from the originating record (e.g., AgenticTestRun.id → source_id).
+    from ee.models.assistant import Conversation
+
+    source_ids = [s.source_id for s in signals if s.source_id]
+    await Conversation.objects.acreate(
+        user_id=context.user_id,
+        team_id=context.team_id,
+        type=Conversation.Type.ASSISTANT,
+        title=f"Investigating: {signals[0].description[:70]}",
+        sandbox_task_id=session.task.id,
+        sandbox_run_id=session.task_run.id,
+        messages_json=[{"_meta": {"signal_source_ids": source_ids, "signal_report_id": signal_report_id}}],
+    )
 
     first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)
     findings: list[SignalFinding] = [first_finding]
@@ -620,6 +697,43 @@ async def run_multi_turn_research(
     if output_fn:
         output_fn(f"Report title: {presentation_result.title}")
 
+    # Implementation step: if actionable and priority meets the team threshold, implement the fix
+    pr_url: str | None = None
+    should_implement = (
+        actionability_result.actionability == ActionabilityChoice.IMMEDIATELY_ACTIONABLE
+        and priority_result is not None
+        and autostart_priority_threshold is not None
+        and _priority_rank(priority_result.priority) <= _priority_rank(autostart_priority_threshold)
+    )
+    if should_implement:
+        if output_fn:
+            output_fn("Implementing fix...")
+        implementation_prompt = build_implementation_prompt(
+            title=presentation_result.title,
+            summary=presentation_result.summary,
+        )
+        implementation_result = await session.send_followup(
+            implementation_prompt,
+            ImplementationResult,
+            label="implementation",
+        )
+        if implementation_result.implemented and implementation_result.pr_url:
+            pr_url = implementation_result.pr_url
+            if output_fn:
+                output_fn(f"PR created: {pr_url}")
+
+            # Upgrade the relationship to research_and_implementation since this task
+            # now covers both research and the resulting fix PR.
+            if signal_report_id:
+                from products.signals.backend.models import SignalReportTask
+
+                await SignalReportTask.objects.filter(
+                    task_id=str(session.task.id),
+                    relationship=SignalReportTask.Relationship.RESEARCH,
+                ).aupdate(relationship=SignalReportTask.Relationship.RESEARCH_AND_IMPLEMENTATION)
+        elif output_fn:
+            output_fn(f"Implementation skipped: {implementation_result.changes_summary}")
+
     await session.end()
 
     logger.info("multi_turn_research: completed with %d findings", len(findings))
@@ -629,4 +743,5 @@ async def run_multi_turn_research(
         findings=findings,
         actionability=actionability_result,
         priority=priority_result,
+        pr_url=pr_url,
     )

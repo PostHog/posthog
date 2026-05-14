@@ -7,6 +7,7 @@ import {
     LemonDivider,
     LemonInput,
     LemonSelect,
+    LemonSwitch,
     LemonTable,
     LemonTag,
     LemonTagType,
@@ -133,10 +134,28 @@ function EmptyState(): JSX.Element {
 }
 
 export function AgenticTestsScene(): JSX.Element {
-    const { tests, testsLoading, filteredTests, passingCount, failingCount, proposedCount, searchTerm, statusFilter } =
-        useValues(agenticTestsSceneLogic)
-    const { deleteTest, runNow, pauseTest, activateTest, rejectTest, setSearchTerm, setStatusFilter } =
-        useActions(agenticTestsSceneLogic)
+    const {
+        tests,
+        testsLoading,
+        filteredTests,
+        passingCount,
+        failingCount,
+        proposedCount,
+        searchTerm,
+        statusFilter,
+        resolutionAgentConfig,
+        resolutionAgentToggling,
+    } = useValues(agenticTestsSceneLogic)
+    const {
+        deleteTest,
+        runNow,
+        pauseTest,
+        activateTest,
+        rejectTest,
+        setSearchTerm,
+        setStatusFilter,
+        toggleResolutionAgent,
+    } = useActions(agenticTestsSceneLogic)
     const { openFormModal } = useActions(detectFlowsLogic)
     const { bannerVisible, isTerminal: detectionTerminal } = useValues(detectFlowsLogic)
 
@@ -176,30 +195,51 @@ export function AgenticTestsScene(): JSX.Element {
                 description="Continuous browser-agent checks against your product's key flows."
                 resourceType={{ type: 'agentic_tests' }}
                 actions={
-                    hasTests ? (
-                        <>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconSparkles />}
-                                onClick={openFormModal}
-                                disabledReason={
-                                    bannerVisible && !detectionTerminal ? 'Detection already in progress' : undefined
-                                }
-                                data-attr="agentic-tests-detect-flows"
-                            >
-                                Auto-detect more key flows
-                            </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                to="/agentic_tests/new"
-                                data-attr="agentic-tests-new"
-                            >
-                                New test
-                            </LemonButton>
-                        </>
-                    ) : undefined
+                    <>
+                        <Tooltip
+                            title={
+                                resolutionAgentConfig.enabled
+                                    ? 'When a test fails, an agent will research and fix the issue'
+                                    : 'Enable to have an agent automatically research and fix test failures'
+                            }
+                        >
+                            <span>
+                                <LemonSwitch
+                                    checked={resolutionAgentConfig.enabled}
+                                    onChange={toggleResolutionAgent}
+                                    loading={resolutionAgentToggling}
+                                    label="Resolution agent"
+                                    bordered
+                                />
+                            </span>
+                        </Tooltip>
+                        {hasTests && (
+                            <>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconSparkles />}
+                                    onClick={openFormModal}
+                                    disabledReason={
+                                        bannerVisible && !detectionTerminal
+                                            ? 'Detection already in progress'
+                                            : undefined
+                                    }
+                                    data-attr="agentic-tests-detect-flows"
+                                >
+                                    Auto-detect more key flows
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    to="/agentic_tests/new"
+                                    data-attr="agentic-tests-new"
+                                >
+                                    New test
+                                </LemonButton>
+                            </>
+                        )}
+                    </>
                 }
             />
 

@@ -52,6 +52,30 @@ class AgentMode(StrEnum):
     SANDBOX = "sandbox"
 
 
+class AgenticTestFailureSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    agentic_test_id: str
+    agentic_test_name: str
+    agentic_test_run_id: str
+    error_message: str
+    region: str
+    target_url: str
+
+
+class AgenticTestFailureSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: AgenticTestFailureSignalExtra
+    source_id: str
+    source_product: Literal["agentic_tests"] = "agentic_tests"
+    source_type: Literal["test_failure"] = "test_failure"
+    weight: float
+
+
 class AggregationAxisFormat(StrEnum):
     NUMERIC = "numeric"
     DURATION = "duration"
@@ -2289,6 +2313,7 @@ class FileSystemIconType(StrEnum):
     LLM_PROMPTS = "llm_prompts"
     LLM_CLUSTERS = "llm_clusters"
     EXPORTS = "exports"
+    AGENTIC_TESTS = "agentic_tests"
     DEPLOYMENTS = "deployments"
 
 
@@ -3784,6 +3809,7 @@ class ProductItemCategory(StrEnum):
 
 class ProductKey(StrEnum):
     ACTIONS = "actions"
+    AGENTIC_TESTS = "agentic_tests"
     ALERTS = "alerts"
     ANNOTATIONS = "annotations"
     COHORTS = "cohorts"
@@ -4478,6 +4504,7 @@ class SignalSourceProduct(StrEnum):
     CONVERSATIONS = "conversations"
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
+    AGENTIC_TESTS = "agentic_tests"
 
 
 class SignalSourceType(StrEnum):
@@ -4491,6 +4518,7 @@ class SignalSourceType(StrEnum):
     ISSUE_REOPENED = "issue_reopened"
     ISSUE_SPIKING = "issue_spiking"
     ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
+    TEST_FAILURE = "test_failure"
 
 
 class SimilarIssue(BaseModel):
@@ -8364,6 +8392,7 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
+        | AgenticTestFailureSignalInput
     ]
 ):
     root: (
@@ -8376,6 +8405,7 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
+        | AgenticTestFailureSignalInput
     )
 
 

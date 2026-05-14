@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconArrowRight, IconBell, IconGithub, IconLinear } from '@posthog/icons'
+import { IconArrowRight, IconBell, IconGithub, IconLinear, IconTestTube } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { RecordingsUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay'
@@ -145,11 +145,13 @@ export function SourcesList(): JSX.Element {
         linearIssuesConfig,
         zendeskTicketsConfig,
         errorTrackingIsFullyEnabled,
+        agenticTestsConfig,
         isSessionAnalysisToggling,
         isGithubIssuesToggling,
         isLinearIssuesToggling,
         isZendeskTicketsToggling,
         isErrorTrackingToggling,
+        isAgenticTestsToggling,
     } = useValues(signalSourcesLogic)
     const {
         toggleSessionAnalysis,
@@ -157,6 +159,7 @@ export function SourcesList(): JSX.Element {
         clearSessionAnalysisFilters,
         initiateDataWarehouseSourceToggle,
         toggleErrorTracking,
+        toggleAgenticTests,
     } = useActions(signalSourcesLogic)
 
     const recordingFilters = sessionAnalysisConfig?.config?.recording_filters
@@ -203,6 +206,16 @@ export function SourcesList(): JSX.Element {
                 checked={errorTrackingIsFullyEnabled}
                 loading={isErrorTrackingToggling}
                 onToggle={() => toggleErrorTracking()}
+            />
+
+            <Source
+                icon={<IconTestTube className="size-5" />}
+                title="PostHog Agentic Tests"
+                description="Test failures from agentic tests → Signals"
+                variant="available"
+                checked={!!agenticTestsConfig?.enabled}
+                loading={isAgenticTestsToggling}
+                onToggle={() => toggleAgenticTests()}
             />
 
             <Source

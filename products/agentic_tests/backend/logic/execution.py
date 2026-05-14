@@ -25,6 +25,7 @@ from django.db import transaction
 from django.utils import timezone
 
 import structlog
+from asgiref.sync import async_to_sync
 
 from posthog.ph_client import ph_scoped_capture
 
@@ -122,6 +123,7 @@ def execute_agentic_test_run(run_id: str) -> None:
             failed = [a for a in assertion_results if not a["passed"]]
             run.error_message = "; ".join(a.get("message", "Assertion failed") for a in failed)[:5000]
         _emit_failure_event(test=test, run=run)
+        _emit_failure_signal(test=test, run=run)
     run.save()
 
     test.last_run_at = run.started_at
@@ -433,3 +435,44 @@ def _emit_failure_event(*, test: AgenticTest, run: AgenticTestRun) -> None:
             )
     except Exception as exc:  # noqa: BLE001
         logger.warning("agentic_test_event_emit_failed", error=str(exc))
+
+
+def _emit_failure_signal(*, test: AgenticTest, run: AgenticTestRun) -> None:
+    """Emit a Signal so the Signals product can research and fix the failure."""
+    from products.signals.backend.api import emit_signal
+
+    error_message = run.error_message or "Unknown failure"
+    # Frame as a product incident report — not a system notification — so the
+    # Signals safety judge doesn't flag it as a calibration/injection attempt.
+    parts = [
+        f"Production user flow broken: {test.name}",
+        f"URL: {test.target_url}",
+        f"Error: {error_message}",
+    ]
+    if run.region:
+        parts.append(f"Region: {run.region}")
+    if run.output and run.output.get("assertions"):
+        failed_assertions = [a for a in run.output["assertions"] if not a.get("passed")]
+        for assertion in failed_assertions:
+            parts.append(f"Failed check: {assertion.get('message', assertion.get('type', 'unknown'))}")
+    description = "\n".join(parts)
+
+    try:
+        async_to_sync(emit_signal)(
+            team=test.team,
+            source_product="agentic_tests",
+            source_type="test_failure",
+            source_id=str(run.id),
+            description=description,
+            weight=1.0,
+            extra={
+                "agentic_test_id": str(test.id),
+                "agentic_test_run_id": str(run.id),
+                "agentic_test_name": test.name,
+                "target_url": test.target_url,
+                "region": run.region or "",
+                "error_message": error_message[:1000],
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("agentic_test_signal_emit_failed", error=str(exc))
