@@ -1,4 +1,4 @@
-from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
+from products.dashboards.backend.api.mcp_analytics_default_template import get_mcp_analytics_default_template
 
 
 def test_mcp_analytics_default_template_includes_oauth_client_pie_chart() -> None:
