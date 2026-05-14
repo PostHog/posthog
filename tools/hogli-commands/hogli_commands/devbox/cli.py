@@ -22,6 +22,7 @@ from hogli.manifest import get_manifest
 
 from .coder import (
     CLAUDE_CODE_OAUTH_ENV,
+    DEFAULT_TEMPLATE,
     DOTFILES_URI_PARAMETER,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
@@ -792,10 +793,18 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
     default="100",
     help="Disk size in GiB (default: 100)",
 )
+@click.option(
+    "-t",
+    "--template",
+    default=DEFAULT_TEMPLATE,
+    show_default=True,
+    help="Coder workspace template to use when creating a new devbox",
+)
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_start(
     workspace: str | None,
     disk: str,
+    template: str,
     verbose: bool,
 ) -> None:
     """Start or create the remote devbox."""
@@ -809,13 +818,14 @@ def devbox_start(
 
     config = load_config()
 
-    click.echo(f"Creating devbox '{name}' (disk={disk}GiB)...")
+    click.echo(f"Creating devbox '{name}' (template={template}, disk={disk}GiB)...")
     create_workspace(
         name,
         int(disk),
         git_name=config.get("git_name"),
         git_email=config.get("git_email"),
         dotfiles_uri=config.get("dotfiles_uri"),
+        template=template,
         verbose=verbose,
     )
     click.echo("Created.")
@@ -927,8 +937,15 @@ def devbox_logs(workspace: str | None, follow: bool) -> None:
 @click.argument("prompt", required=False)
 @click.option("--name", "task_name", default=None, help="Task name (auto-generated if omitted)")
 @click.option("-q", "--quiet", is_flag=True, help="Only print the created task's ID")
-def devbox_task(prompt: str | None, task_name: str | None, quiet: bool) -> None:
-    """Start a background Coder task on the posthog-linux template.
+@click.option(
+    "-t",
+    "--template",
+    default=DEFAULT_TEMPLATE,
+    show_default=True,
+    help="Coder workspace template to run the task on",
+)
+def devbox_task(prompt: str | None, task_name: str | None, quiet: bool, template: str) -> None:
+    """Start a background Coder task on the chosen workspace template.
 
     The Coder deployment provisions a fresh workspace per task and hands the
     prompt to the agent configured in the template. Pass the prompt as a
@@ -958,7 +975,7 @@ def devbox_task(prompt: str | None, task_name: str | None, quiet: bool) -> None:
             f"{CLAUDE_CODE_OAUTH_ENV}`) to set it.",
             err=True,
         )
-    create_task(prompt, task_name=task_name, quiet=quiet)
+    create_task(prompt, task_name=task_name, quiet=quiet, template=template)
 
 
 def _ensure_user_secrets_supported() -> None:

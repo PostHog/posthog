@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import errno
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -474,94 +475,216 @@ class TestWorkspaceNaming:
         assert coder.extract_workspace_label("other-workspace") is None
 
 
+def _parse_parameter_flags(args: list[str]) -> dict[str, str]:
+    """Extract `key=value` pairs from `--parameter` flags in argv."""
+    out: dict[str, str] = {}
+    for flag, value in zip(args, args[1:]):
+        if flag == "--parameter":
+            key, _, val = value.partition("=")
+            out[key] = val
+    return out
+
+
+def _fake_run_build_capturing(captured: dict[str, object]) -> Callable[..., subprocess.CompletedProcess[str]]:
+    """Return a `_run_build` stub that records its argv and reports success."""
+
+    def fake(args: list[str], *, verbose: bool = False) -> subprocess.CompletedProcess[str]:
+        captured["args"] = args
+        captured["verbose"] = verbose
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    return fake
+
+
+_DOTFILES = "https://github.com/user/dotfiles"
+_REPO = "https://github.com/PostHog/posthog"
+
+
 class TestWorkspaceCreation:
-    """Test Coder workspace creation parameter passing."""
+    """Test Coder workspace creation parameter passing and template selection."""
 
-    def test_create_workspace_passes_git_identity_as_rich_parameters(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "kwargs, expected_template, expected_params",
+        [
+            (
+                {},
+                "posthog-linux",
+                {"disk_size": "100", "repo": _REPO},
+            ),
+            (
+                {
+                    "git_name": "PostHog Engineer",
+                    "git_email": "test-user@example.com",
+                    "dotfiles_uri": _DOTFILES,
+                },
+                "posthog-linux",
+                {
+                    "disk_size": "100",
+                    "repo": _REPO,
+                    "git_name": "PostHog Engineer",
+                    "git_email": "test-user@example.com",
+                    "dotfiles_uri": _DOTFILES,
+                },
+            ),
+            (
+                {"template": "posthog-microvm"},
+                "posthog-microvm",
+                {"disk_size": "100", "repo": _REPO},
+            ),
+        ],
+        ids=["defaults", "all-optionals", "custom-template"],
+    )
+    def test_create_workspace_forwards_params_and_template(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        kwargs: dict[str, str],
+        expected_template: str,
+        expected_params: dict[str, str],
+    ) -> None:
         captured: dict[str, object] = {}
+        monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
 
-        def fake_run_with_rich_parameters(
-            args: list[str], parameters: dict[str, str], *, verbose: bool | None = None
-        ) -> subprocess.CompletedProcess[str]:
-            captured["args"] = args
-            captured["parameters"] = parameters
-            captured["verbose"] = verbose
-            return subprocess.CompletedProcess(args, 0, "", "")
+        coder.create_workspace("devbox-test-user", 100, **kwargs)
 
-        monkeypatch.setattr(coder, "_run_with_rich_parameters", fake_run_with_rich_parameters)
-
-        coder.create_workspace(
+        args = captured["args"]
+        assert args[:6] == [
+            "coder",
+            "create",
             "devbox-test-user",
-            50,
-            git_name="PostHog Engineer",
-            git_email="test-user@example.com",
-            verbose=True,
-        )
+            "--template",
+            expected_template,
+            "--use-parameter-defaults",
+        ]
+        assert "--yes" in args
+        # Security invariant: the Claude OAuth token is a Coder user secret
+        # (env-injected at workspace start); it must never be forwarded as a
+        # --parameter flag where it would leak into argv / process listings.
+        params = _parse_parameter_flags(args)
+        assert "claude_oauth_token" not in params
+        assert params == expected_params
 
-        assert captured == {
-            "args": ["coder", "create", "devbox-test-user", "--template", "posthog-linux", "--yes"],
-            "parameters": {
-                **coder._TEMPLATE_PARAMETER_DEFAULTS,
-                "disk_size": "50",
-                "repo": "https://github.com/PostHog/posthog",
-                "git_name": "PostHog Engineer",
-                "git_email": "test-user@example.com",
-            },
-            "verbose": True,
-        }
+    @pytest.mark.parametrize(
+        "outputs, dropped, raises",
+        [
+            # Single unknown param dropped, retry succeeds.
+            (
+                [
+                    (1, 'parameter "dotfiles_uri" is not present in the template\n'),
+                    (0, ""),
+                ],
+                {"dotfiles_uri"},
+                False,
+            ),
+            # Two unknown params reported one at a time; each is dropped in
+            # turn before the final call succeeds.
+            (
+                [
+                    (1, 'parameter "dotfiles_uri" is not present in the template\n'),
+                    (1, 'parameter "git_name" is not present in the template\n'),
+                    (0, ""),
+                ],
+                {"dotfiles_uri", "git_name"},
+                False,
+            ),
+            # The magic phrase appearing inside a parameter value (not at the
+            # start of a line) must not trigger a retry. _PARAM_NOT_PRESENT_RE
+            # anchors the match to the start of a line.
+            (
+                [(1, "echoed back: --parameter foo='parameter \"dotfiles_uri\" is not present'\n")],
+                set(),
+                True,
+            ),
+            # Any other build failure aborts immediately.
+            (
+                [(1, "terraform apply failed\n")],
+                set(),
+                True,
+            ),
+        ],
+        ids=["single-drop", "multi-drop", "phrase-in-value-no-retry", "unrelated-error-no-retry"],
+    )
+    def test_create_workspace_param_retry(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        outputs: list[tuple[int, str]],
+        dropped: set[str],
+        raises: bool,
+    ) -> None:
+        queue = list(outputs)
+        calls: list[list[str]] = []
 
-    def test_create_workspace_does_not_pass_claude_parameter(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, object] = {}
+        def fake_run_build(args: list[str], *, verbose: bool = False) -> subprocess.CompletedProcess[str]:
+            calls.append(args)
+            rc, stdout = queue.pop(0)
+            return subprocess.CompletedProcess(args, rc, stdout, "")
 
-        def fake_run_with_rich_parameters(
-            args: list[str], parameters: dict[str, str], *, verbose: bool | None = None
-        ) -> subprocess.CompletedProcess[str]:
-            captured["parameters"] = parameters
+        monkeypatch.setattr(coder, "_run_build", fake_run_build)
+
+        def go() -> None:
+            coder.create_workspace(
+                "devbox-test-user",
+                100,
+                git_name="PostHog Engineer",
+                dotfiles_uri=_DOTFILES,
+            )
+
+        if raises:
+            with pytest.raises(SystemExit):
+                go()
+        else:
+            go()
+
+        assert len(calls) == len(outputs)
+        assert dropped.isdisjoint(_parse_parameter_flags(calls[-1]))
+
+
+class TestWorkspaceUpdate:
+    """Test that `coder update` paths share the same retry behavior as create.
+
+    Without this, a stale `dotfiles_uri` (or any param the new template
+    doesn't declare) saved in the user's hogli config would abort the
+    pre-start parameter sync the next time they switch templates.
+    """
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda: coder.update_workspace(
+                "devbox-test-user",
+                parameters={"dotfiles_uri": _DOTFILES, "git_name": "PostHog Engineer"},
+            ),
+            lambda: coder.update_workspace_parameters(
+                "devbox-test-user",
+                {"dotfiles_uri": _DOTFILES, "git_name": "PostHog Engineer"},
+            ),
+        ],
+        ids=["update_workspace", "update_workspace_parameters"],
+    )
+    def test_update_paths_drop_unknown_params_and_retry(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        call: Callable[[], None],
+    ) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run_build(args: list[str], *, verbose: bool = False) -> subprocess.CompletedProcess[str]:
+            calls.append(args)
+            if len(calls) == 1:
+                return subprocess.CompletedProcess(
+                    args, 1, 'parameter "dotfiles_uri" is not present in the template\n', ""
+                )
             return subprocess.CompletedProcess(args, 0, "", "")
 
-        monkeypatch.setattr(coder, "_run_with_rich_parameters", fake_run_with_rich_parameters)
+        monkeypatch.setattr(coder, "_run_build", fake_run_build)
 
-        coder.create_workspace("devbox-test-user", 100, verbose=True)
+        call()
 
-        # The template no longer declares ``claude_oauth_token``; passing it would
-        # cause Coder to reject the create call.
-        assert "claude_oauth_token" not in captured["parameters"]
-
-    def test_create_workspace_passes_dotfiles_uri_as_rich_parameter(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, dict[str, str]] = {}
-
-        def fake_run_with_rich_parameters(
-            args: list[str], parameters: dict[str, str], *, verbose: bool | None = None
-        ) -> subprocess.CompletedProcess[str]:
-            captured["parameters"] = parameters
-            return subprocess.CompletedProcess(args, 0, "", "")
-
-        monkeypatch.setattr(coder, "_run_with_rich_parameters", fake_run_with_rich_parameters)
-
-        coder.create_workspace(
-            "devbox-test-user",
-            100,
-            dotfiles_uri="https://github.com/user/dotfiles",
-            verbose=True,
-        )
-
-        assert captured["parameters"]["dotfiles_uri"] == "https://github.com/user/dotfiles"
-
-    def test_create_workspace_includes_template_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, dict[str, str]] = {}
-
-        def fake_run_with_rich_parameters(
-            args: list[str], parameters: dict[str, str], *, verbose: bool | None = None
-        ) -> subprocess.CompletedProcess[str]:
-            captured["parameters"] = parameters
-            return subprocess.CompletedProcess(args, 0, "", "")
-
-        monkeypatch.setattr(coder, "_run_with_rich_parameters", fake_run_with_rich_parameters)
-
-        coder.create_workspace("devbox-test-user", 100, verbose=True)
-
-        for key, value in coder._TEMPLATE_PARAMETER_DEFAULTS.items():
-            assert captured["parameters"][key] == value
+        assert len(calls) == 2
+        first = _parse_parameter_flags(calls[0])
+        retried = _parse_parameter_flags(calls[1])
+        assert "dotfiles_uri" in first and "git_name" in first
+        assert "dotfiles_uri" not in retried
+        assert retried["git_name"] == "PostHog Engineer"
 
 
 class TestResolveWorkspaceName:
@@ -794,13 +917,20 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "create_workspace",
-            lambda name, disk_size, git_name=None, git_email=None, dotfiles_uri=None, verbose=False: captured.update(
+            lambda name,
+            disk_size,
+            git_name=None,
+            git_email=None,
+            dotfiles_uri=None,
+            template="posthog-linux",
+            verbose=False: captured.update(
                 {
                     "name": name,
                     "disk_size": str(disk_size),
                     "git_name": git_name,
                     "git_email": git_email,
                     "dotfiles_uri": dotfiles_uri,
+                    "template": template,
                 }
             ),
         )
@@ -814,6 +944,7 @@ class TestDevboxCommands:
             "git_name": None,
             "git_email": None,
             "dotfiles_uri": None,
+            "template": "posthog-linux",
         }
 
     def test_devbox_start_with_name_creates_labeled_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -839,12 +970,19 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "create_workspace",
-            lambda name, disk_size, git_name=None, git_email=None, dotfiles_uri=None, verbose=False: captured.update(
+            lambda name,
+            disk_size,
+            git_name=None,
+            git_email=None,
+            dotfiles_uri=None,
+            template="posthog-linux",
+            verbose=False: captured.update(
                 {
                     "name": name,
                     "git_name": git_name,
                     "git_email": git_email,
                     "dotfiles_uri": dotfiles_uri,
+                    "template": template,
                 }
             ),
         )
@@ -856,7 +994,33 @@ class TestDevboxCommands:
         assert captured["git_name"] == "PostHog Engineer"
         assert captured["git_email"] == "test-user@example.com"
         assert captured["dotfiles_uri"] == "https://github.com/user/dotfiles"
+        assert captured["template"] == "posthog-linux"
         assert "devbox:ssh api" in result.output
+
+    def test_devbox_start_forwards_template_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(
+            devbox_cli,
+            "create_workspace",
+            lambda name,
+            disk_size,
+            git_name=None,
+            git_email=None,
+            dotfiles_uri=None,
+            template="posthog-linux",
+            verbose=False: captured.update({"template": template}),
+        )
+
+        result = runner.invoke(cli, ["devbox:start", "-t", "posthog-microvm"])
+
+        assert result.exit_code == 0, result.output
+        assert captured == {"template": "posthog-microvm"}
 
     def test_devbox_restart_calls_restart_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
@@ -1591,6 +1755,14 @@ class TestCreateTask:
 
         assert captured == [["coder", "task", "create", "--template", "posthog-linux", *expected_tail]]
 
+    def test_create_task_argv_uses_selected_template(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: list[list[str]] = []
+        monkeypatch.setattr(coder, "_run_or_exit", lambda args: captured.append(args))
+
+        coder.create_task("do it", template="posthog-microvm")
+
+        assert captured == [["coder", "task", "create", "--template", "posthog-microvm", "do it"]]
+
 
 class TestDevboxTaskCommand:
     """Test the devbox:task Click command."""
@@ -1600,11 +1772,19 @@ class TestDevboxTaskCommand:
         [
             (
                 ["devbox:task", "fix CI on PR #1234"],
-                {"prompt": "fix CI on PR #1234", "task_name": None, "quiet": False},
+                {"prompt": "fix CI on PR #1234", "task_name": None, "quiet": False, "template": "posthog-linux"},
             ),
             (
                 ["devbox:task", "--name", "my-task", "-q", "do it"],
-                {"prompt": "do it", "task_name": "my-task", "quiet": True},
+                {"prompt": "do it", "task_name": "my-task", "quiet": True, "template": "posthog-linux"},
+            ),
+            (
+                ["devbox:task", "-t", "posthog-microvm", "do it"],
+                {"prompt": "do it", "task_name": None, "quiet": False, "template": "posthog-microvm"},
+            ),
+            (
+                ["devbox:task", "--template", "posthog-microvm", "do it"],
+                {"prompt": "do it", "task_name": None, "quiet": False, "template": "posthog-microvm"},
             ),
         ],
     )
@@ -1620,8 +1800,8 @@ class TestDevboxTaskCommand:
         monkeypatch.setattr(
             devbox_cli,
             "create_task",
-            lambda prompt, task_name=None, quiet=False: captured.update(
-                {"prompt": prompt, "task_name": task_name, "quiet": quiet}
+            lambda prompt, task_name=None, quiet=False, template="posthog-linux": captured.update(
+                {"prompt": prompt, "task_name": task_name, "quiet": quiet, "template": template}
             ),
         )
 
@@ -1655,15 +1835,15 @@ class TestDevboxTaskCommand:
         monkeypatch.setattr(
             devbox_cli,
             "create_task",
-            lambda prompt, task_name=None, quiet=False: captured.update(
-                {"prompt": prompt, "task_name": task_name, "quiet": quiet}
+            lambda prompt, task_name=None, quiet=False, template="posthog-linux": captured.update(
+                {"prompt": prompt, "task_name": task_name, "quiet": quiet, "template": template}
             ),
         )
 
         result = runner.invoke(cli, ["devbox:task"], input="piped prompt\n")
 
         assert result.exit_code == 0
-        assert captured == {"prompt": None, "task_name": None, "quiet": False}
+        assert captured == {"prompt": None, "task_name": None, "quiet": False, "template": "posthog-linux"}
 
 
 class TestResolveLocalSigningKey:
