@@ -17,8 +17,8 @@ import { urls } from 'scenes/urls'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { isDataVisualizationNode } from '~/queries/utils'
-import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
+import { isDataVisualizationNode, isFunnelsQuery } from '~/queries/utils'
+import { AccessControlLevel, AccessControlResourceType, FunnelVizType, InsightLogicProps, ItemMode } from '~/types'
 
 import { InsightSidePanelContent } from './SidePanel/InsightSidePanelContent'
 import { getInsightIconTypeFromQuery, getOverrideWarningPropsForButton } from './utils'
@@ -48,6 +48,19 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
 
+    // When viewing the time-to-convert histogram (drilled into from the funnel steps view),
+    // inject a back breadcrumb so users can return to the steps view.
+    const isTimeToConvertView =
+        isFunnelsQuery(query) && query.funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert
+    const timeToConvertBackBreadcrumb =
+        isTimeToConvertView && insight.short_id
+            ? {
+                  key: `insight-${insight.short_id}-steps`,
+                  name: 'Funnel steps',
+                  path: urls.insightView(insight.short_id),
+              }
+            : undefined
+
     useMaxTool({
         identifier: 'upsert_alert',
         active: canCreateAlertForInsight && hasDashboardItemId && !!insight.id,
@@ -71,6 +84,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 resourceType={{
                     type: getInsightIconTypeFromQuery(query),
                 }}
+                forceBackTo={timeToConvertBackBreadcrumb}
                 onNameChange={(name) => {
                     if (insightMode === ItemMode.Edit) {
                         setInsightMetadataLocal({ name })
