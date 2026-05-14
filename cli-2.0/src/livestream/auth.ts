@@ -1,5 +1,6 @@
 import { createServer, type Server } from 'node:http'
-import open from 'open'
+
+import { openBrowser } from '../oauth.js'
 import type { LivestreamCredentials } from './types.js'
 import { deriveLivestreamHost } from './utils/host.js'
 import { secureStorage } from './utils/keychain.js'
@@ -133,12 +134,8 @@ export const authenticate = async (opts: AuthOptions): Promise<LivestreamCredent
 
   console.error(`Opening browser to authorize: ${url}`)
 
-  try {
-    await open(url)
-  } catch {
-    console.error(`Could not open browser automatically.`)
-    console.error(`Please open this URL manually: ${url}`)
-  }
+  openBrowser(url)
+  console.error(`If the browser does not open, please open this URL manually: ${url}`)
 
   console.error('Waiting for authorization (timeout: 5 minutes)...')
 
