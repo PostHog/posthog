@@ -11,6 +11,7 @@ export enum SignalSourceProduct {
     CONVERSATIONS = 'conversations',
     ERROR_TRACKING = 'error_tracking',
     ENDPOINTS = 'endpoints',
+    AGENTIC_TESTS = 'agentic_tests',
 }
 
 export enum SignalSourceType {
@@ -24,6 +25,7 @@ export enum SignalSourceType {
     ISSUE_REOPENED = 'issue_reopened',
     ISSUE_SPIKING = 'issue_spiking',
     ENDPOINT_EXECUTION_FAILED = 'endpoint_execution_failed',
+    TEST_FAILURE = 'test_failure',
 }
 
 // ── Per-product signal extras & inputs ──────────────────────────────────────────
@@ -259,6 +261,26 @@ export interface EndpointExecutionFailedSignalInput {
     extra: EndpointExecutionFailedSignalExtra
 }
 
+// Agentic test failure
+
+export interface AgenticTestFailureSignalExtra {
+    agentic_test_id: string
+    agentic_test_run_id: string
+    agentic_test_name: string
+    target_url: string
+    region: string
+    error_message: string
+}
+
+export interface AgenticTestFailureSignalInput {
+    source_type: 'test_failure'
+    source_product: 'agentic_tests'
+    source_id: string
+    description: string
+    weight: number
+    extra: AgenticTestFailureSignalExtra
+}
+
 // ── Report reviewer types ────────────────────────────────────────────────────────
 
 export interface RelevantCommit {
@@ -297,3 +319,4 @@ export type SignalInput =
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
     | EndpointExecutionFailedSignalInput
+    | AgenticTestFailureSignalInput

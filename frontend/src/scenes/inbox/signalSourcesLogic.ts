@@ -25,6 +25,8 @@ export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
     SignalSourceType.ISSUE_SPIKING,
 ]
 
+export const AGENTIC_TESTS_SIGNAL_SOURCE_TYPE = SignalSourceType.TEST_FAILURE
+
 const DATA_WAREHOUSE_SOURCE_CONFIG: Record<
     DataWarehouseSource,
     {
@@ -127,6 +129,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
+        toggleAgenticTests: true,
         saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
         clearSessionAnalysisFilters: true,
     }),
@@ -262,6 +265,20 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         isErrorTrackingToggling: [
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean => keys.has('error_tracking'),
+        ],
+        agenticTestsConfig: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.AGENTIC_TESTS &&
+                        c.source_type === AGENTIC_TESTS_SIGNAL_SOURCE_TYPE
+                ) ?? null,
+        ],
+        isAgenticTestsToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean =>
+                keys.has(`${SignalSourceProduct.AGENTIC_TESTS}_${AGENTIC_TESTS_SIGNAL_SOURCE_TYPE}`),
         ],
         errorTrackingIsFullyEnabled: [
             (s) => [s.sourceConfigs],
@@ -413,6 +430,15 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     lemonToast.error(errorMessage)
                     actions.loadSourceConfigs()
                 }
+            },
+            toggleAgenticTests: () => {
+                const config = values.agenticTestsConfig
+                const desiredEnabled = config?.enabled ?? true
+                actions.toggleSignalSource({
+                    sourceProduct: SignalSourceProduct.AGENTIC_TESTS,
+                    sourceType: AGENTIC_TESTS_SIGNAL_SOURCE_TYPE,
+                    enabled: desiredEnabled,
+                })
             },
             toggleSessionAnalysis: () => {
                 const config = values.sessionAnalysisConfig
