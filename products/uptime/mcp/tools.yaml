@@ -1,0 +1,475 @@
+category: Uptime
+feature: uptime
+url_prefix: /uptime
+ui_apps: {}
+tools:
+    monitor-list:
+        operation: uptime_monitors_list
+        enabled: true
+        scopes:
+            - uptime:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List uptime monitors
+        description: >
+            Return every uptime monitor in the user's project — the lightweight shape (id, name, url,
+            created_at).
+
+
+            Use this when you only need the names and URLs being monitored. For current status, uptime
+            percentage, average latency, or recent ping history, use the monitor-summary-list tool
+            instead — it returns the same set of monitors plus their health metrics.
+    monitor-summary-list:
+        operation: uptime_monitors_summary_list
+        enabled: true
+        scopes:
+            - uptime:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List monitors with status and uptime summary
+        description: >
+            Return every uptime monitor with current health: status (up / down / no_data), 30-day uptime
+            percentage, 24-hour average latency, last-ping timestamp and outcome, and 30 daily status
+            buckets (each marked up / degraded / down / no_data based on the day's pings).
+
+
+            This is the right tool for "are my monitors healthy?", "what's down right now?", "show me my
+            uptime history", or any question about the current state of monitored URLs. Each row also
+            includes the monitor's id and name so you can drill into specific monitors with monitor-get
+            or monitor-pings.
+    monitor-get:
+        operation: uptime_monitors_retrieve
+        enabled: true
+        scopes:
+            - uptime:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get monitor status by id
+        description: >
+            Return the same data as monitor-summary-list for one monitor by id: status, uptime %, 24h
+            latency, last ping, and 30 daily status buckets. Returns 404 if the monitor was deleted.
+
+
+            Use this once you've narrowed down the monitor the user is asking about. If you only have
+            the user's natural-language name (e.g. "the posthog.com one"), call monitor-summary-list
+            first to find the matching id.
+    monitor-pings:
+        operation: uptime_monitors_pings_list
+        enabled: true
+        scopes:
+            - uptime:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get recent pings for a monitor
+        description: >
+            Return up to the last 50 pings for one monitor: timestamp, outcome (success / failure),
+            HTTP status code, and latency in milliseconds.
+
+
+            Use this when the user asks for details about specific checks — "show me the last few
+            pings for X", "what was the response code when X went down", "how laggy has X been". For
+            the rolled-up daily view, use monitor-summary-list or monitor-get instead.
+    monitor-suggested-urls:
+        operation: uptime_monitors_suggested_urls_list
+        enabled: true
+        scopes:
+            - uptime:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Suggest pingable URLs from project traffic
+        description: >
+            Return a ranked list of URLs derived from the project's $pageview events that the user
+            could be monitoring but isn't yet. Each row includes the canonical https URL, host,
+            pageview count, distinct path count, and last-seen timestamp.
+
+
+            Use this when the user asks "what should I be monitoring?" or "what other URLs do you
+            see in our traffic?". Hosts already covered by an existing monitor are excluded — same
+            for localhost, *.local, and IP literals (not pingable from PostHog's runner).
+    incident-list:
+        operation: uptime_incidents_list
+        enabled: true
+        scopes:
+            - uptime:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List declared incidents
+        description: >
+            Return declared incidents across the team, ongoing first, then most recently started.
+            Each incident has a name, optional description, the monitor it relates to (monitor_id),
+            started_at, resolved_at (null while ongoing), resolution_note (filled when resolved),
+            created_at, and updated_at.
+
+
+            Pass monitor_id to filter to incidents for a single monitor — useful when the user is
+            looking at a specific tile. Use this for "any open incidents?", "what went wrong last
+            week?", or to surface the audit log for a postmortem.
+    incident-get:
+        operation: uptime_incidents_retrieve
+        enabled: true
+        scopes:
+            - uptime:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get one declared incident
+        description: >
+            Return a single declared incident by id including its description and (if resolved)
+            resolution_note. Returns 404 if the incident has been deleted.
+
+
+            Use this after incident-list to fetch the full body / resolution note for a specific
+            incident.
+    status-page-list:
+        operation: uptime_status_pages_list
+        enabled: true
+        scopes:
+            - uptime:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List status pages
+        description: >
+            Return every status page configured for the team. Each row includes title, slug
+            (publicly addressable at /status/<slug> when published), is_published flag, and the
+            ordered list of monitor_ids the page surfaces.
+
+
+            Use this when the user asks "what status pages do I have?" or "is the public page
+            live?". Pages with is_published=false are drafts and aren't reachable publicly.
+    status-page-get:
+        operation: uptime_status_pages_retrieve
+        enabled: true
+        scopes:
+            - uptime:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get one status page
+        description: >
+            Return a single status page configuration by id — title, slug, monitor_ids, is_published,
+            and timestamps. Returns 404 if the page has been deleted.
+
+
+            The public read-only view of a published page is available unauthenticated at
+            /status/<slug> and isn't fronted by an MCP tool — once you have the slug, point the user
+            to that URL.
+
+    # ===== Monitor writes =====
+    monitor-create:
+        operation: uptime_monitors_create
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create monitor
+        description: >
+            Create a new uptime monitor. Required body: name (display label) and url (must be a
+            valid http or https URL, max 2048 chars). PostHog will start pinging the URL on a
+            recurring schedule and recording ping outcomes immediately.
+
+
+            If the user mentions a URL they want monitored but you don't have a name yet, default
+            the name to the URL's host (e.g. "posthog.com"). Use monitor-suggested-urls first if
+            the user is asking "what should I be monitoring?".
+    monitor-update:
+        operation: uptime_monitors_partial_update
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update a monitor's name or URL
+        description: >
+            Patch the display name and/or URL of an existing monitor. Both fields are optional;
+            send only what changes. Historical pings are kept — the monitor id is stable, so
+            previous uptime % and latency history continue to accumulate against the same row.
+
+
+            Changing the URL means subsequent pings target the new endpoint; that's usually what
+            the user wants when they rename a service.
+    monitor-delete:
+        operation: uptime_monitors_destroy
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        enrich_url: '{id}'
+        title: Delete a monitor
+        description: >
+            Permanently remove a monitor. Confirm with the user first — this is destructive. The
+            monitor disappears from the dashboard immediately and stops being pinged.
+
+
+            Historical pings stored in ClickHouse are intentionally retained for audit (the
+            monitor id is a UUID, no reuse risk), but the user-facing tile and metrics go away.
+    monitor-ping-now:
+        operation: uptime_monitors_ping_now_create
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Trigger an immediate ping
+        description: >
+            Queue a one-off check for the monitor outside its normal schedule. Useful when the user
+            wants to know "is it back up yet?" after a known incident or a deploy.
+
+
+            Returns 202 immediately; the actual ping runs asynchronously and shows up in
+            monitor-pings a few seconds later.
+    monitor-bulk-create:
+        operation: uptime_monitors_bulk_create_create
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create multiple monitors atomically
+        description: >
+            Create several monitors in one all-or-nothing transaction. Body shape:
+            { "monitors": [{ "name": "...", "url": "..." }, ...] }. If any item fails validation,
+            the whole call is rolled back.
+
+
+            Prefer monitor-create for one-off additions. This tool is for adopting a list of URLs
+            at once (e.g. the user pastes 5 URLs they want monitored).
+    monitor-reorder:
+        operation: uptime_monitors_reorder_create
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set the display order of monitors
+        description: >
+            Persist the user-controlled display order shown on the dashboard. Body shape:
+            { "ordered_ids": ["<uuid1>", "<uuid2>", ...] }. Position 0 renders first.
+
+
+            Pass every monitor id in the desired order. Unknown ids in the list are silently
+            ignored (concurrent deletes can't crash the reorder).
+
+    # ===== Incident writes =====
+    incident-create:
+        operation: uptime_incidents_create
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Declare a new incident
+        description: >
+            Declare an incident against one monitor. Required body: monitor_id (must belong to the
+            user's team), name (short title shown on the public status page). Optional: description
+            (markdown body — the public detail) and started_at (defaults to now if omitted).
+
+
+            New incidents are ongoing by default — resolved_at is null. Use incident-resolve when
+            the issue is fixed.
+    incident-update:
+        operation: uptime_incidents_partial_update
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Edit an incident
+        description: >
+            Patch any subset of name / description / started_at / resolved_at / resolution_note on
+            an existing incident. Send only the fields that change.
+
+
+            Setting resolved_at explicitly to null reopens a resolved incident — but
+            incident-reopen is clearer for that case. To resolve, prefer incident-resolve which
+            requires a resolution_note.
+    incident-delete:
+        operation: uptime_incidents_destroy
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        enrich_url: '{id}'
+        title: Delete an incident
+        description: >
+            Permanently remove an incident. Confirm with the user first. Prefer
+            incident-resolve to close out an issue while keeping the audit trail — delete is for
+            test / mistaken-declaration cleanup, not for closing real incidents.
+    incident-resolve:
+        operation: uptime_incidents_resolve_create
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Mark an incident as resolved
+        description: >
+            Close out an ongoing incident with a required resolution_note. The note appears
+            publicly on the status page next to the incident, so it should be customer-facing
+            (e.g. "Cached responses restored after rolling back deploy abc123").
+
+
+            Sets resolved_at to the server time and stores resolution_note. Use incident-reopen if
+            the same issue recurs — it clears resolved_at and the note.
+    incident-reopen:
+        operation: uptime_incidents_reopen_create
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Reopen a resolved incident
+        description: >
+            Move a resolved incident back to ongoing. Clears resolved_at and resolution_note, so
+            the incident shows as live again on the public status page. Use when the underlying
+            issue recurs.
+
+
+            For a separate new issue, prefer incident-create — reopening conflates two events
+            in the audit trail.
+
+    # ===== Status page writes =====
+    status-page-create:
+        operation: uptime_status_pages_create
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create a draft status page
+        description: >
+            Create a new status page with a default title, slug, and empty monitor list. The page
+            is created in draft state (is_published=false) so the public URL won't resolve until
+            the user explicitly publishes it.
+
+
+            No request body needed. After creation, use status-page-update to set the title /
+            slug / monitor_ids, then status-page-publish to make it live.
+    status-page-update:
+        operation: uptime_status_pages_partial_update
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Edit a status page
+        description: >
+            Patch any subset of title (header text), slug (URL segment for /status/<slug>, must be
+            globally unique — duplicates return 400), or monitor_ids (ordered list of monitor IDs
+            to display, order is preserved on the public page).
+
+
+            Send only the fields that change. Reordering monitor_ids reorders the public display.
+    status-page-delete:
+        operation: uptime_status_pages_destroy
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        enrich_url: '{id}'
+        title: Delete a status page
+        description: >
+            Permanently remove a status page. Confirm with the user first. If the page is
+            published, its public URL stops resolving immediately.
+
+
+            Monitors referenced by the page are unaffected.
+    status-page-publish:
+        operation: uptime_status_pages_publish_create
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Publish a status page
+        description: >
+            Make a draft status page public at /status/<slug>. No auth is required to view the
+            published page — anyone with the URL can see the current status of the listed monitors
+            and any open incidents.
+
+
+            Use status-page-unpublish to revert to draft.
+    status-page-unpublish:
+        operation: uptime_status_pages_unpublish_create
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        enrich_url: '{id}'
+        title: Unpublish a status page
+        description: >
+            Revert a published status page to draft so /status/<slug> stops resolving. The page
+            config (title, slug, monitor_ids) is preserved — re-publish to bring it back live.

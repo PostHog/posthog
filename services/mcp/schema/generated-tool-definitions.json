@@ -2178,6 +2178,111 @@
             "readOnlyHint": true
         }
     },
+    "incident-create": {
+        "description": "Declare an incident against one monitor. Required body: monitor_id (must belong to the user's team), name (short title shown on the public status page). Optional: description (markdown body — the public detail) and started_at (defaults to now if omitted).\n\nNew incidents are ongoing by default — resolved_at is null. Use incident-resolve when the issue is fixed.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Declare a new incident",
+        "title": "Declare a new incident",
+        "required_scopes": ["uptime:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "incident-delete": {
+        "description": "Permanently remove an incident. Confirm with the user first. Prefer incident-resolve to close out an issue while keeping the audit trail — delete is for test / mistaken-declaration cleanup, not for closing real incidents.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Delete an incident",
+        "title": "Delete an incident",
+        "required_scopes": ["uptime:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "incident-get": {
+        "description": "Return a single declared incident by id including its description and (if resolved) resolution_note. Returns 404 if the incident has been deleted.\n\nUse this after incident-list to fetch the full body / resolution note for a specific incident.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Get one declared incident",
+        "title": "Get one declared incident",
+        "required_scopes": ["uptime:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "incident-list": {
+        "description": "Return declared incidents across the team, ongoing first, then most recently started. Each incident has a name, optional description, the monitor it relates to (monitor_id), started_at, resolved_at (null while ongoing), resolution_note (filled when resolved), created_at, and updated_at.\n\nPass monitor_id to filter to incidents for a single monitor — useful when the user is looking at a specific tile. Use this for \"any open incidents?\", \"what went wrong last week?\", or to surface the audit log for a postmortem.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "List declared incidents",
+        "title": "List declared incidents",
+        "required_scopes": ["uptime:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "incident-reopen": {
+        "description": "Move a resolved incident back to ongoing. Clears resolved_at and resolution_note, so the incident shows as live again on the public status page. Use when the underlying issue recurs.\n\nFor a separate new issue, prefer incident-create — reopening conflates two events in the audit trail.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Reopen a resolved incident",
+        "title": "Reopen a resolved incident",
+        "required_scopes": ["uptime:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "incident-resolve": {
+        "description": "Close out an ongoing incident with a required resolution_note. The note appears publicly on the status page next to the incident, so it should be customer-facing (e.g. \"Cached responses restored after rolling back deploy abc123\").\n\nSets resolved_at to the server time and stores resolution_note. Use incident-reopen if the same issue recurs — it clears resolved_at and the note.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Mark an incident as resolved",
+        "title": "Mark an incident as resolved",
+        "required_scopes": ["uptime:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "incident-update": {
+        "description": "Patch any subset of name / description / started_at / resolved_at / resolution_note on an existing incident. Send only the fields that change.\n\nSetting resolved_at explicitly to null reopens a resolved incident — but incident-reopen is clearer for that case. To resolve, prefer incident-resolve which requires a resolution_note.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Edit an incident",
+        "title": "Edit an incident",
+        "required_scopes": ["uptime:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "insight-create": {
         "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel / query-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save. Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if you want to see the computed results.",
         "category": "Product analytics",
@@ -3494,6 +3599,171 @@
             "readOnlyHint": true
         }
     },
+    "monitor-bulk-create": {
+        "description": "Create several monitors in one all-or-nothing transaction. Body shape: { \"monitors\": [{ \"name\": \"...\", \"url\": \"...\" }, ...] }. If any item fails validation, the whole call is rolled back.\n\nPrefer monitor-create for one-off additions. This tool is for adopting a list of URLs at once (e.g. the user pastes 5 URLs they want monitored).",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Create multiple monitors atomically",
+        "title": "Create multiple monitors atomically",
+        "required_scopes": ["uptime:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "monitor-create": {
+        "description": "Create a new uptime monitor. Required body: name (display label) and url (must be a valid http or https URL, max 2048 chars). PostHog will start pinging the URL on a recurring schedule and recording ping outcomes immediately.\n\nIf the user mentions a URL they want monitored but you don't have a name yet, default the name to the URL's host (e.g. \"posthog.com\"). Use monitor-suggested-urls first if the user is asking \"what should I be monitoring?\".",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Create monitor",
+        "title": "Create monitor",
+        "required_scopes": ["uptime:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "monitor-delete": {
+        "description": "Permanently remove a monitor. Confirm with the user first — this is destructive. The monitor disappears from the dashboard immediately and stops being pinged.\n\nHistorical pings stored in ClickHouse are intentionally retained for audit (the monitor id is a UUID, no reuse risk), but the user-facing tile and metrics go away.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Delete a monitor",
+        "title": "Delete a monitor",
+        "required_scopes": ["uptime:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "monitor-get": {
+        "description": "Return the same data as monitor-summary-list for one monitor by id: status, uptime %, 24h latency, last ping, and 30 daily status buckets. Returns 404 if the monitor was deleted.\n\nUse this once you've narrowed down the monitor the user is asking about. If you only have the user's natural-language name (e.g. \"the posthog.com one\"), call monitor-summary-list first to find the matching id.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Get monitor status by id",
+        "title": "Get monitor status by id",
+        "required_scopes": ["uptime:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "monitor-list": {
+        "description": "Return every uptime monitor in the user's project — the lightweight shape (id, name, url, created_at).\n\nUse this when you only need the names and URLs being monitored. For current status, uptime percentage, average latency, or recent ping history, use the monitor-summary-list tool instead — it returns the same set of monitors plus their health metrics.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "List uptime monitors",
+        "title": "List uptime monitors",
+        "required_scopes": ["uptime:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "monitor-ping-now": {
+        "description": "Queue a one-off check for the monitor outside its normal schedule. Useful when the user wants to know \"is it back up yet?\" after a known incident or a deploy.\n\nReturns 202 immediately; the actual ping runs asynchronously and shows up in monitor-pings a few seconds later.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Trigger an immediate ping",
+        "title": "Trigger an immediate ping",
+        "required_scopes": ["uptime:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "monitor-pings": {
+        "description": "Return up to the last 50 pings for one monitor: timestamp, outcome (success / failure), HTTP status code, and latency in milliseconds.\n\nUse this when the user asks for details about specific checks — \"show me the last few pings for X\", \"what was the response code when X went down\", \"how laggy has X been\". For the rolled-up daily view, use monitor-summary-list or monitor-get instead.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Get recent pings for a monitor",
+        "title": "Get recent pings for a monitor",
+        "required_scopes": ["uptime:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "monitor-reorder": {
+        "description": "Persist the user-controlled display order shown on the dashboard. Body shape: { \"ordered_ids\": [\"<uuid1>\", \"<uuid2>\", ...] }. Position 0 renders first.\n\nPass every monitor id in the desired order. Unknown ids in the list are silently ignored (concurrent deletes can't crash the reorder).",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Set the display order of monitors",
+        "title": "Set the display order of monitors",
+        "required_scopes": ["uptime:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "monitor-suggested-urls": {
+        "description": "Return a ranked list of URLs derived from the project's $pageview events that the user could be monitoring but isn't yet. Each row includes the canonical https URL, host, pageview count, distinct path count, and last-seen timestamp.\n\nUse this when the user asks \"what should I be monitoring?\" or \"what other URLs do you see in our traffic?\". Hosts already covered by an existing monitor are excluded — same for localhost, *.local, and IP literals (not pingable from PostHog's runner).",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Suggest pingable URLs from project traffic",
+        "title": "Suggest pingable URLs from project traffic",
+        "required_scopes": ["uptime:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "monitor-summary-list": {
+        "description": "Return every uptime monitor with current health: status (up / down / no_data), 30-day uptime percentage, 24-hour average latency, last-ping timestamp and outcome, and 30 daily status buckets (each marked up / degraded / down / no_data based on the day's pings).\n\nThis is the right tool for \"are my monitors healthy?\", \"what's down right now?\", \"show me my uptime history\", or any question about the current state of monitored URLs. Each row also includes the monitor's id and name so you can drill into specific monitors with monitor-get or monitor-pings.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "List monitors with status and uptime summary",
+        "title": "List monitors with status and uptime summary",
+        "required_scopes": ["uptime:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "monitor-update": {
+        "description": "Patch the display name and/or URL of an existing monitor. Both fields are optional; send only what changes. Historical pings are kept — the monitor id is stable, so previous uptime % and latency history continue to accumulate against the same row.\n\nChanging the URL means subsequent pings target the new endpoint; that's usually what the user wants when they rename a service.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Update a monitor's name or URL",
+        "title": "Update a monitor's name or URL",
+        "required_scopes": ["uptime:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-create": {
         "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.",
         "category": "Notebooks",
@@ -4357,6 +4627,111 @@
         "summary": "Update SQL variable",
         "title": "Update SQL variable",
         "required_scopes": ["insight_variable:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "status-page-create": {
+        "description": "Create a new status page with a default title, slug, and empty monitor list. The page is created in draft state (is_published=false) so the public URL won't resolve until the user explicitly publishes it.\n\nNo request body needed. After creation, use status-page-update to set the title / slug / monitor_ids, then status-page-publish to make it live.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Create a draft status page",
+        "title": "Create a draft status page",
+        "required_scopes": ["uptime:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "status-page-delete": {
+        "description": "Permanently remove a status page. Confirm with the user first. If the page is published, its public URL stops resolving immediately.\n\nMonitors referenced by the page are unaffected.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Delete a status page",
+        "title": "Delete a status page",
+        "required_scopes": ["uptime:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "status-page-get": {
+        "description": "Return a single status page configuration by id — title, slug, monitor_ids, is_published, and timestamps. Returns 404 if the page has been deleted.\n\nThe public read-only view of a published page is available unauthenticated at /status/<slug> and isn't fronted by an MCP tool — once you have the slug, point the user to that URL.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Get one status page",
+        "title": "Get one status page",
+        "required_scopes": ["uptime:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "status-page-list": {
+        "description": "Return every status page configured for the team. Each row includes title, slug (publicly addressable at /status/<slug> when published), is_published flag, and the ordered list of monitor_ids the page surfaces.\n\nUse this when the user asks \"what status pages do I have?\" or \"is the public page live?\". Pages with is_published=false are drafts and aren't reachable publicly.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "List status pages",
+        "title": "List status pages",
+        "required_scopes": ["uptime:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "status-page-publish": {
+        "description": "Make a draft status page public at /status/<slug>. No auth is required to view the published page — anyone with the URL can see the current status of the listed monitors and any open incidents.\n\nUse status-page-unpublish to revert to draft.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Publish a status page",
+        "title": "Publish a status page",
+        "required_scopes": ["uptime:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "status-page-unpublish": {
+        "description": "Revert a published status page to draft so /status/<slug> stops resolving. The page config (title, slug, monitor_ids) is preserved — re-publish to bring it back live.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Unpublish a status page",
+        "title": "Unpublish a status page",
+        "required_scopes": ["uptime:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "status-page-update": {
+        "description": "Patch any subset of title (header text), slug (URL segment for /status/<slug>, must be globally unique — duplicates return 400), or monitor_ids (ordered list of monitor IDs to display, order is preserved on the public page).\n\nSend only the fields that change. Reordering monitor_ids reorders the public display.",
+        "category": "Uptime",
+        "feature": "uptime",
+        "summary": "Edit a status page",
+        "title": "Edit a status page",
+        "required_scopes": ["uptime:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,

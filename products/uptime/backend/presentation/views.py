@@ -35,7 +35,7 @@ from .serializers import (
 
 
 class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "uptime"
 
     @extend_schema(responses={200: MonitorSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -46,7 +46,7 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: MonitorSummarySerializer(many=True)},
         description="Per-monitor status, 30-day uptime, 24h latency, last ping, and 30 daily status buckets.",
     )
-    @action(detail=False, methods=["get"], url_path="summary")
+    @action(detail=False, methods=["get"], url_path="summary", required_scopes=["uptime:read"])
     def summary(self, request: Request, **kwargs) -> Response:
         summaries = api.list_monitor_summaries(team_id=self.team_id)
         return Response(MonitorSummarySerializer(summaries, many=True).data)
@@ -93,7 +93,7 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(responses={200: PingSerializer(many=True)})
-    @action(detail=True, methods=["get"], url_path="pings")
+    @action(detail=True, methods=["get"], url_path="pings", required_scopes=["uptime:read"])
     def pings(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         pings = api.list_recent_pings(team_id=self.team_id, monitor_id=pk)
         return Response(PingSerializer(pings, many=True).data)
@@ -120,7 +120,7 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=None,
         responses={202: OpenApiResponse(description="Ping task enqueued.")},
     )
-    @action(detail=True, methods=["post"], url_path="ping_now")
+    @action(detail=True, methods=["post"], url_path="ping_now", required_scopes=["uptime:write"])
     def ping_now(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         ping_monitor.delay(str(pk))
         return Response(status=status.HTTP_202_ACCEPTED)
@@ -143,7 +143,7 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: SuggestedUrlSerializer(many=True)},
         description="Suggest pingable URLs derived from $pageview events, excluding hosts already monitored.",
     )
-    @action(detail=False, methods=["get"], url_path="suggested_urls")
+    @action(detail=False, methods=["get"], url_path="suggested_urls", required_scopes=["uptime:read"])
     def suggested_urls(self, request: Request, **kwargs) -> Response:
         days = int(request.query_params.get("days", 30))
         limit = int(request.query_params.get("limit", 20))
@@ -155,7 +155,7 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={204: OpenApiResponse(description="Display order saved.")},
         description="Persist the user-controlled display order. Position 0 renders first.",
     )
-    @action(detail=False, methods=["post"], url_path="reorder")
+    @action(detail=False, methods=["post"], url_path="reorder", required_scopes=["uptime:write"])
     def reorder(self, request: Request, **kwargs) -> Response:
         serializer = ReorderMonitorsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -172,7 +172,7 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={201: MonitorSerializer(many=True)},
         description="Create multiple monitors in a single atomic transaction. Used by the URL-suggester bulk add.",
     )
-    @action(detail=False, methods=["post"], url_path="bulk_create")
+    @action(detail=False, methods=["post"], url_path="bulk_create", required_scopes=["uptime:write"])
     def bulk_create(self, request: Request, **kwargs) -> Response:
         serializer = BulkCreateMonitorSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -189,7 +189,7 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 class IncidentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "uptime"
 
     @extend_schema(
         parameters=[
@@ -279,7 +279,7 @@ class IncidentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: IncidentSerializer},
         description="Mark the incident as resolved with a required resolution note. The note is shown on the public status page.",
     )
-    @action(detail=True, methods=["post"], url_path="resolve")
+    @action(detail=True, methods=["post"], url_path="resolve", required_scopes=["uptime:write"])
     def resolve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         serializer = ResolveIncidentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -300,7 +300,7 @@ class IncidentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: IncidentSerializer},
         description="Reopen the incident, clearing resolved_at and the resolution note so it shows as ongoing again.",
     )
-    @action(detail=True, methods=["post"], url_path="reopen")
+    @action(detail=True, methods=["post"], url_path="reopen", required_scopes=["uptime:write"])
     def reopen(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         try:
             dto = api.reopen_incident(team_id=self.team_id, incident_id=UUID(str(pk)))
@@ -310,7 +310,7 @@ class IncidentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 class StatusPageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "uptime"
 
     @extend_schema(responses={200: StatusPageSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -366,7 +366,7 @@ class StatusPageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: StatusPageSerializer},
         description="Publish the status page. Makes it accessible at /status/<slug> without authentication.",
     )
-    @action(detail=True, methods=["post"], url_path="publish")
+    @action(detail=True, methods=["post"], url_path="publish", required_scopes=["uptime:write"])
     def publish(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         page = api.publish_status_page(team_id=self.team_id, page_id=UUID(str(pk)))
         return Response(StatusPageSerializer(page).data)
@@ -376,7 +376,7 @@ class StatusPageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: StatusPageSerializer},
         description="Revert the status page to draft and remove public access.",
     )
-    @action(detail=True, methods=["post"], url_path="unpublish")
+    @action(detail=True, methods=["post"], url_path="unpublish", required_scopes=["uptime:write"])
     def unpublish(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         page = api.unpublish_status_page(team_id=self.team_id, page_id=UUID(str(pk)))
         return Response(StatusPageSerializer(page).data)
