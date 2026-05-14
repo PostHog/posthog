@@ -90,10 +90,7 @@ describe('RevisionResolver', () => {
         await new Promise<void>((resolve) => setTimeout(resolve, 10))
         await resolver.resolveDomain('analytics-bot.agents.posthog.com')
 
-        expect(calls.domains).toEqual([
-            'analytics-bot.agents.posthog.com',
-            'analytics-bot.agents.posthog.com',
-        ])
+        expect(calls.domains).toEqual(['analytics-bot.agents.posthog.com', 'analytics-bot.agents.posthog.com'])
     })
 
     it('invalidate() evicts the cached entry for a domain', async () => {
@@ -104,10 +101,7 @@ describe('RevisionResolver', () => {
         resolver.invalidate({ domain: 'analytics-bot.agents.posthog.com' })
         await resolver.resolveDomain('analytics-bot.agents.posthog.com')
 
-        expect(calls.domains).toEqual([
-            'analytics-bot.agents.posthog.com',
-            'analytics-bot.agents.posthog.com',
-        ])
+        expect(calls.domains).toEqual(['analytics-bot.agents.posthog.com', 'analytics-bot.agents.posthog.com'])
     })
 
     it('invalidate() evicts only the requested key', async () => {
@@ -122,11 +116,7 @@ describe('RevisionResolver', () => {
         await resolver.resolveDomain('b.agents.posthog.com')
 
         // a was invalidated and re-fetched; b stayed cached.
-        expect(calls.domains).toEqual([
-            'a.agents.posthog.com',
-            'b.agents.posthog.com',
-            'a.agents.posthog.com',
-        ])
+        expect(calls.domains).toEqual(['a.agents.posthog.com', 'b.agents.posthog.com', 'a.agents.posthog.com'])
     })
 
     it('propagates errors from the client and does not cache the failure', async () => {

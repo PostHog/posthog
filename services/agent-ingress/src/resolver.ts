@@ -6,6 +6,13 @@ export interface ResolverOptions {
     client: InternalApiClient
     ttlMs: number
     maxEntries?: number
+    /**
+     * Dev-only escape hatch. When provided, lookups try this in-memory map first
+     * (keyed by `applicationId` AND by `${applicationSlug}${domainSuffix}`) before
+     * falling through to the Internal API. Lets the local stack run without a wired
+     * Django side. Loaded once from `AGENT_DEV_REVISIONS_PATH` in `index.ts`.
+     */
+    localRevisions?: Map<string, ResolvedRevision>
 }
 
 /**
@@ -26,10 +33,18 @@ export class RevisionResolver {
     }
 
     async resolveDomain(domain: string): Promise<ResolvedRevision | null> {
+        const local = this.options.localRevisions?.get(`domain:${domain}`)
+        if (local) {
+            return local
+        }
         return this.lookup(`domain:${domain}`, () => this.options.client.resolve({ domain }))
     }
 
     async resolveApplication(applicationId: string): Promise<ResolvedRevision | null> {
+        const local = this.options.localRevisions?.get(`app:${applicationId}`)
+        if (local) {
+            return local
+        }
         return this.lookup(`app:${applicationId}`, () => this.options.client.resolve({ applicationId }))
     }
 
