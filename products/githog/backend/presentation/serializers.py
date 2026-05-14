@@ -244,3 +244,72 @@ class GitHogPullRequestLayoutResponseSerializer(serializers.Serializer):
     pr_number = serializers.IntegerField()
     items = GitHogPullRequestLayoutItemSerializer(many=True)
     exists = serializers.BooleanField(help_text="True if a saved layout was found; otherwise the default is returned.")
+
+
+class GitHogPullRequestMessageSerializer(serializers.Serializer):
+    """A single PR conversation message rendered for the client."""
+
+    id = serializers.IntegerField(help_text="Server-assigned message id; stable across edits.")
+    body = serializers.CharField(help_text="Markdown-flavored message body as authored by the user.")
+    author_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="User id of the author, or null if the author has been deleted.",
+    )
+    author_name = serializers.CharField(
+        allow_blank=True,
+        help_text="Display name of the author at send time; empty string if unknown.",
+    )
+    author_email = serializers.CharField(
+        allow_blank=True,
+        help_text="Email of the author at send time; empty string if unknown.",
+    )
+    is_mine = serializers.BooleanField(
+        help_text="True if the requesting user authored this message (useful for client-side affordances).",
+    )
+    edited_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="ISO 8601 timestamp of the last edit, or null if never edited.",
+    )
+    created_at = serializers.DateTimeField(help_text="ISO 8601 timestamp when the message was created.")
+
+
+class GitHogPullRequestMessageListQuerySerializer(serializers.Serializer):
+    repository = serializers.CharField(help_text="Repository in owner/repo format.")
+    number = serializers.IntegerField(help_text="Pull request number.")
+
+
+class GitHogPullRequestMessageListResponseSerializer(serializers.Serializer):
+    repository = serializers.CharField(help_text="Repository in owner/repo format.")
+    pr_number = serializers.IntegerField(help_text="Pull request number.")
+    messages = GitHogPullRequestMessageSerializer(
+        many=True,
+        help_text="Conversation messages ordered by created_at ascending (oldest first).",
+    )
+
+
+class GitHogPullRequestMessageCreateRequestSerializer(serializers.Serializer):
+    repository = serializers.CharField(help_text="Repository in owner/repo format.")
+    number = serializers.IntegerField(help_text="Pull request number.")
+    body = serializers.CharField(
+        max_length=10_000,
+        trim_whitespace=True,
+        help_text="Message body (1-10000 chars after trimming).",
+    )
+
+    def validate_body(self, value: str) -> str:
+        if not value.strip():
+            raise serializers.ValidationError("Message body cannot be empty.")
+        return value
+
+
+class GitHogPullRequestMessageUpdateRequestSerializer(serializers.Serializer):
+    body = serializers.CharField(
+        max_length=10_000,
+        trim_whitespace=True,
+        help_text="New message body (1-10000 chars after trimming).",
+    )
+
+    def validate_body(self, value: str) -> str:
+        if not value.strip():
+            raise serializers.ValidationError("Message body cannot be empty.")
+        return value
