@@ -5,11 +5,12 @@ import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { humanFriendlyDuration } from 'lib/utils'
 
 import type { MCPSessionApi } from '../generated/api.schemas'
 import { MCPSessionDetail } from './MCPSessionDetail'
 import { mcpSessionsLogic } from './mcpSessionsLogic'
-import { formatDuration, sessionDurationMs } from './utils'
+import { sessionDurationMs } from './utils'
 
 export function MCPSessionsTable(): JSX.Element {
     const { setFilters, loadSessions, selectSession } = useActions(mcpSessionsLogic)
@@ -55,7 +56,9 @@ export function MCPSessionsTable(): JSX.Element {
             align: 'right',
             render: (_, record) => (
                 <span className="text-xs whitespace-nowrap">
-                    {formatDuration(sessionDurationMs(record.first_seen, record.last_seen))}
+                    {humanFriendlyDuration(sessionDurationMs(record.first_seen, record.last_seen) / 1000, {
+                        secondsFixed: 1,
+                    })}
                 </span>
             ),
             sorter: (a, b) =>

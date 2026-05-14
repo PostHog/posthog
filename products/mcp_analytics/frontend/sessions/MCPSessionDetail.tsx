@@ -4,9 +4,10 @@ import { IconBolt, IconClock, IconSparkles, IconUser, IconWarning } from '@posth
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { humanFriendlyDuration, midEllipsis } from 'lib/utils'
 
 import { mcpSessionsLogic } from './mcpSessionsLogic'
-import { formatDuration, formatRelativeOffset, sessionDurationMs, shortenSessionId } from './utils'
+import { relativeOffset, sessionDurationMs } from './utils'
 
 function MetaBadge({ icon, label }: { icon: React.ReactNode; label: React.ReactNode }): JSX.Element {
     return (
@@ -72,7 +73,10 @@ export function MCPSessionDetail(): JSX.Element {
                         <MetaBadge icon={<IconSparkles />} label={selectedSession.mcp_client_name} />
                     ) : null}
                     <MetaBadge icon={<IconBolt />} label={`${calls} tool call${calls === 1 ? '' : 's'}`} />
-                    <MetaBadge icon={<IconClock />} label={formatDuration(durationMs)} />
+                    <MetaBadge
+                        icon={<IconClock />}
+                        label={humanFriendlyDuration(durationMs / 1000, { secondsFixed: 1 })}
+                    />
                     <span
                         className="inline-flex items-center gap-1 rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] text-secondary font-mono"
                         title={selectedSession.session_id}
@@ -83,7 +87,7 @@ export function MCPSessionDetail(): JSX.Element {
                             iconSize="xsmall"
                             className="font-mono"
                         >
-                            {shortenSessionId(selectedSession.session_id)}
+                            {midEllipsis(selectedSession.session_id, 13)}
                         </CopyToClipboardInline>
                     </span>
                 </div>
@@ -129,11 +133,14 @@ export function MCPSessionDetail(): JSX.Element {
                                     </div>
                                     <div className="flex items-center gap-2 text-secondary whitespace-nowrap font-mono text-[11px]">
                                         {toolCall.duration_ms != null ? (
-                                            <span>{formatDuration(toolCall.duration_ms)} ·</span>
+                                            <span>
+                                                {humanFriendlyDuration(toolCall.duration_ms / 1000, {
+                                                    secondsFixed: 1,
+                                                })}{' '}
+                                                ·
+                                            </span>
                                         ) : null}
-                                        <span>
-                                            {formatRelativeOffset(selectedSession.first_seen, toolCall.timestamp)}
-                                        </span>
+                                        <span>{relativeOffset(selectedSession.first_seen, toolCall.timestamp)}</span>
                                     </div>
                                 </div>
 
