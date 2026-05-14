@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import date, datetime, timedelta
 from typing import Literal
 from urllib.parse import urlparse
@@ -166,6 +167,24 @@ def _int_constant(value: int) -> ast.Constant:
     return ast.Constant(value=value)
 
 
+def _safe_float(value: object) -> float | None:
+    """Coerce a ClickHouse aggregate result to float, treating None and NaN as None.
+
+    ClickHouse's avgIf returns NaN (not None) when no rows match — common for new monitors
+    that haven't been pinged yet, or windows with only failures. Without this, downstream
+    `int(nan)` raises ValueError and the whole summary endpoint 500s.
+    """
+    if value is None:
+        return None
+    try:
+        as_float = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(as_float):
+        return None
+    return as_float
+
+
 def get_monitor(*, monitor_id: UUID) -> Monitor:
     return Monitor.objects.get(id=monitor_id)
 
@@ -305,7 +324,7 @@ def list_monitor_summaries(*, team_id: int) -> list[dict]:
         per_monitor_days.setdefault(monitor_id, {})[day_value] = {
             "total": int(row[2]),
             "failed": int(row[3]),
-            "avg_latency": float(row[4]) if row[4] is not None else None,
+            "avg_latency": _safe_float(row[4]),
         }
 
     per_monitor_latest: dict[UUID, dict] = {}
@@ -314,7 +333,7 @@ def list_monitor_summaries(*, team_id: int) -> list[dict]:
         per_monitor_latest[monitor_id] = {
             "last_ping_at": row[1],
             "last_outcome": row[2],
-            "avg_latency_24h": float(row[3]) if row[3] is not None else None,
+            "avg_latency_24h": _safe_float(row[3]),
         }
 
     today = timezone.now().astimezone(ZoneInfo("UTC")).date()

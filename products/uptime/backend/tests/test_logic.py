@@ -224,6 +224,21 @@ class TestListMonitorSummaries(UptimeTeamScopedTestMixin, ClickhouseTestMixin, B
         row = next(r for r in results if r["id"] == monitor.id)
         assert row["uptime_30d"] == 0.9
 
+    def test_handles_no_recent_successes_without_erroring(self) -> None:
+        """ClickHouse's avgIf returns NaN when no rows match. Without NaN→None
+        normalization the int() conversion downstream raises ValueError and the
+        whole summary endpoint 500s, breaking the UI for fresh / down monitors."""
+        monitor = Monitor.objects.create(team_id=self.team.id, name="all-failures", url="https://nope.io")
+        for _ in range(3):
+            self._ping(monitor, outcome=PingOutcome.FAILURE, latency_ms=5000)
+
+        results = list_monitor_summaries(team_id=self.team.id)
+
+        row = next(r for r in results if r["id"] == monitor.id)
+        assert row["status"] == "down"
+        assert row["avg_latency_24h_ms"] is None
+        assert row["uptime_30d"] == 0.0
+
     def test_ignores_other_team_pings(self) -> None:
         monitor = Monitor.objects.create(team_id=self.team.id, name="mine", url="https://mine.io")
         self._ping(monitor, outcome=PingOutcome.SUCCESS)
