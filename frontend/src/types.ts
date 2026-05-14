@@ -3490,6 +3490,7 @@ export interface OpenQuestionResponseData {
     /** Pre-computed display name from server (email, name, etc.) - avoids brittle client-side property extraction */
     personDisplayName?: string
     timestamp?: string
+    sessionId?: string
 }
 
 export interface ChoiceQuestionProcessedResponses {
@@ -5036,7 +5037,7 @@ export interface SubscriptionType {
     integration_id?: number | null
     target_type: string
     target_value: string
-    frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
+    frequency: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'
     interval: number
     byweekday: WeekdayType[] | null
     bysetpos: number | null
@@ -5293,6 +5294,7 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
+    | 'deployment'
     | 'desktop_recording'
     | 'early_access_feature'
     | 'element'
@@ -5305,6 +5307,8 @@ export type APIScopeObject =
     | 'external_data_source'
     | 'export'
     | 'feature_flag'
+    | 'file_system'
+    | 'file_system_shortcut'
     | 'group'
     | 'health_issue'
     | 'heatmap'
@@ -5326,6 +5330,7 @@ export type APIScopeObject =
     | 'organization_integration'
     | 'organization_member'
     | 'person'
+    | 'persisted_folder'
     | 'plugin'
     | 'product_tour'
     | 'project'

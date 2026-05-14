@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -17,6 +18,7 @@ import {
     getSurveyNotificationFilters,
     getSurveyIdBasedResponseKey,
 } from 'scenes/surveys/utils'
+import { urls } from 'scenes/urls'
 
 import {
     HogFunctionTemplateType,
@@ -657,8 +659,16 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
     props({} as SurveyNotificationModalLogicProps),
     key((props) => props.surveyId),
     connect((props: SurveyNotificationModalLogicProps) => ({
-        values: [integrationsLogic, ['integrations'], surveyLogic({ id: props.surveyId }), ['survey']],
-        actions: [surveyLogic({ id: props.surveyId }), ['loadSurveyNotifications']],
+        values: [
+            integrationsLogic,
+            ['integrations'],
+            surveyLogic({ id: props.surveyId }),
+            ['survey', 'surveyLoading', 'surveyNotifications', 'surveyNotificationsLoading'],
+        ],
+        actions: [
+            surveyLogic({ id: props.surveyId }),
+            ['loadSurveyNotifications', 'loadSurveyNotificationsSuccess', 'loadSurveySuccess'],
+        ],
     })),
 
     actions({
@@ -668,6 +678,8 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
         }),
         closeDialog: true,
         setNotificationSubmissionError: (error: string | null) => ({ error }),
+        setPendingDeepLink: (target: string | null) => ({ target }),
+        consumePendingDeepLink: true,
     }),
 
     reducers({
@@ -698,6 +710,13 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                 setNotificationSubmissionError: (_, { error }) => error,
                 openDialog: () => null,
                 closeDialog: () => null,
+            },
+        ],
+        pendingDeepLink: [
+            null as string | null,
+            {
+                setPendingDeepLink: (_, { target }) => target,
+                openDialog: () => null,
             },
         ],
     }),
@@ -801,8 +820,55 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                     : buildSurveyNotificationForm(values.survey)
             )
         },
+        setPendingDeepLink: ({ target }) => {
+            if (!target) {
+                return
+            }
+            actions.consumePendingDeepLink()
+        },
+        loadSurveySuccess: () => {
+            if (values.pendingDeepLink) {
+                actions.consumePendingDeepLink()
+            }
+        },
+        loadSurveyNotificationsSuccess: () => {
+            if (values.pendingDeepLink) {
+                actions.consumePendingDeepLink()
+            }
+        },
+        consumePendingDeepLink: () => {
+            const target = values.pendingDeepLink
+            if (!target || values.isOpen) {
+                return
+            }
+            if (values.surveyLoading || values.survey.id === NEW_SURVEY.id) {
+                return
+            }
+            if (target === 'add') {
+                actions.openDialog()
+                return
+            }
+            if (values.surveyNotificationsLoading) {
+                return
+            }
+            const notification = values.surveyNotifications.find((fn) => fn.id === target)
+            if (notification) {
+                actions.openDialog({ notification, intent: 'edit' })
+                return
+            }
+            // The notification ID didn't resolve (deleted, wrong project, stale link). Clear the
+            // pending target so unrelated reloads of surveyNotifications don't keep re-triggering
+            // this listener with the same dead ID, and let the user know the link didn't work.
+            actions.setPendingDeepLink(null)
+            lemonToast.error("We couldn't find that notification — it may have been removed.")
+        },
         closeDialog: () => {
             actions.resetNotificationForm()
+            // If a deep link arrived while another dialog was already open it stayed pending —
+            // try to consume it now that we're no longer blocked by `isOpen`.
+            if (values.pendingDeepLink) {
+                actions.consumePendingDeepLink()
+            }
         },
         submitNotificationFormSuccess: async () => {
             const updatedNotification = values.editingNotification
@@ -822,6 +888,25 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
             actions.setNotificationSubmissionError(
                 error instanceof Error ? error.message : `Failed to ${action} notification. Please try again.`
             )
+        },
+    })),
+
+    urlToAction(({ actions, props }) => ({
+        [urls.survey(props.surveyId)]: (_, searchParams) => {
+            const target = searchParams.notification
+            if (typeof target === 'string' && target.length > 0) {
+                actions.setPendingDeepLink(target)
+            }
+        },
+    })),
+
+    actionToUrl(() => ({
+        setPendingDeepLink: () => {
+            if (!('notification' in router.values.searchParams)) {
+                return
+            }
+            const { notification: _consumed, ...rest } = router.values.searchParams
+            return [router.values.location.pathname, rest, router.values.hashParams, { replace: true }]
         },
     })),
 ])

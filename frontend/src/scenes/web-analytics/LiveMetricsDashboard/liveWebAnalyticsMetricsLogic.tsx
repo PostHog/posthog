@@ -25,7 +25,7 @@ import {
     TrendsQueryResponse,
     WebAnalyticsPropertyFilter,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, LiveEvent, PropertyOperator } from '~/types'
+import { BaseMathType, LiveEvent, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { createStreamConnection } from './createStreamConnection'
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'
@@ -636,7 +636,7 @@ const stopFlushInterval = (cache: FlushCache): void => {
 // livestream backend treats as IN (livestream/events/filter.go matchesPropertyFilters).
 export const appendFilterParams = (url: URL, filters: WebAnalyticsPropertyFilter[]): void => {
     for (const f of filters) {
-        if (!f.key || f.operator !== PropertyOperator.Exact) {
+        if (!f.key || f.type !== PropertyFilterType.Event || f.operator !== PropertyOperator.Exact) {
             continue
         }
         const values = Array.isArray(f.value) ? f.value : [f.value]

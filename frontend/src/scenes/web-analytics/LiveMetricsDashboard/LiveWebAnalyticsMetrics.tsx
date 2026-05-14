@@ -10,24 +10,27 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useEffect, useMemo } from 'react'
+import { ReactNode, useEffect, useMemo, useState } from 'react'
 
-import { IconDrag, IconGlobe, IconPencil } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { IconDrag, IconFilter, IconGlobe, IconPencil, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, Popover } from '@posthog/lemon-ui'
 
+import { FilterBar } from 'lib/components/FilterBar'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLogic'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { isWebAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
 
-import {
-    WebAnalyticsDomainSelector,
-    WebAnalyticsLiveCountrySelector,
-    WebAnalyticsLiveDeviceToggle,
-    WebAnalyticsLiveReferrerSelector,
-} from '../WebAnalyticsFilters'
+import { PropertyOperator } from '~/types'
+
+import { isLiveStreamFilter } from '../webAnalyticsFilterLogic'
+import { WebAnalyticsDomainSelector, WebAnalyticsLiveDeviceToggle } from '../WebAnalyticsFilters'
 import { webAnalyticsLogic } from '../webAnalyticsLogic'
 import { BreakdownLiveCard } from './BreakdownLiveCard'
 import { getBrowserLogo } from './browserLogos'
@@ -71,43 +74,133 @@ const renderCountryIcon = (d: CountryBreakdownItem): JSX.Element => {
     )
 }
 
-const LiveDashboardFilterRow = (): JSX.Element | null => {
+const LiveDashboardFilterRow = ({
+    canEditLayout,
+    isEditing,
+    resetLayout,
+    setEditing,
+}: {
+    canEditLayout: boolean
+    isEditing: boolean
+    resetLayout: () => void
+    setEditing: (isEditing: boolean) => void
+}): JSX.Element | null => {
+    const [displayFilters, setDisplayFilters] = useState(false)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { topReferrers } = useValues(liveWebAnalyticsMetricsLogic)
-    const { countryFilter, referrerFilter, deviceTypeFilter, validatedDomainFilter } = useValues(webAnalyticsLogic)
-    const { setCountryFilter, setReferrerFilter, setDeviceTypeFilter, setDomainFilter } = useActions(webAnalyticsLogic)
+    const { rawWebAnalyticsFilters, deviceTypeFilter, validatedDomainFilter } = useValues(webAnalyticsLogic)
+    const { setCountryFilter, setReferrerFilter, setDeviceTypeFilter, setDomainFilter, setWebAnalyticsFilters } =
+        useActions(webAnalyticsLogic)
 
     const showLiveFilters = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS]
 
-    if (!showLiveFilters) {
+    if (!showLiveFilters && !canEditLayout) {
         return null
     }
 
-    const referrerSuggestions = topReferrers.map((r: { referrer: string }) => r.referrer).filter(Boolean)
     const hasDomainFilter = !!validatedDomainFilter && validatedDomainFilter !== 'all'
-    const hasFilters = !!(countryFilter || referrerFilter || deviceTypeFilter || hasDomainFilter)
+    const livePropertyFilters = rawWebAnalyticsFilters.filter(isLiveStreamFilter)
+    const preservedOverviewFilters = rawWebAnalyticsFilters.filter((f) => !isLiveStreamFilter(f))
+    const activeFilterCount = livePropertyFilters.length + (deviceTypeFilter ? 1 : 0)
+    const hasFilters = activeFilterCount > 0 || hasDomainFilter
+
+    const resetFilters = (): void => {
+        setWebAnalyticsFilters(preservedOverviewFilters)
+        setCountryFilter(null)
+        setReferrerFilter(null)
+        setDeviceTypeFilter(null)
+        setDomainFilter(null)
+    }
+
+    const filtersContent = (
+        <div className="w-96 max-w-[90vw] p-3">
+            <div className="space-y-4">
+                <div>
+                    <div className="text-xs font-semibold text-muted uppercase mb-2">Property filters</div>
+                    <PropertyFilters
+                        disablePopover
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                        operatorAllowlist={[PropertyOperator.Exact]}
+                        onChange={(filters) => {
+                            const nextLiveFilters = filters
+                                .filter(isWebAnalyticsPropertyFilter)
+                                .filter(isLiveStreamFilter)
+                            setWebAnalyticsFilters([...preservedOverviewFilters, ...nextLiveFilters])
+                        }}
+                        propertyFilters={livePropertyFilters}
+                        pageKey="web-analytics-live"
+                        eventNames={['$pageview']}
+                    />
+                </div>
+
+                <LemonDivider />
+
+                <div className="flex min-w-0 flex-col gap-1">
+                    <span className="text-xs font-semibold text-muted">Device</span>
+                    <WebAnalyticsLiveDeviceToggle fullWidth />
+                </div>
+                {hasFilters && (
+                    <LemonButton size="small" type="tertiary" fullWidth icon={<IconX />} onClick={resetFilters}>
+                        Clear filters
+                    </LemonButton>
+                )}
+            </div>
+        </div>
+    )
 
     return (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-            <WebAnalyticsDomainSelector />
-            <WebAnalyticsLiveCountrySelector />
-            <WebAnalyticsLiveDeviceToggle />
-            <WebAnalyticsLiveReferrerSelector suggestions={referrerSuggestions} />
-            {hasFilters && (
-                <LemonButton
-                    size="small"
-                    type="tertiary"
-                    onClick={() => {
-                        setCountryFilter(null)
-                        setReferrerFilter(null)
-                        setDeviceTypeFilter(null)
-                        setDomainFilter(null)
-                    }}
-                >
-                    Clear filters
-                </LemonButton>
-            )}
-        </div>
+        <FilterBar
+            className="mb-4"
+            left={null}
+            right={
+                <>
+                    {canEditLayout &&
+                        (isEditing ? (
+                            <>
+                                <LemonButton type="secondary" size="small" onClick={() => resetLayout()}>
+                                    Reset layout
+                                </LemonButton>
+                                <LemonButton type="primary" size="small" onClick={() => setEditing(false)}>
+                                    Done
+                                </LemonButton>
+                            </>
+                        ) : (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconPencil />}
+                                onClick={() => setEditing(true)}
+                            >
+                                Edit layout
+                            </LemonButton>
+                        ))}
+                    {showLiveFilters && (
+                        <>
+                            <Popover
+                                visible={displayFilters}
+                                onClickOutside={() => setDisplayFilters(false)}
+                                placement="bottom-end"
+                                overlay={filtersContent}
+                            >
+                                <LemonButton
+                                    icon={
+                                        <IconWithCount count={activeFilterCount} showZero={false}>
+                                            <IconFilter />
+                                        </IconWithCount>
+                                    }
+                                    type="secondary"
+                                    size="small"
+                                    data-attr="web-analytics-live-filters"
+                                    onClick={() => setDisplayFilters(!displayFilters)}
+                                >
+                                    Filters
+                                </LemonButton>
+                            </Popover>
+                            <WebAnalyticsDomainSelector />
+                        </>
+                    )}
+                </>
+            }
+        />
     )
 }
 
@@ -369,7 +462,14 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         }
 
     return (
-        <div className="LivePageviews mt-4">
+        <div className="LivePageviews">
+            <LiveDashboardFilterRow
+                canEditLayout={canEditLayout}
+                isEditing={isEditing}
+                resetLayout={resetLayout}
+                setEditing={setEditing}
+            />
+
             <LemonBanner
                 type="info"
                 className="mb-2"
@@ -378,32 +478,6 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
             >
                 The Web Analytics live dashboard is in alpha. We'd love to hear what you think!
             </LemonBanner>
-
-            <LiveDashboardFilterRow />
-
-            {canEditLayout && (
-                <div className="flex items-center justify-end gap-2 mb-2">
-                    {isEditing ? (
-                        <>
-                            <LemonButton type="secondary" size="small" onClick={() => resetLayout()}>
-                                Reset layout
-                            </LemonButton>
-                            <LemonButton type="primary" size="small" onClick={() => setEditing(false)}>
-                                Done
-                            </LemonButton>
-                        </>
-                    ) : (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconPencil />}
-                            onClick={() => setEditing(true)}
-                        >
-                            Edit layout
-                        </LemonButton>
-                    )}
-                </div>
-            )}
 
             <DndContext
                 sensors={sensors}

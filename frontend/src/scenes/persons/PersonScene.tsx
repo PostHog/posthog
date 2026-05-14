@@ -389,6 +389,7 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                                               <div className="flex items-center">
                                                   Choose ID:
                                                   <Tooltip
+                                                      docLink="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                                                       title={
                                                           <div className="deprecated-space-y-2">
                                                               <div>
@@ -402,10 +403,7 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                                                               </div>
                                                               <div>
                                                                   This option may depend on your specific setup and
-                                                                  isn't always suitable. Read more in the{' '}
-                                                                  <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps">
-                                                                      documentation.
-                                                                  </Link>
+                                                                  isn't always suitable.
                                                               </div>
                                                           </div>
                                                       }

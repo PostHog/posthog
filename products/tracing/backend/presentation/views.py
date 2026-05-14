@@ -163,9 +163,9 @@ class _TracingServiceNamesQuerySerializer(serializers.Serializer):
 class _TracingAttributesQuerySerializer(serializers.Serializer):
     search = serializers.CharField(required=False, help_text="Search filter for attribute names.")
     attribute_type = serializers.ChoiceField(
-        choices=["span", "resource"],
+        choices=["span_attribute", "span_resource_attribute"],
         required=False,
-        help_text='Type of attributes: "span" for span attributes, "resource" for resource attributes.',
+        help_text='Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.',
     )
     limit = serializers.IntegerField(
         required=False, min_value=1, max_value=100, help_text="Max results (default: 100)."
@@ -176,9 +176,9 @@ class _TracingAttributesQuerySerializer(serializers.Serializer):
 class _TracingValuesQuerySerializer(serializers.Serializer):
     key = serializers.CharField(help_text="The attribute key to get values for.")
     attribute_type = serializers.ChoiceField(
-        choices=["span", "resource"],
+        choices=["span", "span_attribute", "span_resource_attribute"],
         required=False,
-        help_text='Type of attribute: "span" or "resource".',
+        help_text='Type of attribute: "span" for built-in span fields (e.g. name), "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.',
     )
     value = serializers.CharField(required=False, help_text="Search filter for attribute values.")
     limit = serializers.IntegerField(
@@ -518,9 +518,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (json.JSONDecodeError, ValidationError, ValueError):
             date_range = DateRange(date_from="-1h")
 
-        attribute_type = request.GET.get("attribute_type", "span")
-        if attribute_type not in ("span", "resource"):
-            attribute_type = "span"
+        attribute_type = request.GET.get("attribute_type", "span_attribute")
+        if attribute_type not in ("span_attribute", "span_resource_attribute"):
+            attribute_type = "span_attribute"
 
         results, count = run_attribute_names_query(
             team=self.team,
@@ -550,9 +550,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (json.JSONDecodeError, ValidationError, ValueError):
             date_range = DateRange(date_from="-1h")
 
-        attribute_type = request.GET.get("attribute_type", "span")
-        if attribute_type not in ("span", "resource"):
-            attribute_type = "span"
+        attribute_type = request.GET.get("attribute_type", "span_attribute")
+        if attribute_type not in ("span", "span_attribute", "span_resource_attribute"):
+            attribute_type = "span_attribute"
 
         results = run_attribute_values_query(
             team=self.team,
