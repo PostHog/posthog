@@ -345,6 +345,9 @@ rules:
                         |TeamFeatureFlagDefaultsConfig
                         |TeamSessionSummariesConfig
                         |FileSystem
+                        |GitHogConversationMessage
+                        |GitHogPullRequestDataFlow
+                        |GitHogPullRequestLayout
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
