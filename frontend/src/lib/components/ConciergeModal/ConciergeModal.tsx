@@ -2,7 +2,6 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import envelopeBackSrc from 'public/concierge/envelope/envelope-back.png'
@@ -420,7 +419,11 @@ export function ConciergeModal({ isOpen, onClose, notificationId, title, body }:
             <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap" />
 
             <LemonModal isOpen={isOpen} onClose={onClose} simple closable>
-                <div className="flex flex-col" style={{ width: '85vw', maxWidth: 960, height: '80vh', maxHeight: 720 }}>
+                <div
+                    className="flex flex-col"
+                    style={{ width: '85vw', maxWidth: 960, height: '80vh', maxHeight: 720 }}
+                    onClick={(e) => e.stopPropagation()}
+                >
                     {/* Art area */}
                     <div className="flex-1 relative overflow-hidden">
                         <AnimatePresence mode="wait">
@@ -448,30 +451,5 @@ export function ConciergeModal({ isOpen, onClose, notificationId, title, body }:
                 </div>
             </LemonModal>
         </>
-    )
-}
-
-// -- Temporary test harness -- delete before merging --
-const TEST_BODY = JSON.stringify({
-    body: 'Dear Sarah,\n\nThis is your CSM, Christophe. I am checking back in after our call yesterday. I wanted to make sure you and your team have everything you need to get started.\n\nLorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.\n\nWith care,\nChristophe',
-    call_to_action: 'Book a follow-up',
-    notification_style: 'royal',
-})
-
-export function ConciergeModalTest(): JSX.Element {
-    const [open, setOpen] = useState(true)
-    return (
-        <div className="p-4">
-            <LemonButton type="primary" onClick={() => setOpen(true)}>
-                Open concierge modal
-            </LemonButton>
-            <ConciergeModal
-                isOpen={open}
-                onClose={() => setOpen(false)}
-                notificationId="test-notification-id"
-                title="A note from your CSM"
-                body={TEST_BODY}
-            />
-        </div>
     )
 }
