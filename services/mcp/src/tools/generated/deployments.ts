@@ -7,7 +7,6 @@ import {
     DeploymentProjectsDeploymentsEventsListQueryParams,
     DeploymentProjectsDeploymentsListParams,
     DeploymentProjectsDeploymentsListQueryParams,
-    DeploymentProjectsDeploymentsLogsRetrieveParams,
     DeploymentProjectsDeploymentsRetrieveParams,
     DeploymentProjectsListQueryParams,
     DeploymentProjectsRetrieveParams,
@@ -124,26 +123,10 @@ const deploymentsList = (): ToolBase<typeof DeploymentsListSchema, WithPostHogUr
         },
     })
 
-const DeploymentsLogsSchema = DeploymentProjectsDeploymentsLogsRetrieveParams.omit({ project_id: true })
-
-const deploymentsLogs = (): ToolBase<typeof DeploymentsLogsSchema, Schemas.DeploymentActionResponse> => ({
-    name: 'deployments-logs',
-    schema: DeploymentsLogsSchema,
-    handler: async (context: Context, params: z.infer<typeof DeploymentsLogsSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.DeploymentActionResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/deployment_projects/${encodeURIComponent(String(params.deployment_project_id))}/deployments/${encodeURIComponent(String(params.id))}/logs/`,
-        })
-        return result
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'deployment-projects-get': deploymentProjectsGet,
     'deployment-projects-list': deploymentProjectsList,
     'deployments-events': deploymentsEvents,
     'deployments-get': deploymentsGet,
     'deployments-list': deploymentsList,
-    'deployments-logs': deploymentsLogs,
 }

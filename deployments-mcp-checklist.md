@@ -8,8 +8,8 @@
   - [ ] Add `detail_args` for `deployment-list` so `deployments-get` receives both `id` and `deployment_project_id`.
   - [ ] Use the renamed `deployment_project_id` value in the detail args.
 
-- [ ] Disable or implement `deployments-logs`
-  - [ ] Either implement the real log query path, or set `deployments-logs.enabled: false` until it works.
+- [x] Disable or implement `deployments-logs`
+  - [x] Set `deployments-logs.enabled: false` until it works.
 
 - [x] Remove unused `LogEntryMixin` from `DeploymentViewSet`
   - [x] Drop the import.
