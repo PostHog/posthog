@@ -865,9 +865,9 @@ snapshots:
     components-pay-gate-mini--pay-gate-mini-without-background--light:
         hash: v1.k794b7964.9a2b166ce4c603be1ede586ac7867f3d31840f6116bd61854300a7c57bb3df7a._1tSFJYtbZ2I5i0evHjkEzSxJyTgj14QfRMPgT4YT5w
     components-playerinspector--default--dark:
-        hash: v1.k794b7964.6eff0ed89297215e8708241105e5030634823ad41719eeb4f36ddea68851d4e1.5e7vmvxuTjAujNINc7PjRpNpG68xrkFXcG7hZ5MVhXI
+        hash: v1.k794b7964.c84ee7044eb3ba70b8635606d6b3a18eaa61a8bb0b5c8d822cb60cae6ffa8c92.a4zxiuYDDD1cxevUhVbya1ijW9obWIB4z1hbuPo1Hgk
     components-playerinspector--default--light:
-        hash: v1.k794b7964.9f107b86c39ee6cbb15727e2b53ec0536e77c262dc3e06336f896cd46ad153f7.UhHTuWcCcKmD1rwJzgIBKSJ3o1ztLYICsXnzpTPhxDA
+        hash: v1.k794b7964.515ac504252b376f1ac721c75faf6ffb2d6a212102bce200d2163854e8e87485.9mJ0smh5M0RIfZCnp2E6llOQbGmTYuHdD0FWKruGhQY
     components-playerinspector--with-logs-filter--dark:
         hash: v1.k794b7964.3851518dc979320cefe65f110005d44a492eec635285f8b2f9162c1e5dbed62b.MZINYfaQXNWzFZMzsPLtnLXpNYVcBMEC5PJnxMR-DlY
     components-playerinspector--with-logs-filter--light:
