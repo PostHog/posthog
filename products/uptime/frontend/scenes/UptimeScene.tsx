@@ -33,6 +33,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { StatusPagesList } from './statusPage/StatusPagesList'
+import { statusPagesListLogic } from './statusPage/statusPagesListLogic'
 import { UptimeAlerts } from './uptimeAlerts/UptimeAlerts'
 import {
     DailyBucket,
@@ -51,8 +52,11 @@ export const scene: SceneExport = {
 }
 
 export function UptimeScene(): JSX.Element {
-    const { activeTab } = useValues(uptimeSceneLogic)
-    const { setActiveTab } = useActions(uptimeSceneLogic)
+    const { activeTab, suggestedUrls } = useValues(uptimeSceneLogic)
+    const { setActiveTab, setCreateModalOpen, setSuggestModalOpen } = useActions(uptimeSceneLogic)
+    const { createNewStatusPage } = useActions(statusPagesListLogic)
+
+    const hasSuggestions = suggestedUrls.length > 0
 
     const tabs: LemonTab<UptimeSceneActiveTab>[] = [
         {
@@ -72,14 +76,35 @@ export function UptimeScene(): JSX.Element {
         },
     ]
 
+    const headerActions =
+        activeTab === 'monitors' ? (
+            <div className="flex gap-2">
+                {hasSuggestions && (
+                    <LemonButton
+                        type="secondary"
+                        data-attr="open-suggest-urls"
+                        onClick={() => setSuggestModalOpen(true)}
+                    >
+                        Add from traffic ({suggestedUrls.length})
+                    </LemonButton>
+                )}
+                <LemonButton type="primary" data-attr="create-monitor" onClick={() => setCreateModalOpen(true)}>
+                    Create monitor
+                </LemonButton>
+            </div>
+        ) : activeTab === 'status_pages' ? (
+            <LemonButton type="primary" data-attr="create-status-page" onClick={() => createNewStatusPage()}>
+                New status page
+            </LemonButton>
+        ) : null
+
     return (
         <SceneContent>
-            {/* No actions on the title section — each tab renders its own button row so
-                switching tabs doesn't change the title section's height. */}
             <SceneTitleSection
                 name="Uptime"
                 description="Monitor URLs and view their recent ping history."
                 resourceType={{ type: 'default_icon_type' }}
+                actions={headerActions}
             />
             <LemonTabs activeKey={activeTab} onChange={(key) => setActiveTab(key)} tabs={tabs} sceneInset />
             <CreateMonitorModal />
@@ -114,25 +139,8 @@ function MonitorsTab(): JSX.Element {
         reorderMonitors(reordered.map((m) => m.id))
     }
 
-    const hasSuggestions = suggestedUrls.length > 0
-
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex justify-end gap-2">
-                {hasSuggestions && (
-                    <LemonButton
-                        type="secondary"
-                        data-attr="open-suggest-urls"
-                        onClick={() => setSuggestModalOpen(true)}
-                    >
-                        Add from traffic ({suggestedUrls.length})
-                    </LemonButton>
-                )}
-                <LemonButton type="primary" data-attr="create-monitor" onClick={() => setCreateModalOpen(true)}>
-                    Create monitor
-                </LemonButton>
-            </div>
-
             {hasMonitors && <OverallStatusBanner stats={overallStats} />}
 
             {!hasMonitors && !monitorSummariesLoading ? (
