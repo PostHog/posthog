@@ -19,6 +19,8 @@ import { PropertyDefinitionType } from '~/types'
 import { ConversationDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/ConversationDisplay'
 import { EvaluationDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/EvaluationDisplay'
 
+import { MCPEventView } from './MCPEventView'
+
 interface EventDetailsProps {
     event: ErrorPropertyTabEvent
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
@@ -104,6 +106,8 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                 />
                             </div>
                         )
+                    case 'mcp':
+                        return <MCPEventView properties={properties} />
                     case 'exception_properties':
                         return (
                             <div className="mx-3 -mt-4">
