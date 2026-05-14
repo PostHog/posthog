@@ -3,6 +3,7 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 
 import type { cofounderFlowLogicType } from './cofounderFlowLogicType'
+import { founderLogic } from './scenes/founderLogic'
 
 export type StepKey =
     | 'intro'
@@ -152,6 +153,8 @@ export const cofounderFlowLogic = kea<cofounderFlowLogicType>([
                 })
                 breakpoint()
                 actions.setProjectId(project.id)
+                founderLogic.actions.setCurrentProjectId(project.id)
+                founderLogic.actions.setCurrentStep('validation')
                 actions.submitIdeaLoading(false)
                 actions.advance() // → validationLoading
             } catch (e) {

@@ -60,8 +60,7 @@ class FounderProjectSerializer(serializers.ModelSerializer):
         default=FounderStepChoices.IDEATION,
         help_text=(
             "Which stage the founder is currently on. One of: ideation, validation, gtm, mvp, marketing. "
-            "Set by the frontend when the user advances through the flow. Persisted so returning "
-            "users resume where they left off."
+            "Updated server-side when stages are kicked off, and can be PATCHed by the frontend."
         ),
     )
     ideation = IdeationField(
