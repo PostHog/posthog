@@ -28,16 +28,16 @@ export function MCPSessionDetail(): JSX.Element {
         )
     }
 
-    const durationMs = sessionDurationMs(selectedSession.first_seen, selectedSession.last_seen)
-    const calls = selectedSession.event_count
+    const durationMs = sessionDurationMs(selectedSession.session_start, selectedSession.session_end)
+    const calls = selectedSession.tool_calls
     const identifiedPerson = !!(selectedSession.person_name || selectedSession.person_email)
     const primaryLabel = identifiedPerson
         ? selectedSession.person_name || selectedSession.person_email || selectedSession.distinct_id
         : selectedSession.distinct_id || 'unknown'
 
     return (
-        <div className="flex flex-col gap-2">
-            <header className="flex flex-col gap-2">
+        <div className="flex flex-col">
+            <header className="flex flex-col gap-2 shrink-0 border-b border-primary px-3 pt-3 pb-2">
                 <div className="flex items-center gap-2 min-w-0">
                     <div
                         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
@@ -89,9 +89,7 @@ export function MCPSessionDetail(): JSX.Element {
                 </div>
             </header>
 
-            <hr className="border-t border-primary -mx-3" />
-
-            <section className="flex flex-col gap-2">
+            <section className="px-3 py-3" style={{ overflowY: 'scroll', maxHeight: 'calc(100vh - 32rem)' }}>
                 {toolCallsLoading && toolCalls.length === 0 ? (
                     <div className="flex flex-col gap-2">
                         {[0, 1, 2].map((i) => (
@@ -132,7 +130,7 @@ export function MCPSessionDetail(): JSX.Element {
                                             <span>{formatDuration(toolCall.duration_ms)} ·</span>
                                         ) : null}
                                         <span>
-                                            {formatRelativeOffset(selectedSession.first_seen, toolCall.timestamp)}
+                                            {formatRelativeOffset(selectedSession.session_start, toolCall.timestamp)}
                                         </span>
                                     </div>
                                 </div>
@@ -153,6 +151,26 @@ export function MCPSessionDetail(): JSX.Element {
                     </ol>
                 )}
             </section>
+
+            <hr className="shrink-0 border-t border-primary my-0" />
+
+            <footer className="shrink-0 bg-gradient-to-br from-accent/15 via-accent/5 to-surface-primary px-3 py-3">
+                <div className="flex items-center gap-2 mb-1.5">
+                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-accent">
+                        <IconSparkles className="text-xs" />
+                    </div>
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-accent">
+                        Session intent
+                    </span>
+                </div>
+                <p className="text-xs leading-relaxed text-default">
+                    {selectedSession.intent || (
+                        <span className="text-secondary italic">
+                            Summary will appear once the intent workflow runs.
+                        </span>
+                    )}
+                </p>
+            </footer>
         </div>
     )
 }

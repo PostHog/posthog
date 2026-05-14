@@ -85,6 +85,7 @@ class MCPSession(UUIDModel):
     duration_seconds = models.IntegerField()
 
     tools_used = ArrayField(models.CharField(max_length=200), default=list, blank=True)
+    tool_call_count = models.IntegerField(default=0)
     distinct_id = models.CharField(max_length=400, blank=True, default="")
     mcp_client_name = models.CharField(max_length=200, blank=True, default="")
     intent = models.TextField(null=True, blank=True)

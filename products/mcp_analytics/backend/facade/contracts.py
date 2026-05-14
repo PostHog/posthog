@@ -54,15 +54,16 @@ class CreateMissingCapabilitySubmission:
 @dataclass(frozen=True)
 class MCPSession:
     session_id: str
-    event_count: int
-    first_seen: datetime
-    last_seen: datetime
+    tool_calls: int
+    session_start: datetime
+    session_end: datetime
     distinct_id_count: int
     tools_used: list[str]
     mcp_client_name: str
     distinct_id: str
     person_email: str
     person_name: str
+    intent: str
 
 
 @dataclass(frozen=True)

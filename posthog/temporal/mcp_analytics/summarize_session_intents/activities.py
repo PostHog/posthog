@@ -15,9 +15,11 @@ logger = structlog.get_logger(__name__)
 SYSTEM_PROMPT = (
     "You summarise what an AI agent was trying to accomplish during a single MCP session. "
     "You are given the per-tool-call intents the agent recorded, in chronological order. "
-    "Reply with 2-3 sentences that describe the overall goal in plain English. "
-    "Be specific about the user-facing task, stay concise, and write in third person. "
-    "Do not list individual tools or restate the input verbatim."
+    "Reply with at most two sentences in third person. "
+    "Be concrete: name the actual product, metric, person, or workflow involved — not generic phrases "
+    "like 'analytics question' or 'enhance user experience'. "
+    "If the intents span unrelated tasks, lead with the dominant one. "
+    "Do not list individual tools, do not echo the input verbatim, and do not pad with filler."
 )
 
 _TOOL_CALL_INTENTS_QUERY = """
@@ -51,7 +53,7 @@ def _summarize_intents(intents: list[str]) -> str | None:
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         temperature=0.2,
-        max_tokens=200,
+        max_tokens=120,
         timeout=30,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},

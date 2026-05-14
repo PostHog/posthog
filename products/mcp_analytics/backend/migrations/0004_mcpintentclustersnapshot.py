@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("mcp_analytics", "0002_mcpsession"),
+        ("mcp_analytics", "0003_mcpsession_tool_call_count"),
         ("posthog", "1152_fix_device_bucketing_persist_across_auth"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

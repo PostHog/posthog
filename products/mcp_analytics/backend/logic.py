@@ -73,15 +73,16 @@ def _to_session_contract(row: MCPSession, persons_by_distinct_id: dict[str, Pers
     tools_used = list(row.tools_used or [])
     return contracts.MCPSession(
         session_id=row.session_id,
-        event_count=len(tools_used),
-        first_seen=row.session_start,
-        last_seen=row.session_end,
+        tool_calls=row.tool_call_count,
+        session_start=row.session_start,
+        session_end=row.session_end,
         distinct_id_count=0,
         tools_used=tools_used,
         mcp_client_name=row.mcp_client_name or "",
         distinct_id=row.distinct_id or "",
         person_email=person_display["email"],
         person_name=person_display["name"],
+        intent=row.intent or "",
     )
 
 
