@@ -705,17 +705,57 @@ function printKnownList(toolName: string, result: unknown): boolean {
     return true
 }
 
-// asciichart wants raw SGR strings on its `colors` config; chalk 5 doesn't
-// expose `.open`, so we keep two parallel constants — one for asciichart, one
-// for legend bullets. Same ordering in both.
-const CHART_COLORS = [
-    { ansi: asciichart.blue, fn: chalk.blue },
-    { ansi: asciichart.green, fn: chalk.green },
-    { ansi: asciichart.yellow, fn: chalk.yellow },
-    { ansi: asciichart.magenta, fn: chalk.magenta },
-    { ansi: asciichart.cyan, fn: chalk.cyan },
-    { ansi: asciichart.red, fn: chalk.red },
+// PostHog's exact data colors from frontend/src/styles/base.scss
+// These match the --data-color-1 through --data-color-15 CSS variables
+const POSTHOG_COLORS = [
+    '#1d4aff', // data-color-1
+    '#621da6', // data-color-2  
+    '#42827e', // data-color-3
+    '#ce0e74', // data-color-4
+    '#f14f58', // data-color-5
+    '#7c440e', // data-color-6
+    '#529a0a', // data-color-7
+    '#0476fb', // data-color-8
+    '#fe729e', // data-color-9
+    '#35416b', // data-color-10
+    '#41cbc4', // data-color-11
+    '#b64b02', // data-color-12
+    '#e4a604', // data-color-13
+    '#a56eff', // data-color-14
+    '#30d5c8', // data-color-15
 ]
+
+// Map PostHog hex colors to closest available terminal colors for asciichart and chalk
+function hexToTerminalColor(hex: string): { ansi: string, fn: typeof chalk.blue } {
+    // Simple mapping of PostHog colors to closest terminal equivalents
+    switch (hex) {
+        case '#1d4aff': // blue
+        case '#0476fb': // blue
+            return { ansi: asciichart.blue, fn: chalk.blue }
+        case '#621da6': // purple
+        case '#a56eff': // purple  
+            return { ansi: asciichart.magenta, fn: chalk.magenta }
+        case '#42827e': // teal
+        case '#41cbc4': // cyan
+        case '#30d5c8': // cyan
+            return { ansi: asciichart.cyan, fn: chalk.cyan }
+        case '#ce0e74': // pink/red
+        case '#f14f58': // red
+            return { ansi: asciichart.red, fn: chalk.red }
+        case '#529a0a': // green
+            return { ansi: asciichart.green, fn: chalk.green }
+        case '#7c440e': // brown
+        case '#b64b02': // orange
+        case '#e4a604': // yellow
+            return { ansi: asciichart.yellow, fn: chalk.yellow }
+        case '#fe729e': // pink
+            return { ansi: asciichart.red, fn: chalk.red }
+        case '#35416b': // dark blue
+            return { ansi: asciichart.blue, fn: chalk.blue }
+        default:
+            return { ansi: asciichart.blue, fn: chalk.blue }
+    }
+}
 
 function plotTrendsSeries(series: ChartSeries[]): void {
     if (series.length === 0) {
@@ -741,9 +781,27 @@ function plotTrendsSeries(series: ChartSeries[]): void {
         )
     )
 
+    // Calculate colors using PostHog's exact color assignment logic
+    // Based on getTrendDatasetPosition and getTrendResultCustomizationColorToken from frontend
+    const seriesColors = series.map((s, i) => {
+        // Replicate PostHog's getTrendDatasetPosition logic:
+        // dataset.seriesIndex ?? dataset.colorIndex ?? dataset.index
+        const datasetPosition = (s as any).seriesIndex ?? (s as any).colorIndex ?? i
+        
+        // PostHog uses 15 preset colors (preset-1 through preset-15)
+        // The formula is: (datasetPosition % themeLength) + 1
+        const colorIndex = (datasetPosition % 15) + 1
+        
+        // Get the exact PostHog color
+        const posthogHex = POSTHOG_COLORS[colorIndex - 1]  // Convert to 0-based index
+        
+        // Map to terminal colors
+        return hexToTerminalColor(posthogHex)
+    })
+
     const chart = asciichart.plot(numericSeries.length === 1 ? numericSeries[0] : numericSeries, {
         height: 12,
-        colors: numericSeries.map((_, i) => CHART_COLORS[i % CHART_COLORS.length].ansi),
+        colors: seriesColors.map(c => c.ansi),
         format: (x: number) => formatYValue(x).padStart(5, ' '),
     })
 
@@ -752,7 +810,7 @@ function plotTrendsSeries(series: ChartSeries[]): void {
     console.log('')
 
     series.forEach((s, i) => {
-        const { fn: color } = CHART_COLORS[i % CHART_COLORS.length]
+        const { fn: color } = seriesColors[i]
         const action = isRecord(s.action) ? s.action : null
         const name = stringify(s.label) || (action ? stringify(action.name) : '') || `Series ${i + 1}`
         const total = typeof s.count === 'number' ? chalk.gray(`  total: ${s.count}`) : ''
