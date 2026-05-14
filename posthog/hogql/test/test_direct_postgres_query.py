@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from typing import Any, cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -16,6 +17,7 @@ from posthog.hogql.query import (
     HogQLQueryExecutor,
     LenientDirectPostgresDateLoader,
     direct_postgres_session_setup_sql,
+    get_runtime_direct_postgres_connection_metadata,
     parse_lenient_direct_postgres_date,
     postgres_error_to_message,
     postgres_oid_to_clickhouse_type,
@@ -60,10 +62,25 @@ class TestDirectPostgresQuery(APIBaseTest):
             "SET search_path TO ph3",
         )
 
+    def test_direct_postgres_session_setup_sql_returns_none_without_postgres_schema(self):
+        self.assertIsNone(direct_postgres_session_setup_sql(None))
+
     def test_direct_postgres_session_setup_sql_uses_use_for_duckdb(self):
         self.assertEqual(
             direct_postgres_session_setup_sql("posthog", {"engine": "duckdb"}),
             "USE posthog",
+        )
+
+    def test_direct_postgres_session_setup_sql_uses_database_for_duckdb_without_schema(self):
+        self.assertEqual(
+            direct_postgres_session_setup_sql(None, {"engine": "duckdb", "database": "ducklake"}),
+            "USE ducklake",
+        )
+
+    def test_direct_postgres_session_setup_sql_uses_schema_for_duckdb_with_schema(self):
+        self.assertEqual(
+            direct_postgres_session_setup_sql("system", {"engine": "duckdb", "database": "ducklake"}),
+            "USE system",
         )
 
     def test_direct_postgres_session_setup_sql_treats_postwh_hosts_as_duckdb(self):
@@ -71,6 +88,18 @@ class TestDirectPostgresQuery(APIBaseTest):
             direct_postgres_session_setup_sql("posthog", host="db.eu.postwh.com"),
             "USE posthog",
         )
+
+    def test_runtime_direct_postgres_connection_metadata_hydrates_missing_duckdb_catalog(self):
+        connection = MagicMock()
+        metadata_cursor = MagicMock()
+        metadata_cursor.fetchone.return_value = ("ducklake", "DuckDB v1.3.2")
+        connection.execute.return_value = metadata_cursor
+
+        self.assertEqual(
+            get_runtime_direct_postgres_connection_metadata(connection, {"engine": "duckdb"}),
+            {"engine": "duckdb", "database": "ducklake"},
+        )
+        connection.execute.assert_called_once_with("SELECT current_database(), version()")
 
     def test_generate_sql_for_direct_postgres_table_does_not_require_team_id_field(self):
         source = ExternalDataSource.objects.create(
@@ -329,6 +358,100 @@ class TestDirectPostgresQuery(APIBaseTest):
         sql, _context = executor.generate_clickhouse_sql()
 
         self.assertIn("icu_collate_nl", sql)
+        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+
+    @parameterized.expand(
+        [
+            (
+                "introspected_via_metadata",
+                {"available_table_functions": ["unnest"]},
+                "SELECT * FROM unnest(ARRAY[1, 2, 3])",
+                "unnest(",
+            ),
+            (
+                "hardcoded_range_without_metadata",
+                None,
+                "SELECT range FROM range(10)",
+                "range(10)",
+            ),
+        ]
+    )
+    def test_generate_sql_for_direct_postgres_table_function(
+        self,
+        _name: str,
+        connection_metadata: dict[str, Any] | None,
+        query: str,
+        expected_sql_fragment: str,
+    ):
+        source_kwargs: dict[str, Any] = {
+            "team": self.team,
+            "source_id": "source_id",
+            "connection_id": "connection_id",
+            "status": ExternalDataSource.Status.COMPLETED,
+            "source_type": "Postgres",
+            "access_method": ExternalDataSource.AccessMethod.DIRECT,
+            "prefix": "ph3",
+            "job_inputs": {
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        }
+        if connection_metadata is not None:
+            source_kwargs["connection_metadata"] = connection_metadata
+        source = ExternalDataSource.objects.create(**source_kwargs)
+
+        executor = HogQLQueryExecutor(query=query, team=self.team, connection_id=str(source.id))
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn(expected_sql_fragment, sql)
+        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+
+    def test_generate_sql_for_duckdb_direct_postgres_table_uses_connection_catalog(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ducklake",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+            },
+            connection_metadata={"engine": "duckdb", "database": "ducklake"},
+        )
+
+        DataWarehouseTable.objects.create(
+            name="system.query_log",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"query": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+            options={
+                "direct_postgres_schema": "system",
+                "direct_postgres_table": "query_log",
+            },
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT * FROM system.query_log LIMIT 100",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn("ducklake.system.query_log", sql)
         self.assertEqual(executor.direct_postgres_source_id, str(source.id))
 
     def test_direct_query_requires_selected_connection(self):
@@ -614,7 +737,7 @@ class TestDirectPostgresQuery(APIBaseTest):
                 "password": "postgres",
                 "schema": "ph3",
             },
-            connection_metadata={"engine": "duckdb"},
+            connection_metadata={"engine": "duckdb", "database": "posthog"},
         )
 
         mocked_cursor = MagicMock()
@@ -636,10 +759,99 @@ class TestDirectPostgresQuery(APIBaseTest):
         response = executor.execute()
 
         self.assertEqual(response.results, [(date(2026, 3, 26),)])
+        job_inputs = cast(dict[str, Any], source.job_inputs)
+        mocked_connection.execute.assert_called_once_with(f"USE {escape_postgres_identifier(job_inputs['schema'])}")
+        mocked_connection.adapters.register_loader.assert_any_call("date", LenientDirectPostgresDateLoader)
+
+    @patch("posthog.hogql.query.psycopg.connect")
+    def test_send_raw_query_uses_duckdb_schema_without_hydrating_catalog(self, mock_connect):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "system",
+            },
+            connection_metadata={"engine": "duckdb"},
+        )
+
+        mocked_cursor = MagicMock()
+        mocked_cursor.fetchall.return_value = [(1,)]
+        column = MagicMock(type_code=23)
+        column.name = "value"
+        mocked_cursor.description = [column]
+
+        mocked_connection = MagicMock()
+        mocked_connection.execute.return_value = None
+        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
+        mock_connect.return_value.__enter__.return_value = mocked_connection
+
+        executor = HogQLQueryExecutor(
+            query="SELECT * FROM system.query_log LIMIT 100",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        response = executor.execute()
+
+        self.assertEqual(response.results, [(1,)])
+        mocked_connection.execute.assert_any_call(f"USE {escape_postgres_identifier(source.job_inputs['schema'])}")
+        self.assertEqual(mocked_connection.execute.call_count, 1)
+        mocked_cursor.execute.assert_called_once_with("SELECT * FROM system.query_log LIMIT 100", None)
+
+    @patch("posthog.hogql.query.psycopg.connect")
+    def test_send_raw_query_uses_schema_for_duckdb_when_catalog_is_available(self, mock_connect):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "system",
+            },
+            connection_metadata={"engine": "duckdb", "database": "ducklake"},
+        )
+
+        mocked_cursor = MagicMock()
+        mocked_cursor.fetchall.return_value = [(1,)]
+        column = MagicMock(type_code=23)
+        column.name = "value"
+        mocked_cursor.description = [column]
+        mocked_connection = MagicMock()
+        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
+        mock_connect.return_value.__enter__.return_value = mocked_connection
+
+        executor = HogQLQueryExecutor(
+            query="SELECT 1 AS value",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        response = executor.execute()
+
+        self.assertEqual(response.results, [(1,)])
         mocked_connection.execute.assert_called_once_with(
             f"USE {escape_postgres_identifier(source.job_inputs['schema'])}"
         )
-        mocked_connection.adapters.register_loader.assert_any_call("date", LenientDirectPostgresDateLoader)
 
     @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.query.psycopg.connect")
@@ -714,6 +926,53 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         mocked_cursor = MagicMock()
+        mocked_cursor.fetchall.return_value = [(True,)]
+        column = MagicMock(type_code=16)
+        column.name = "value"
+        mocked_cursor.description = [column]
+        mocked_connection = MagicMock()
+        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
+        mock_connect.return_value.__enter__.return_value = mocked_connection
+
+        executor = HogQLQueryExecutor(
+            query="SELECT 1 IS TRUE AS value",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        response = executor.execute()
+
+        self.assertEqual(response.results, [(True,)])
+        self.assertEqual(response.clickhouse, "SELECT 1 IS TRUE AS value")
+        self.assertEqual(response.columns, ["value"])
+        self.assertIsNone(response.hogql)
+        mocked_cursor.execute.assert_called_once_with("SELECT 1 IS TRUE AS value", None)
+        mock_capture_exception.assert_called_once()
+
+    @patch("posthog.hogql.query.capture_exception")
+    @patch("posthog.hogql.query.psycopg.connect")
+    def test_send_raw_query_uses_catalog_for_duckdb_without_schema(self, mock_connect, mock_capture_exception):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ducklake",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "",
+            },
+            connection_metadata={"engine": "duckdb", "database": "ducklake"},
+        )
+
+        mocked_cursor = MagicMock()
         mocked_cursor.fetchall.return_value = [(1,)]
         column = MagicMock(type_code=23)
         column.name = "value"
@@ -723,7 +982,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         mock_connect.return_value.__enter__.return_value = mocked_connection
 
         executor = HogQLQueryExecutor(
-            query="SELECT 1::int AS value",
+            query="SELECT 1 AS value",
             team=self.team,
             connection_id=str(source.id),
             send_raw_query=True,
@@ -732,11 +991,51 @@ class TestDirectPostgresQuery(APIBaseTest):
         response = executor.execute()
 
         self.assertEqual(response.results, [(1,)])
-        self.assertEqual(response.clickhouse, "SELECT 1::int AS value")
-        self.assertEqual(response.columns, ["value"])
-        self.assertIsNone(response.hogql)
-        mocked_cursor.execute.assert_called_once_with("SELECT 1::int AS value", None)
-        mock_capture_exception.assert_called_once()
+        mocked_connection.execute.assert_called_once_with("USE ducklake")
+        mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
+        mock_capture_exception.assert_not_called()
+
+    @patch("posthog.hogql.query.psycopg.connect")
+    def test_send_raw_query_skips_session_setup_when_schema_is_blank(self, mock_connect):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "",
+            },
+        )
+
+        mocked_cursor = MagicMock()
+        mocked_cursor.fetchall.return_value = [(1,)]
+        column = MagicMock(type_code=23)
+        column.name = "value"
+        mocked_cursor.description = [column]
+        mocked_connection = MagicMock()
+        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
+        mock_connect.return_value.__enter__.return_value = mocked_connection
+
+        executor = HogQLQueryExecutor(
+            query="SELECT 1 AS value",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        response = executor.execute()
+
+        self.assertEqual(response.results, [(1,)])
+        mocked_connection.execute.assert_called_once_with("SELECT current_database(), version()")
+        mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
 
     def test_selected_connection_rejects_disabled_direct_tables(self):
         source = ExternalDataSource.objects.create(
@@ -1056,9 +1355,65 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertEqual(str(error.exception), "boom")
 
+    _SSH_TUNNEL_CONFIG = {
+        "ssh_tunnel": {
+            "enabled": True,
+            "host": "bastion.example.com",
+            "port": 22,
+            "auth_type": {
+                "selection": "password",
+                "username": "user",
+                "password": "pass",
+                "private_key": "",
+                "passphrase": "",
+            },
+        },
+    }
+
+    _SSH_TUNNEL_TLS_OFF = {
+        "ssh_tunnel": {
+            **_SSH_TUNNEL_CONFIG["ssh_tunnel"],
+            "require_tls": {"enabled": False},
+        },
+    }
+
+    _SSH_TUNNEL_DISABLED_TLS_OFF = {
+        "ssh_tunnel": {
+            **_SSH_TUNNEL_CONFIG["ssh_tunnel"],
+            "enabled": False,
+            "require_tls": {"enabled": False},
+        },
+    }
+
+    @parameterized.expand(
+        [
+            ("no_tunnel", {}, "require"),
+            ("tunnel_tls_on", _SSH_TUNNEL_CONFIG, "require"),
+            ("tunnel_tls_off", _SSH_TUNNEL_TLS_OFF, "prefer"),
+            ("disabled_tunnel_tls_off_ignored", _SSH_TUNNEL_DISABLED_TLS_OFF, "require"),
+        ]
+    )
     @override_settings(DEBUG=False, TEST=False)
+    @patch("products.data_warehouse.backend.models.ssh_tunnel.SSHTunnelForwarder")
     @patch("posthog.hogql.query.psycopg.connect")
-    def test_execute_direct_postgres_query_uses_required_sslmode_for_new_sources(self, mock_connect):
+    def test_direct_postgres_ssl(self, _name, job_inputs, expected_sslmode, mock_connect, mock_tunnel_cls):
+        mock_tunnel = MagicMock()
+        mock_tunnel.local_bind_host = "127.0.0.1"
+        mock_tunnel.local_bind_port = 15432
+        mock_tunnel.__enter__ = MagicMock(return_value=mock_tunnel)
+        mock_tunnel.__exit__ = MagicMock(return_value=False)
+        mock_tunnel_cls.return_value = mock_tunnel
+
+        base_inputs = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "postgres",
+            "user": "postgres",
+            "password": "postgres",
+            "schema": "ph3",
+        }
+        base_inputs.update(job_inputs)
+
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1067,14 +1422,7 @@ class TestDirectPostgresQuery(APIBaseTest):
             source_type="Postgres",
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             prefix="ph3",
-            job_inputs={
-                "host": "localhost",
-                "port": 5432,
-                "database": "postgres",
-                "user": "postgres",
-                "password": "postgres",
-                "schema": "ph3",
-            },
+            job_inputs=base_inputs,
         )
         source.created_at = SSL_REQUIRED_AFTER_DATE + timedelta(days=1)
         source.save(update_fields=["created_at"])
@@ -1107,7 +1455,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         executor.execute()
 
-        self.assertEqual(mock_connect.call_args.kwargs["sslmode"], "require")
+        self.assertEqual(mock_connect.call_args.kwargs["sslmode"], expected_sslmode)
 
     @override_settings(DEBUG=False, TEST=False, E2E_TESTING=True)
     @patch("posthog.hogql.query.psycopg.connect")

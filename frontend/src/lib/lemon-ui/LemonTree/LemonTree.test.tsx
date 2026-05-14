@@ -11,6 +11,13 @@ class ResizeObserverMock {
     disconnect(): void {}
 }
 
+const requestAnimationFrameMock = (callback: FrameRequestCallback): number =>
+    window.setTimeout(() => callback(performance.now()), 0)
+
+const cancelAnimationFrameMock = (handle: number): void => {
+    window.clearTimeout(handle)
+}
+
 describe('LemonTree virtualization', () => {
     let requestAnimationFrameSpy: jest.SpyInstance<number, [FrameRequestCallback]>
     let cancelAnimationFrameSpy: jest.SpyInstance<void, [number]>
@@ -18,6 +25,8 @@ describe('LemonTree virtualization', () => {
     beforeAll(() => {
         ;(global as typeof globalThis & { ResizeObserver: typeof ResizeObserver }).ResizeObserver =
             ResizeObserverMock as unknown as typeof ResizeObserver
+        global.requestAnimationFrame = requestAnimationFrameMock
+        global.cancelAnimationFrame = cancelAnimationFrameMock
     })
 
     beforeEach(() => {
@@ -143,7 +152,7 @@ describe('LemonTree virtualization', () => {
             },
         ]
 
-        render(
+        const { container } = render(
             <div>
                 <div style={{ height: 120 }} />
                 <div ref={outerScrollRef}>
@@ -185,19 +194,12 @@ describe('LemonTree virtualization', () => {
             toJSON: () => ({}),
         })
 
-        act(() => {
-            outerScroll.dispatchEvent(new Event('scroll'))
-        })
-
-        act(() => {
-            outerScroll.scrollTop = 120 + 31 * 40
-            outerScroll.dispatchEvent(new Event('scroll'))
-        })
+        await scrollViewport(outerScroll, 120 + 31 * 40)
 
         await waitFor(() => {
-            expect(screen.getByLabelText('tree item: child-40')).toBeInTheDocument()
+            expect(within(container).getByLabelText('tree item: child-40')).toBeInTheDocument()
         })
-    })
+    }, 10000)
 
     it('supports an overridden virtualized row height', async () => {
         const data: TreeDataItem[] = [

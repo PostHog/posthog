@@ -29,13 +29,15 @@ class DataWarehouseSavedQueryDraftSerializer(serializers.ModelSerializer):
 
         name = "Untitled"
         if saved_query_id:
+            try:
+                saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id, team_id=validated_data["team_id"])
+            except DataWarehouseSavedQuery.DoesNotExist:
+                raise serializers.ValidationError({"saved_query_id": "Saved query not found."})
             count = DataWarehouseSavedQueryDraft.objects.filter(
                 saved_query_id=saved_query_id,
                 team_id=validated_data["team_id"],
                 created_by=validated_data["created_by"],
             ).count()
-            # nosemgrep: idor-lookup-without-team (internal endpoint; only reads name for draft naming)
-            saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
             name = f"({count + 1}) {saved_query.name}"
 
         validated_data["name"] = name

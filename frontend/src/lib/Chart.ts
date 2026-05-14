@@ -25,7 +25,7 @@ export class Chart<
     TData = DefaultDataPoint<TType>,
     TLabel = unknown,
 > extends RawChart<TType, TData, TLabel> {
-    draw(): void {
+    override draw(): void {
         if (inStorybookTestRunner()) {
             // Disable Chart.js rendering in Storybook snapshots, as they've proven to be very flaky
             return

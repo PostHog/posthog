@@ -105,7 +105,6 @@ async fn setup_recordings_router_with_restriction(
         Arc::new(sink),
         redis,
         None, // global_rate_limiter_token_distinctid
-        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         Some(service),
@@ -122,7 +121,11 @@ async fn setup_recordings_router_with_restriction(
         None, // no blob storage for recordings
         Some(10),
         None,
-        256, // body_read_chunk_size_kb
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // replay_overflow_limiter
     );
 
     (router, sink_clone)
@@ -468,7 +471,6 @@ async fn setup_recordings_router_with_redirect_to_topic(
         Arc::new(sink),
         redis,
         None, // global_rate_limiter_token_distinctid
-        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         Some(service),
@@ -485,7 +487,11 @@ async fn setup_recordings_router_with_redirect_to_topic(
         None, // no blob storage for recordings
         Some(10),
         None,
-        256, // body_read_chunk_size_kb
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // replay_overflow_limiter
     );
 
     (router, sink_clone)

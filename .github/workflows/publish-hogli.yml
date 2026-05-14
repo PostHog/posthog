@@ -1,0 +1,83 @@
+name: Publish hogli to PyPI
+
+on:
+    push:
+        tags:
+            - 'hogli-v*'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: publish-hogli-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    publish:
+        name: Build and publish
+        # Hard guard: only publish from a tag ref. workflow_dispatch is supported
+        # so a failed publish can be re-run against the existing tag (via
+        # `gh workflow run publish-hogli.yml --ref hogli-vX.Y.Z`); dispatching
+        # from a branch is a no-op.
+        if: startsWith(github.ref, 'refs/tags/hogli-v')
+        runs-on: ubuntu-22.04
+        timeout-minutes: 10
+        environment: pypi-hogli
+        permissions:
+            id-token: write
+            contents: write
+            attestations: write
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.12'
+
+            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+
+            - name: Verify tag matches package version
+              shell: bash
+              env:
+                  TAG_REF: ${{ github.ref_name }}
+              run: |
+                  tag_version="${TAG_REF#hogli-v}"
+                  pkg_version=$(python -c "import tomllib; print(tomllib.load(open('tools/hogli/pyproject.toml','rb'))['project']['version'])")
+                  if [[ "$tag_version" != "$pkg_version" ]]; then
+                      echo "::error::tag version ($tag_version) does not match tools/hogli/pyproject.toml version ($pkg_version)"
+                      exit 1
+                  fi
+
+            - name: Build sdist and wheel
+              run: uv build tools/hogli --out-dir dist
+
+            - name: Validate metadata
+              run: uvx twine check dist/*
+
+            - name: Smoke-test built wheel
+              shell: bash
+              env:
+                  TAG_REF: ${{ github.ref_name }}
+              run: |
+                  tag_version="${TAG_REF#hogli-v}"
+                  uv venv /tmp/hogli-smoke
+                  uv pip install --python /tmp/hogli-smoke/bin/python --find-links dist "hogli==$tag_version"
+                  /tmp/hogli-smoke/bin/hogli --help
+
+            - name: Generate build provenance attestation
+              uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+              with:
+                  subject-path: 'dist/*'
+
+            - name: Publish to PyPI
+              run: uv publish dist/*
+
+            - name: Create GitHub Release
+              uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+              with:
+                  files: dist/*
+                  generate_release_notes: true
+                  prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}

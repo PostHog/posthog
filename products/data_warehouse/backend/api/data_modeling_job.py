@@ -1,15 +1,17 @@
+import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework import pagination, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
+from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob, DataModelingJobEngine
+
+DUCKGRES_SHADOW_FLAG = "duckgres-data-modeling-shadow"
 
 
 class DataModelingJobSerializer(serializers.ModelSerializer):
@@ -41,8 +43,7 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     List data modeling jobs which are "runs" for our saved queries.
     """
 
-    scope_object = "INTERNAL"
-    permission_classes = [IsAuthenticated]
+    scope_object = "warehouse_view"
     serializer_class = DataModelingJobSerializer
     pagination_class = DataModelingJobPagination
     queryset = DataModelingJob.objects.all()
@@ -52,8 +53,30 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     ordering_fields = ["created_at"]
     ordering = "-created_at"
 
+    def _is_duckgres_shadow_enabled(self) -> bool:
+        try:
+            return posthoganalytics.feature_enabled(
+                DUCKGRES_SHADOW_FLAG,
+                str(self.team.pk),
+                groups={
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team.id),
+                },
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team.id)},
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            return False
+
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team_id)
+        qs = queryset.filter(team_id=self.team_id)
+        if not self._is_duckgres_shadow_enabled():
+            qs = qs.exclude(engine=DataModelingJobEngine.DUCKGRES)
+        return qs
 
     @action(methods=["GET"], detail=False)
     def running(self, request, *args, **kwargs):

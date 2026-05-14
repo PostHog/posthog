@@ -27,6 +27,11 @@
                     display: none;
                 }
 
+                // Hide the inline add-filter-group wrapper so it doesn't add gap-2 spacing
+                .PropertyGroupFilters__add-filter-group-inline-wrapper {
+                    display: none;
+                }
+
                 // Allow property filter to shrink next to the X button
                 .property-filter-row .TaxonomicPropertyFilter {
                     flex: 1;

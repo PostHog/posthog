@@ -6,23 +6,29 @@ on:
 
 permissions:
     contents: read
-    pull-requests: write
 
 jobs:
     resolve-outdated:
         name: Resolve outdated bot review comments
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
 
         steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY }}
+
             - name: Resolve outdated bot threads
               env:
-                  GH_TOKEN: ${{ github.token }}
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   REPO: ${{ github.repository }}
               run: |
-                  BOTS="copilot-pull-request-reviewer greptile-apps chatgpt-codex-connector"
+                  BOTS="copilot-pull-request-reviewer greptile-apps chatgpt-codex-connector graphite-app cursor claude claude-code-action claude-review"
 
                   OWNER="${REPO%/*}"
                   REPO_NAME="${REPO#*/}"

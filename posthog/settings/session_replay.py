@@ -1,5 +1,3 @@
-from django.conf import settings
-
 from posthog.settings import get_from_env
 from posthog.utils import str_to_bool
 
@@ -13,22 +11,8 @@ REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET = get_from_env(
     "REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET", "posthog-cloud-prod-us-east-1-k8s-replay-samples"
 )
 
-# NB if you want to set a compression you need to install it... the producer compresses not kafka
-# accepts
-# * None - no compression
-# * gzip - gzip compression by the kafka producer (auto decompressed by the consumer in blobby)
-# * gzip-in-capture - gzip in compression in the capture service (manually decompressed by the consumer in blobby)
-#
-# gzip is the current default in production
-# TODO we can clean this up once we've tested the new gzip-in-capture compression and don't need a setting
-SESSION_RECORDING_KAFKA_COMPRESSION = get_from_env("SESSION_RECORDING_KAFKA_COMPRESSION", "gzip")
-
 # an AI model to use for session recording filters
 SESSION_REPLAY_AI_REGEX_MODEL = get_from_env("SESSION_REPLAY_AI_REGEX_MODEL", "gpt-4.1-mini")
-
-PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS = get_from_env(
-    "PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS", default=60 if settings.DEBUG else 3600, type_cast=int
-)
 
 PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS = get_from_env(
     "PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS", 3600, type_cast=int
@@ -37,6 +21,7 @@ PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS = get_from_env(
 PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT = get_from_env(
     "PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT", 2500, type_cast=int
 )
+
 
 SNAPSHOT_RATE_FREE_BURST = get_from_env("SNAPSHOT_RATE_FREE_BURST", "12/minute")
 SNAPSHOT_RATE_FREE_SUSTAINED = get_from_env("SNAPSHOT_RATE_FREE_SUSTAINED", "60/hour")

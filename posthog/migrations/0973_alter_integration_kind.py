@@ -13,7 +13,7 @@ class AlterPosthogIntegrationKindField(Operation):
     def __init__(self):
         self.model_name = "integration"
         self.name = "kind"
-        self.field = models.CharField(
+        self.field: models.Field = models.CharField(
             choices=[
                 ("slack", "Slack"),
                 ("salesforce", "Salesforce"),

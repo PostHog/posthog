@@ -5,11 +5,18 @@ from unittest.mock import MagicMock, patch
 
 from requests.exceptions import ConnectionError, Timeout
 
+from products.tasks.backend.services.modal_provision_diagnostics import (
+    MAX_PROVISION_LOG_EXCERPT_LINES,
+    summarize_modal_output,
+)
 from products.tasks.backend.services.modal_sandbox import (
     AGENT_SERVER_PORT,
+    DEFAULT_MODAL_REGION,
     SANDBOX_IMAGE,
     ModalSandbox,
+    _get_modal_region,
     _get_sandbox_image_reference,
+    _image_ref_cache,
 )
 from products.tasks.backend.services.sandbox import AgentServerResult, ExecutionResult, SandboxConfig
 from products.tasks.backend.temporal.exceptions import SandboxExecutionError
@@ -31,7 +38,7 @@ def _mock_manifest_response(status_code: int = 200, digest: str | None = "sha256
 
 class TestGetSandboxImageReference:
     def setup_method(self):
-        _get_sandbox_image_reference.cache_clear()
+        _image_ref_cache.clear()
 
     def test_returns_digest_reference_on_success(self):
         with patch(
@@ -109,10 +116,31 @@ class TestGetSandboxImageReference:
         assert result1 == result2 == result3 == f"{SANDBOX_IMAGE}@sha256:cached123"
         assert mock_get.call_count == 2  # token + manifest, called only once due to cache
 
+    def test_re_resolves_after_cache_expiry(self):
+        """After TTL expiry (simulated via clear), a fresh GHCR query picks up the new digest."""
+        with patch(
+            "products.tasks.backend.services.modal_sandbox.requests.get",
+            side_effect=[
+                _mock_token_response(),
+                _mock_manifest_response(digest="sha256:old"),
+                _mock_token_response(),
+                _mock_manifest_response(digest="sha256:new"),
+            ],
+        ) as mock_get:
+            result1 = _get_sandbox_image_reference()
+            assert result1 == f"{SANDBOX_IMAGE}@sha256:old"
+            assert mock_get.call_count == 2
+
+            _image_ref_cache.clear()
+
+            result2 = _get_sandbox_image_reference()
+            assert result2 == f"{SANDBOX_IMAGE}@sha256:new"
+            assert mock_get.call_count == 4
+
 
 class TestGetSandboxImageReferenceIntegration:
     def setup_method(self):
-        _get_sandbox_image_reference.cache_clear()
+        _image_ref_cache.clear()
 
     @pytest.mark.xfail(
         reason="Flaky: depends on GHCR availability. Remove this mark when we've figured out a less flaky approach"
@@ -124,6 +152,22 @@ class TestGetSandboxImageReferenceIntegration:
         digest_part = result.split("@")[1]
         assert digest_part.startswith("sha256:")
         assert len(digest_part) == 71  # "sha256:" + 64 hex chars
+
+
+class TestGetModalRegion:
+    @pytest.mark.parametrize(
+        "cloud_deployment,expected_region",
+        [
+            ("EU", "eu-west"),
+            ("US", "us-east"),
+            ("DEV", DEFAULT_MODAL_REGION),
+            (None, DEFAULT_MODAL_REGION),
+            ("LOCAL", DEFAULT_MODAL_REGION),
+        ],
+    )
+    def test_returns_correct_region(self, cloud_deployment, expected_region):
+        with patch("products.tasks.backend.services.modal_sandbox.CLOUD_DEPLOYMENT", cloud_deployment):
+            assert _get_modal_region() == expected_region
 
 
 class TestModalSandboxAgentServer:
@@ -184,6 +228,7 @@ class TestModalSandboxAgentServer:
         assert f"--taskId {shlex.quote('task-123')}" in command
         assert f"--runId {shlex.quote('run-456')}" in command
         assert f"--mode {shlex.quote('background')}" in command
+        assert "--createPr true" in command
         assert "agentsh exec" not in command
         assert "nohup" in command
 
@@ -209,10 +254,86 @@ class TestModalSandboxAgentServer:
             ["example.com"],
         )
         command = mock_sandbox.execute.call_args_list[0][0][0]
+        assert "--createPr true" in command
         assert "agentsh exec --client-timeout 2h --timeout 2h" in command
         assert "env -0 > /tmp/agent-env" in command
         assert "/tmp/agentsh-env-wrapper.sh" in command
         assert "./node_modules/.bin/agent-server" in command
+
+    def test_start_agent_server_wraps_with_agentsh_when_domains_empty(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+            ]
+        )
+
+        with patch.object(mock_sandbox, "_setup_agentsh") as mock_setup_agentsh:
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+                mode="background",
+                allowed_domains=[],
+            )
+
+        mock_setup_agentsh.assert_called_once_with("/tmp/workspace", [])
+        command = mock_sandbox.execute.call_args_list[0][0][0]
+        assert "--allowedDomains" not in command
+        assert "agentsh exec --client-timeout 2h --timeout 2h" in command
+        assert "env -0 > /tmp/agent-env" in command
+
+    @pytest.mark.parametrize(
+        ("create_pr", "expected_flag"),
+        [
+            (True, "--createPr true"),
+            (False, "--createPr false"),
+        ],
+    )
+    def test_start_agent_server_passes_create_pr_flag(self, mock_sandbox: Any, create_pr: bool, expected_flag: str):
+        mock_sandbox.execute = MagicMock(
+            side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+            ]
+        )
+
+        with patch.object(mock_sandbox, "_setup_agentsh"):
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+                mode="background",
+                create_pr=create_pr,
+            )
+
+        command = mock_sandbox.execute.call_args_list[0][0][0]
+        assert expected_flag in command
+
+    def test_start_agent_server_includes_runtime_environment_variables(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+            ]
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+            runtime_adapter="codex",
+            provider="openai",
+            model="gpt-5.3-codex",
+            reasoning_effort="high",
+        )
+
+        command = mock_sandbox.execute.call_args_list[0][0][0]
+        assert "POSTHOG_CODE_RUNTIME_ADAPTER=codex" in command
+        assert "POSTHOG_CODE_PROVIDER=openai" in command
+        assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
+        assert "POSTHOG_CODE_REASONING_EFFORT=high" in command
 
     def test_start_agent_server_raises_when_not_running(self, mock_sandbox: Any):
         mock_sandbox._sandbox.poll.return_value = 0
@@ -274,6 +395,91 @@ class TestModalSandboxAgentServer:
         assert result is False
         assert mock_sandbox.execute.call_count == 1
 
+    def test_create_snapshot_waits_for_container_before_snapshot(self, mock_sandbox: Any) -> None:
+        events: list[str] = []
+        exec_process = MagicMock()
+        exec_process.wait.side_effect = lambda: events.append("wait")
+        image = MagicMock()
+        image.object_id = "snapshot-123"
+
+        def snapshot_filesystem() -> Any:
+            events.append("snapshot")
+            return image
+
+        mock_sandbox._sandbox.exec.return_value = exec_process
+        mock_sandbox._sandbox.snapshot_filesystem.side_effect = snapshot_filesystem
+
+        result = mock_sandbox.create_snapshot()
+
+        assert result == "snapshot-123"
+        mock_sandbox._sandbox.exec.assert_called_once_with("true", timeout=30)
+        exec_process.wait.assert_called_once_with()
+        mock_sandbox._sandbox.snapshot_filesystem.assert_called_once_with()
+        assert events == ["wait", "snapshot"]
+
+
+class TestModalSandboxProvisionDiagnostics:
+    @pytest.mark.parametrize(
+        "output,expected_summary_lines,expected_excerpt,raw_excerpt_should_be_none",
+        [
+            (" \n\t ", [], None, True),
+            (
+                "\n".join(
+                    [
+                        "\x1b[32mApr 09 15:40:06 Building image im-123\x1b[0m",
+                        "\x1b[34m=> Step 0: FROM ubuntu:24.04\x1b[0m",
+                        "Copying config sha256:abc",
+                        "Copied image in 1.60s",
+                    ]
+                ),
+                [
+                    "Apr 09 15:40:06 Building image im-123",
+                    "=> Step 0: FROM ubuntu:24.04",
+                    "Copied image in 1.60s",
+                ],
+                "Copying config sha256:abc",
+                False,
+            ),
+            (
+                "\n".join(
+                    [
+                        "=> Step 3: RUN apt-get update && apt-get install -y curl",
+                        "=> Step 3: RUN apt-get update && apt-get install -y curl",
+                    ]
+                ),
+                ["=> Step 3: RUN apt-get update && apt-get install -y curl"],
+                "=> Step 3: RUN apt-get update && apt-get install -y curl",
+                False,
+            ),
+        ],
+    )
+    def test_summarizes_modal_build_output(
+        self,
+        output: str,
+        expected_summary_lines: list[str],
+        expected_excerpt: str | None,
+        raw_excerpt_should_be_none: bool,
+    ):
+        diagnostics = summarize_modal_output(output)
+
+        assert diagnostics.summary_lines == expected_summary_lines
+        if raw_excerpt_should_be_none:
+            assert diagnostics.raw_excerpt is None
+        else:
+            assert diagnostics.raw_excerpt is not None
+            assert expected_excerpt is not None
+            assert expected_excerpt in diagnostics.raw_excerpt
+
+    def test_truncates_long_modal_build_output_excerpt(self):
+        output = "\n".join(f"line {index}" for index in range(MAX_PROVISION_LOG_EXCERPT_LINES + 5))
+
+        diagnostics = summarize_modal_output(output)
+
+        assert diagnostics.summary_lines == []
+        assert diagnostics.raw_excerpt is not None
+        assert diagnostics.raw_excerpt.endswith("\n... (truncated)")
+        assert f"line {MAX_PROVISION_LOG_EXCERPT_LINES}" not in diagnostics.raw_excerpt
+
 
 class TestModalSandboxCommandEscaping:
     @pytest.mark.parametrize(
@@ -307,6 +513,28 @@ class TestModalSandboxCommandEscaping:
                 assert shlex.quote(target_path) in command
                 assert shlex.quote(org_path) in command
                 assert shlex.quote(repo) in command
+
+    @pytest.mark.parametrize(
+        "shallow,expected_in_command,not_expected_in_command",
+        [
+            (True, "--depth 1", None),
+            (False, "--single-branch", "--depth"),
+        ],
+    )
+    def test_clone_repository_shallow_flag(self, shallow, expected_in_command, not_expected_in_command):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._sandbox = MagicMock()
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                sandbox.clone_repository("PostHog/posthog", github_token="test-token", shallow=shallow)
+                command = mock_execute.call_args[0][0]
+
+                assert expected_in_command in command
+                if not_expected_in_command:
+                    assert not_expected_in_command not in command
 
     @pytest.mark.parametrize(
         "repository,task_id,run_id,mode",

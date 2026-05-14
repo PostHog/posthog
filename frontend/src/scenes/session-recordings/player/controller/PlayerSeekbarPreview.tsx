@@ -5,6 +5,7 @@ import { useDebouncedCallback } from 'use-debounce'
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { colonDelimitedDuration } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 
 import { PlayerFrame } from '../PlayerFrame'
 import { TimestampFormat } from '../playerSettingsLogic'
@@ -23,6 +24,7 @@ export type PlayerSeekbarPreviewProps = {
     activeMs: number | null
     timestampFormat: TimestampFormat
     startTime: Dayjs | null
+    showPreviewFrame?: boolean
 }
 
 const PlayerSeekbarPreviewFrame = ({
@@ -78,6 +80,7 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
     activeMs,
     timestampFormat,
     startTime,
+    showPreviewFrame = false,
 }: PlayerSeekbarPreviewProps): JSX.Element {
     const [percentage, setPercentage] = useState<number>(0)
     const ref = useRef<HTMLDivElement>(null)
@@ -96,7 +99,7 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
 
     const isHovering = useIsHovering(seekBarRef)
 
-    const canShowPreview = typeof activeMs === 'number' && activeMs < TWENTY_MINUTES_IN_MS
+    const canShowPreview = showPreviewFrame && typeof activeMs === 'number' && activeMs < TWENTY_MINUTES_IN_MS
 
     useEffect(() => {
         if (!seekBarRef?.current) {
@@ -111,17 +114,13 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
 
             const relativeX = e.clientX - rect.x
             const newPercentage = Math.max(Math.min(relativeX / rect.width, 1), 0)
-
-            if (newPercentage !== percentage) {
-                setPercentage(newPercentage)
-            }
+            setPercentage(newPercentage)
         }
 
-        seekBarRef.current.addEventListener('mousemove', handleMouseMove)
-        // fixes react-hooks/exhaustive-deps warning about stale ref elements
-        const { current } = ref
-        return () => current?.removeEventListener('mousemove', handleMouseMove)
-    }, [seekBarRef, percentage])
+        const seekBar = seekBarRef.current
+        seekBar.addEventListener('mousemove', handleMouseMove)
+        return () => seekBar.removeEventListener('mousemove', handleMouseMove)
+    }, [seekBarRef])
 
     return (
         <div className="PlayerSeekBarPreview" ref={ref}>
@@ -132,7 +131,12 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
                     transform: `translateX(${percentage * 100}%)`,
                 }}
             >
-                <div className="PlayerSeekBarPreview__tooltip__content">
+                <div
+                    className={cn(
+                        'PlayerSeekBarPreview__tooltip__content',
+                        canShowPreview && 'PlayerSeekBarPreview__tooltip__content--with-preview'
+                    )}
+                >
                     {canShowPreview && (
                         <PlayerSeekbarPreviewFrame
                             minMs={minMs}

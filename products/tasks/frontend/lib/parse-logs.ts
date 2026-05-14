@@ -2,12 +2,18 @@ export type LogEntryType = 'console' | 'agent' | 'tool' | 'user' | 'raw' | 'syst
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug'
 export type ToolStatus = 'pending' | 'running' | 'completed' | 'error'
 
+export interface LogEntryAttachment {
+    id: string
+    label: string
+}
+
 export interface LogEntry {
     id: string
     type: LogEntryType
     timestamp?: string
     level?: LogLevel
     message?: string
+    attachments?: LogEntryAttachment[]
     toolName?: string
     toolCallId?: string
     toolStatus?: ToolStatus
@@ -86,6 +92,23 @@ interface ACPNotification {
     }
 }
 
+interface SessionPromptParams {
+    prompt?: PromptBlock[]
+}
+
+interface PromptTextBlock {
+    type: 'text'
+    text?: string
+}
+
+interface PromptResourceLinkBlock {
+    type: 'resource_link'
+    uri?: string
+    name?: string
+}
+
+type PromptBlock = PromptTextBlock | PromptResourceLinkBlock | { type: string; [key: string]: unknown }
+
 interface SessionUpdateParams {
     sessionId?: string
     update?: {
@@ -110,7 +133,69 @@ function isACPNotification(parsed: unknown): parsed is ACPNotification {
     )
 }
 
-function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<string, LogEntry>): LogEntry | null {
+function getAttachmentLabel(block: PromptResourceLinkBlock): string | null {
+    if (block.name?.trim()) {
+        return block.name.trim()
+    }
+
+    if (!block.uri) {
+        return null
+    }
+
+    try {
+        const pathname = new URL(block.uri).pathname
+        const segments = pathname.split('/').filter(Boolean)
+        return segments.at(-1) ?? block.uri
+    } catch {
+        const segments = block.uri.split('/').filter(Boolean)
+        return segments.at(-1) ?? block.uri
+    }
+}
+
+function isPromptTextBlock(block: PromptBlock): block is PromptTextBlock {
+    return block.type === 'text'
+}
+
+function isPromptResourceLinkBlock(block: PromptBlock): block is PromptResourceLinkBlock {
+    return block.type === 'resource_link'
+}
+
+function parsePromptBlocks(prompt: PromptBlock[], id: string): Pick<LogEntry, 'message' | 'attachments'> | null {
+    const textParts: string[] = []
+    const attachments: LogEntryAttachment[] = []
+
+    prompt.forEach((block, index) => {
+        if (isPromptTextBlock(block) && block.text) {
+            textParts.push(block.text)
+        }
+
+        if (isPromptResourceLinkBlock(block)) {
+            const label = getAttachmentLabel(block)
+            if (label) {
+                attachments.push({
+                    id: `${id}-attachment-${index}`,
+                    label,
+                })
+            }
+        }
+    })
+
+    if (textParts.length === 0 && attachments.length === 0) {
+        return null
+    }
+
+    return {
+        message: textParts.join(''),
+        attachments: attachments.length > 0 ? attachments : undefined,
+    }
+}
+
+function parseACPNotification(
+    parsed: ACPNotification,
+    id: string,
+    toolMap: Map<string, LogEntry>,
+    onToolEntryUpdated?: (entry: LogEntry) => void
+): LogEntry | null {
     const { notification, timestamp } = parsed
     const method = notification.method
 
@@ -181,6 +266,7 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                     } else if (update.rawOutput !== undefined) {
                         existing.toolResult = normalizeRawOutput(update.rawOutput)
                     }
+                    onToolEntryUpdated?.({ ...existing })
                     return null
                 }
                 const entry: LogEntry = {
@@ -210,6 +296,7 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                         } else if (update.rawOutput !== undefined) {
                             existing.toolResult = normalizeRawOutput(update.rawOutput)
                         }
+                        onToolEntryUpdated?.({ ...existing })
                         return null
                     }
                 }
@@ -218,6 +305,26 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
 
             default:
                 return null
+        }
+    }
+
+    if (method === 'session/prompt') {
+        const params = notification.params as SessionPromptParams | undefined
+        if (!params?.prompt) {
+            return null
+        }
+
+        const parsedPrompt = parsePromptBlocks(params.prompt, id)
+        if (!parsedPrompt) {
+            return null
+        }
+
+        return {
+            id,
+            type: 'user',
+            timestamp,
+            message: parsedPrompt.message,
+            attachments: parsedPrompt.attachments,
         }
     }
 
@@ -325,13 +432,12 @@ function parseLogLine(line: string, index: number, toolMap: Map<string, LogEntry
  */
 export function parseLogEvent(
     event: Record<string, unknown>,
-    index: number,
-    toolMap: Map<string, LogEntry>
+    id: string,
+    toolMap: Map<string, LogEntry>,
+    onToolEntryUpdated?: (entry: LogEntry) => void
 ): LogEntry | null {
-    const id = `stream-${index}`
-
     if (isACPNotification(event)) {
-        return parseACPNotification(event as ACPNotification, id, toolMap)
+        return parseACPNotification(event as ACPNotification, id, toolMap, onToolEntryUpdated)
     }
 
     return parseLogObject(event, id)

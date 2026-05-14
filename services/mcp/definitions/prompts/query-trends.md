@@ -133,6 +133,51 @@ Examples of using aggregation types:
 - `average` by the `$session_duration` property to find out what was the average session duration of an event.
 - `99th percentile by users` to find out what was the 99th percentile of the event count by users.
 
+## Combining multiple events into a single series (`GroupNode`)
+
+**Use a `GroupNode`** when the user says "X OR Y" (or "any of these events") and wants **one line / one number** as the result. Different filters per event are fine — put them on the inner nodes. Use separate top-level series instead when the user wants the events compared side by side. Only `OR` is supported.
+
+**Where things live:**
+
+- On the group: `math` / `math_property` / `math_property_type` / `math_multiplier` / `math_group_type_index` / `math_hogql`, plus `name`. The engine reads aggregation from here.
+- On each inner node: `event` (or action `id`), `properties`, `name` — all respected normally; `properties` applies only to that node. Mirror the group's `math*` values on each inner node for UI round-trip, but they're ignored at execution time.
+
+### Example — different filter per event
+
+"Pageviews on Safari OR pageleaves on Chrome, as one line." Each inner node carries its own `properties`; the group ORs them and aggregates as one series.
+
+```json
+{
+  "kind": "TrendsQuery",
+  "series": [
+    {
+      "kind": "GroupNode",
+      "operator": "OR",
+      "name": "Pageviews on Safari, Pageleaves on Chrome",
+      "math": "total",
+      "nodes": [
+        {
+          "kind": "EventsNode",
+          "event": "$pageview",
+          "name": "Pageview",
+          "math": "total",
+          "properties": [{ "key": "$browser", "operator": "exact", "type": "event", "value": ["Safari"] }]
+        },
+        {
+          "kind": "EventsNode",
+          "event": "$pageleave",
+          "name": "Pageleave",
+          "math": "total",
+          "properties": [{ "key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"] }]
+        }
+      ]
+    }
+  ],
+  "dateRange": { "date_from": "-30d" },
+  "interval": "day"
+}
+```
+
 ## Math formulas
 
 If the math aggregation is more complex or not listed above, use custom formulas to perform mathematical operations like calculating percentages or metrics. If you use a formula, you should use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas.

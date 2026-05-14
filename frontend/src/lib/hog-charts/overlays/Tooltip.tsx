@@ -1,45 +1,73 @@
-import React, { useLayoutEffect, useRef, useState } from 'react'
+import { flip, FloatingPortal, offset, shift, useFloating, type VirtualElement } from '@floating-ui/react'
+import React, { useLayoutEffect, useMemo } from 'react'
 
 import type { TooltipContext } from '../core/types'
 
-interface TooltipProps {
-    context: TooltipContext
-    component: React.ComponentType<TooltipContext>
+interface TooltipProps<Meta> {
+    context: TooltipContext<Meta>
+    renderTooltip: (ctx: TooltipContext<Meta>) => React.ReactNode
+    placement?: 'follow-data' | 'top'
 }
 
-export function Tooltip({ context, component: Component }: TooltipProps): React.ReactElement {
-    const tooltipRef = useRef<HTMLDivElement>(null)
-    const [measuredWidth, setMeasuredWidth] = useState<number | null>(null)
+const TOOLTIP_MIDDLEWARE = [offset(12), flip(), shift({ padding: 8 })]
 
-    useLayoutEffect(() => {
-        if (tooltipRef.current) {
-            setMeasuredWidth(tooltipRef.current.offsetWidth)
-        }
-    }, [context.dataIndex])
-
-    const tooltipWidth = measuredWidth ?? 200
-    const spaceRight = context.canvasBounds.width - context.position.x
-    const showOnLeft = spaceRight < tooltipWidth + 24
-
-    const left = showOnLeft ? context.position.x - tooltipWidth - 16 : context.position.x + 16
-    const top = Math.max(
-        context.canvasBounds.top > 0 ? 0 : 8,
-        Math.min(context.position.y - 16, context.canvasBounds.height - 100)
+export function Tooltip<Meta = unknown>({
+    context,
+    renderTooltip,
+    placement = 'follow-data',
+}: TooltipProps<Meta>): React.ReactElement {
+    // In `top` placement the y position is anchored to the canvas top and `position.y` is
+    // unused, so we depend on the resolved y rather than `position.y` directly — otherwise
+    // mousemove rebuilds the virtual reference and triggers a Floating-UI reposition pass
+    // for nothing.
+    const y = placement === 'top' ? context.canvasBounds.top : context.canvasBounds.top + context.position.y
+    const virtualReference = useMemo<VirtualElement>(
+        () => ({
+            getBoundingClientRect() {
+                const x = context.canvasBounds.left + context.position.x
+                return {
+                    x,
+                    y,
+                    width: 0,
+                    height: 0,
+                    top: y,
+                    right: x,
+                    bottom: y,
+                    left: x,
+                }
+            },
+        }),
+        [context.position.x, y, context.canvasBounds]
     )
 
+    const { refs, floatingStyles } = useFloating({
+        placement: placement === 'top' ? 'right-start' : 'right',
+        strategy: 'fixed',
+        middleware: TOOLTIP_MIDDLEWARE,
+    })
+
+    useLayoutEffect(() => {
+        refs.setPositionReference(virtualReference)
+    }, [virtualReference, refs])
+
     return (
-        <div
-            ref={tooltipRef}
-            style={{
-                position: 'absolute',
-                left: Math.max(0, left),
-                top,
-                pointerEvents: 'none',
-                zIndex: 10,
-                visibility: measuredWidth === null ? 'hidden' : 'visible',
-            }}
-        >
-            <Component {...context} />
-        </div>
+        <FloatingPortal>
+            <div
+                ref={refs.setFloating}
+                // Marker so useChartInteraction can identify events originating inside the
+                // tooltip — it lives outside the chart wrapper via FloatingPortal, so DOM
+                // ancestry can't be used to detect it.
+                data-hog-charts-tooltip=""
+                className={context.isPinned ? 'hog-charts-tooltip--pinned' : undefined}
+                style={{
+                    ...floatingStyles,
+                    pointerEvents: context.isPinned ? 'auto' : 'none',
+                    width: 'max-content',
+                    zIndex: 'var(--z-chart-tooltip)',
+                }}
+            >
+                {renderTooltip(context)}
+            </div>
+        </FloatingPortal>
     )
 }

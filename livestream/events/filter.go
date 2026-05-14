@@ -15,10 +15,11 @@ type Subscription struct {
 	SubID uint64
 
 	// Filters
-	TeamId     int
-	Token      string
-	DistinctId string
-	EventTypes []string
+	TeamId          int
+	Token           string
+	DistinctId      string
+	EventTypes      []string
+	PropertyFilters map[string][]string
 
 	Geo     bool
 	Columns []string
@@ -84,6 +85,14 @@ func convertToResponsePostHogEvent(event PostHogEvent, teamId int, columns []str
 		}
 	}
 
+	// Always pass through $virt_* bot classification properties
+	// regardless of requested columns
+	for _, key := range []string{"$virt_is_bot", "$virt_traffic_type", "$virt_traffic_category", "$virt_bot_name"} {
+		if val, ok := event.Properties[key]; ok {
+			properties[key] = val
+		}
+	}
+
 	return &ResponsePostHogEvent{
 		Uuid:       event.Uuid,
 		Timestamp:  event.Timestamp,
@@ -143,6 +152,20 @@ func (c *Filter) Run() {
 	}
 }
 
+func matchesPropertyFilters(props map[string]interface{}, filters map[string][]string) bool {
+	for key, allowed := range filters {
+		raw, ok := props[key]
+		if !ok {
+			return false
+		}
+		actual := fmt.Sprint(raw)
+		if !slices.Contains(allowed, actual) {
+			return false
+		}
+	}
+	return true
+}
+
 // Routes a single event to all matching subscriptions.
 // Used by both Filter (in-memory path) and TokenRouter (Redis pub/sub path).
 func deliverEvent(event PostHogEvent, subs []Subscription) {
@@ -158,6 +181,10 @@ func deliverEvent(event PostHogEvent, subs []Subscription) {
 		}
 
 		if len(sub.EventTypes) > 0 && !slices.Contains(sub.EventTypes, event.Event) {
+			continue
+		}
+
+		if len(sub.PropertyFilters) > 0 && !matchesPropertyFilters(event.Properties, sub.PropertyFilters) {
 			continue
 		}
 

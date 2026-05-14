@@ -30,6 +30,7 @@ export enum SignalReportStatus {
     IN_PROGRESS = 'in_progress',
     PENDING_INPUT = 'pending_input',
     READY = 'ready',
+    RESOLVED = 'resolved',
     FAILED = 'failed',
 }
 

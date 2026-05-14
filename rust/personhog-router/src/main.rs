@@ -4,19 +4,23 @@ use std::time::Duration;
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use envconfig::Envconfig;
+use k8s_awareness::K8sAwareness;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
-use personhog_coordination::error::Result as CoordResult;
-use personhog_coordination::routing_table::{CutoverHandler, RoutingTable, RoutingTableConfig};
+use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
-use personhog_router::backend::{LeaderBackend, ReplicaBackend};
+use personhog_router::backend::{
+    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaBackendConfig, StashTable,
+};
 use personhog_router::config::{Config, RouterMode};
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
+use personhog_router::stash_handler::RouterStashHandler;
+use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
@@ -26,38 +30,12 @@ use tracing_subscriber::EnvFilter;
 
 common_alloc::used!();
 
-/// Cutover handler for the router. When a partition handoff reaches the Ready
-/// phase, the routing table calls this to perform the traffic switch.
-///
-/// The `LeaderBackend` already reads from the shared routing table which is
-/// updated by the `RoutingTable`'s assignment watch. The cutover handler
-/// clears the cached gRPC client for the old owner so the next request
-/// reconnects to the new leader pod.
-struct RouterCutoverHandler {
-    leader_backend: Arc<LeaderBackend>,
-}
-
-#[async_trait::async_trait]
-impl CutoverHandler for RouterCutoverHandler {
-    async fn execute_cutover(
-        &self,
-        partition: u32,
-        old_owner: &str,
-        new_owner: &str,
-    ) -> CoordResult<()> {
-        tracing::info!(
-            partition,
-            old_owner,
-            new_owner,
-            "executing cutover: clearing cached client for old owner"
-        );
-        self.leader_backend.clear_client_cache(old_owner);
-        Ok(())
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     let config = Config::init_from_env().expect("Invalid configuration");
 
     // Initialize tracing
@@ -79,6 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Router mode: {}", config.router_mode);
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Replica URL: {}", config.replica_url);
+    tracing::info!("Replica channels: {}", config.replica_channels);
     tracing::info!("Backend timeout: {}ms", config.backend_timeout_ms);
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!(
@@ -161,17 +140,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Metrics server error");
     });
 
-    // Create backend connection to personhog-replica
-    let replica_backend = ReplicaBackend::new(
-        &config.replica_url,
-        config.backend_timeout(),
-        config.retry_config(),
-        config.backend_keepalive_interval(),
-        config.backend_keepalive_timeout(),
-        config.grpc_max_send_message_size,
-        config.grpc_max_recv_message_size,
-    )
-    .expect("Failed to create replica backend");
+    // Create backend connection(s) to personhog-replica
+    let replica_backend = ReplicaBackend::new(ReplicaBackendConfig {
+        url: config.replica_url.clone(),
+        timeout: config.backend_timeout(),
+        retry_config: config.retry_config(),
+        keepalive_interval: config.backend_keepalive_interval(),
+        keepalive_timeout: config.backend_keepalive_timeout(),
+        max_send_message_size: config.grpc_max_send_message_size,
+        max_recv_message_size: config.grpc_max_recv_message_size,
+        num_channels: config.replica_channels,
+    });
 
     // Build the router — in leader mode, also wire up etcd coordination
     // and the leader backend for person writes / strong reads.
@@ -213,16 +192,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let leader_backend = Arc::new(LeaderBackend::new(
             shared_table,
             Arc::new(move |pod_name: &str| Some(format!("http://{}:{}", pod_name, leader_port))),
-            num_partitions,
-            config.backend_timeout(),
-            config.retry_config(),
-            config.grpc_max_send_message_size,
-            config.grpc_max_recv_message_size,
+            LeaderBackendConfig {
+                num_partitions,
+                timeout: config.backend_timeout(),
+                retry_config: config.retry_config(),
+                max_send_message_size: config.grpc_max_send_message_size,
+                max_recv_message_size: config.grpc_max_recv_message_size,
+            },
+            StashTable::with_bounds(
+                config.stash_max_messages_per_partition,
+                config.stash_max_bytes_per_partition,
+            ),
         ));
 
-        let cutover_handler: Arc<dyn CutoverHandler> = Arc::new(RouterCutoverHandler {
-            leader_backend: Arc::clone(&leader_backend),
-        });
+        let stash_handler: Arc<dyn StashHandler> = Arc::new(RouterStashHandler::new(
+            Arc::clone(&leader_backend),
+            config.stash_max_wait(),
+            config.stash_drain_concurrency,
+        ));
 
         // Start routing table (etcd registration + assignment/handoff watches)
         let routing_table_handle =
@@ -231,12 +218,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             let _guard = routing_table_handle.process_scope();
             if let Err(e) = coordination_routing_table
-                .run(routing_table_handle.shutdown_token(), cutover_handler)
+                .run(routing_table_handle.shutdown_token(), stash_handler)
                 .await
             {
                 routing_table_handle.signal_failure(format!("Routing table error: {e}"));
             }
         });
+
+        // K8s awareness (optional)
+        let k8s_cancel = CancellationToken::new();
+        let k8s_awareness = if config.k8s_awareness_enabled {
+            let namespace = config
+                .resolve_k8s_namespace()
+                .expect("k8s awareness enabled but namespace resolution failed");
+            let client = kube::Client::try_default()
+                .await
+                .expect("failed to create K8s client");
+            tracing::info!(%namespace, "K8s awareness enabled");
+            Some(Arc::new(K8sAwareness::new(
+                client,
+                namespace,
+                k8s_cancel.child_token(),
+            )))
+        } else {
+            tracing::info!("K8s awareness disabled");
+            None
+        };
 
         // Start coordinator (leader election + partition assignment)
         let coordinator_handle =
@@ -251,6 +258,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
             },
             Arc::new(StickyBalancedStrategy),
+            k8s_awareness,
         );
 
         tokio::spawn(async move {
@@ -258,6 +266,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(e) = coordinator.run(coordinator_handle.shutdown_token()).await {
                 coordinator_handle.signal_failure(format!("Coordinator error: {e}"));
             }
+            k8s_cancel.cancel();
         });
 
         PersonHogRouter::new(Arc::new(replica_backend)).with_leader(leader_backend)

@@ -17,6 +17,8 @@ describe('Workflows', { concurrent: false }, () => {
 
     const listTool = GENERATED_TOOLS['workflows-list']!()
     const getTool = GENERATED_TOOLS['workflows-get']!()
+    const logsTool = GENERATED_TOOLS['hog-flows-logs-retrieve']!()
+    const metricsTool = GENERATED_TOOLS['hog-flows-metrics-retrieve']!()
 
     beforeAll(async () => {
         validateEnvironmentVariables()
@@ -82,6 +84,86 @@ describe('Workflows', { concurrent: false }, () => {
             const absentId = crypto.randomUUID()
 
             await expect(getTool.handler(context, { id: absentId })).rejects.toThrow()
+        })
+    })
+
+    describe('hog-flows-logs-retrieve tool', () => {
+        it('should return log entries for a workflow', async () => {
+            const listResult = await listTool.handler(context, {})
+            const { results: workflows } = parseToolResponse(listResult)
+
+            if (workflows.length === 0) {
+                return
+            }
+
+            const result = await logsTool.handler(context, { id: workflows[0].id })
+            const data = parseToolResponse(result)
+
+            expect(Array.isArray(data.results)).toBe(true)
+        })
+
+        it('should accept limit and level parameters', async () => {
+            const listResult = await listTool.handler(context, {})
+            const { results: workflows } = parseToolResponse(listResult)
+
+            if (workflows.length === 0) {
+                return
+            }
+
+            const result = await logsTool.handler(context, {
+                id: workflows[0].id,
+                limit: 5,
+                level: 'ERROR',
+            })
+            const data = parseToolResponse(result)
+
+            expect(Array.isArray(data.results)).toBe(true)
+            expect(data.results.length).toBeLessThanOrEqual(5)
+        })
+
+        it('should throw for a non-existent UUID', async () => {
+            const absentId = crypto.randomUUID()
+            await expect(logsTool.handler(context, { id: absentId })).rejects.toThrow()
+        })
+    })
+
+    describe('hog-flows-metrics-retrieve tool', () => {
+        it('should return metrics for a workflow', async () => {
+            const listResult = await listTool.handler(context, {})
+            const { results: workflows } = parseToolResponse(listResult)
+
+            if (workflows.length === 0) {
+                return
+            }
+
+            const result = await metricsTool.handler(context, { id: workflows[0].id })
+            const data = parseToolResponse(result)
+
+            expect(Array.isArray(data.labels)).toBe(true)
+            expect(Array.isArray(data.series)).toBe(true)
+        })
+
+        it('should accept interval parameter', async () => {
+            const listResult = await listTool.handler(context, {})
+            const { results: workflows } = parseToolResponse(listResult)
+
+            if (workflows.length === 0) {
+                return
+            }
+
+            const result = await metricsTool.handler(context, {
+                id: workflows[0].id,
+                interval: 'day',
+            })
+            const data = parseToolResponse(result)
+
+            expect(Array.isArray(data.labels)).toBe(true)
+            expect(Array.isArray(data.series)).toBe(true)
+        })
+
+        it('should throw for a non-existent UUID', async () => {
+            const absentId = crypto.randomUUID()
+            await expect(metricsTool.handler(context, { id: absentId })).rejects.toThrow()
         })
     })
 })

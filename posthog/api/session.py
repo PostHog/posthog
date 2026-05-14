@@ -14,8 +14,13 @@ from posthog.hogql.database.schema.sessions_v2 import (
     get_lazy_session_table_properties_v2,
     get_lazy_session_table_values_v2,
 )
+from posthog.hogql.database.schema.sessions_v3 import (
+    get_lazy_session_table_properties_v3,
+    get_lazy_session_table_values_v3,
+)
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -34,7 +39,10 @@ class SessionViewSet(
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
-        with tracer.start_as_current_span("session_api_property_values") as span:
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="session").time(),
+            tracer.start_as_current_span("session_api_property_values") as span,
+        ):
             team = self.team
 
             key = request.GET.get("key")
@@ -48,10 +56,12 @@ class SessionViewSet(
             span.set_attribute("has_search_term", search_term is not None)
 
             modifiers = create_default_modifiers_for_team(team)
-            if (
-                modifiers.sessionTableVersion == SessionTableVersion.V2
-                or modifiers.sessionTableVersion == SessionTableVersion.AUTO
-            ):
+            version = modifiers.sessionTableVersion
+
+            if version == SessionTableVersion.V3:
+                span.set_attribute("session_table_version", "v3")
+                result = get_lazy_session_table_values_v3(key, search_term=search_term, team=team)
+            elif version == SessionTableVersion.V2 or version == SessionTableVersion.AUTO:
                 span.set_attribute("session_table_version", "v2")
                 result = get_lazy_session_table_values_v2(key, search_term=search_term, team=team)
             else:
@@ -67,6 +77,7 @@ class SessionViewSet(
                     flattened.append(json.loads(value[0]))
                 except json.decoder.JSONDecodeError:
                     flattened.append(value[0])
+
             return response.Response(
                 {
                     "results": [{"name": convert_property_value(value)} for value in flatten(flattened)],
@@ -82,10 +93,10 @@ class SessionViewSet(
         # unlike e.g. event properties, there's a very limited number of session properties,
         # so we can just return them all
         modifiers = create_default_modifiers_for_team(self.team)
-        if (
-            modifiers.sessionTableVersion == SessionTableVersion.V2
-            or modifiers.sessionTableVersion == SessionTableVersion.AUTO
-        ):
+        version = modifiers.sessionTableVersion
+        if version == SessionTableVersion.V3:
+            results = get_lazy_session_table_properties_v3(search)
+        elif version == SessionTableVersion.V2 or version == SessionTableVersion.AUTO:
             results = get_lazy_session_table_properties_v2(search)
         else:
             results = get_lazy_session_table_properties_v1(search)

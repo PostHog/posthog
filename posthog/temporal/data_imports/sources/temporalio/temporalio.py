@@ -56,10 +56,19 @@ def _async_iter_to_sync(async_iter):
     q: Queue[Any] = Queue(maxsize=5000)
     sentinel = object()
 
+    class _Error:
+        def __init__(self, exc: BaseException):
+            self.exc = exc
+
     async def runner():
         try:
             async for item in async_iter:
                 q.put(item)
+        # The runner lives on a daemon thread, so an uncaught exception would
+        # terminate silently and the consumer below would see only the sentinel.
+        # Forward it through the queue so the caller can re-raise it.
+        except BaseException as exc:
+            q.put(_Error(exc))
         finally:
             q.put(sentinel)
 
@@ -73,6 +82,9 @@ def _async_iter_to_sync(async_iter):
         if item is sentinel:
             q.task_done()
             break
+        if isinstance(item, _Error):
+            q.task_done()
+            raise item.exc
 
         yield item
         q.task_done()
@@ -106,7 +118,6 @@ async def _get_temporal_client(config: TemporalIOSourceConfig) -> Client:
         host=config.host,
         port=config.port,
         namespace=config.namespace,
-        server_root_ca_cert=config.server_client_root_ca,
         client_cert=config.client_certificate,
         client_key=config.client_private_key,
         settings=FakeSettings(config.encryption_key)

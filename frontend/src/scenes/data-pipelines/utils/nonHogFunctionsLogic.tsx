@@ -4,12 +4,13 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { parseGithubRepoURL } from 'lib/utils'
-import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionType, PluginConfigTypeNew, PluginType } from '~/types'
+
+import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
 
 import { BATCH_EXPORT_ICON_MAP } from '../batch-exports/BatchExportIcon'
 import type { nonHogFunctionsLogicType } from './nonHogFunctionsLogicType'

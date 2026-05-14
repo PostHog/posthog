@@ -909,13 +909,12 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             if (toolCall.status === 'completed') {
                 return 'Executed SQL'
             }
-            return 'Writing an SQL query...'
+            return 'Writing a SQL query...'
         },
     },
     summarize_sessions: {
         name: 'Summarize sessions',
         description: 'Summarize sessions to analyze real user behavior',
-        flag: 'max-session-summarization',
         icon: iconForType('session_replay'),
         beta: true,
         modes: [AgentMode.SessionReplay],
@@ -987,6 +986,14 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return toolCall.status === 'completed' ? 'Updated alert' : 'Updating alert...'
             }
             return toolCall.status === 'completed' ? 'Created alert' : 'Creating alert...'
+        },
+    },
+    diagnose_proxy: {
+        name: 'Diagnose reverse proxy',
+        description: 'Diagnose reverse proxy stuck or erroring states',
+        icon: <IconCloud />,
+        displayFormatter: (toolCall) => {
+            return toolCall.status === 'completed' ? 'Diagnosed reverse proxy' : 'Diagnosing reverse proxy...'
         },
     },
     finalize_plan: {

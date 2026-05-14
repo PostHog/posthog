@@ -53,7 +53,6 @@
       WHERE
           and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(parseDateTime64BestEffort(%(hogql_val_6)s, 6, %(hogql_val_7)s), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(parseDateTime64BestEffort(%(hogql_val_8)s, 6, %(hogql_val_9)s), toIntervalDay(3))))
       GROUP BY
-          raw_sessions.session_id_v7,
           raw_sessions.session_id_v7) AS sessions
   WHERE
       and(ifNull(greaterOrEquals(sessions.`$start_timestamp`, parseDateTime64BestEffort(%(hogql_val_10)s, 6, %(hogql_val_11)s)), 0), ifNull(lessOrEquals(sessions.`$start_timestamp`, parseDateTime64BestEffort(%(hogql_val_12)s, 6, %(hogql_val_13)s)), 0), ifNull(equals(sessions.session_id, %(hogql_val_14)s), 0))

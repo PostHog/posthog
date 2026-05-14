@@ -50,6 +50,11 @@ pub struct Config {
     #[envconfig(default = "http://127.0.0.1:50051")]
     pub replica_url: String,
 
+    /// Number of gRPC channels (HTTP/2 connections) to open to the replica backend.
+    /// Multiple channels distribute requests across K8s service endpoints.
+    #[envconfig(default = "4")]
+    pub replica_channels: usize,
+
     /// Timeout for backend requests in milliseconds
     #[envconfig(default = "5000")]
     pub backend_timeout_ms: u64,
@@ -117,6 +122,39 @@ pub struct Config {
     #[envconfig(default = "50053")]
     pub leader_port: u16,
 
+    /// Maximum number of stashed write requests held per partition while
+    /// a handoff is in progress. Excess requests return UNAVAILABLE and
+    /// rely on caller-side retries.
+    #[envconfig(default = "5000")]
+    pub stash_max_messages_per_partition: usize,
+
+    /// Maximum total payload bytes held in the stash per partition. Bounds
+    /// memory pressure independent of message count, which matters when
+    /// payload sizes vary widely (typical for person properties). Default
+    /// is 50 MiB.
+    #[envconfig(default = "52428800")]
+    pub stash_max_bytes_per_partition: usize,
+
+    /// Per-request deadline for stashed writes, in milliseconds. When
+    /// drain dequeues a request whose `enqueued_at` is older than this,
+    /// it returns `UNAVAILABLE` to the original caller without
+    /// forwarding to the leader. This bounds individual request
+    /// latency under sustained drain load and gives clients a
+    /// definitive retryable error instead of an ambiguous gRPC timeout.
+    /// Should be smaller than typical client gRPC timeouts (often
+    /// 30+ seconds). Default 10 seconds.
+    #[envconfig(default = "10000")]
+    pub stash_max_wait_ms: u64,
+
+    /// Maximum number of stashed requests to forward concurrently
+    /// during a drain, grouped by `(team_id, person_id)`. Within each
+    /// key the requests are forwarded sequentially to preserve per-key
+    /// ordering at the leader; across keys the drain fans out to
+    /// shrink wall-clock drain duration. Set to 1 to force fully
+    /// sequential drain.
+    #[envconfig(default = "32")]
+    pub stash_drain_concurrency: usize,
+
     // ── coordinator (leader election among router-leader pods) ───
     /// Lease TTL for the coordinator leader election
     #[envconfig(default = "15")]
@@ -133,6 +171,17 @@ pub struct Config {
     /// Debounce interval (ms) for batching pod events before rebalancing
     #[envconfig(default = "1000")]
     pub coordinator_rebalance_debounce_ms: u64,
+
+    // ── K8s awareness (leader mode only) ────────────────────────
+    /// Enable K8s-aware departure classification for smarter rebalancing.
+    /// When disabled, falls back to lease-based behavior.
+    #[envconfig(default = "false")]
+    pub k8s_awareness_enabled: bool,
+
+    /// Kubernetes namespace to watch. If empty, auto-reads from the
+    /// service account mount at /var/run/secrets/kubernetes.io/serviceaccount/namespace.
+    #[envconfig(default = "")]
+    pub k8s_namespace: String,
 }
 
 impl Config {
@@ -202,6 +251,22 @@ impl Config {
 
     pub fn coordinator_rebalance_debounce_interval(&self) -> Duration {
         Duration::from_millis(self.coordinator_rebalance_debounce_ms)
+    }
+
+    pub fn stash_max_wait(&self) -> Duration {
+        Duration::from_millis(self.stash_max_wait_ms)
+    }
+
+    /// Resolve the K8s namespace from config or the service account mount.
+    pub fn resolve_k8s_namespace(&self) -> Result<String, String> {
+        if !self.k8s_namespace.is_empty() {
+            return Ok(self.k8s_namespace.clone());
+        }
+        std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+            .map(|s| s.trim().to_string())
+            .map_err(|e| {
+                format!("k8s_namespace not set and failed to read from service account: {e}")
+            })
     }
 }
 

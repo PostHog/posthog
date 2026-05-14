@@ -1,4 +1,5 @@
 import json
+from contextlib import asynccontextmanager
 from io import BytesIO
 
 import pytest
@@ -16,6 +17,19 @@ from products.data_warehouse.backend.models.external_data_schema import External
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import ExternalDataSourceType
+
+
+def _patch_async_producer_scope(mock_producer):
+    """Stub async_producer_scope so the context manager yields a mock producer."""
+
+    @asynccontextmanager
+    async def _scope(**_kwargs):
+        yield mock_producer
+
+    return patch(
+        "posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.async_producer_scope",
+        _scope,
+    )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -217,7 +231,7 @@ async def test_produce_to_kafka_from_s3_success(mock_get_s3_client, team):
 
     with (
         patch.object(producer, "_get_fs", return_value=mock_fs),
-        patch.object(producer, "_get_kafka_producer", return_value=mock_kafka_producer),
+        _patch_async_producer_scope(mock_kafka_producer),
     ):
         await producer.produce_to_kafka_from_s3()
 
@@ -260,7 +274,7 @@ async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, team):
 
     with (
         patch.object(producer, "_get_fs", return_value=mock_fs),
-        patch.object(producer, "_get_kafka_producer", return_value=mock_kafka_producer),
+        _patch_async_producer_scope(mock_kafka_producer),
     ):
         await producer.produce_to_kafka_from_s3()
 
@@ -308,7 +322,7 @@ async def test_produce_to_kafka_from_s3_kafka_failure(mock_capture_exception, mo
 
     with (
         patch.object(producer, "_get_fs", return_value=mock_fs),
-        patch.object(producer, "_get_kafka_producer", return_value=mock_kafka_producer),
+        _patch_async_producer_scope(mock_kafka_producer),
     ):
         await producer.produce_to_kafka_from_s3()
 
@@ -349,7 +363,7 @@ async def test_produce_to_kafka_from_s3_s3_read_failure(mock_capture_exception, 
 
     with (
         patch.object(producer, "_get_fs", return_value=mock_fs),
-        patch.object(producer, "_get_kafka_producer", return_value=mock_kafka_producer),
+        _patch_async_producer_scope(mock_kafka_producer),
     ):
         await producer.produce_to_kafka_from_s3()
 
@@ -398,7 +412,7 @@ async def test_produce_to_kafka_from_s3_with_large_batch(mock_get_s3_client, tea
 
     with (
         patch.object(producer, "_get_fs", return_value=mock_fs),
-        patch.object(producer, "_get_kafka_producer", return_value=mock_kafka_producer),
+        _patch_async_producer_scope(mock_kafka_producer),
     ):
         await producer.produce_to_kafka_from_s3()
 

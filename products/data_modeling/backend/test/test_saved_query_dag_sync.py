@@ -6,12 +6,11 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from products.data_modeling.backend.models import Edge, Node
-from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.node import NodeType
 from products.data_modeling.backend.services.saved_query_dag_sync import (
     HasDependentsError,
     delete_node_from_dag,
-    get_conflict_dag_id,
     get_dag_id,
     get_dependent_saved_queries,
     sync_saved_query_to_dag,
@@ -26,11 +25,6 @@ class TestGetDagId(BaseTest):
         self.assertEqual(get_dag_id(123), "posthog_123")
         self.assertEqual(get_dag_id(1), "posthog_1")
 
-    def test_get_conflict_dag_id_has_correct_prefix(self):
-        conflict_id = get_conflict_dag_id(123)
-        self.assertTrue(conflict_id.startswith("conflict_"))
-        self.assertTrue(conflict_id.endswith("_posthog_123"))
-
 
 @pytest.mark.django_db
 class TestSyncSavedQueryToDag(BaseTest):
@@ -43,11 +37,11 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         sync_saved_query_to_dag(saved_query)
 
-        dag = DAG.objects.get(team=self.team, name=get_dag_id(self.team.id))
-        self.assertEqual(dag.name, f"posthog_{self.team.id}")
+        dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
+        self.assertEqual(dag.name, DEFAULT_DAG_NAME)
 
     def test_sync_reuses_existing_dag_model(self):
-        existing_dag = DAG.objects.create(team=self.team, name=get_dag_id(self.team.id))
+        existing_dag = DAG.objects.create(team=self.team, name=DEFAULT_DAG_NAME)
 
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
@@ -56,8 +50,8 @@ class TestSyncSavedQueryToDag(BaseTest):
         )
         sync_saved_query_to_dag(saved_query)
 
-        self.assertEqual(DAG.objects.filter(team=self.team, name=get_dag_id(self.team.id)).count(), 1)
-        self.assertEqual(DAG.objects.get(team=self.team, name=get_dag_id(self.team.id)).id, existing_dag.id)
+        self.assertEqual(DAG.objects.filter(team=self.team, name=DEFAULT_DAG_NAME).count(), 1)
+        self.assertEqual(DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME).id, existing_dag.id)
 
     def test_sync_creates_node_for_saved_query(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -71,11 +65,11 @@ class TestSyncSavedQueryToDag(BaseTest):
         self.assertEqual(node.name, "test_view")
         self.assertEqual(node.team, self.team)
         assert node.dag is not None
-        self.assertEqual(node.dag.name, get_dag_id(self.team.id))
+        self.assertEqual(node.dag.name, DEFAULT_DAG_NAME)
         self.assertEqual(node.type, NodeType.VIEW)
         self.assertEqual(node.saved_query, saved_query)
 
-        dag = DAG.objects.get(team=self.team, name=get_dag_id(self.team.id))
+        dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
         self.assertEqual(node.dag_id, dag.id)
 
     def test_sync_creates_table_node_for_posthog_source(self):
@@ -89,7 +83,7 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         events_node = Node.objects.filter(
             team=self.team,
-            dag__name=get_dag_id(self.team.id),
+            dag__name=DEFAULT_DAG_NAME,
             name="events",
         ).first()
 
@@ -97,7 +91,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         self.assertEqual(events_node.type, NodeType.TABLE)
         self.assertEqual(events_node.properties.get("origin"), "posthog")
 
-        dag = DAG.objects.get(team=self.team, name=get_dag_id(self.team.id))
+        dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
         self.assertEqual(events_node.dag_id, dag.id)
 
         # edge from events -> test_view
@@ -187,36 +181,29 @@ class TestSyncSavedQueryToDag(BaseTest):
         edge = Edge.objects.filter(source=upstream_node, target=downstream_node).first()
         self.assertIsNotNone(edge)
 
-    def test_sync_creates_conflict_edge_on_cycle(self):
+    def test_sync_raises_on_cycle(self):
         query_a = DataWarehouseSavedQuery.objects.create(
             name="view_a",
             team=self.team,
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
         )
-        # no deps
-        node_a = sync_saved_query_to_dag(query_a)
+        sync_saved_query_to_dag(query_a)
 
         query_b = DataWarehouseSavedQuery.objects.create(
             name="view_b",
             team=self.team,
             query={"query": "SELECT * FROM view_a", "kind": "HogQLQuery"},
         )
-        # depends on a
         sync_saved_query_to_dag(query_b)
 
-        # update a to depend on b (cycle)
+        # update a to depend on b (cycle) — should fail
         query_a.query = {"query": "SELECT * FROM view_b", "kind": "HogQLQuery"}
         query_a.save()
-        sync_saved_query_to_dag(query_a)
+        with self.assertRaises(QueryError):
+            sync_saved_query_to_dag(query_a)
 
-        conflict_edges = Edge.objects.filter(dag__name__startswith="conflict_", target=node_a)
-        self.assertEqual(conflict_edges.count(), 1)
-
-        conflict_edge = conflict_edges.first()
-        assert conflict_edge is not None
-        self.assertEqual(conflict_edge.properties.get("error_type"), "cycle")
-        self.assertIn("original_dag_id", conflict_edge.properties)
-        self.assertEqual(conflict_edge.properties["original_dag_id"], get_dag_id(self.team.id))
+        # node for query_a should be cleaned up
+        self.assertFalse(Node.objects.filter(saved_query=query_a).exists())
 
     def test_sync_raises_for_empty_or_null_query(self):
         empty_query, _ = DataWarehouseSavedQuery.objects.get_or_create(
@@ -419,93 +406,3 @@ class TestUpdateNodeType(BaseTest):
         # shouldn't raise, exception is captured though
         update_node_type(saved_query, NodeType.MAT_VIEW)
         update_node_type(saved_query, NodeType.VIEW)
-
-
-@pytest.mark.django_db
-class TestSkipValidation(BaseTest):
-    def test_skip_validation_bypasses_cycle_detection(self):
-        dag = DAG.objects.create(team=self.team, name=get_dag_id(self.team.id))
-        query_a = DataWarehouseSavedQuery.objects.create(
-            name="view_a",
-            team=self.team,
-            query={"query": "SELECT 1", "kind": "HogQLQuery"},
-        )
-        node_a = Node.objects.create(
-            team=self.team,
-            dag=dag,
-            name="view_a",
-            saved_query=query_a,
-            type=NodeType.VIEW,
-        )
-        query_b = DataWarehouseSavedQuery.objects.create(
-            name="view_b",
-            team=self.team,
-            query={"query": "SELECT 1", "kind": "HogQLQuery"},
-        )
-        node_b = Node.objects.create(
-            team=self.team,
-            dag=dag,
-            name="view_b",
-            saved_query=query_b,
-            type=NodeType.VIEW,
-        )
-        # a -> b
-        Edge.objects.create(
-            team=self.team,
-            dag=dag,
-            source=node_a,
-            target=node_b,
-        )
-
-        # shouldn't raise
-        conflict_dag = DAG.objects.create(team=self.team, name=get_conflict_dag_id(self.team.id))
-        conflict_edge = Edge(
-            team=self.team,
-            dag=conflict_dag,
-            source=node_b,
-            target=node_a,
-            properties={"error_type": "cycle"},
-        )
-        conflict_edge.save(skip_validation=True)
-
-        self.assertTrue(Edge.objects.filter(id=conflict_edge.id).exists())
-
-    def test_skip_validation_bypasses_dag_mismatch_check(self):
-        dag_1 = DAG.objects.create(team=self.team, name="dag_1")
-        dag_2 = DAG.objects.create(team=self.team, name="dag_2")
-        query = DataWarehouseSavedQuery.objects.create(
-            name="view",
-            team=self.team,
-            query={"query": "SELECT 1", "kind": "HogQLQuery"},
-        )
-        node_a = Node.objects.create(
-            team=self.team,
-            dag=dag_1,
-            name="node_a",
-            saved_query=query,
-            type=NodeType.VIEW,
-        )
-
-        query_b = DataWarehouseSavedQuery.objects.create(
-            name="view_b",
-            team=self.team,
-            query={"query": "SELECT 1", "kind": "HogQLQuery"},
-        )
-        node_b = Node.objects.create(
-            team=self.team,
-            dag=dag_2,
-            name="node_b",
-            saved_query=query_b,
-            type=NodeType.VIEW,
-        )
-
-        # shouldn't raise
-        conflict_dag = DAG.objects.create(team=self.team, name=get_conflict_dag_id(self.team.id))
-        conflict_edge = Edge(
-            team=self.team,
-            dag=conflict_dag,
-            source=node_a,
-            target=node_b,
-        )
-        conflict_edge.save(skip_validation=True)
-        self.assertTrue(Edge.objects.filter(id=conflict_edge.id).exists())

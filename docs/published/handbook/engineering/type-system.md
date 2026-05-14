@@ -8,10 +8,10 @@ PostHog has two type generation systems that keep frontend and backend in sync. 
 
 ## Overview
 
-| Flow               | Source of truth        | Generated output     | Used for                                                  |
-| ------------------ | ---------------------- | -------------------- | --------------------------------------------------------- |
-| Backend → Frontend | Django serializers     | TypeScript (Orval)   | API responses                                             |
-| Frontend → Backend | TypeScript `schema.ts` | Pydantic `schema.py` | Query types (HogQL, filters, insights), some legacy types |
+| Flow               | Source of truth        | Generated output         | Used for                                                  |
+| ------------------ | ---------------------- | ------------------------ | --------------------------------------------------------- |
+| Backend → Frontend | Django serializers     | TypeScript + Zod (Orval) | API types, client functions, and validation schemas       |
+| Frontend → Backend | TypeScript `schema.ts` | Pydantic `schema.py`     | Query types (HogQL, filters, insights), some legacy types |
 
 These are independent systems. Don't conflate them.
 
@@ -27,11 +27,14 @@ We use [Orval](https://orval.dev/) to generate TypeScript types and API client f
 
 ### Where types live
 
-| Type                | Location                                 | Editable? |
-| ------------------- | ---------------------------------------- | --------- |
-| Generated API types | `products/<product>/frontend/generated/` | No        |
-| Core API types      | `frontend/src/generated/core/`           | No        |
-| Handwritten types   | `frontend/src/types/`                    | Yes       |
+| Type                  | File             | Location                                 | Editable? |
+| --------------------- | ---------------- | ---------------------------------------- | --------- |
+| Generated API types   | `api.schemas.ts` | `products/<product>/frontend/generated/` | No        |
+| Generated API client  | `api.ts`         | `products/<product>/frontend/generated/` | No        |
+| Generated Zod schemas | `api.zod.ts`     | `products/<product>/frontend/generated/` | No        |
+| Core API types        | `api.schemas.ts` | `frontend/src/generated/core/`           | No        |
+| Core Zod schemas      | `api.zod.ts`     | `frontend/src/generated/core/`           | No        |
+| Handwritten types     |                  | `frontend/src/types/`                    | Yes       |
 
 Never edit files in `generated/` – they're overwritten on regeneration.
 
@@ -43,12 +46,26 @@ Never edit files in `generated/` – they're overwritten on regeneration.
 
 This prevents name collisions between generated and manual types.
 
+### Zod validation schemas
+
+Each generated directory also contains `api.zod.ts` with [Zod](https://zod.dev/) validation schemas derived from the same OpenAPI spec.
+Only **Body** schemas are generated — response schemas, path params, query params, and headers are excluded since the primary use case is validating user input before API calls.
+
+Schemas are named `<Operation>Body`:
+
+```ts
+import { VisualReviewReposCreateBody } from '../generated/api.zod'
+```
+
+All exports are annotated with `/* @__PURE__ */` so unused schemas are tree-shaken from the bundle.
+
 ### Regenerating types
 
 Run after changing serializers, viewsets, or `@extend_schema` decorators:
 
 ```bash
-hogli build:openapi
+hogli build            # auto-detects what changed and rebuilds
+hogli build:openapi    # or run this pipeline explicitly
 ```
 
 CI will fail if generated types are stale.
@@ -118,7 +135,8 @@ Query types like `TrendsQuery`, `FunnelsQuery`, and HogQL filters are defined in
 ### Regenerating
 
 ```bash
-hogli build:schema
+hogli build            # auto-detects what changed and rebuilds
+hogli build:schema     # or run this pipeline explicitly
 ```
 
 This runs:

@@ -1,6 +1,6 @@
 import api from 'lib/api'
 
-import { hogqlQuery } from '~/queries/query'
+import { HogQLQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { EventDefinitionType } from '~/types'
 
@@ -31,10 +31,13 @@ export async function hasRecentAIEvents(): Promise<boolean> {
     }
 
     // Fallback: query ClickHouse directly for recent events (new users)
-    const response = await hogqlQuery(
-        hogql`SELECT 1 FROM events WHERE event IN ${[...AI_EVENT_NAMES]} AND timestamp > now() - INTERVAL 3 HOUR LIMIT 1`,
-        undefined,
-        'force_blocking'
+    const response = await api.query<HogQLQuery>(
+        {
+            kind: NodeKind.HogQLQuery,
+            query: hogql`SELECT 1 FROM events WHERE event IN ${[...AI_EVENT_NAMES]} AND timestamp > now() - INTERVAL 3 HOUR LIMIT 1`,
+            tags: { productKey: ProductKey.LLM_ANALYTICS },
+        },
+        { refresh: 'force_blocking' }
     )
 
     return (response.results?.length ?? 0) > 0

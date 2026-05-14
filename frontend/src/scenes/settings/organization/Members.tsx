@@ -23,6 +23,7 @@ import {
     organizationMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
 import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
+import { membersExportLogic } from 'scenes/organization/membersExportLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -44,10 +45,10 @@ function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.
             {scopedApiKeys?.keys && scopedApiKeys.keys.length > 0 && (
                 <div className="mt-4">
                     <LemonBanner type="warning" className="mb-2">
-                        The following API keys which belong to {member.user.uuid == user?.uuid ? 'you' : 'this member'}{' '}
-                        will lose access to this organization and will stop working immediately. Please confirm they
-                        will not affect any services that depend on them before removing{' '}
-                        {member.user.uuid == user?.uuid ? 'yourself' : 'this member'}.
+                        The following personal API keys which belong to{' '}
+                        {member.user.uuid == user?.uuid ? 'you' : 'this member'} will lose access to this organization
+                        and will stop working immediately. Please confirm they will not affect any services that depend
+                        on them before removing {member.user.uuid == user?.uuid ? 'yourself' : 'this member'}.
                     </LemonBanner>
                     <LemonTable
                         dataSource={scopedApiKeys.keys}
@@ -185,14 +186,19 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
 
 export function Members(): JSX.Element | null {
     const { filteredMembers, membersLoading, search } = useValues(membersLogic)
+    const { downloadMembersListDisabledReason } = useValues(membersExportLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const { setSearch, ensureAllMembersLoaded } = useActions(membersLogic)
+    const { downloadMembersList } = useActions(membersExportLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const { openTwoFactorSetupModal } = useActions(twoFactorLogic)
 
     const twoFactorRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const downloadMembersListRestrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
     const membersCanInviteRestrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
@@ -325,7 +331,25 @@ export function Members(): JSX.Element | null {
 
     return (
         <>
-            <LemonInput type="search" placeholder="Search for members" value={search} onChange={setSearch} />
+            <div className="flex flex-wrap gap-2 justify-between items-center">
+                <LemonInput
+                    type="search"
+                    placeholder="Search for members"
+                    value={search}
+                    onChange={setSearch}
+                    className="flex-1 basis-[min(100%,18rem)]"
+                />
+                {!downloadMembersListRestrictionReason && (
+                    <LemonButton
+                        type="secondary"
+                        onClick={downloadMembersList}
+                        disabledReason={downloadMembersListDisabledReason}
+                        data-attr="org-members-download-csv"
+                    >
+                        Download members list
+                    </LemonButton>
+                )}
+            </div>
 
             <LemonTable
                 dataSource={filteredMembers ?? []}

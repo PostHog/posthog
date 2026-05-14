@@ -25,8 +25,6 @@ import {
     IconRetentionHeatmap,
     IconHeart,
     IconHeartFilled,
-    IconStar,
-    IconStarFilled,
     IconStickiness,
     IconTrends,
     IconUserPaths,
@@ -40,6 +38,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -50,7 +49,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMenu, LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -58,6 +57,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNonEmptyObject } from 'lib/utils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -218,6 +218,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.InsightActorsQuery]: {
         name: 'Persons',
         description: 'List of persons matching specified conditions, derived from an insight.',
+        icon: IconPerson,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentActorsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions, derived from an experiment.',
         icon: IconPerson,
         inMenu: false,
     },
@@ -552,6 +558,16 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLive,
         inMenu: false,
     },
+    [NodeKind.TraceSpansAggregationQuery]: {
+        name: 'Trace Spans Aggregation',
+        icon: IconLive,
+        inMenu: false,
+    },
+    [NodeKind.TraceSpansTreeQuery]: {
+        name: 'Trace Spans Tree',
+        icon: IconLive,
+        inMenu: false,
+    },
     [NodeKind.WebAnalyticsExternalSummaryQuery]: {
         name: 'Web Analytics External Summary',
         icon: IconPieChart,
@@ -676,8 +692,6 @@ export function InsightIcon({
 
 export function NewInsightButton(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const useInsightOptionsPage = useFeatureFlag('INSIGHT_OPTIONS_PAGE', 'test')
-    const useDropdownOnly = useFeatureFlag('INSIGHT_OPTIONS_PAGE', 'dropdown')
 
     const insightEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
         ([insightType]) =>
@@ -731,29 +745,9 @@ export function NewInsightButton(): JSX.Element {
                 scope={Scene.SavedInsights}
                 priority={100}
             >
-                {useDropdownOnly ? (
-                    <LemonMenu items={menuItems} placement="bottom-end">
-                        <LemonButton
-                            type="primary"
-                            data-attr="saved-insights-new-insight-button"
-                            size="small"
-                            icon={<IconPlusSmall />}
-                            tooltip="New insight"
-                        >
-                            New
-                        </LemonButton>
-                    </LemonMenu>
-                ) : (
+                <LemonMenu items={menuItems} placement="bottom-end">
                     <LemonButton
                         type="primary"
-                        to={useInsightOptionsPage ? urls.insightOptions() : urls.insightNew()}
-                        sideAction={{
-                            dropdown: {
-                                placement: 'bottom-end',
-                                overlay: <LemonMenuOverlay items={menuItems} />,
-                            },
-                            'data-attr': 'saved-insights-new-insight-dropdown',
-                        }}
                         data-attr="saved-insights-new-insight-button"
                         size="small"
                         icon={<IconPlusSmall />}
@@ -761,7 +755,7 @@ export function NewInsightButton(): JSX.Element {
                     >
                         New
                     </LemonButton>
-                )}
+                </LemonMenu>
             </AppShortcut>
         </AccessControlAction>
     )
@@ -776,7 +770,6 @@ export function SavedInsights(): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
     const showHomeTab = useFeatureFlag('PRODUCT_ANALYTICS_HOME_TAB')
-    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     const { tab } = filters
 
@@ -810,15 +803,9 @@ export function SavedInsights(): JSX.Element {
                                 onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
                                 icon={
                                     insight.favorited ? (
-                                        isAIFirst ? (
-                                            <IconHeartFilled className="text-danger" />
-                                        ) : (
-                                            <IconStarFilled className="text-warning" />
-                                        )
-                                    ) : isAIFirst ? (
-                                        <IconHeart className="text-secondary" />
+                                        <IconHeartFilled className="text-danger" />
                                     ) : (
-                                        <IconStar className="text-secondary" />
+                                        <IconHeart className="text-secondary" />
                                     )
                                 }
                                 tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
@@ -1039,7 +1026,6 @@ export function SavedInsights(): JSX.Element {
                                 : undefined
                         }
                     />
-
                     <ReloadInsight />
                     <LemonTable
                         loading={insightsLoading}
@@ -1066,6 +1052,30 @@ export function SavedInsights(): JSX.Element {
                                 </div>
                             ) : undefined
                         }
+                        bulkSelection={{
+                            getKey: (insight: QueryBasedInsightModel): number => insight.id,
+                            isRowSelectable: (insight: QueryBasedInsightModel) =>
+                                accessLevelSatisfied(
+                                    AccessControlResourceType.Insight,
+                                    insight.user_access_level,
+                                    AccessControlLevel.Editor
+                                )
+                                    ? true
+                                    : { disabledReason: "You don't have permission to edit this insight." },
+                            rowAriaLabel: (insight: QueryBasedInsightModel) =>
+                                `Select insight ${insight.name || 'Untitled'}`,
+                            headerAriaLabel: 'Select all insights on this page',
+                            renderActions: (ctx) => (
+                                <BulkUpdateTagsButton
+                                    resource="insights"
+                                    selectedIds={ctx.selectedKeys}
+                                    onSuccess={() => {
+                                        ctx.clearSelection()
+                                        loadInsights()
+                                    }}
+                                />
+                            ),
+                        }}
                     />
                 </>
             )}

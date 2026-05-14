@@ -14,9 +14,19 @@ import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 import { DetailFilters } from './DetailFilters'
 
 export const BasicFiltersTab = (): JSX.Element => {
-    const { filters, availableFilters, showMoreFilters, activeAdvancedFiltersCount } =
-        useValues(advancedActivityLogsLogic)
+    const {
+        filters,
+        availableFilters,
+        availableFiltersLoading,
+        showMoreFilters,
+        activeAdvancedFiltersCount,
+        isOrganizationView,
+        teamsById,
+    } = useValues(advancedActivityLogsLogic)
     const { setFilters, setShowMoreFilters } = useActions(advancedActivityLogsLogic)
+    const projectOptions = Object.entries(teamsById)
+        .map(([id, name]) => ({ key: id, label: name as string }))
+        .sort((a, b) => a.label.localeCompare(b.label))
 
     return (
         <div className="flex flex-col gap-4 pt-4">
@@ -35,6 +45,29 @@ export const BasicFiltersTab = (): JSX.Element => {
                     />
                 </div>
 
+                {isOrganizationView && (
+                    <div className="flex flex-col gap-1">
+                        <label className="block text-sm font-medium mb-1">Project</label>
+                        <LemonInputSelect
+                            mode="multiple"
+                            displayMode="count"
+                            bulkActions="select-and-clear-all"
+                            value={(filters.team_ids ?? []).map(String)}
+                            onChange={(values) =>
+                                setFilters({
+                                    team_ids: values.map((v) => parseInt(v, 10)).filter((v) => !Number.isNaN(v)),
+                                })
+                            }
+                            options={projectOptions}
+                            placeholder="All projects"
+                            allowCustomValues={false}
+                            data-attr="audit-logs-project-filter"
+                            size="small"
+                            className="min-w-50"
+                        />
+                    </div>
+                )}
+
                 <div className="flex flex-col gap-1">
                     <label className="block text-sm font-medium mb-1">User</label>
                     <LemonInputSelect
@@ -49,6 +82,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 label: u.label,
                             })) || []
                         }
+                        loading={availableFiltersLoading}
                         placeholder="All users"
                         allowCustomValues={false}
                         data-attr="audit-logs-user-filter"
@@ -73,6 +107,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 }))
                                 .sort((a, b) => a.label.localeCompare(b.label)) || []
                         }
+                        loading={availableFiltersLoading}
                         placeholder="All scopes"
                         allowCustomValues={false}
                         data-attr="audit-logs-scope-filter"
@@ -97,6 +132,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 }))
                                 .sort((a, b) => a.label.localeCompare(b.label)) || []
                         }
+                        loading={availableFiltersLoading}
                         placeholder="All activities"
                         allowCustomValues={false}
                         data-attr="audit-logs-action-filter"
@@ -202,6 +238,36 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 className="min-w-50"
                             />
                         </div>
+
+                        {(availableFilters?.static_filters?.clients?.length ?? 0) > 0 && (
+                            <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-1 mb-1">
+                                    <label className="block text-sm font-medium">Client</label>
+                                    <Tooltip title="The SDK or integration that triggered the action (e.g. MCP).">
+                                        <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
+                                    </Tooltip>
+                                </div>
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    displayMode="count"
+                                    bulkActions="select-and-clear-all"
+                                    value={filters.clients || []}
+                                    onChange={(clients) => setFilters({ clients })}
+                                    options={
+                                        availableFilters?.static_filters?.clients?.map((c: any) => ({
+                                            key: c.value,
+                                            label: c.value,
+                                        })) || []
+                                    }
+                                    loading={availableFiltersLoading}
+                                    placeholder="All clients"
+                                    allowCustomValues={false}
+                                    data-attr="audit-logs-client-filter"
+                                    size="small"
+                                    className="min-w-50"
+                                />
+                            </div>
+                        )}
                     </div>
                     <div className="py-4">
                         <DetailFilters />

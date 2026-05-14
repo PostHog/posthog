@@ -4,6 +4,8 @@ from typing import cast
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.schema import (
     CachedHogQLQueryResponse,
     HogQLFilters,
@@ -14,7 +16,8 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG, OFFSET_NOT_ALLOWED_MESSAGE
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
@@ -285,3 +288,64 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaises(ExposedHogQLError):
             runner.calculate()
+
+    @parameterized.expand(
+        [
+            # Plain OFFSET on SelectQuery
+            ("top_level", "select event from events limit 10 offset 5"),
+            # Recursion into a subquery
+            ("subquery", "select * from (select event from events limit 10 offset 5) sub"),
+            # Distinct AST node: SelectSetQuery.offset (OFFSET at UNION level)
+            (
+                "select_set_outer",
+                "(select event from events limit 5) union all (select event from events limit 5) limit 10 offset 5",
+            ),
+            # Distinct AST node: LimitByExpr.offset_value
+            ("limit_by", "select event, timestamp from events limit 5 by event offset 10"),
+            # OFFSET arrives via placeholder — proves hook runs after to_query() substitution.
+            ("placeholder", "select event from events limit 10 offset {o}"),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_query_service_rejects_offset(self, _name, sql, _mock_flag):
+        values = {"o": 50} if "{o}" in sql else None
+        runner = self._create_runner(HogQLQuery(query=sql, values=values))
+        runner.is_query_service = True
+
+        with self.assertRaises(QueryError) as ctx:
+            runner.calculate()
+        self.assertEqual(OFFSET_NOT_ALLOWED_MESSAGE, str(ctx.exception))
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_query_service_allows_offset_when_org_on_allow_list(self, _mock_flag):
+        # Grandfathered via the allow-list flag → query passes through to execution.
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 10 offset 5"))
+        runner.is_query_service = True
+
+        response = runner.calculate()
+        self.assertEqual(len(response.results), 5)
+
+    def test_query_service_fails_open_when_flag_service_errors(self):
+        # Flag-service outage must not cascade into rejecting previously-valid traffic.
+        # Scope the error to our flag only — a blanket raise would break unrelated flag checks
+        # downstream in the query execution path.
+        def flag_side_effect(flag, *_args, **_kwargs):
+            if flag == HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG:
+                raise RuntimeError("flag service down")
+            return False
+
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 10 offset 5"))
+        runner.is_query_service = True
+
+        with patch("posthoganalytics.feature_enabled", side_effect=flag_side_effect):
+            response = runner.calculate()
+        self.assertEqual(len(response.results), 5)
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_non_query_service_allows_offset(self, _mock_flag):
+        # Product queries (Trends/Funnels/etc.) have is_query_service=False — must pass through
+        # even when the flag says "deny everything." Guards the `if self.is_query_service:` gate.
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 10 offset 5"))
+
+        response = runner.calculate()
+        self.assertEqual(len(response.results), 5)

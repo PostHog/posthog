@@ -1,0 +1,667 @@
+import type { SourceConfig } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+
+import {
+    buildKeaFormDefaultFromSourceDetails,
+    getDatabaseSchemaPayload,
+    getErrorsForFields,
+    mergeRestoredSourceFormValues,
+    shouldHydrateSourceFromUrl,
+    sourceWizardLogic,
+} from '../sourceWizardLogic'
+
+describe('sourceWizardLogic', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    it('keeps wizard state isolated by tab id', () => {
+        const postgresSource = {
+            name: 'Postgres',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+        const availableSources = { Postgres: postgresSource }
+        const firstTabLogic = sourceWizardLogic({ availableSources, tabId: 'first-tab' })
+        const secondTabLogic = sourceWizardLogic({ availableSources, tabId: 'second-tab' })
+        const unmountFirstTabLogic = firstTabLogic.mount()
+        const unmountSecondTabLogic = secondTabLogic.mount()
+
+        try {
+            firstTabLogic.actions.selectConnector(postgresSource)
+            firstTabLogic.actions.setStep(2)
+            firstTabLogic.actions.setSourceConnectionDetailsValue(['payload', 'host'], 'first.example.com')
+            secondTabLogic.actions.setStep(3)
+            secondTabLogic.actions.setSourceConnectionDetailsValue(['payload', 'host'], 'second.example.com')
+
+            expect(firstTabLogic.values.selectedConnector?.name).toEqual('Postgres')
+            expect(firstTabLogic.values.currentStep).toEqual(2)
+            expect(firstTabLogic.values.sourceConnectionDetails.payload.host).toEqual('first.example.com')
+            expect(secondTabLogic.values.selectedConnector).toBeNull()
+            expect(secondTabLogic.values.currentStep).toEqual(3)
+            expect(secondTabLogic.values.sourceConnectionDetails.payload.host).toEqual('second.example.com')
+        } finally {
+            unmountFirstTabLogic()
+            unmountSecondTabLogic()
+        }
+    })
+
+    it('preserves wizard state while attached to the mounted scene tab', () => {
+        const postgresSource = {
+            name: 'Postgres',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+        const availableSources = { Postgres: postgresSource }
+        const attachedLogic = sourceWizardLogic({ availableSources, tabId: 'remounted-tab' })
+        const unmountAttached = attachedLogic.mount()
+        const firstMount = sourceWizardLogic({ availableSources, tabId: 'remounted-tab' })
+        const unmountFirst = firstMount.mount()
+
+        try {
+            firstMount.actions.selectConnector(postgresSource)
+            firstMount.actions.setStep(2)
+            firstMount.actions.setSourceConnectionDetailsValue(['payload', 'host'], 'kept.example.com')
+            unmountFirst()
+
+            const secondMount = sourceWizardLogic({ availableSources, tabId: 'remounted-tab' })
+            const unmountSecond = secondMount.mount()
+
+            try {
+                expect(secondMount.values.selectedConnector?.name).toEqual('Postgres')
+                expect(secondMount.values.currentStep).toEqual(2)
+                expect(secondMount.values.sourceConnectionDetails.payload.host).toEqual('kept.example.com')
+            } finally {
+                unmountSecond()
+            }
+        } finally {
+            unmountAttached()
+        }
+    })
+
+    it('does not hydrate the same source URL again after the wizard has started', () => {
+        const postgresSource = {
+            name: 'Postgres',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+
+        expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'direct', 'direct')).toBe(false)
+        expect(shouldHydrateSourceFromUrl(1, postgresSource, postgresSource, 'direct', 'direct')).toBe(true)
+        expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'warehouse', 'direct')).toBe(true)
+    })
+
+    describe('getDatabaseSchemaPayload', () => {
+        it('includes the selected access method for schema discovery', () => {
+            expect(
+                getDatabaseSchemaPayload({
+                    access_method: 'direct',
+                    payload: {
+                        host: 'localhost',
+                        schema: '',
+                    },
+                })
+            ).toEqual({
+                access_method: 'direct',
+                host: 'localhost',
+                schema: '',
+            })
+        })
+
+        it('defaults to warehouse mode', () => {
+            expect(
+                getDatabaseSchemaPayload({
+                    payload: {
+                        host: 'localhost',
+                    },
+                })
+            ).toEqual({
+                access_method: 'warehouse',
+                host: 'localhost',
+            })
+        })
+    })
+
+    describe('buildKeaFormDefaultFromSourceDetails', () => {
+        it('returns the default for an empty source', async () => {
+            const res = buildKeaFormDefaultFromSourceDetails({})
+
+            expect(res).toEqual({ prefix: '', description: '', payload: {} })
+        })
+
+        it('returns defaults for text fields', async () => {
+            const sourceWizardLogic = await import('../sourceWizardLogic')
+            const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
+                Test: {
+                    name: 'Stripe',
+                    iconPath: '',
+                    caption: null,
+                    fields: [
+                        {
+                            name: 'test_field',
+                            label: 'Test',
+                            type: 'text',
+                            required: true,
+                            placeholder: 'Enter something',
+                            secret: false,
+                        },
+                    ],
+                },
+            })
+
+            expect(res).toEqual({ prefix: '', description: '', payload: { test_field: '' } })
+        })
+
+        it('returns defaults for pure select field', async () => {
+            const sourceWizardLogic = await import('../sourceWizardLogic')
+            const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
+                Test: {
+                    name: 'Stripe',
+                    iconPath: '',
+                    caption: null,
+                    fields: [
+                        {
+                            name: 'test_field',
+                            label: 'Test',
+                            type: 'select',
+                            required: true,
+                            options: [{ value: 'value1', label: 'label' }],
+                            defaultValue: 'value1',
+                        },
+                    ],
+                },
+            })
+
+            expect(res).toEqual({ prefix: '', description: '', payload: { test_field: 'value1' } })
+        })
+
+        it('returns defaults for select field with fields', async () => {
+            const sourceWizardLogic = await import('../sourceWizardLogic')
+            const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
+                Test: {
+                    name: 'Stripe',
+                    iconPath: '',
+                    caption: null,
+                    fields: [
+                        {
+                            name: 'test_field',
+                            label: 'Test',
+                            type: 'select',
+                            required: true,
+                            options: [
+                                {
+                                    value: 'value1',
+                                    label: 'label',
+                                    fields: [
+                                        {
+                                            name: 'option_field',
+                                            label: 'Test',
+                                            type: 'text',
+                                            required: true,
+                                            placeholder: 'Enter something',
+                                            secret: false,
+                                        },
+                                    ],
+                                },
+                            ],
+                            defaultValue: 'value1',
+                        },
+                    ],
+                },
+            })
+
+            expect(res).toEqual({
+                prefix: '',
+                description: '',
+                payload: { test_field: { selection: 'value1', option_field: '' } },
+            })
+        })
+
+        it('returns defaults for switch group field - default disabled', async () => {
+            const sourceWizardLogic = await import('../sourceWizardLogic')
+            const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
+                Test: {
+                    name: 'Stripe',
+                    iconPath: '',
+                    caption: null,
+                    fields: [
+                        {
+                            name: 'test_field',
+                            label: 'Test',
+                            type: 'switch-group',
+                            default: false,
+                            fields: [
+                                {
+                                    name: 'option_field',
+                                    label: 'Test',
+                                    type: 'text',
+                                    required: true,
+                                    placeholder: 'Enter something',
+                                    secret: false,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            expect(res).toEqual({
+                prefix: '',
+                description: '',
+                payload: { test_field: { enabled: false, option_field: '' } },
+            })
+        })
+
+        it('returns defaults for switch group field - default enabled', async () => {
+            const sourceWizardLogic = await import('../sourceWizardLogic')
+            const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
+                Test: {
+                    name: 'Stripe',
+                    iconPath: '',
+                    caption: null,
+                    fields: [
+                        {
+                            name: 'test_field',
+                            label: 'Test',
+                            type: 'switch-group',
+                            default: true,
+                            fields: [
+                                {
+                                    name: 'option_field',
+                                    label: 'Test',
+                                    type: 'text',
+                                    required: true,
+                                    placeholder: 'Enter something',
+                                    secret: false,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            expect(res).toEqual({
+                prefix: '',
+                description: '',
+                payload: { test_field: { enabled: true, option_field: '' } },
+            })
+        })
+    })
+
+    describe('getErrorsForFields', () => {
+        it('returns no errors for an empty payload', () => {
+            const res = getErrorsForFields([], { prefix: '', payload: {} })
+            expect(res).toEqual({ payload: {} })
+        })
+
+        it('returns errors for an invalid prefix', () => {
+            const res = getErrorsForFields([], { prefix: '@@@', payload: {} })
+            expect(res.prefix).toBeTruthy()
+        })
+
+        it('requires name for direct mode', () => {
+            const res = getErrorsForFields([], { prefix: '   ', payload: {}, access_method: 'direct' })
+            expect(res.prefix).toEqual('Please enter a name for this direct query source.')
+        })
+
+        it('allows non-prefix characters for direct mode name', () => {
+            const res = getErrorsForFields([], {
+                prefix: 'prod us-east (readonly)',
+                payload: {},
+                access_method: 'direct',
+            })
+            expect(res.prefix).toBeUndefined()
+        })
+
+        it('returns errors for an empty required text field', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'test_field',
+                        label: 'Test',
+                        type: 'text',
+                        required: true,
+                        placeholder: 'Enter something',
+                        secret: false,
+                    },
+                ],
+                { prefix: '', payload: {} }
+            )
+            expect(res.payload.test_field).toBeTruthy()
+        })
+
+        it('returns no errors for an empty non-required text field', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'test_field',
+                        label: 'Test',
+                        type: 'text',
+                        required: false,
+                        placeholder: 'Enter something',
+                        secret: false,
+                    },
+                ],
+                { prefix: '', payload: {} }
+            )
+            expect(res.payload).toEqual({})
+        })
+
+        it('returns errors for an empty required select field', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'test_field',
+                        label: 'Test',
+                        type: 'select',
+                        required: true,
+                        options: [{ value: 'value', label: 'label' }],
+                        defaultValue: 'value',
+                    },
+                ],
+                { prefix: '', payload: {} }
+            )
+            expect(res.payload.test_field).toBeTruthy()
+        })
+
+        it('returns no errors for an empty non-required select field', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'test_field',
+                        label: 'Test',
+                        type: 'select',
+                        required: false,
+                        options: [{ value: 'value', label: 'label' }],
+                        defaultValue: 'value',
+                    },
+                ],
+                { prefix: '', payload: {} }
+            )
+            expect(res.payload).toEqual({})
+        })
+
+        it('returns errors for empty children fields of select field', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'test_field',
+                        label: 'Test',
+                        type: 'select',
+                        required: true,
+                        options: [
+                            {
+                                value: 'value',
+                                label: 'label',
+                                fields: [
+                                    {
+                                        name: 'option_field',
+                                        label: 'Test',
+                                        type: 'text',
+                                        required: true,
+                                        placeholder: 'Enter something',
+                                        secret: false,
+                                    },
+                                ],
+                            },
+                        ],
+                        defaultValue: 'value',
+                    },
+                ],
+                { prefix: '', payload: { test_field: { selection: 'value', option_field: '' } } }
+            )
+            expect(res.payload.test_field.option_field).toBeTruthy()
+        })
+
+        it('returns no errors for empty children fields of select field that arent selected', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'test_field',
+                        label: 'Test',
+                        type: 'select',
+                        required: true,
+                        options: [
+                            {
+                                value: 'value',
+                                label: 'label',
+                                fields: [
+                                    {
+                                        name: 'option_field',
+                                        label: 'Test',
+                                        type: 'text',
+                                        required: true,
+                                        placeholder: 'Enter something',
+                                        secret: false,
+                                    },
+                                ],
+                            },
+                            {
+                                value: 'other_value',
+                                label: 'label',
+                                fields: [
+                                    {
+                                        name: 'non_selected_value',
+                                        label: 'Test',
+                                        type: 'text',
+                                        required: true,
+                                        placeholder: 'Enter something',
+                                        secret: false,
+                                    },
+                                ],
+                            },
+                        ],
+                        defaultValue: 'value',
+                    },
+                ],
+                {
+                    prefix: '',
+                    payload: { test_field: { selection: 'value', option_field: 'hello', non_selected_value: '' } },
+                }
+            )
+            expect(res.payload.test_field.option_field).toBeUndefined()
+            expect(res.payload.test_field.non_selected_value).toBeUndefined()
+        })
+
+        it('returns no errors for an empty non-required text field within a switch group field', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'test_field',
+                        label: 'Test',
+                        type: 'switch-group',
+                        default: false,
+                        fields: [
+                            {
+                                name: 'option_field',
+                                label: 'Test',
+                                type: 'text',
+                                required: false,
+                                placeholder: 'Enter something',
+                                secret: false,
+                            },
+                        ],
+                    },
+                ],
+                { prefix: '', payload: { test_field: { enabled: true, option_field: '' } } }
+            )
+            expect(res.payload.test_field).toEqual({})
+        })
+
+        it('returns no errors for an empty required text field within a disabled switch group field', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'test_field',
+                        label: 'Test',
+                        type: 'switch-group',
+                        default: false,
+                        fields: [
+                            {
+                                name: 'option_field',
+                                label: 'Test',
+                                type: 'text',
+                                required: true,
+                                placeholder: 'Enter something',
+                                secret: false,
+                            },
+                        ],
+                    },
+                ],
+                { prefix: '', payload: { test_field: { enabled: false, option_field: '' } } }
+            )
+            expect(res.payload).toEqual({})
+        })
+
+        it('returns no errors for a filled required text field within a switch group field', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'test_field',
+                        label: 'Test',
+                        type: 'switch-group',
+                        default: false,
+                        fields: [
+                            {
+                                name: 'option_field',
+                                label: 'Test',
+                                type: 'text',
+                                required: true,
+                                placeholder: 'Enter something',
+                                secret: false,
+                            },
+                        ],
+                    },
+                ],
+                { prefix: '', payload: { test_field: { enabled: true, option_field: 'some_value' } } }
+            )
+            expect(res.payload.test_field).toEqual({})
+        })
+
+        it('returns errors for an empty required text field within a switch group field', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'test_field',
+                        label: 'Test',
+                        type: 'switch-group',
+                        default: false,
+                        fields: [
+                            {
+                                name: 'option_field',
+                                label: 'Test',
+                                type: 'text',
+                                required: true,
+                                placeholder: 'Enter something',
+                                secret: false,
+                            },
+                        ],
+                    },
+                ],
+                { prefix: '', payload: { test_field: { enabled: true, option_field: '' } } }
+            )
+            expect(res.payload.test_field.option_field).toBeTruthy()
+        })
+
+        it('allows empty password in edit mode validation', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'password',
+                        label: 'Password',
+                        type: 'password',
+                        required: true,
+                        placeholder: '',
+                        secret: true,
+                    },
+                ],
+                { prefix: 'prod-db', payload: { password: '' }, access_method: 'direct' },
+                { allowBlankSensitiveFields: true }
+            )
+            expect(res.payload.password).toBeUndefined()
+        })
+
+        it('allows empty secret-marked textarea in edit mode validation', () => {
+            // Regression: a multi-line credential field uses type: 'textarea' for UX
+            // but is still a secret. The validator must allow blank values for any
+            // field with secret: true regardless of its rendering type.
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'client_private_key',
+                        label: 'Client private key',
+                        type: 'textarea',
+                        required: true,
+                        placeholder: '',
+                        secret: true,
+                    },
+                ],
+                { prefix: 'temporal-source', payload: { client_private_key: '' }, access_method: 'direct' },
+                { allowBlankSensitiveFields: true }
+            )
+            expect(res.payload.client_private_key).toBeUndefined()
+        })
+
+        it('still flags blank required non-secret fields in edit mode', () => {
+            // Sanity check: the secret blank-allow exception must not also let blank
+            // required non-secret fields through.
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'host',
+                        label: 'Host',
+                        type: 'text',
+                        required: true,
+                        placeholder: '',
+                        secret: false,
+                    },
+                ],
+                { prefix: 'src', payload: { host: '' }, access_method: 'direct' },
+                { allowBlankSensitiveFields: true }
+            )
+            expect(res.payload.host).toBe('Please enter a host')
+        })
+    })
+
+    describe('mergeRestoredSourceFormValues', () => {
+        const defaults = { prefix: '', description: '', payload: { using_ssl: 'true' } }
+
+        it('uses the URL access_method when there are no saved values', () => {
+            expect(mergeRestoredSourceFormValues(defaults, null, 'direct')).toEqual({
+                prefix: '',
+                description: '',
+                payload: { using_ssl: 'true' },
+                access_method: 'direct',
+            })
+        })
+
+        it('keeps the saved access_method when one exists', () => {
+            // OAuth callback URL doesn't carry access_method forward — saved value must win.
+            const saved = { access_method: 'warehouse', payload: { host: 'localhost' } }
+            expect(mergeRestoredSourceFormValues(defaults, saved, 'direct')).toEqual({
+                prefix: '',
+                description: '',
+                payload: { host: 'localhost' },
+                access_method: 'warehouse',
+            })
+        })
+
+        it('omits access_method when neither saved values nor current state provide one', () => {
+            expect(mergeRestoredSourceFormValues(defaults, null, undefined)).toEqual(defaults)
+        })
+
+        it('overlays saved values on top of connector schema defaults', () => {
+            const saved = { payload: { host: 'foo' } }
+            // saved.payload replaces defaults.payload wholesale (shallow merge)
+            expect(mergeRestoredSourceFormValues(defaults, saved, 'warehouse')).toEqual({
+                prefix: '',
+                description: '',
+                payload: { host: 'foo' },
+                access_method: 'warehouse',
+            })
+        })
+    })
+})

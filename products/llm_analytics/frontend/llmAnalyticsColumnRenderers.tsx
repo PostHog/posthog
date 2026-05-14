@@ -198,9 +198,14 @@ function LazySentimentColumnCell({ traceId }: { traceId: string }): JSX.Element 
     const cached = sentimentByTraceId[traceId]
     const loading = isTraceLoading(traceId)
 
-    if (cached === undefined && !loading) {
-        ensureSentimentLoaded(traceId, dateFilter)
-    }
+    // Deferred via effect so trace-messages/persons effects (which also run
+    // after commit) get a chance to dispatch before sentiment's batched
+    // fan-out claims the browser's connection pool.
+    useEffect(() => {
+        if (cached === undefined && !loading) {
+            ensureSentimentLoaded(traceId, dateFilter)
+        }
+    }, [traceId, cached, loading, dateFilter, ensureSentimentLoaded])
 
     if (loading || cached === undefined) {
         return <AIDataLoading variant="inline" />
@@ -221,9 +226,11 @@ function LazyGenerationSentimentCell({ generationEventId }: { generationEventId:
     const cached = sentimentByGenerationId[generationEventId]
     const loading = isGenerationLoading(generationEventId)
 
-    if (cached === undefined && !loading) {
-        ensureGenerationSentimentLoaded(generationEventId, dateFilter)
-    }
+    useEffect(() => {
+        if (cached === undefined && !loading) {
+            ensureGenerationSentimentLoaded(generationEventId, dateFilter)
+        }
+    }, [generationEventId, cached, loading, dateFilter, ensureGenerationSentimentLoaded])
 
     if (loading || cached === undefined) {
         return <AIDataLoading variant="inline" />

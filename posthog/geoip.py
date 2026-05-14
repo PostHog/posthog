@@ -54,9 +54,9 @@ def get_geoip_properties(ip_address: Optional[str]) -> dict[str, str]:
         logger.exception(f"geoIP computation error: {e}")
         return {}
 
-    properties = {}
+    properties: dict[str, str] = {}
     for key, value in geoip_properties.items():
-        if value:
+        if isinstance(value, str) and value:
             mapped_key = GEOIP_KEY_MAPPING.get(key, key)
             if mapped_key in VALID_GEOIP_PROPERTIES:
                 properties[f"$geoip_{mapped_key}"] = value

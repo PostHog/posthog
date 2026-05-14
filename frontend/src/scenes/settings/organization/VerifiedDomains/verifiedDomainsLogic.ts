@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { SECURE_URL_REGEX } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { bindModalToUrl } from 'lib/logic/bindModalToUrl'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -41,7 +42,8 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
     connect(() => ({ values: [organizationLogic, ['currentOrganizationId']], logic: [userLogic] })),
     actions({
         replaceDomain: (domain: OrganizationDomainType) => ({ domain }),
-        setAddModalShown: (shown: boolean) => ({ shown }),
+        showAddDomainModal: true,
+        hideAddDomainModal: true,
         setConfigureSAMLModalId: (id: string | null) => ({ id }),
         setConfigureSCIMModalId: (id: string | null) => ({ id }),
         setScimLogsModalId: (id: string | null) => ({ id }),
@@ -65,7 +67,8 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         addModalShown: [
             false,
             {
-                setAddModalShown: (_, { shown }) => shown,
+                showAddDomainModal: () => true,
+                hideAddDomainModal: () => false,
                 addVerifiedDomainSuccess: () => false,
             },
         ],
@@ -305,6 +308,12 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         ],
     }),
     afterMount(({ actions }) => actions.loadVerifiedDomains()),
+    bindModalToUrl({
+        urlKey: 'add-domain',
+        openActionKey: 'showAddDomainModal',
+        closeActionKey: 'hideAddDomainModal',
+        isOpenKey: 'addModalShown',
+    }),
     forms(({ actions, values }) => ({
         samlConfig: {
             defaults: {} as SAMLConfigType,

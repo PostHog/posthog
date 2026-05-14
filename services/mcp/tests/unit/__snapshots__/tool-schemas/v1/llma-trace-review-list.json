@@ -1,0 +1,38 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "definition_id": {
+            "description": "Filter by a stable scorer definition ID.",
+            "type": "string"
+        },
+        "definition_id__in": {
+            "description": "Filter by multiple scorer definition IDs separated by commas.",
+            "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "order_by": {
+            "description": "Order by `updated_at` or `created_at`.",
+            "type": "string"
+        },
+        "search": {
+            "description": "Search trace IDs and comments.",
+            "type": "string"
+        },
+        "trace_id": {
+            "description": "Filter by an exact trace ID.",
+            "type": "string"
+        },
+        "trace_id__in": {
+            "description": "Filter by multiple trace IDs separated by commas.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

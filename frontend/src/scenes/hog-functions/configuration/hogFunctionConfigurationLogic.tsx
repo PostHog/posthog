@@ -17,6 +17,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { projectLogic } from 'scenes/projectLogic'
+import { buildSurveyExampleInvocationGlobals } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -58,7 +59,9 @@ import {
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
-    TeamType,
+    Survey,
+    SurveyEventName,
+    SurveyEventProperties,
 } from '~/types'
 
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
@@ -669,6 +672,23 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
             },
         ],
+
+        survey: [
+            null as Survey | null,
+            {
+                loadSurvey: async () => {
+                    const surveyId = values.surveyIdFromFilters
+                    if (!surveyId) {
+                        return null
+                    }
+                    try {
+                        return await api.surveys.get(surveyId)
+                    } catch {
+                        return null
+                    }
+                },
+            },
+        ],
     })),
     forms(({ values, props, asyncActions }) => ({
         configuration: {
@@ -727,6 +747,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     })),
     selectors(() => ({
         logicProps: [() => [(_, props) => props], (props: HogFunctionConfigurationLogicProps) => props],
+        surveyIdFromFilters: [
+            (s) => [s.configuration],
+            (configuration): string | null => {
+                for (const event of configuration?.filters?.events ?? []) {
+                    const prop = (event.properties as AnyPropertyFilter[] | undefined)?.find(
+                        (p) => p.key === SurveyEventProperties.SURVEY_ID && 'value' in p && p.value
+                    )
+                    if (prop) {
+                        return String(prop.value)
+                    }
+                }
+                return null
+            },
+        ],
         type: [
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => configuration?.type ?? hogFunction?.type ?? 'loading',
@@ -735,19 +769,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => {
                 return hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS)
-            },
-        ],
-        teamHasCohortFilters: [
-            (s) => [s.currentTeam, s.configuration],
-            (currentTeam: TeamType | null, configuration: HogFunctionConfigurationType | null) => {
-                // Only show warning if filter_test_accounts is enabled AND team has cohort filters
-                const hasFilterTestAccountsEnabled = configuration?.filters?.filter_test_accounts === true
-                const teamHasCohorts =
-                    currentTeam?.test_account_filters?.some(
-                        (filter: AnyPropertyFilter) => filter.type === PropertyFilterType.Cohort
-                    ) || false
-
-                return hasFilterTestAccountsEnabled && teamHasCohorts
             },
         ],
         useMapping: [
@@ -809,68 +830,85 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         exampleInvocationGlobals: [
-            (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId],
-            (configuration, currentProject, groupTypes, contextId): CyclotronJobInvocationGlobals => {
+            (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId, s.survey],
+            (configuration, currentProject, groupTypes, contextId, survey): CyclotronJobInvocationGlobals => {
                 const currentUrl = window.location.href.split('#')[0]
                 const eventId = uuid()
                 const personId = uuid()
-                const event = {
-                    uuid: eventId,
-                    distinct_id: uuid(),
-                    timestamp: dayjs().toISOString(),
-                    elements_chain: '',
-                    url: `${window.location.origin}/project/${currentProject?.id}/events/`,
-                    ...(contextId === 'error-tracking'
-                        ? {
-                              event: configuration?.filters?.events?.[0].id || '$error_tracking_issue_created',
-                              properties: {
-                                  name: 'Test issue',
-                                  description: 'This is the issue description',
+                const source = {
+                    name: configuration?.name ?? 'Unnamed',
+                    url: currentUrl,
+                }
+                const globals: CyclotronJobInvocationGlobals =
+                    configuration?.filters?.events?.[0]?.id === SurveyEventName.SENT
+                        ? buildSurveyExampleInvocationGlobals({
+                              survey,
+                              projectId: currentProject?.id || 0,
+                              projectName: currentProject?.name || '',
+                              projectUrl: `${window.location.origin}/project/${currentProject?.id}`,
+                              source,
+                              eventUuid: eventId,
+                              distinctId: uuid(),
+                              timestamp: dayjs().toISOString(),
+                              personId,
+                              personName: 'Example person',
+                              personEmail: 'example@posthog.com',
+                          })
+                        : {
+                              event: {
+                                  uuid: eventId,
+                                  distinct_id: uuid(),
+                                  timestamp: dayjs().toISOString(),
+                                  elements_chain: '',
+                                  url: `${window.location.origin}/project/${currentProject?.id}/events/`,
+                                  ...(contextId === 'error-tracking'
+                                      ? {
+                                            event:
+                                                configuration?.filters?.events?.[0].id ||
+                                                '$error_tracking_issue_created',
+                                            properties: {
+                                                name: 'Test issue',
+                                                description: 'This is the issue description',
+                                            },
+                                        }
+                                      : contextId === 'activity-log'
+                                        ? {
+                                              event: '$activity_log_entry_created',
+                                              properties: {
+                                                  activity: 'created',
+                                                  scope: 'Insight',
+                                                  item_id: 'abcdef',
+                                              },
+                                          }
+                                        : {
+                                              event: '$pageview',
+                                              properties: {
+                                                  $current_url: currentUrl,
+                                                  $browser: 'Chrome',
+                                                  $ip: '89.160.20.129',
+                                                  this_is_an_example_event: true,
+                                              },
+                                          }),
                               },
+                              person:
+                                  contextId !== 'error-tracking'
+                                      ? {
+                                            id: personId,
+                                            properties: {
+                                                email: 'example@posthog.com',
+                                            },
+                                            name: 'Example person',
+                                            url: `${window.location.origin}/person/${personId}`,
+                                        }
+                                      : undefined,
+                              groups: {},
+                              project: {
+                                  id: currentProject?.id || 0,
+                                  name: currentProject?.name || '',
+                                  url: `${window.location.origin}/project/${currentProject?.id}`,
+                              },
+                              source,
                           }
-                        : contextId === 'activity-log'
-                          ? {
-                                event: '$activity_log_entry_created',
-                                properties: {
-                                    activity: 'created',
-                                    scope: 'Insight',
-                                    item_id: 'abcdef',
-                                },
-                            }
-                          : {
-                                event: '$pageview',
-                                properties: {
-                                    $current_url: currentUrl,
-                                    $browser: 'Chrome',
-                                    $ip: '89.160.20.129',
-                                    this_is_an_example_event: true,
-                                },
-                            }),
-                }
-                const globals: CyclotronJobInvocationGlobals = {
-                    event,
-                    person:
-                        contextId !== 'error-tracking'
-                            ? {
-                                  id: personId,
-                                  properties: {
-                                      email: 'example@posthog.com',
-                                  },
-                                  name: 'Example person',
-                                  url: `${window.location.origin}/person/${personId}`,
-                              }
-                            : undefined,
-                    groups: {},
-                    project: {
-                        id: currentProject?.id || 0,
-                        name: currentProject?.name || '',
-                        url: `${window.location.origin}/project/${currentProject?.id}`,
-                    },
-                    source: {
-                        name: configuration?.name ?? 'Unnamed',
-                        url: currentUrl,
-                    },
-                }
 
                 if (contextId !== 'error-tracking') {
                     groupTypes.forEach((groupType) => {
@@ -909,8 +947,22 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     }
                 }
 
+                const baseGlobals = sampleGlobals ?? exampleInvocationGlobals
+
+                // Transformations only receive `project` and `event` at runtime
+                // (see HogTransformerService.createInvocationGlobals). Hide `person`,
+                // `groups`, `source`, etc. so input templates can't reference them
+                // and trigger a "Global variable not found" failure in production.
+                if (configuration.type === 'transformation') {
+                    return {
+                        project: baseGlobals.project,
+                        event: baseGlobals.event,
+                        inputs,
+                    }
+                }
+
                 return {
-                    ...(sampleGlobals ?? exampleInvocationGlobals),
+                    ...baseGlobals,
                     inputs,
                 }
             },
@@ -1473,6 +1525,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     actions: [],
                     data_warehouse: [],
                 })
+            }
+        },
+        surveyIdFromFilters: (surveyId) => {
+            if (surveyId) {
+                actions.loadSurvey()
+            } else {
+                actions.loadSurveySuccess(null)
             }
         },
     })),

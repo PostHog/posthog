@@ -42,6 +42,8 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.saved_query_service import (
@@ -147,7 +149,9 @@ class DataWarehouseSavedQuerySerializerMixin:
         ]
 
 
-class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer):
+class DataWarehouseSavedQueryMinimalSerializer(
+    DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
+):
     """Lightweight serializer for list views - excludes large query field to reduce memory usage."""
 
     created_by = UserBasicSerializer(read_only=True)
@@ -178,11 +182,14 @@ class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializer
             "origin",
             "is_test",
             "expires_at",
+            "user_access_level",
         ]
         read_only_fields = fields
 
 
-class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer):
+class DataWarehouseSavedQuerySerializer(
+    DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
+):
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField()
@@ -214,6 +221,9 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
         allow_null=True,
         help_text="If true, skip column inference and validation. For saving drafts.",
     )
+    dag_id = serializers.UUIDField(
+        write_only=True, required=False, allow_null=True, help_text="Optional DAG to place this view into"
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -235,10 +245,12 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "edited_history_id",
             "latest_history_id",
             "soft_update",
+            "dag_id",
             "is_materialized",
             "origin",
             "is_test",
             "expires_at",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -251,6 +263,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "folder_name",
             "latest_error",
             "latest_history_id",
+            "user_access_level",
             "is_materialized",
             "origin",
             "expires_at",
@@ -286,6 +299,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
         validated_data["created_by"] = self.context["request"].user
         validated_data["origin"] = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE
         soft_update = validated_data.pop("soft_update", False)
+        dag_id = validated_data.pop("dag_id", None)
         view = DataWarehouseSavedQuery(**validated_data)
 
         if not soft_update:
@@ -348,15 +362,24 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                 self.context["activity_log"] = activity_log
         # best effort sync to new data modeling DAG representation
         try:
+            from products.data_modeling.backend.models.dag import DAG
             from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
 
-            sync_saved_query_to_dag(view)
+            dag_obj = None
+            if dag_id:
+                try:
+                    dag_obj = DAG.objects.get(id=dag_id, team_id=view.team_id)
+                except DAG.DoesNotExist:
+                    raise serializers.ValidationError({"dag_id": "Invalid DAG ID or DAG does not belong to this team"})
+            sync_saved_query_to_dag(view, dag=dag_obj)
         except Exception as e:
             capture_exception(e)
             logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
+        dag_id = validated_data.pop("dag_id", None)
+
         if instance.managed_viewset is not None:
             raise serializers.ValidationError("Cannot update a query from a managed viewset")
 
@@ -366,6 +389,17 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             before_update = None
 
         sync_frequency = self.context["request"].data.get("sync_frequency", None)
+
+        if sync_frequency and posthoganalytics.feature_enabled(
+            "data-modeling-backend-v2",
+            str(instance.team.uuid),
+            groups={
+                "organization": str(instance.team.organization_id),
+                "project": str(instance.team.id),
+            },
+        ):
+            raise serializers.ValidationError("Schedule is managed by the DAG. Edit the DAG schedule instead.")
+
         soft_update = validated_data.pop("soft_update", False)
 
         with transaction.atomic():
@@ -484,9 +518,13 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
         # best effort sync to new data modeling DAG representation
         if "query" in validated_data:
             try:
+                from products.data_modeling.backend.models.dag import DAG
                 from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
 
-                sync_saved_query_to_dag(view)
+                dag_obj = None
+                if dag_id:
+                    dag_obj = DAG.objects.filter(id=dag_id, team_id=view.team_id).first()
+                sync_saved_query_to_dag(view, dag=dag_obj)
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
@@ -555,14 +593,14 @@ class DataWarehouseSavedQueryPagination(PageNumberPagination):
     page_size = 1000
 
 
-class DataWarehouseSavedQueryFolderSerializer(serializers.ModelSerializer):
+class DataWarehouseSavedQueryFolderSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     view_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = DataWarehouseSavedQueryFolder
-        fields = ["id", "name", "created_at", "created_by", "view_count"]
-        read_only_fields = ["id", "created_at", "created_by", "view_count"]
+        fields = ["id", "name", "created_at", "created_by", "view_count", "user_access_level"]
+        read_only_fields = ["id", "created_at", "created_by", "view_count", "user_access_level"]
         extra_kwargs = {
             "name": {
                 "help_text": "Display name for the folder used to organize saved queries in the SQL editor sidebar."
@@ -586,7 +624,7 @@ class DataWarehouseSavedQueryFolderSerializer(serializers.ModelSerializer):
 
 
 @extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
-class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "warehouse_view"
     queryset = DataWarehouseSavedQueryFolder.objects.all()
     serializer_class = DataWarehouseSavedQueryFolderSerializer
@@ -638,7 +676,7 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, viewsets.Mode
 
 
 @extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
-class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
     """
@@ -732,7 +770,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             team_id=self.team_id, name=request.data.get("name")
         ).first()
         if saved_query:
-            # Update logic
+            # The UPSERT branch updates an existing row without going through get_object(),
+            # so run object-level permission checks explicitly to honor per-object access controls.
+            self.check_object_permissions(request, saved_query)
             serializer = self.get_serializer(saved_query, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             self.perform_update(serializer)

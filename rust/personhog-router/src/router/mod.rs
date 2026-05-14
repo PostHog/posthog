@@ -8,20 +8,30 @@ use std::time::Instant;
 use metrics::{counter, histogram};
 use personhog_common::grpc::{current_client_name, ClientInFlightGuard};
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
-    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
+    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
+    InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::Status;
 
@@ -335,6 +345,46 @@ impl PersonHogRouter {
         )
     }
 
+    pub async fn count_cohort_members(
+        &self,
+        request: CountCohortMembersRequest,
+    ) -> Result<CountCohortMembersResponse, Status> {
+        call_backend!(self, "CountCohortMembers", count_cohort_members, request)
+    }
+
+    pub async fn delete_cohort_member(
+        &self,
+        request: DeleteCohortMemberRequest,
+    ) -> Result<DeleteCohortMemberResponse, Status> {
+        call_backend!(self, "DeleteCohortMember", delete_cohort_member, request)
+    }
+
+    pub async fn delete_cohort_members_bulk(
+        &self,
+        request: DeleteCohortMembersBulkRequest,
+    ) -> Result<DeleteCohortMembersBulkResponse, Status> {
+        call_backend!(
+            self,
+            "DeleteCohortMembersBulk",
+            delete_cohort_members_bulk,
+            request
+        )
+    }
+
+    pub async fn insert_cohort_members(
+        &self,
+        request: InsertCohortMembersRequest,
+    ) -> Result<InsertCohortMembersResponse, Status> {
+        call_backend!(self, "InsertCohortMembers", insert_cohort_members, request)
+    }
+
+    pub async fn list_cohort_member_ids(
+        &self,
+        request: ListCohortMemberIdsRequest,
+    ) -> Result<ListCohortMemberIdsResponse, Status> {
+        call_backend!(self, "ListCohortMemberIds", list_cohort_member_ids, request)
+    }
+
     // ============================================================
     // Groups - Non-person data
     // ============================================================
@@ -352,6 +402,13 @@ impl PersonHogRouter {
         request: GetGroupsBatchRequest,
     ) -> Result<GetGroupsBatchResponse, Status> {
         call_backend!(self, "GetGroupsBatch", get_groups_batch, request)
+    }
+
+    pub async fn list_groups(
+        &self,
+        request: ListGroupsRequest,
+    ) -> Result<ListGroupsResponse, Status> {
+        call_backend!(self, "ListGroups", list_groups, request)
     }
 
     // ============================================================
@@ -402,6 +459,120 @@ impl PersonHogRouter {
             self,
             "GetGroupTypeMappingsByProjectIds",
             get_group_type_mappings_by_project_ids,
+            request
+        )
+    }
+
+    pub async fn get_group_type_mapping_by_dashboard_id(
+        &self,
+        request: GetGroupTypeMappingByDashboardIdRequest,
+    ) -> Result<GetGroupTypeMappingByDashboardIdResponse, Status> {
+        call_backend!(
+            self,
+            "GetGroupTypeMappingByDashboardId",
+            get_group_type_mapping_by_dashboard_id,
+            request
+        )
+    }
+
+    // ============================================================
+    // Group writes - Non-person data
+    // ============================================================
+
+    pub async fn create_group(
+        &self,
+        request: CreateGroupRequest,
+    ) -> Result<CreateGroupResponse, Status> {
+        call_backend!(self, "CreateGroup", create_group, request)
+    }
+
+    pub async fn update_group(
+        &self,
+        request: UpdateGroupRequest,
+    ) -> Result<UpdateGroupResponse, Status> {
+        call_backend!(self, "UpdateGroup", update_group, request)
+    }
+
+    pub async fn delete_groups_batch_for_team(
+        &self,
+        request: DeleteGroupsBatchForTeamRequest,
+    ) -> Result<DeleteGroupsBatchForTeamResponse, Status> {
+        call_backend!(
+            self,
+            "DeleteGroupsBatchForTeam",
+            delete_groups_batch_for_team,
+            request
+        )
+    }
+
+    // ============================================================
+    // Group type mapping writes - Non-person data
+    // ============================================================
+
+    pub async fn update_group_type_mapping(
+        &self,
+        request: UpdateGroupTypeMappingRequest,
+    ) -> Result<UpdateGroupTypeMappingResponse, Status> {
+        call_backend!(
+            self,
+            "UpdateGroupTypeMapping",
+            update_group_type_mapping,
+            request
+        )
+    }
+
+    pub async fn delete_group_type_mapping(
+        &self,
+        request: DeleteGroupTypeMappingRequest,
+    ) -> Result<DeleteGroupTypeMappingResponse, Status> {
+        call_backend!(
+            self,
+            "DeleteGroupTypeMapping",
+            delete_group_type_mapping,
+            request
+        )
+    }
+
+    pub async fn delete_group_type_mappings_batch_for_team(
+        &self,
+        request: DeleteGroupTypeMappingsBatchForTeamRequest,
+    ) -> Result<DeleteGroupTypeMappingsBatchForTeamResponse, Status> {
+        call_backend!(
+            self,
+            "DeleteGroupTypeMappingsBatchForTeam",
+            delete_group_type_mappings_batch_for_team,
+            request
+        )
+    }
+
+    // ============================================================
+    // Person deletes - Person data, write operations
+    // ============================================================
+
+    /// Delete persons from Postgres.
+    ///
+    /// WARNING: This is a write operation on person data. Per routing rules, it should
+    /// use call_leader! once personhog-leader supports deletes. Currently routed through
+    /// the replica (which uses the primary Postgres pool) as a temporary measure.
+    /// TODO: Migrate to call_leader! before personhog-leader goes live.
+    pub async fn delete_persons(
+        &self,
+        request: DeletePersonsRequest,
+    ) -> Result<DeletePersonsResponse, Status> {
+        call_backend!(self, "DeletePersons", delete_persons, request)
+    }
+
+    /// Delete up to batch_size persons for a team from Postgres.
+    ///
+    /// WARNING: Same routing caveat as delete_persons above.
+    pub async fn delete_persons_batch_for_team(
+        &self,
+        request: DeletePersonsBatchForTeamRequest,
+    ) -> Result<DeletePersonsBatchForTeamResponse, Status> {
+        call_backend!(
+            self,
+            "DeletePersonsBatchForTeam",
+            delete_persons_batch_for_team,
             request
         )
     }

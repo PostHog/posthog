@@ -15,8 +15,8 @@ on:
         types: [opened, synchronize, labeled, unlabeled]
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
     contents: read
@@ -38,17 +38,39 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       hobby:
                         - Dockerfile
                         - docker-compose.base.yml
                         - docker-compose.hobby.yml
-                        - 'bin/*'
+                        # Hobby-specific scripts
+                        - 'bin/deploy-hobby'
+                        - 'bin/hobby-ci.py'
+                        - 'bin/upgrade-hobby'
+                        - 'bin/migrate-*-hobby'
+                        # Docker runtime (Dockerfile CMD chain)
+                        - 'bin/docker'
+                        - 'bin/docker-worker'
+                        - 'bin/docker-worker-beat'
+                        - 'bin/docker-worker-celery'
+                        - 'bin/docker-server'
+                        - 'bin/docker-server-unit'
+                        - 'bin/celery-queues.env'
+                        - 'bin/migrate'
+                        - 'bin/migrate-check'
+                        - 'bin/posthog-node'
                         - 'bin/hobby-installer/**'
-                        - 'docker/*'
+                        - 'docker/**'
                         - uv.lock
                         - .github/workflows/ci-hobby.yml
                       installer:
@@ -76,7 +98,7 @@ jobs:
         name: Wait for Docker image build
         needs: changes
         runs-on: ubuntu-24.04
-        timeout-minutes: 60
+        timeout-minutes: 90
         if: github.event_name == 'pull_request' && needs.changes.outputs.should_run == 'true'
         outputs:
             preview-mode: ${{ steps.check-preview.outputs.preview }}
@@ -305,7 +327,7 @@ jobs:
 
     hobby-test:
         runs-on: ubuntu-24.04
-        timeout-minutes: 60
+        timeout-minutes: 90
         name: Setup DO Hobby Instance and test
         needs: [wait-for-docker-image, changes]
         if: always() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.outputs.conclusion == 'success') || github.event_name == 'push')
@@ -401,12 +423,12 @@ jobs:
                       });
 
                       console.log(`Updated deployment ${deploymentId} to in_progress`);
-            - name: Run smoke tests on DO
-              id: test
-              timeout-minutes: 45
+            - name: Wait for cloud-init
+              id: cloud-init
+              timeout-minutes: 40
               run: |
                   set +e
-                  uv run bin/hobby-ci.py test
+                  uv run bin/hobby-ci.py wait-for-cloud-init
                   echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
                   exit 0
               env:
@@ -416,6 +438,29 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   RUN_ID: ${{ github.run_id }}
                   RUN_ATTEMPT: ${{ github.run_attempt }}
+            - name: Wait for health check
+              if: env.TEST_EXIT_CODE == '0'
+              id: health-check
+              timeout-minutes: 40
+              run: |
+                  set +e
+                  uv run bin/hobby-ci.py wait-for-health
+                  echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
+                  exit 0
+              env:
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+                  DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  RUN_ID: ${{ github.run_id }}
+                  RUN_ATTEMPT: ${{ github.run_attempt }}
+            - name: Smoke test event ingestion
+              if: env.TEST_EXIT_CODE == '0' && env.PREVIEW_MODE == 'false'
+              timeout-minutes: 5
+              run: uv run bin/hobby-ci.py smoke-test-ingestion
+              env:
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+                  DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
             - name: Generate demo data
               if: env.TEST_EXIT_CODE == '0' && env.PREVIEW_MODE == 'true' && env.HOBBY_DROPLET_NEW == 'true'
               timeout-minutes: 15
@@ -586,7 +631,8 @@ jobs:
 
                       console.log(`Updated deployment ${deploymentId} to ${state}`);
             - name: Fetch logs after test
-              if: always()
+              if: env.TEST_EXIT_CODE != '0'
+              timeout-minutes: 5
               run: uv run bin/hobby-ci.py fetch-logs || echo "Could not fetch logs"
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}

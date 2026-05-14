@@ -449,7 +449,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.experiment.exposure_criteria = {"filterTestAccounts": True}
         if use_precomputation:
-            self.experiment.exposure_preaggregation_enabled = True
+            self._enable_precomputation()
         self.experiment.save()
 
         self.team.test_account_filters = [
@@ -487,7 +487,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.experiment.exposure_criteria = {"filterTestAccounts": False}
         if use_precomputation:
             self._clean_preaggregation_data()
-            self.experiment.exposure_preaggregation_enabled = True
+            self._enable_precomputation()
         self.experiment.save()
 
         query = ExperimentExposureQuery(
@@ -617,7 +617,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             "exposure_config": exposure_config.model_dump(mode="json"),
         }
         if use_precomputation:
-            self.experiment.exposure_preaggregation_enabled = True
+            self._enable_precomputation()
         self.experiment.save()
 
         query = ExperimentExposureQuery(
@@ -880,7 +880,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.experiment.start_date = datetime(2024, 1, 1).replace(tzinfo=ZoneInfo("UTC"))
         self.experiment.end_date = datetime(2024, 1, 28).replace(tzinfo=ZoneInfo("UTC"))
         if use_precomputation:
-            self.experiment.exposure_preaggregation_enabled = True
+            self._enable_precomputation()
         self.experiment.save()
 
         group_type_index = 0
@@ -920,7 +920,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # Set the experiment to use first_seen handling for multiple variants
         self.experiment.exposure_criteria = {"multiple_variant_handling": "first_seen"}
         if use_precomputation:
-            self.experiment.exposure_preaggregation_enabled = True
+            self._enable_precomputation()
         self.experiment.save()
 
         journeys_for(
@@ -1097,7 +1097,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # Set exposure criteria to use the action
         self.experiment.exposure_criteria = {"exposure_config": ActionsNode(id=action.id).model_dump(mode="json")}
         if use_precomputation:
-            self.experiment.exposure_preaggregation_enabled = True
+            self._enable_precomputation()
         self.experiment.save()
 
         query = ExperimentExposureQuery(
@@ -1576,3 +1576,55 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # Should detect mismatch since variant_c has 0 observed but 15 expected
         self.assertLess(result.p_value, 0.01)
+
+    def test_bias_risk_skipped_when_experiment_has_ended(self):
+        # Shipping a variant rewrites the flag to 100/0 — that uneven post-ship split
+        # plus historical $multiple exposures would otherwise produce a false positive.
+        feature_flag = FeatureFlag.objects.create(
+            name="Test flag (post-ship)",
+            key="test-bias-stopped",
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 100},
+                        {"key": "test", "rollout_percentage": 0},
+                    ]
+                },
+            },
+            created_by=self.user,
+        )
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 7),
+        )
+
+        total_exposures = {"control": 800, "test": 200, MULTIPLE_VARIANT_KEY: 20}
+
+        ended_query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(feature_flag),
+            start_date=experiment.start_date.isoformat(),
+            end_date=experiment.end_date.isoformat(),
+            exposure_criteria=experiment.exposure_criteria,
+        )
+        ended_runner = ExperimentExposuresQueryRunner(team=self.team, query=ended_query)
+        self.assertIsNone(ended_runner._evaluate_bias_risk(total_exposures))
+
+        running_query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(feature_flag),
+            start_date=experiment.start_date.isoformat(),
+            end_date=None,
+            exposure_criteria=experiment.exposure_criteria,
+        )
+        running_runner = ExperimentExposuresQueryRunner(team=self.team, query=running_query)
+        risk = running_runner._evaluate_bias_risk(total_exposures)
+        assert risk is not None
+        self.assertGreater(risk.multiple_variant_percentage, 0)

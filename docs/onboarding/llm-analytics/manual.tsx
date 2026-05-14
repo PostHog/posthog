@@ -183,7 +183,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                 <CodeBlock
                                                     language="ruby"
                                                     code={dedent`
-                                                        require 'posthog-ruby'
+                                                        require 'posthog'
 
                                                         posthog = PostHog::Client.new({
                                                             api_key: '<ph_project_token>',
@@ -298,13 +298,16 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             ))}
                         </Tab.Panels>
                     </Tab.Group>
-
+                </>
+            ),
+        },
+        {
+            title: 'Event properties',
+            content: (
+                <>
                     <Markdown>
-                        {dedent`
-                            ### Event Properties
-
-                            Each event type has specific properties. See the tabs below for detailed property documentation for each event type.
-                        `}
+                        Each event type has specific properties. See the tabs below for detailed property documentation
+                        for each event type.
                     </Markdown>
 
                     <Tab.Group tabs={['Generation', 'Trace', 'Span', 'Embedding']}>

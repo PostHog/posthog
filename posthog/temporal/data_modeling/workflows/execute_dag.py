@@ -53,6 +53,7 @@ class ExecuteDAGInputs:
     dag_id: str
     node_ids: list[str] | None = None
     duckgres_only: bool = False
+    dangerously_execute_raw_sql: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -193,16 +194,17 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: ExecuteDAGInputs) -> ExecuteDAGResult:
         temporalio.workflow.logger.info("Starting ExecuteDAGWorkflow", extra=inputs.properties_to_log)
-        # preempt any previous run of this DAG that is still in progress
+        # NOTE: this should be handled by temporal's cancellation policy but
+        # we leave this in to clean up any jobs left in a dirty state
         await temporalio.workflow.execute_activity(
             preempt_dag_run_activity,
             PreemptDAGRunInputs(
                 team_id=inputs.team_id,
                 dag_id=inputs.dag_id,
             ),
-            start_to_close_timeout=dt.timedelta(minutes=2),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=3,
+                maximum_attempts=2,
             ),
         )
         try:
@@ -223,9 +225,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 dag_id=inputs.dag_id,
             ),
-            start_to_close_timeout=dt.timedelta(minutes=1),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=3,
+                maximum_attempts=2,
             ),
         )
         executable_nodes = dag_structure.executable_nodes
@@ -266,7 +268,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         downstreams = _get_downstream_lookup(edge_lookup)
         # execute child workflows with bounded concurrency using a sliding window;
         # the semaphore limits how many child workflows run simultaneously across
-        # all levels to be a friendlier neighbor to duckgres infrastructure
+        # all levels to be a friendlier neighbor to duckgres and clickhouse infrastructure
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHILDREN)
         for i, level in enumerate(levels):
             temporalio.workflow.logger.info(
@@ -324,6 +326,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                             dag_id=inputs.dag_id,
                             node_id=node_id,
                             duckgres_only=inputs.duckgres_only,
+                            dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
                         ),
                         id=f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}",
                         parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,

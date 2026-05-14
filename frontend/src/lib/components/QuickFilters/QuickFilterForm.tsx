@@ -61,6 +61,7 @@ export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element 
                                     disabled={quickFiltersLoading}
                                     type="secondary"
                                     fullWidth
+                                    selectingKeyOnly
                                 />
                             )}
                         </LemonField>

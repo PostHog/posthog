@@ -1,6 +1,8 @@
 import {
     AlertCalculationInterval,
     AlertCondition,
+    AlertScheduleRestriction,
+    AlertScheduleRestrictionWindow,
     AlertState,
     DetectorConfig,
     InsightThreshold,
@@ -9,6 +11,11 @@ import {
 import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
 export type AlertConfig = TrendsAlertConfig
+
+export type BlockedWindow = AlertScheduleRestrictionWindow
+
+/** Quiet hours / blocked local periods; times are HH:MM in the project timezone. */
+export type ScheduleRestriction = AlertScheduleRestriction
 
 export interface SubDetectorScores {
     type: string
@@ -47,6 +54,8 @@ export interface AnomalyPoint {
     seriesIndex: number
 }
 
+export type InvestigationInconclusiveAction = 'notify' | 'suppress'
+
 export interface AlertTypeBase {
     name: string
     condition: AlertCondition
@@ -55,7 +64,11 @@ export interface AlertTypeBase {
     insight: QueryBasedInsightModel
     config: AlertConfig
     skip_weekend?: boolean
+    schedule_restriction?: ScheduleRestriction | null
     detector_config?: DetectorConfig | null
+    investigation_agent_enabled?: boolean
+    investigation_gates_notifications?: boolean
+    investigation_inconclusive_action?: InvestigationInconclusiveAction
 }
 
 export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
@@ -64,6 +77,9 @@ export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
     snoozed_until?: string | null
     detector_config?: DetectorConfig | null
 }
+
+export type InvestigationStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped'
+export type InvestigationVerdict = 'true_positive' | 'false_positive' | 'inconclusive'
 
 export interface AlertCheck {
     id: string
@@ -76,6 +92,12 @@ export interface AlertCheck {
     triggered_dates?: string[] | null
     interval?: string | null
     triggered_metadata?: Record<string, unknown> | null
+    investigation_status?: InvestigationStatus | null
+    investigation_verdict?: InvestigationVerdict | null
+    investigation_summary?: string | null
+    investigation_notebook_short_id?: string | null
+    notification_sent_at?: string | null
+    notification_suppressed_by_agent?: boolean
 }
 
 export interface AlertType extends AlertTypeBase {
@@ -87,6 +109,8 @@ export interface AlertType extends AlertTypeBase {
     state: AlertState
     last_notified_at: string
     last_checked_at: string
+    next_check_at?: string | null
+    checks_total?: number
     checks: AlertCheck[]
     calculation_interval: AlertCalculationInterval
     snoozed_until?: string

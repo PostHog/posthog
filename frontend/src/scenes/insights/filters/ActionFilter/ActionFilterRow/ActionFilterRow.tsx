@@ -8,11 +8,21 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback } from 'react'
 
-import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
+import {
+    IconChevronDown,
+    IconCopy,
+    IconFilter,
+    IconGroupIntersect,
+    IconInfo,
+    IconPencil,
+    IconTrash,
+} from '@posthog/icons'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
+import { TaxonomicAutocomplete, TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
+import { MenuFilterEntry, TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     DataWarehousePopoverField,
@@ -21,8 +31,11 @@ import {
     quickFilterToPropertyFilters,
 } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover, TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEventNamesForAction } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -45,9 +58,12 @@ import {
 
 import { ActionFilterRowMenu } from './ActionFilterRowMenu'
 import { getValue, taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
+import { BoxPlotPropertySelector } from './BoxPlotPropertySelector'
 import { HogQLMathEditorDropdown } from './HogQLMathEditor'
 import { MathSelector } from './MathSelector'
-import { BoxPlotPropertySelector, PropertyValueMathSelector } from './PropertyMathSelector'
+import { getDefaultMathHogQLExpression } from './mathUtils'
+import { PropertyValueMathSelector } from './PropertyValueMathSelector'
+import { SaveAsActionBanner } from './SaveAsActionBanner'
 import type { ActionFilterRowProps } from './types'
 import { MathAvailability } from './types'
 
@@ -128,12 +144,22 @@ export function ActionFilterRow({
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useMenuRebuild = !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]
+    const useHeadlessAutocomplete = !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_HEADLESS]
+    // The new picker ramps in via either flag — `useNewPicker` gates the
+    // entire wrapper so users with both flags off see only the legacy
+    // `filterElement`. Without this guard the parity widget mounts for
+    // every user (even outside the rollout), which contradicts the
+    // "legacy path unchanged" promise.
+    const useNewPicker = useMenuRebuild || useHeadlessAutocomplete
 
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
     const query = mountedInsightDataLogic?.values?.query
 
     const isFunnelContext = mathAvailability === MathAvailability.FunnelsOnly
     const isTrendsContext = trendsDisplayCategory != null
+    const suggestedFiltersLabel = isFunnelContext ? 'Suggested step' : isTrendsContext ? 'Suggested series' : undefined
 
     // Always call hooks for React compliance - provide safe defaults for non-funnel contexts
     // dashboardItemId should be the insight's id, but the typeKey might contain a /on-dashboard- suffix
@@ -145,9 +171,6 @@ export function ActionFilterRow({
 
     // Only use the funnel results when in funnel context
     const isStepOptional = isFunnelContext ? funnelIsStepOptional : () => false
-
-    // DWH events are not supported in inline events yet
-    const canCombine = showCombine && !singleFilter && filter.type !== EntityTypes.DATA_WAREHOUSE
 
     const {
         setNodeRef,
@@ -168,6 +191,7 @@ export function ActionFilterRow({
         math_hogql: mathHogQL,
         math_group_type_index: mathGroupTypeIndex,
     } = filter
+    const defaultMathHogQLExpression = getDefaultMathHogQLExpression(insightType)
 
     const onClose = (): void => {
         removeLocalFilter({ ...filter, index })
@@ -187,7 +211,7 @@ export function ActionFilterRow({
                     : undefined
             const math_hogql =
                 mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
-                    ? (mathHogQL ?? 'count()')
+                    ? (mathHogQL ?? defaultMathHogQLExpression)
                     : undefined
             mathProperties = {
                 ...mathTypeToApiValues(selectedMath),
@@ -247,14 +271,26 @@ export function ActionFilterRow({
         ) : (
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
+
+    const isDataWarehouseFilter = filter.type === EntityTypes.DATA_WAREHOUSE
+    const initialGroupType = isDataWarehouseFilter
+        ? TaxonomicFilterGroupType.DataWarehouse
+        : TaxonomicFilterGroupType.SuggestedFilters
+
+    // DWH events are not supported in inline events yet
+    const canCombine = showCombine && !singleFilter && !isDataWarehouseFilter
+
     const filterElement = (
         <TaxonomicPopover
             data-attr={'trend-element-subject-' + index}
             fullWidth
             truncate
-            groupType={TaxonomicFilterGroupType.SuggestedFilters}
+            groupType={initialGroupType}
             value={getValue(value, filter)}
             filter={filter}
+            suggestedFiltersLabel={suggestedFiltersLabel}
+            enableKeywordShortcuts
+            selectingKeyOnly
             onChange={(changedValue, taxonomicGroupType, item) => {
                 if (isQuickFilterItem(item)) {
                     if (item.eventName) {
@@ -430,9 +466,8 @@ export function ActionFilterRow({
         <LemonButton
             key="combine-inline"
             icon={<IconGroupIntersect />}
-            title="Count multiple events as a single event"
             data-attr={`show-prop-combine-${index}`}
-            noPadding
+            noPadding={!enablePopup}
             onClick={() => {
                 convertFilterToGroup(index)
                 posthog.capture('combine_events', {
@@ -440,14 +475,18 @@ export function ActionFilterRow({
                     team_id: currentTeamId,
                 })
             }}
-            tooltip="Combine events"
+            tooltip="Count multiple events as a single event"
             tooltipDocLink={inlineEventsDocLink}
-        />
+            fullWidth={enablePopup}
+        >
+            {enablePopup ? 'Combine' : undefined}
+        </LemonButton>
     )
 
     const deleteButton = (
         <LemonButton
             key="delete"
+            status={enablePopup ? 'danger' : 'default'}
             icon={<IconTrash />}
             title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
@@ -466,9 +505,13 @@ export function ActionFilterRow({
         showSeriesIndicator && <div key="series-indicator">{seriesIndicator}</div>,
     ].filter(Boolean)
 
-    // Check if popup would have any menu items (excluding filter and combine buttons which are always outside the menu)
+    // Check if popup would have any menu items (excluding filter button which is always outside the menu)
     const hasMenuItems =
-        isFunnelContext || !hideRename || (!hideDuplicate && !singleFilter) || (!hideDeleteBtn && !singleFilter)
+        isFunnelContext ||
+        !hideRename ||
+        (!hideDuplicate && !singleFilter) ||
+        (!hideDeleteBtn && !singleFilter) ||
+        canCombine
     const showPopupMenu = !readOnly && enablePopup && hasMenuItems
 
     // When not using popup, show elements inline
@@ -522,6 +565,204 @@ export function ActionFilterRow({
                             )}
                         >
                             <div className="flex-1 min-w-36 overflow-hidden">{filterElement}</div>
+                            {/* Production-testing variant: the new
+                                TaxonomicFilterMenu (column / preview-pane
+                                view) renders alongside the legacy
+                                TaxonomicPopover so we can ramp it as the
+                                series-row picker. Gated behind either
+                                rollout flag so the parity wrapper +
+                                `TaxonomicFilterHeadless.Root` orchestrator
+                                aren't mounted for users outside the
+                                ramp — preserves the "legacy path
+                                unchanged" promise from the PR. */}
+                            {useNewPicker && (
+                                <div
+                                    className="flex-1 min-w-36 overflow-hidden"
+                                    data-attr={`series-parity-autocomplete-${index}`}
+                                >
+                                    <TaxonomicFilterHeadless.Root
+                                        // Skip the legacy rootProps wrapper —
+                                        // its onKeyDown intercepts Tab/Arrow
+                                        // for the old list UI we don't render
+                                        // here, and traps Tab off the trigger.
+                                        bindRootProps={false}
+                                        taxonomicGroupTypes={effectiveActionsTaxonomicGroupTypes}
+                                        onChange={(group, changedValue, item) => {
+                                            const groupType = taxonomicFilterGroupTypeToEntityType(group.type)
+                                            if (!groupType) {
+                                                return
+                                            }
+                                            updateFilter({
+                                                type: groupType,
+                                                id: changedValue ? String(changedValue) : null,
+                                                name: item?.name ?? '',
+                                                index,
+                                            })
+                                        }}
+                                    >
+                                        {useMenuRebuild ? (
+                                            <TaxonomicFilterMenu
+                                                triggerLabel="All events"
+                                                comboboxTitle="Choose series filter"
+                                                // Synthetic entry — the menu only
+                                                // reads `group.type` (to route
+                                                // the initial open) and `name` /
+                                                // `friendlyLabel` (for the
+                                                // trigger label). A full
+                                                // `TaxonomicFilterGroup` isn't
+                                                // needed here.
+                                                selected={
+                                                    // DWH filters often have `filter.id == null`
+                                                    // (the table name lives on `filter.name`),
+                                                    // so gate on whichever of id/name is present
+                                                    // — otherwise the trigger label falls back to
+                                                    // the default and ignores the active selection.
+                                                    filter.type && (filter.id != null || filter.name)
+                                                        ? ({
+                                                              // DWH filters need the saved column
+                                                              // mapping (`id_field` /
+                                                              // `timestamp_field` /
+                                                              // `distinct_id_field` etc.) on the
+                                                              // `item` so re-opening the menu
+                                                              // routes into `dwh-config` with the
+                                                              // form pre-filled. Spread the whole
+                                                              // filter for DWH; events/actions
+                                                              // only need id + name.
+                                                              item:
+                                                                  filter.type === EntityTypes.DATA_WAREHOUSE
+                                                                      ? {
+                                                                            // `...filter` already provides
+                                                                            // `name`; DWH `getValue` reads
+                                                                            // it. Pull in the resolved
+                                                                            // schema (`fields` etc.) from
+                                                                            // `dataWarehouseTablesMap` so
+                                                                            // re-opening the menu routes
+                                                                            // into `dwh-config` with the
+                                                                            // form pre-filled.
+                                                                            ...filter,
+                                                                            ...dataWarehouseTablesMap[
+                                                                                String(filter.name)
+                                                                            ],
+                                                                        }
+                                                                      : { id: filter.id, name: filter.name },
+                                                              group: {
+                                                                  type:
+                                                                      filter.type === EntityTypes.ACTIONS
+                                                                          ? TaxonomicFilterGroupType.Actions
+                                                                          : filter.type === EntityTypes.DATA_WAREHOUSE
+                                                                            ? TaxonomicFilterGroupType.DataWarehouse
+                                                                            : TaxonomicFilterGroupType.Events,
+                                                                  // DWH config form reads `getName`
+                                                                  // / `getValue` off `selected.group`
+                                                                  // when re-opening, so provide them
+                                                                  // for the DWH branch. Events /
+                                                                  // Actions don't need them — the
+                                                                  // resolved orchestrator group is
+                                                                  // used for those once the user
+                                                                  // commits.
+                                                                  getName: (t: any) => t?.name,
+                                                                  getValue: (t: any) => t?.name,
+                                                              },
+                                                              name: String(name ?? filter.name ?? filter.id),
+                                                              friendlyLabel: name ? String(name) : undefined,
+                                                          } as unknown as MenuFilterEntry)
+                                                        : null
+                                                }
+                                                trigger={({ selected, label, open }) => (
+                                                    // `min-w-0` lets the truncate inside the button
+                                                    // actually clip — without it the flex child grows
+                                                    // to its content's intrinsic width and the row
+                                                    // overflows the parent column.
+                                                    <div className="relative min-w-0 border border-dashed border-accent p-1 rounded-sm">
+                                                        <LemonButton
+                                                            type="secondary"
+                                                            fullWidth
+                                                            data-attr={`series-parity-autocomplete-trigger-${index}`}
+                                                            aria-expanded={open}
+                                                            sideIcon={<IconChevronDown />}
+                                                            truncate
+                                                        >
+                                                            {selected ? (
+                                                                <EntityFilterInfo
+                                                                    filter={filter}
+                                                                    showIcon
+                                                                    allowWrap={false}
+                                                                />
+                                                            ) : (
+                                                                <span className="text-secondary truncate">{label}</span>
+                                                            )}
+                                                        </LemonButton>
+                                                        <div className="absolute -top-1 -right-1">
+                                                            <Tooltip
+                                                                title={
+                                                                    <>
+                                                                        INTERNAL ONLY
+                                                                        <br />
+                                                                        The new TaxonomicFilterMenu. <br />
+                                                                        Try it out, leave feedback/wishlist!
+                                                                        <br />
+                                                                        Owned by <b>#platform-ux</b>
+                                                                    </>
+                                                                }
+                                                            >
+                                                                <IconInfo className="size-4 text-accent bg-surface-primary" />
+                                                            </Tooltip>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            />
+                                        ) : (
+                                            <TaxonomicAutocomplete.Root
+                                                key={`${filter.type}:${String(filter.id ?? '')}`}
+                                                triggerLabel="All events"
+                                                defaultSelected={
+                                                    filter.id != null && filter.type
+                                                        ? {
+                                                              groupType:
+                                                                  filter.type === EntityTypes.ACTIONS
+                                                                      ? TaxonomicFilterGroupType.Actions
+                                                                      : TaxonomicFilterGroupType.Events,
+                                                              value: value ?? null,
+                                                              name: String(name ?? filter.id),
+                                                              friendlyLabel: name ? String(name) : undefined,
+                                                          }
+                                                        : null
+                                                }
+                                            >
+                                                <TaxonomicAutocomplete.Popover>
+                                                    <TaxonomicAutocomplete.Trigger>
+                                                        {({ selected, label, open }) => (
+                                                            <LemonButton
+                                                                type="secondary"
+                                                                fullWidth
+                                                                data-attr={`series-parity-autocomplete-trigger-${index}`}
+                                                                aria-expanded={open}
+                                                                sideIcon={<IconChevronDown />}
+                                                            >
+                                                                {selected ? (
+                                                                    <EntityFilterInfo filter={filter} showIcon />
+                                                                ) : (
+                                                                    <span className="text-secondary">{label}</span>
+                                                                )}
+                                                            </LemonButton>
+                                                        )}
+                                                    </TaxonomicAutocomplete.Trigger>
+                                                    <TaxonomicAutocomplete.Content>
+                                                        <TaxonomicAutocomplete.Header rootTitle="Pick event or action" />
+                                                        <TaxonomicAutocomplete.RootView>
+                                                            <div className="p-1">
+                                                                <TaxonomicAutocomplete.Input />
+                                                            </div>
+                                                            <TaxonomicAutocomplete.Chips />
+                                                            <TaxonomicAutocomplete.List />
+                                                        </TaxonomicAutocomplete.RootView>
+                                                    </TaxonomicAutocomplete.Content>
+                                                </TaxonomicAutocomplete.Popover>
+                                            </TaxonomicAutocomplete.Root>
+                                        )}
+                                    </TaxonomicFilterHeadless.Root>
+                                </div>
+                            )}
                             {customRowSuffix !== undefined && <>{suffix}</>}
                             {mathAvailability !== MathAvailability.None &&
                                 mathAvailability !== MathAvailability.FunnelsOnly && (
@@ -557,15 +798,29 @@ export function ActionFilterRow({
                                             mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                                 MathCategory.PropertyValue && (
                                                 <PropertyValueMathSelector
-                                                    mathPropertyType={mathPropertyType}
+                                                    mathPropertyType={
+                                                        mathPropertyType ||
+                                                        (isDataWarehouseFilter
+                                                            ? TaxonomicFilterGroupType.DataWarehouseProperties
+                                                            : TaxonomicFilterGroupType.NumericalEventProperties)
+                                                    }
+                                                    mathPropertyTypes={
+                                                        isDataWarehouseFilter
+                                                            ? [TaxonomicFilterGroupType.DataWarehouseProperties]
+                                                            : [
+                                                                  TaxonomicFilterGroupType.NumericalEventProperties,
+                                                                  TaxonomicFilterGroupType.SessionProperties,
+                                                                  TaxonomicFilterGroupType.PersonProperties,
+                                                                  TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                                                              ]
+                                                    }
                                                     mathProperty={mathProperty}
                                                     mathName={name}
                                                     index={index}
                                                     onMathPropertySelect={onMathPropertySelect}
                                                     showNumericalPropsOnly={showNumericalPropsOnly}
                                                     schemaColumns={
-                                                        filter.type == TaxonomicFilterGroupType.DataWarehouse &&
-                                                        filter.name
+                                                        isDataWarehouseFilter && filter.name
                                                             ? Object.values(
                                                                   dataWarehouseTablesMap[filter.name]?.fields ?? []
                                                               )
@@ -591,7 +846,6 @@ export function ActionFilterRow({
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}
-                                        {canCombine && combineInlineButton}
                                         <ActionFilterRowMenu
                                             index={index}
                                             isTrendsContext={isTrendsContext}
@@ -619,6 +873,7 @@ export function ActionFilterRow({
                                             renameRowButton={renameRowButton}
                                             duplicateRowButton={duplicateRowButton}
                                             deleteButton={deleteButton}
+                                            combineButton={canCombine ? combineInlineButton : null}
                                         />
                                     </>
                                 ) : (
@@ -639,7 +894,7 @@ export function ActionFilterRow({
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
                         metadataSource={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                            isDataWarehouseFilter
                                 ? {
                                       kind: NodeKind.HogQLQuery,
                                       query: `select ${filter.aggregation_target_field} from ${filter.table_name}`,
@@ -647,7 +902,7 @@ export function ActionFilterRow({
                                 : undefined
                         }
                         taxonomicGroupTypes={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                            isDataWarehouseFilter
                                 ? [
                                       TaxonomicFilterGroupType.DataWarehouseProperties,
                                       TaxonomicFilterGroupType.HogQLExpression,
@@ -662,20 +917,17 @@ export function ActionFilterRow({
                                   : []
                         }
                         schemaColumns={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
+                            isDataWarehouseFilter && filter.name
                                 ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
                                 : []
                         }
-                        dataWarehouseTableName={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
-                                ? (filter.name ?? undefined)
-                                : undefined
-                        }
+                        dataWarehouseTableName={isDataWarehouseFilter ? (filter.name ?? undefined) : undefined}
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}
                         operatorAllowlist={operatorAllowlist}
                     />
+                    <SaveAsActionBanner filter={filter} />
                 </div>
             )}
         </li>

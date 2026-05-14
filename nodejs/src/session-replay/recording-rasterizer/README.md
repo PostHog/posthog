@@ -41,11 +41,15 @@ recording-rasterizer/
 │   ├── activities.ts     ← activity handler (record → upload → cleanup)
 │   └── codec.ts          ← Fernet encryption codec for Temporal payloads
 │
-├── capture/              ← Puppeteer capture pipeline
-│   ├── browser-pool.ts   ← warm Chromium lifecycle manager
-│   ├── recorder.ts       ← orchestrates page setup → player load → capture
-│   ├── player.ts         ← PlayerController + config builder for rrweb player
-│   └── capture.ts        ← frame capture loop, screenshot format override
+├── capture/                  ← Puppeteer capture pipeline
+│   ├── browser-pool.ts       ← warm Chromium lifecycle manager
+│   ├── recorder.ts           ← orchestrates page setup → player load → capture
+│   ├── capture-page.ts       ← viewport, CDP guards, callback error guards
+│   ├── player.ts             ← PlayerController: message bridge, playback lifecycle
+│   ├── capture.ts            ← frame capture loop with abort/timeout handling
+│   ├── request-interceptor.ts ← request interception + stylesheet proxying
+│   ├── block-proxy.ts        ← recording block fetcher (recording-api)
+│   └── config.ts             ← input validation + capture config builder
 │
 └── __tests__/            ← all tests
 ```
@@ -77,20 +81,21 @@ Key environment variables (see `config.ts` for full list):
 
 The `rasterize-recording` activity accepts `RasterizeRecordingInput` (see `types.ts`):
 
-| Field                  | Required | Default | Description                                    |
-| ---------------------- | -------- | ------- | ---------------------------------------------- |
-| `session_id`           | yes      | —       | Session to rasterize                           |
-| `team_id`              | yes      | —       | Team ID                                        |
-| `s3_bucket`            | yes      | —       | S3 bucket for output                           |
-| `s3_key_prefix`        | yes      | —       | S3 key prefix                                  |
-| `playback_speed`       | no       | `4`     | Playback speed multiplier                      |
-| `recording_fps`        | no       | `24`    | Output video framerate                         |
-| `start_timestamp`      | no       | —       | Start playback from this time (ms since epoch) |
-| `end_timestamp`        | no       | —       | Stop playback at this time (ms since epoch)    |
-| `trim`                 | no       | —       | Max output duration in seconds                 |
-| `capture_timeout`      | no       | —       | Max capture time in seconds                    |
-| `viewport_width`       | no       | `1280`  | Capture viewport width                         |
-| `viewport_height`      | no       | `720`   | Capture viewport height                        |
-| `show_metadata_footer` | no       | `false` | Include metadata footer in output              |
-| `skip_inactivity`      | no       | `true`  | Skip inactive periods during playback          |
-| `mouse_tail`           | no       | `true`  | Show mouse trail in replay                     |
+| Field                  | Required | Default | Description                                 |
+| ---------------------- | -------- | ------- | ------------------------------------------- |
+| `session_id`           | yes      | —       | Session to rasterize                        |
+| `team_id`              | yes      | —       | Team ID                                     |
+| `s3_bucket`            | yes      | —       | S3 bucket for output                        |
+| `s3_key_prefix`        | yes      | —       | S3 key prefix                               |
+| `playback_speed`       | no       | `4`     | Playback speed multiplier                   |
+| `recording_fps`        | no       | `24`    | Output video framerate                      |
+| `start_offset_s`       | no       | —       | Start playback N seconds from session start |
+| `end_offset_s`         | no       | —       | Stop playback N seconds from session start  |
+| `trim`                 | no       | —       | Max output duration in seconds              |
+| `max_virtual_time`     | no       | —       | Max virtual time in seconds before stopping |
+| `output_format`        | no       | `mp4`   | Output video format (`mp4` or `webm`)       |
+| `viewport_width`       | no       | `1280`  | Capture viewport width                      |
+| `viewport_height`      | no       | `720`   | Capture viewport height                     |
+| `show_metadata_footer` | no       | `false` | Include metadata footer in output           |
+| `skip_inactivity`      | no       | `true`  | Skip inactive periods during playback       |
+| `mouse_tail`           | no       | `true`  | Show mouse trail in replay                  |

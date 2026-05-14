@@ -24,8 +24,8 @@ import {
     LemonModal,
     LemonSelect,
     LemonSkeleton,
+    LemonSwitch,
     LemonTag,
-    LemonTagType,
     LemonTextArea,
     Link,
     Tooltip,
@@ -34,14 +34,14 @@ import {
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
@@ -50,18 +50,7 @@ import { urls } from 'scenes/urls'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { groupsModel } from '~/models/groupsModel'
-import { Query } from '~/queries/Query/Query'
-import {
-    ExperimentFunnelsQueryResponse,
-    ExperimentTrendsQueryResponse,
-    FunnelsQuery,
-    InsightQueryNode,
-    InsightVizNode,
-    NodeKind,
-    ProductIntentContext,
-    ProductKey,
-    TrendsQuery,
-} from '~/queries/schema/schema-general'
+import { FunnelsQuery, ProductIntentContext, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -69,16 +58,17 @@ import {
     AnyPropertyFilter,
     ExperimentConclusion,
     ExperimentStatus,
-    InsightShortId,
 } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
+import { CopyExperimentToProjectModal } from '../CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
-import { getExperimentStatusColor, getExperimentStatusLabel } from '../experimentsLogic'
+import { getExperimentStatusColor, getExperimentStatusLabel, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
-import { getVariantColor } from '../utils'
+import { getVariantColor, isLegacyExperiment } from '../utils'
+import { ExperimentSceneMenuBar } from './ExperimentSceneMenuBar'
 
 export function VariantTag({
     variantKey,
@@ -89,7 +79,7 @@ export function VariantTag({
     fontSize?: number
     className?: string
 }): JSX.Element {
-    const { experiment, legacyPrimaryMetricsResults, usesNewQueryRunner } = useValues(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
@@ -97,10 +87,6 @@ export function VariantTag({
                 <LemonTag type="danger">{variantKey}</LemonTag>
             </Tooltip>
         )
-    }
-
-    if (!legacyPrimaryMetricsResults) {
-        return <></>
     }
 
     const variantColor = experiment.feature_flag?.filters.multivariate?.variants
@@ -126,14 +112,11 @@ export function VariantTag({
 
     return (
         <span className={clsx('flex items-center min-w-0', className)}>
-            {/* Only show color if using new query runner - legacy experiments are using the old funnel component */}
-            {usesNewQueryRunner && (
-                <div
-                    className="w-2 h-2 rounded-full shrink-0"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ backgroundColor: variantColor }}
-                />
-            )}
+            <div
+                className="w-2 h-2 rounded-full shrink-0"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ backgroundColor: variantColor }}
+            />
             <span
                 className="ml-2 text-xs font-semibold truncate text-secondary"
                 // eslint-disable-next-line react/forbid-dom-props
@@ -142,123 +125,6 @@ export function VariantTag({
                 {variantKey}
             </span>
         </span>
-    )
-}
-
-export function ResultsTag({ metricUuid }: { metricUuid?: string }): JSX.Element {
-    const { isPrimaryMetricSignificant, significanceDetails, experiment } = useValues(experimentLogic)
-
-    // Use first primary metric UUID if not provided
-    const uuid = metricUuid || experiment.metrics?.[0]?.uuid || ''
-    if (!uuid) {
-        return (
-            <LemonTag type="primary">
-                <b className="uppercase">Not significant</b>
-            </LemonTag>
-        )
-    }
-
-    const result: { color: LemonTagType; label: string } = isPrimaryMetricSignificant(uuid)
-        ? { color: 'success', label: 'Significant' }
-        : { color: 'primary', label: 'Not significant' }
-
-    if (significanceDetails(uuid)) {
-        return (
-            <Tooltip title={significanceDetails(uuid)}>
-                <LemonTag className="cursor-pointer" type={result.color}>
-                    <b className="uppercase">{result.label}</b>
-                </LemonTag>
-            </Tooltip>
-        )
-    }
-
-    return (
-        <LemonTag type={result.color}>
-            <b className="uppercase">{result.label}</b>
-        </LemonTag>
-    )
-}
-
-/**
- * shows a breakdown query for legacy metrics
- * @deprecated use ResultsQuery
- */
-export function LegacyResultsQuery({
-    result,
-    showTable,
-}: {
-    result: ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
-    showTable: boolean
-}): JSX.Element {
-    if (!result) {
-        return <></>
-    }
-
-    const query = result.kind === NodeKind.ExperimentTrendsQuery ? result.count_query : result.funnels_query
-
-    const fakeInsightId = Math.random().toString(36).substring(2, 15)
-
-    return (
-        <Query
-            query={{
-                kind: NodeKind.InsightVizNode,
-                source: query,
-                showTable,
-                showLastComputation: true,
-                showLastComputationRefresh: false,
-            }}
-            context={{
-                insightProps: {
-                    dashboardItemId: fakeInsightId as InsightShortId,
-                    cachedInsight: {
-                        short_id: fakeInsightId as InsightShortId,
-                        query: {
-                            kind: NodeKind.InsightVizNode,
-                            source: query,
-                        } as InsightVizNode,
-                        result: result?.insight,
-                        disable_baseline: true,
-                    },
-                    doNotLoad: true,
-                },
-            }}
-            readOnly
-        />
-    )
-}
-
-/**
- * @deprecated use ExploreButton instead
- */
-export function LegacyExploreButton({
-    result,
-    size = 'small',
-}: {
-    result: ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
-    size?: 'xsmall' | 'small' | 'large'
-}): JSX.Element {
-    if (!result) {
-        return <></>
-    }
-
-    const query: InsightVizNode = {
-        kind: NodeKind.InsightVizNode,
-        source: (result.kind === NodeKind.ExperimentTrendsQuery
-            ? result.count_query
-            : result.funnels_query) as InsightQueryNode,
-    }
-
-    return (
-        <LemonButton
-            className="ml-auto -translate-y-2"
-            size={size}
-            type="primary"
-            icon={<IconAreaChart />}
-            to={urls.insightNew({ query })}
-            targetBlank
-        >
-            Explore as Insight
-        </LemonButton>
     )
 }
 
@@ -303,15 +169,18 @@ export function PageHeaderCustom(): JSX.Element {
     const {
         launchExperiment,
         archiveExperiment,
+        unarchiveExperiment,
         createExposureCohort,
         createExperimentDashboard,
         updateExperiment,
         setHogfettiTrigger,
     } = useActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
-    const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
     const { openFinishExperimentModal, openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
+    const [copyToProjectModalOpen, setCopyToProjectModalOpen] = useState(false)
     const [surveyModalOpen, setSurveyModalOpen] = useState(false)
     const { newTab } = useActions(sceneLogic)
     const { trigger, HogfettiComponent } = useHogfetti()
@@ -340,6 +209,7 @@ export function PageHeaderCustom(): JSX.Element {
 
     return (
         <>
+            <ExperimentSceneMenuBar />
             <SceneTitleSection
                 name={experiment?.name}
                 description={null}
@@ -394,6 +264,13 @@ export function PageHeaderCustom(): JSX.Element {
                                 experiment={experiment}
                             />
                         )}
+                        {experiment && (
+                            <CopyExperimentToProjectModal
+                                isOpen={copyToProjectModalOpen}
+                                onClose={() => setCopyToProjectModalOpen(false)}
+                                experiment={experiment}
+                            />
+                        )}
                     </>
                 }
             />
@@ -407,15 +284,17 @@ export function PageHeaderCustom(): JSX.Element {
                             Duplicate
                         </ButtonPrimitive>
 
-                        {canCopyToProject && experiment?.id != null && (
+                        {hasMultipleProjects && (
                             <ButtonPrimitive
                                 menuItem
-                                onClick={() => router.actions.push(urls.resourceTransfer('Experiment', experiment.id))}
-                                data-attr="experiment-copy-to-project"
-                                tooltip="Copy this experiment to another project"
+                                onClick={() => setCopyToProjectModalOpen(true)}
+                                disabledReasons={{
+                                    'Copying is not supported for experiments using legacy metrics.':
+                                        isLegacyExperiment(experiment),
+                                }}
                             >
                                 <IconCopy />
-                                Copy to another project
+                                Copy to project
                             </ButtonPrimitive>
                         )}
 
@@ -472,7 +351,15 @@ export function PageHeaderCustom(): JSX.Element {
 
                                 {isExperimentRunning &&
                                     experiment.feature_flag &&
-                                    (experiment.feature_flag.active ? (
+                                    (isExperimentPaused(experiment) ? (
+                                        <ButtonPrimitive
+                                            menuItem
+                                            data-attr="resume-experiment"
+                                            onClick={() => openResumeExperimentModal()}
+                                        >
+                                            <IconPlay /> Resume experiment
+                                        </ButtonPrimitive>
+                                    ) : (
                                         <ButtonPrimitive
                                             variant="danger"
                                             menuItem
@@ -480,14 +367,6 @@ export function PageHeaderCustom(): JSX.Element {
                                             onClick={() => openPauseExperimentModal()}
                                         >
                                             <IconPause /> Pause experiment
-                                        </ButtonPrimitive>
-                                    ) : (
-                                        <ButtonPrimitive
-                                            menuItem
-                                            data-attr="resume-experiment"
-                                            onClick={() => openResumeExperimentModal()}
-                                        >
-                                            <IconPlay /> Resume experiment
                                         </ButtonPrimitive>
                                     ))}
 
@@ -500,6 +379,15 @@ export function PageHeaderCustom(): JSX.Element {
                         {canArchive && (
                             <ButtonPrimitive menuItem data-attr="archive-experiment" onClick={handleArchive}>
                                 <IconArchive /> Archive experiment
+                            </ButtonPrimitive>
+                        )}
+                        {canEdit && experiment.archived && (
+                            <ButtonPrimitive
+                                menuItem
+                                data-attr="unarchive-experiment"
+                                onClick={() => unarchiveExperiment()}
+                            >
+                                <IconArchive /> Unarchive experiment
                             </ButtonPrimitive>
                         )}
 
@@ -517,6 +405,7 @@ export function PageHeaderCustom(): JSX.Element {
                         <PauseExperimentModal />
                         <ResumeExperimentModal />
                     </ScenePanelActionsSection>
+                    <ExperimentDebugToggle />
                 </ScenePanel>
             )}
             <QuickSurveyModal
@@ -525,6 +414,28 @@ export function PageHeaderCustom(): JSX.Element {
                 onCancel={() => setSurveyModalOpen(false)}
             />
         </>
+    )
+}
+
+function ExperimentDebugToggle(): JSX.Element {
+    const { superpowersEnabled } = useValues(superpowersLogic)
+    const { showDebugPanel } = useValues(experimentLogic)
+    const { toggleDebugPanel } = useActions(experimentLogic)
+
+    if (!superpowersEnabled) {
+        return <></>
+    }
+
+    return (
+        <ScenePanelActionsSection>
+            <LemonSwitch
+                className="px-2 py-1"
+                checked={showDebugPanel}
+                onChange={toggleDebugPanel}
+                fullWidth
+                label="Debug panel"
+            />
+        </ScenePanelActionsSection>
     )
 }
 
@@ -882,10 +793,10 @@ export const ResetButton = (): JSX.Element => {
     )
 }
 
-export function StatusTag({ status, isPaused = false }: { status: ExperimentStatus; isPaused?: boolean }): JSX.Element {
+export function StatusTag({ status }: { status: ExperimentStatus }): JSX.Element {
     return (
-        <LemonTag type={getExperimentStatusColor(status, isPaused)} className="cursor-default">
-            <b className="uppercase">{getExperimentStatusLabel(status, isPaused)}</b>
+        <LemonTag type={getExperimentStatusColor(status)} className="cursor-default">
+            <b className="uppercase">{getExperimentStatusLabel(status)}</b>
         </LemonTag>
     )
 }

@@ -49,7 +49,7 @@ def sdk_config(request) -> SDKTestConfig:
     if request.param == "anthropic":
         url = request.getfixturevalue("gateway_url")
         client = Anthropic(api_key=TEST_POSTHOG_API_KEY, base_url=url)
-        return SDKTestConfig(client=client, model="claude-3-haiku-20240307", provider="anthropic")
+        return SDKTestConfig(client=client, model="claude-haiku-4-5-20251001", provider="anthropic")
     else:
         url = request.getfixturevalue("bedrock_gateway_url")
         client = Anthropic(

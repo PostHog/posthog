@@ -155,7 +155,7 @@ class TestCacheFaviconsAsset:
 
         with patch("products.web_analytics.dags.cache_favicons.settings") as mock_settings:
             mock_settings.DAGSTER_FAVICONS_S3_BUCKET = "test-bucket"
-            result: dagster.MaterializeResult = cache_favicons(context, s3, config)  # type: ignore[assignment]
+            result: dagster.MaterializeResult = cache_favicons(context, s3, config)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         mock_download.assert_called_once()
         assert result.metadata is not None
@@ -187,7 +187,7 @@ class TestCacheFaviconsAsset:
 
         with patch("products.web_analytics.dags.cache_favicons.settings") as mock_settings:
             mock_settings.DAGSTER_FAVICONS_S3_BUCKET = "test-bucket"
-            result: dagster.MaterializeResult = cache_favicons(context, s3, config)  # type: ignore[assignment]
+            result: dagster.MaterializeResult = cache_favicons(context, s3, config)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         mock_get_cached.assert_not_called()
         assert mock_download.call_count == 2
@@ -223,7 +223,7 @@ class TestCacheAuthorizedDomainFaviconsAsset:
 
         with patch("products.web_analytics.dags.cache_favicons.settings") as mock_settings:
             mock_settings.DAGSTER_FAVICONS_S3_BUCKET = "test-bucket"
-            result: dagster.MaterializeResult = cache_authorized_domain_favicons(context, s3, config)  # type: ignore[assignment]
+            result: dagster.MaterializeResult = cache_authorized_domain_favicons(context, s3, config)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         assert mock_download.call_count == 2
         assert result.metadata is not None
@@ -253,7 +253,7 @@ class TestCacheAuthorizedDomainFaviconsAsset:
 
         with patch("products.web_analytics.dags.cache_favicons.settings") as mock_settings:
             mock_settings.DAGSTER_FAVICONS_S3_BUCKET = "test-bucket"
-            result: dagster.MaterializeResult = cache_authorized_domain_favicons(context, s3, config)  # type: ignore[assignment]
+            result: dagster.MaterializeResult = cache_authorized_domain_favicons(context, s3, config)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         mock_download.assert_called_once()
         assert result.metadata is not None

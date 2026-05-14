@@ -338,8 +338,7 @@ class TestCohort(BaseTest):
 
         # Fetch all persons in the cohort
         cohort.refresh_from_db()
-        # TODO: THIS NEXT ASSERT FAILS AND I DON'T KNOW WHY. WILL FIGURE OUT LATER - @haacked
-        # assert cohort.count == 11
+        assert cohort.count == 11
         assert cohort.people.count() == 11
         cohort_person_uuids = {str(p.uuid) for p in cohort.people.all()}
         assert cohort_person_uuids == set(uuids)
@@ -376,6 +375,26 @@ class TestCohort(BaseTest):
 
         # Verify the cohort is not in calculating state
         self.assertFalse(cohort.is_calculating)
+
+    def test_insert_users_list_by_uuid_with_different_db_aliases(self):
+        from unittest.mock import patch
+
+        person = Person.objects.create(team=self.team, distinct_ids=["cross-db-test"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+
+        # Simulate production config where db_for_read returns a different
+        # alias than db_for_write. Both "default" and "persons_db_writer"
+        # resolve to the same test database, but Django treats them as
+        # different DBs and rejects cross-DB subqueries.
+        with patch("django.db.router.db_for_read", return_value="default"):
+            cohort.insert_users_list_by_uuid(
+                items=[str(person.uuid)],
+                team_id=self.team.id,
+            )
+
+        cohort.refresh_from_db()
+        assert cohort.people.count() == 1
+        assert str(cohort.people.first().uuid) == str(person.uuid)
 
     @parameterized.expand(
         [

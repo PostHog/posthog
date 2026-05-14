@@ -39,7 +39,7 @@ class Command(BaseCommand):
 
                 # Update secondary metrics
                 experiment.metrics_secondary = []
-                for secondary_metric in experiment.secondary_metrics:
+                for secondary_metric in experiment.secondary_metrics or []:
                     secondary_query = self.create_experiment_query(
                         filters=secondary_metric["filters"],
                         name=secondary_metric["name"],

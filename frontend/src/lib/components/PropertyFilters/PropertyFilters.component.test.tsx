@@ -31,9 +31,6 @@ describe('PropertyFilters recent selections', () => {
         groupsModel.mount()
         propertyDefinitionsModel.mount()
         localStorage.clear()
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS]: true,
-        })
         recentTaxonomicFiltersLogic.mount()
     })
 
@@ -341,56 +338,24 @@ describe('PropertyFilters recent selections', () => {
     it('recents from unavailable groups are hidden', async () => {
         useSetupMocks()
 
-        recentTaxonomicFiltersLogic.actions.recordRecentFilter(
-            TaxonomicFilterGroupType.PersonProperties,
-            'Person properties',
-            'location',
-            { name: 'location' },
-            undefined,
-            {
+        recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+            groupType: TaxonomicFilterGroupType.PersonProperties,
+            groupName: 'Person properties',
+            value: 'location',
+            item: { name: 'location' },
+            propertyFilter: {
                 key: 'location',
                 type: PropertyFilterType.Person,
                 value: 'US',
                 operator: PropertyOperator.Exact,
-            }
-        )
+            },
+        })
 
         expectRecentCount(1)
 
         renderFilters({
             taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
         })
-
-        await openNewFilter()
-
-        await waitFor(() => {
-            expect(screen.queryByTestId('prop-filter-suggested_filters-0')).not.toBeInTheDocument()
-        })
-    })
-
-    it('with recents flag off, suggested filters do not list stored recents', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS]: false,
-        })
-        useSetupMocks()
-
-        recentTaxonomicFiltersLogic.actions.recordRecentFilter(
-            TaxonomicFilterGroupType.EventProperties,
-            'Event properties',
-            '$browser',
-            { name: '$browser' },
-            undefined,
-            {
-                key: '$browser',
-                type: PropertyFilterType.Event,
-                value: 'Chrome',
-                operator: PropertyOperator.Exact,
-            }
-        )
-
-        expectRecentCount(1)
-
-        renderFilters()
 
         await openNewFilter()
 
@@ -467,6 +432,85 @@ describe('PropertyFilters recent selections', () => {
         await waitFor(() => {
             expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
             expect(screen.getByTestId('prop-filter-recent_filters-0')).toHaveTextContent(/pricing/i)
+        })
+    })
+
+    describe('category dropdown inside property modal', () => {
+        let unmountFeatureFlagLogic: (() => void) | null = null
+
+        beforeEach(() => {
+            unmountFeatureFlagLogic = featureFlagLogic.mount()
+        })
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            unmountFeatureFlagLogic?.()
+            unmountFeatureFlagLogic = null
+        })
+
+        it('pill variant: clicking the inline category trigger does not close the property modal', async () => {
+            useSetupMocks()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
+
+            renderFilters({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                ],
+            })
+
+            await openNewFilter()
+
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
+            await userEvent.click(trigger)
+
+            expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+        })
+
+        it('pill variant: picking a category in the inline dropdown does not close the property modal', async () => {
+            useSetupMocks()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
+
+            renderFilters({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                ],
+            })
+
+            await openNewFilter()
+
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
+            await userEvent.click(trigger)
+
+            const item = await screen.findByTestId('taxonomic-category-dropdown-item-person_properties')
+            await userEvent.click(item)
+
+            expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+        })
+
+        it('control: clicking outside the property modal closes it', async () => {
+            useSetupMocks()
+            renderFilters({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                ],
+            })
+
+            await openNewFilter()
+
+            expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+
+            await userEvent.click(document.body)
+
+            await waitFor(() => {
+                expect(screen.queryByTestId('taxonomic-filter-searchfield')).not.toBeInTheDocument()
+            })
         })
     })
 })

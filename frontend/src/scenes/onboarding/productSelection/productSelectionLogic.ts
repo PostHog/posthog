@@ -271,7 +271,12 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
                       ? secondStepKey
                       : OnboardingStepKey.INSTALL
 
-            router.actions.push(urls.onboarding({ productKey: values.firstProductOnboarding, stepKey }))
+            const secondaryProducts = values.selectedProducts.filter(
+                (k) => k !== values.firstProductOnboarding
+            ) as string[]
+            router.actions.push(
+                urls.onboarding({ productKey: values.firstProductOnboarding, stepKey, secondary: secondaryProducts })
+            )
 
             values.selectedProducts.forEach((productKey) => {
                 actions.addProductIntent({

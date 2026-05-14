@@ -2,6 +2,7 @@ import os
 import uuid
 import datetime
 from typing import cast
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from freezegun.api import freeze_time
@@ -323,6 +324,15 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
     5FPleoJTchctnzUw+QfmSsLWQ838/lUQsN7FsQ==""",
         )
 
+    def _assert_saml_login_social_failure_redirect(self, response, error_detail_substring: str) -> None:
+        """SocialAuthExceptionMiddleware catches AuthFailed and redirects instead of propagating."""
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        parsed = urlparse(response["Location"])
+        self.assertEqual(parsed.path, "/login")
+        qs = parse_qs(parsed.query)
+        self.assertEqual(qs.get("error_code"), ["social_login_failure"])
+        self.assertIn(error_detail_substring, qs.get("error_detail", [""])[0])
+
     # SAML Metadata
 
     def test_can_get_saml_metadata(self):
@@ -578,18 +588,17 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         user_count = User.objects.count()
 
-        with self.assertRaises(AuthFailed) as e:
-            response = self.client.post(
-                "/complete/saml/",
-                {
-                    "SAMLResponse": saml_response,
-                    "RelayState": str(self.organization_domain.id),
-                },
-                format="multipart",
-                follow=True,
-            )
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
+            format="multipart",
+            follow=False,
+        )
 
-        self.assertIn("Signature validation failed. SAML Response rejected", str(e.exception))
+        self._assert_saml_login_social_failure_redirect(response, "Signature validation failed. SAML Response rejected")
 
         self.assertEqual(User.objects.count(), user_count)
 
@@ -693,20 +702,19 @@ YotAcSbU3p5bzd11wpyebYHB"""
         ) as f:
             saml_response = f.read()
 
-        with self.assertRaises(AuthFailed) as e:
-            response = self.client.post(
-                "/complete/saml/",
-                {
-                    "SAMLResponse": saml_response,
-                    "RelayState": str(self.organization_domain.id),
-                },
-                follow=True,
-                format="multipart",
-            )
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
+            follow=False,
+            format="multipart",
+        )
 
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: Authentication request is invalid. Invalid RelayState.",
+        self._assert_saml_login_social_failure_redirect(
+            response,
+            "Authentication request is invalid. Invalid RelayState.",
         )
 
         # Assert user is not logged in
@@ -783,20 +791,19 @@ YotAcSbU3p5bzd11wpyebYHB"""
         ) as f:
             saml_response = f.read()
 
-        with self.assertRaises(AuthFailed) as e:
-            response = self.client.post(
-                "/complete/saml/",
-                {
-                    "SAMLResponse": saml_response,
-                    "RelayState": str(self.organization_domain.id),
-                },
-                follow=True,
-                format="multipart",
-            )
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
+            follow=False,
+            format="multipart",
+        )
 
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: Your organization does not have the required license to use SAML.",
+        self._assert_saml_login_social_failure_redirect(
+            response,
+            "Your organization does not have the required license to use SAML.",
         )
 
     @freeze_time("2021-08-25T22:09:14.252Z")
@@ -832,18 +839,17 @@ YotAcSbU3p5bzd11wpyebYHB"""
         ) as f:
             saml_response = f.read()
 
-        with self.assertRaises(AuthFailed) as e:
-            self.client.post(
-                "/complete/saml/",
-                {
-                    "SAMLResponse": saml_response,
-                    "RelayState": str(other_domain.id),
-                },
-                follow=True,
-                format="multipart",
-            )
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(other_domain.id),
+            },
+            follow=False,
+            format="multipart",
+        )
 
-        self.assertIn("does not match the configured domain", str(e.exception))
+        self._assert_saml_login_social_failure_redirect(response, "does not match the configured domain")
 
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -854,7 +860,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
         import lxml
         import xmlsec
 
-        assert "1.3.17" == xmlsec.__version__
+        assert "1.3.17" == cast(str, getattr(xmlsec, "__version__", None))
         assert "6.0.2" == lxml.__version__
 
 
@@ -865,17 +871,15 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         self.details = {"email": "test@posthog.com"}
         self.sub = "google-oauth2|123456789"
 
+    def _mock_strategy(self, get_params: dict[str, str]) -> object:
+        mock_strategy = type("MockStrategy", (), {})()
+        mock_strategy.request_get = lambda: get_params
+        mock_strategy.setting = lambda name, default=None, backend=None: default
+        return mock_strategy
+
     def test_auth_extra_arguments_without_email(self):
         """Test that auth_extra_arguments returns base arguments when no email is provided."""
-        # Mock strategy to return empty GET parameters
-        mock_request = type("MockRequest", (), {})()
-        mock_request.GET = {}
-
-        mock_strategy = type("MockStrategy", (), {})()
-        mock_strategy.request = mock_request
-        mock_strategy.setting = lambda name, default=None, backend=None: default
-
-        self.google_oauth.strategy = mock_strategy
+        self.google_oauth.strategy = self._mock_strategy({})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
@@ -885,15 +889,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
     def test_auth_extra_arguments_with_email(self):
         """Test that auth_extra_arguments adds login_hint when email is provided."""
-        # Mock strategy to return email in GET parameters
-        mock_request = type("MockRequest", (), {})()
-        mock_request.GET = {"email": "test@posthog.com"}
-
-        mock_strategy = type("MockStrategy", (), {})()
-        mock_strategy.request = mock_request
-        mock_strategy.setting = lambda name, default=None, backend=None: default
-
-        self.google_oauth.strategy = mock_strategy
+        self.google_oauth.strategy = self._mock_strategy({"email": "test@posthog.com"})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
@@ -902,14 +898,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
     def test_auth_extra_arguments_reauth_does_not_force_select_account(self):
         """Test that reauth flow does not force account picker prompt."""
-        mock_request = type("MockRequest", (), {})()
-        mock_request.GET = {"reauth": "true"}
-
-        mock_strategy = type("MockStrategy", (), {})()
-        mock_strategy.request = mock_request
-        mock_strategy.setting = lambda name, default=None, backend=None: default
-
-        self.google_oauth.strategy = mock_strategy
+        self.google_oauth.strategy = self._mock_strategy({"reauth": "true"})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
@@ -917,14 +906,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
     def test_auth_extra_arguments_preserves_existing_prompt(self):
         """Test that auth_extra_arguments appends select_account to existing prompt values."""
-        mock_request = type("MockRequest", (), {})()
-        mock_request.GET = {}
-
-        mock_strategy = type("MockStrategy", (), {})()
-        mock_strategy.request = mock_request
-        mock_strategy.setting = lambda name, default=None, backend=None: default
-
-        self.google_oauth.strategy = mock_strategy
+        self.google_oauth.strategy = self._mock_strategy({})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         with patch("ee.api.authentication.GoogleOAuth2.auth_extra_arguments", return_value={"prompt": "consent"}):
             extra_args = self.google_oauth.auth_extra_arguments()

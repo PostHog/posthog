@@ -1,5 +1,5 @@
+import equal from 'fast-deep-equal'
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import isEqual from 'lodash.isequal'
 
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import {
@@ -86,7 +86,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                 },
                 setFilters: (state: FiltersState, { filters }: { filters: AnyPropertyFilter[] }) => {
                     const currentFilters = state.items.map((i) => i.filter)
-                    if (isEqual(currentFilters, filters)) {
+                    if (equal(currentFilters, filters)) {
                         return state
                     }
                     let nextId = state.nextId
@@ -130,14 +130,14 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                 const groupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[property.type]
                 if (groupType && recentTaxonomicFiltersLogic.isMounted()) {
                     const groupName = TAXONOMIC_GROUP_TYPE_TO_DISPLAY_NAME[groupType] ?? groupType
-                    recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                    recentTaxonomicFiltersLogic.actions.recordRecentFilter({
                         groupType,
                         groupName,
-                        property.key,
-                        { name: property.key },
-                        teamLogic.values.currentTeamId ?? undefined,
-                        property
-                    )
+                        value: property.key,
+                        item: { name: property.key },
+                        teamId: teamLogic.values.currentTeamId ?? undefined,
+                        propertyFilter: property,
+                    })
                 }
             }
         },

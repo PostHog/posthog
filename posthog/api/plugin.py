@@ -45,7 +45,6 @@ from posthog.permissions import APIScopePermission
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins, has_plugin_access_level
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers
-from posthog.queries.app_metrics.app_metrics import TeamPluginsDeliveryRateQuery
 from posthog.utils import format_query_params_absolute_url
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
@@ -86,13 +85,17 @@ def get_plugin_config_changes(
 def log_enabled_change_activity(
     new_plugin_config: PluginConfig, old_enabled: bool, user: User, was_impersonated: bool, changes=None
 ):
+    team = new_plugin_config.team
+    if team is None:
+        return
+
     if changes is None:
         changes = []
     if old_enabled != new_plugin_config.enabled:
         log_activity(
-            organization_id=new_plugin_config.team.organization.id,
+            organization_id=team.organization.id,
             # Users in an org but not yet in a team can technically manage plugins via the API
-            team_id=new_plugin_config.team.id,
+            team_id=team.id,
             user=user,
             was_impersonated=was_impersonated,
             item_id=new_plugin_config.id,
@@ -110,6 +113,10 @@ def log_config_update_activity(
     user: User,
     was_impersonated: bool,
 ):
+    team = new_plugin_config.team
+    if team is None:
+        return
+
     config_changes = get_plugin_config_changes(
         old_config=old_config,
         new_config=new_plugin_config.config,
@@ -118,9 +125,9 @@ def log_config_update_activity(
 
     if len(config_changes) > 0:
         log_activity(
-            organization_id=new_plugin_config.team.organization.id,
+            organization_id=team.organization.id,
             # Users in an org but not yet in a team can technically manage plugins via the API
-            team_id=new_plugin_config.team.id,
+            team_id=team.id,
             user=user,
             was_impersonated=was_impersonated,
             item_id=new_plugin_config.id,
@@ -137,21 +144,29 @@ def log_config_update_activity(
 def _update_plugin_attachment(
     request: request.Request, plugin_config: PluginConfig, key: str, file: Optional[UploadedFile], user: User
 ):
+    team = plugin_config.team
+    if team is None:
+        return
+
     try:
         plugin_attachment = PluginAttachment.objects.get(team=plugin_config.team, plugin_config=plugin_config, key=key)
         if file:
+            file_name = file.name or ""
+            file_size = file.size or 0
+            file_contents = file.file.read() if file.file is not None else b""
+
             activity = "attachment_updated"
             change = Change(
                 type="PluginConfig",
                 action="changed",
                 before=plugin_attachment.file_name,
-                after=file.name,
+                after=file_name,
             )
 
-            plugin_attachment.content_type = file.content_type
-            plugin_attachment.file_name = file.name
-            plugin_attachment.file_size = file.size
-            plugin_attachment.contents = file.file.read()
+            plugin_attachment.content_type = file.content_type or "application/octet-stream"
+            plugin_attachment.file_name = file_name
+            plugin_attachment.file_size = file_size
+            plugin_attachment.contents = file_contents
             plugin_attachment.save()
         else:
             plugin_attachment.delete()
@@ -165,22 +180,26 @@ def _update_plugin_attachment(
             )
     except ObjectDoesNotExist:
         if file:
+            file_name = file.name or ""
+            file_size = file.size or 0
+            file_contents = file.file.read() if file.file is not None else b""
+
             PluginAttachment.objects.create(
-                team=plugin_config.team,
+                team=team,
                 plugin_config=plugin_config,
                 key=key,
                 content_type=str(file.content_type),
-                file_name=file.name,
-                file_size=file.size,
-                contents=file.file.read(),
+                file_name=file_name,
+                file_size=file_size,
+                contents=file_contents,
             )
 
             activity = "attachment_created"
-            change = Change(type="PluginConfig", action="created", before=None, after=file.name)
+            change = Change(type="PluginConfig", action="created", before=None, after=file_name)
 
     log_activity(
-        organization_id=plugin_config.team.organization.id,
-        team_id=plugin_config.team.id,
+        organization_id=team.organization.id,
+        team_id=team.id,
         user=user,
         was_impersonated=is_impersonated_session(request),
         item_id=plugin_config.id,
@@ -302,7 +321,8 @@ class PluginSerializer(serializers.ModelSerializer):
 
         return plugin
 
-    def update(self, plugin: Plugin, validated_data: dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
+    def update(self, instance: Any, validated_data: Any) -> Any:
+        plugin = cast(Plugin, instance)
         context_organization = self.context["get_organization"]()
         if (
             "is_global" in validated_data
@@ -310,7 +330,7 @@ class PluginSerializer(serializers.ModelSerializer):
         ):
             raise PermissionDenied("This organization can't manage global plugins!")
         validated_data["updated_at"] = now()
-        return super().update(plugin, validated_data)
+        return cast(Plugin, super().update(plugin, validated_data))
 
 
 @extend_schema(tags=["core"])
@@ -470,13 +490,16 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         response: dict[str, str] = {}
         for _, source in sources.items():
+            if source.filename is None or source.source is None:
+                continue
             response[source.filename] = source.source
 
         # Update values from plugin.json, if one exists
         if response.get("plugin.json"):
             plugin_json = json.loads(response["plugin.json"])
-            if "name" in plugin_json and plugin_json["name"] != plugin.name:
-                plugin.name = plugin_json.get("name")
+            plugin_json_name = plugin_json.get("name")
+            if isinstance(plugin_json_name, str) and plugin_json_name != plugin.name:
+                plugin.name = plugin_json_name
                 performed_changes = True
             if "config" in plugin_json and json.dumps(plugin_json["config"]) != json.dumps(plugin.config_schema):
                 plugin.config_schema = plugin_json["config"]
@@ -588,7 +611,6 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
     plugin_info = serializers.SerializerMethodField()
-    delivery_rate_24h = serializers.SerializerMethodField()
     error = serializers.SerializerMethodField()
 
     deleted = ClassicBehaviorBooleanFieldSerializer()
@@ -604,7 +626,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "error",
             "team_id",
             "plugin_info",
-            "delivery_rate_24h",
             "created_at",
             "updated_at",
             "name",
@@ -616,14 +637,17 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "team_id",
             "plugin_info",
             "error",
-            "delivery_rate_24h",
             "created_at",
         ]
 
     def get_config(self, plugin_config: PluginConfig):
-        attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).only(
-            "id", "file_size", "file_name", "content_type"
-        )
+        # Only query for attachments if the plugin_config has been saved (Django 5.0 requirement)
+        if plugin_config.pk:
+            attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).only(
+                "id", "file_size", "file_name", "content_type"
+            )
+        else:
+            attachments = PluginAttachment.objects.none()
 
         new_plugin_config = plugin_config.config.copy()
 
@@ -663,12 +687,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     def get_plugin_info(self, plugin_config: PluginConfig):
         if "view" in self.context and self.context["view"].action != "list":
             return PluginSerializer(instance=plugin_config.plugin).data
-        else:
-            return None
-
-    def get_delivery_rate_24h(self, plugin_config: PluginConfig):
-        if "delivery_rates_1d" in self.context:
-            return self.context["delivery_rates_1d"].get(plugin_config.pk, None)
         else:
             return None
 
@@ -726,13 +744,8 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                 "Plugin creation is no longer possible. Please refer to the Hog Functions documentation for more information."
             )
 
-    def update(  # type: ignore
-        self,
-        plugin_config: PluginConfig,
-        validated_data: dict,
-        *args: Any,
-        **kwargs: Any,
-    ) -> PluginConfig:
+    def update(self, instance: Any, validated_data: Any) -> Any:
+        plugin_config = cast(PluginConfig, instance)
         _fix_formdata_config_json(self.context["request"], validated_data)
         validated_data.pop("plugin", None)
         # One can delete apps in the UI, plugin-server doesn't use that field
@@ -750,7 +763,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
         old_config = plugin_config.config
         old_enabled = plugin_config.enabled
-        response = super().update(plugin_config, validated_data)
+        response = cast(PluginConfig, super().update(plugin_config, validated_data))
 
         log_config_update_activity(
             new_plugin_config=plugin_config,
@@ -779,17 +792,13 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(deleted=False)
         return queryset.order_by("order", "plugin_id")
 
-    def get_serializer_context(self) -> dict[str, Any]:
-        context = super().get_serializer_context()
-        if context["view"].action in ("retrieve", "list"):
-            context["delivery_rates_1d"] = TeamPluginsDeliveryRateQuery(self.team).run()
-        return context
-
     # we don't really use this endpoint, but have something anyway to prevent team leakage
-    def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:  # type: ignore
+    def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:
         if not can_configure_plugins(self.team.organization_id):
             return Response(status=404)
-        plugin_config = PluginConfig.objects.get(team_id=self.team_id, pk=pk)
+        if pk is None:
+            return Response(status=404)
+        plugin_config = PluginConfig.objects.get(team_id=self.team_id, pk=cast(str | int, pk))
         plugin_config.enabled = False
         plugin_config.save()
         return Response(status=204)

@@ -23,7 +23,6 @@ const teamTwo = createTestTeam({
     organization_id: '66f3f7bf-44e2-45dd-9901-5dbd93744e3a',
     name: 'testTeam',
     api_token: 'token',
-    slack_incoming_webhook: '',
     session_recording_opt_in: false,
 })
 

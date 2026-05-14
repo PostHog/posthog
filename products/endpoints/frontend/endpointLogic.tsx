@@ -123,6 +123,12 @@ export const endpointLogic = kea<endpointLogicType>([
                 loadEndpoint: () => null,
             },
         ],
+        versions: [
+            [] as EndpointVersionType[],
+            {
+                loadEndpoint: () => [],
+            },
+        ],
         // Extend the loader reducer to clear on action
         materializationStatus: [
             null as EndpointType['materialization'] | null,
@@ -175,7 +181,8 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return []
                     }
-                    return await api.endpoint.listVersions(name)
+                    const response = await api.endpoint.listVersions(name)
+                    return response.results
                 },
             },
         ],

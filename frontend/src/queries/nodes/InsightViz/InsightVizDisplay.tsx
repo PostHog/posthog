@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
@@ -11,6 +10,7 @@ import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
     BoxPlotMissingPropertyState,
+    FunnelDataWarehouseStepIncompleteState,
     FunnelSingleStepState,
     InsightEmptyState,
     InsightErrorState,
@@ -25,6 +25,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
@@ -38,7 +39,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode } from '~/queries/schema/schema-general'
+import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
@@ -126,18 +127,15 @@ export function InsightVizDisplay({
 }): JSX.Element | null {
     const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2, isInDashboardContext } =
         useValues(insightLogic)
-    const hasAIAnalysis = useFeatureFlag('PRODUCT_ANALYTICS_AI_INSIGHT_ANALYSIS')
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    const { isFunnelWithEnoughSteps, validationError, theme } = useValues(insightVizDataLogic(insightProps))
     const {
         isFunnels,
         isPaths,
         hasDetailedResultsTable,
         showLegend,
         hasFormula,
-        funnelsFilter,
         supportsDisplay,
         samplingFactor,
         insightDataLoading,
@@ -149,10 +147,16 @@ export function InsightVizDisplay({
         display,
         series,
         insightData,
+        validationError,
+        theme,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
-    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
+    const { funnelsFilter, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
+        useValues(funnelDataLogic(insightProps))
+
+    const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
+    const actionable = !embedded && editMode
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -168,8 +172,21 @@ export function InsightVizDisplay({
         }
 
         // Insight specific empty states - note order is important here
-        if (display === ChartDisplayType.BoxPlot && (!series?.length || series.some((s) => !s?.math_property))) {
+        if (
+            display === ChartDisplayType.BoxPlot &&
+            isBoxPlotMissingProperty(series as TrendsQuery['series'] | null | undefined)
+        ) {
             return <BoxPlotMissingPropertyState />
+        }
+
+        if (activeView === InsightType.FUNNELS && !isFlowViz) {
+            if (isFunnelWithIncompleteDataWarehouseStep) {
+                return <FunnelDataWarehouseStepIncompleteState />
+            }
+
+            if (!isFunnelWithEnoughSteps) {
+                return <FunnelSingleStepState actionable={actionable} />
+            }
         }
 
         if (validationError) {
@@ -228,12 +245,8 @@ export function InsightVizDisplay({
             return <InsightRefreshDataHint onRetry={onRetry} />
         }
 
-        if (activeView === InsightType.FUNNELS) {
-            const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
-            if (!isFunnelWithEnoughSteps && !isFlowViz) {
-                return <FunnelSingleStepState actionable={!embedded && editMode} />
-            }
-            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading && !isFlowViz) {
+        if (activeView === InsightType.FUNNELS && !isFlowViz) {
+            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
                 return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
             }
         }
@@ -366,11 +379,6 @@ export function InsightVizDisplay({
     }
 
     function renderAIAnalysisSection(): JSX.Element | null {
-        // Check feature flag
-        if (!hasAIAnalysis) {
-            return null
-        }
-
         // Only show in view mode
         if (editMode) {
             return null

@@ -1,3 +1,5 @@
+from types import TracebackType
+
 import pytest
 from unittest.mock import Mock, patch
 
@@ -7,6 +9,7 @@ from parameterized import parameterized
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
     backfill_precalculated_person_properties_activity,
+    build_person_properties_select_clause,
     evaluate_combined_filters_sync,
     flush_kafka_batch_async,
 )
@@ -15,6 +18,40 @@ from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.operation import Operation
+
+
+class _NoopHeartbeater:
+    details: tuple[str, ...]
+
+    def __init__(self, details: tuple[str, ...] = (), factor: int = 120) -> None:
+        self.details = details
+
+    async def __aenter__(self) -> "_NoopHeartbeater":
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+
+class _AsyncClientContextManager:
+    def __init__(self, client: Mock) -> None:
+        self.client = client
+
+    async def __aenter__(self) -> Mock:
+        return self.client
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
 
 
 class TestFlushKafkaBatchAsync:
@@ -186,6 +223,83 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         # Basic verification that the filter was stored correctly
         assert inputs.filter_storage_key == storage_key
 
+    def test_build_person_properties_select_clause_parameterizes_property_keys(self):
+        malicious_property = "email') FROM person WHERE team_id != %(team_id)s UNION ALL SELECT sleep(3) --"
+
+        properties_clause, property_alias_mapping, property_query_params = build_person_properties_select_clause(
+            [malicious_property]
+        )
+
+        assert malicious_property not in properties_clause
+        assert "team_id !=" not in properties_clause
+        assert "%(property_key_0)s" in properties_clause
+        assert property_alias_mapping == {"prop_0": malicious_property}
+        assert property_query_params == {"property_key_0": malicious_property}
+
+    @pytest.mark.asyncio
+    async def test_activity_parameterizes_property_keys_in_clickhouse_query(self):
+        malicious_property = "email') FROM person WHERE team_id != %(team_id)s UNION ALL SELECT sleep(3) --"
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="injection_condition",
+                bytecode=["_H", 1, 29],
+                cohort_ids=[10],
+                property_key=malicious_property,
+            ),
+        ]
+        captured_query: dict[str, object] = {}
+
+        async def stream_query_as_jsonl(query: str, query_parameters: dict[str, object] | None = None):
+            captured_query["query"] = query
+            captured_query["query_parameters"] = query_parameters
+            if False:
+                yield {}  # type: ignore[unreachable]
+
+        mock_client = Mock()
+        mock_client.stream_query_as_jsonl = stream_query_as_jsonl
+
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            filter_storage_key="storage_key",
+            cohort_ids=[10],
+            batch_size=10,
+            start_person_id="00000000-0000-0000-0000-000000000000",
+            end_person_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+        )
+
+        with (
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_filters_and_properties",
+                return_value=(filters, [malicious_property], combine_filter_bytecodes(filters)),
+            ),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_client",
+                return_value=_AsyncClientContextManager(mock_client),
+            ),
+            patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_producer"),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.Heartbeater",
+                _NoopHeartbeater,
+            ),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_person_properties_backfill_success_metric",
+                return_value=Mock(),
+            ),
+        ):
+            result = await backfill_precalculated_person_properties_activity(inputs)
+
+        assert result.persons_processed == 0
+
+        query = captured_query["query"]
+        assert isinstance(query, str)
+        assert malicious_property not in query
+        assert "team_id !=" not in query
+        assert "%(property_key_0)s" in query
+
+        query_parameters = captured_query["query_parameters"]
+        assert isinstance(query_parameters, dict)
+        assert query_parameters["property_key_0"] == malicious_property
+
 
 class TestCombineFilterBytecodes:
     """Tests for combine_filter_bytecodes."""
@@ -282,6 +396,48 @@ class TestCombineFilterBytecodes:
         result = execute_bytecode(combined, globals_input)
         assert result.result == expected_result
 
+    @parameterized.expand(
+        [
+            (
+                "single_failing",
+                ["failing_condition"],
+                ["working_condition"],
+                {"working_condition": True},
+            ),
+            (
+                "multiple_failing",
+                ["fail1", "fail2"],
+                ["work"],
+                {"work": True},
+            ),
+        ]
+    )
+    def test_failing_filters_are_omitted_from_results(self, _, failing_hashes, working_hashes, expected):
+        """Failing filters should be omitted from results, not crash the entire execution."""
+        from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
+            evaluate_combined_filters_with_fallback_sync,
+        )
+
+        failing_bytecode = ["_H", 1, 31, 32, "nonexistent", 32, "properties", 32, "person", 1, 3, 32, "test", 13]
+        working_bytecode = ["_H", 1, 29]  # Always true
+
+        filters = [
+            PersonPropertyFilter(condition_hash=h, bytecode=failing_bytecode, cohort_ids=[i], property_key=None)
+            for i, h in enumerate(failing_hashes)
+        ] + [
+            PersonPropertyFilter(
+                condition_hash=h, bytecode=working_bytecode, cohort_ids=[len(failing_hashes) + i], property_key=None
+            )
+            for i, h in enumerate(working_hashes)
+        ]
+
+        combined = combine_filter_bytecodes(filters)
+        result = evaluate_combined_filters_with_fallback_sync(
+            combined, filters, {"person": {"properties": {}}}, "test-person"
+        )
+
+        assert result == expected
+
 
 class TestEvaluateCombinedFiltersSync:
     """Tests for evaluate_combined_filters_sync."""
@@ -294,3 +450,39 @@ class TestEvaluateCombinedFiltersSync:
     def test_returns_empty_dict_on_error(self):
         result = evaluate_combined_filters_sync(["_H", 1, 999], {}, "person-1")
         assert result == {}
+
+    @parameterized.expand(
+        [
+            ("enabled_success", True, {"test_condition": True}, True, False),
+            ("disabled", False, {"test_condition": True}, False, False),
+            ("enabled_non_dict", True, {}, True, True),
+        ]
+    )
+    @patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.LOGGER")
+    def test_detailed_logging(self, _name, detailed, expected_result, expect_info, expect_warning, mock_logger):
+        if detailed and expect_warning:
+            combined = ["_H", 1, Operation.STRING, "not_a_dict"]
+        else:
+            combined = ["_H", 1, Operation.STRING, "test_condition", 29, Operation.DICT, 1]
+
+        hog_globals = {"person": {"properties": {"$browser": "Chrome"}}} if detailed and not expect_warning else {}
+
+        result = evaluate_combined_filters_sync(combined, hog_globals, "person-123", detailed_logging=detailed)
+
+        assert result == expected_result
+
+        if expect_info:
+            mock_logger.info.assert_called_once()
+            call_args = mock_logger.info.call_args
+            assert call_args[0][0] == "HogVM evaluation completed"
+            logged_kwargs = call_args[1]
+            assert logged_kwargs["person_id"] == "person-123"
+        else:
+            mock_logger.info.assert_not_called()
+
+        if expect_warning:
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args
+            assert call_args[0][0] == "HogVM evaluation returned non-dict result"
+        else:
+            mock_logger.warning.assert_not_called()

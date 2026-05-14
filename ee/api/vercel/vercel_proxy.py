@@ -153,7 +153,7 @@ class VercelProxyViewSet(viewsets.ViewSet):
         target_url = f"https://{eu_domain}/api/vercel/proxy/"
 
         headers = {
-            "Authorization": request.META.get("HTTP_AUTHORIZATION", ""),
+            "Authorization": request.headers.get("authorization", ""),
             "Content-Type": "application/json",
         }
 

@@ -24,7 +24,12 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError, get_client
+from posthog.temporal.common.clickhouse import (
+    ClickHouseMemoryLimitExceededError,
+    ClickHouseQueryTimeoutError,
+    ClickHouseTooManyBytesError,
+    get_client,
+)
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -33,6 +38,7 @@ from products.batch_exports.backend.service import (
     BackfillBatchExportInputs,
     BackfillDetails,
     aget_or_create_batch_export_backfill,
+    align_timestamp_to_interval,
     unpause_batch_export,
     update_batch_export_backfill,
 )
@@ -41,6 +47,11 @@ from products.batch_exports.backend.temporal.record_batch_model import SessionsR
 from products.batch_exports.backend.temporal.spmc import compose_filters_clause
 
 LOGGER = get_write_only_logger(__name__)
+
+# Cap individual backfill estimation queries so a slow query cannot hold a
+# ClickHouse slot for hours. The estimate is advisory: when the timeout fires
+# we proceed with the backfill without a record-count estimate.
+BACKFILL_INFO_QUERY_TIMEOUT_SECONDS = 300
 
 
 class TemporalScheduleNotFoundError(Exception):
@@ -149,9 +160,14 @@ async def update_batch_export_backfill_model(inputs: UpdateBatchExportBackfillIn
                 lambda: BatchExportRun.objects.filter(
                     backfill_id=inputs.id,
                     status=BatchExportRun.Status.COMPLETED,
-                ).aggregate(total=Sum("records_completed"))
+                ).aggregate(
+                    total_completed=Sum("records_completed"),
+                    total_failed=Sum("records_failed"),
+                )
             )()
-            total_records_count = result["total"]
+            total_records_count = result["total_completed"]
+            if total_records_count is not None and result["total_failed"] is not None:
+                total_records_count += result["total_failed"]
 
             if estimated_records_count is not None:
                 logger.info(
@@ -202,78 +218,6 @@ class GetBackfillInfoOutputs:
     interval_seconds: float
 
 
-def _align_timestamp_to_interval(timestamp: dt.datetime, batch_export: BatchExport) -> dt.datetime:
-    """Align a timestamp to the batch export's interval boundary.
-
-    For batch exports, intervals can have an offset from the default start time,
-    specified in the batch export's timezone. For example, a daily export might
-    run at 5am US/Pacific instead of midnight UTC.
-
-    Args:
-        timestamp: The timestamp to align (must be timezone-aware, typically UTC).
-        batch_export: The batch export configuration with interval, offset, and timezone.
-
-    Returns:
-        The start of the interval containing the timestamp (in UTC).
-
-    Examples:
-        Daily interval at 5am UTC:
-        - 2021-01-15 10:30:00 UTC aligns to 2021-01-15 05:00:00 UTC
-        - 2021-01-15 04:30:00 UTC aligns to 2021-01-14 05:00:00 UTC
-
-        Daily interval at 1am US/Pacific (PST = UTC-8 in winter):
-        - 2021-01-15 10:00:00 UTC (= 02:00 PST) aligns to 2021-01-15 09:00:00 UTC (= 01:00 PST)
-        - 2021-01-15 08:30:00 UTC (= 00:30 PST) aligns to 2021-01-14 09:00:00 UTC (= 01:00 PST prev day)
-    """
-    interval = batch_export.interval
-    interval_seconds = int(batch_export.interval_time_delta.total_seconds())
-
-    # For hourly or sub-hourly intervals, timezone doesn't matter
-    if interval == "hour" or interval.startswith("every"):
-        ts = timestamp.timestamp()
-        aligned = (ts // interval_seconds) * interval_seconds
-        return dt.datetime.fromtimestamp(aligned, tz=dt.UTC)
-
-    # Convert timestamp to the batch export's timezone for alignment
-    tz = batch_export.timezone_info
-    local_timestamp = timestamp.astimezone(tz)
-    offset_hour = batch_export.offset_hour or 0
-
-    if interval == "day":
-        # Find the start of the current "day" (which starts at offset_hour in local time)
-        day_start = local_timestamp.replace(hour=offset_hour, minute=0, second=0, microsecond=0)
-        if day_start > local_timestamp:
-            day_start -= dt.timedelta(days=1)
-        return day_start.astimezone(dt.UTC)
-
-    elif interval == "week":
-        offset_day = batch_export.offset_day or 0
-
-        # Get current day of week (Monday=0, Sunday=6 in Python)
-        # But batch exports use Sunday=0, so we need to convert
-        python_weekday = local_timestamp.weekday()  # Monday=0
-        batch_export_weekday = (python_weekday + 1) % 7  # Sunday=0
-
-        # Calculate days since the start of the week (at offset_day)
-        days_since_week_start = (batch_export_weekday - offset_day) % 7
-
-        # Find the start of the current "week"
-        week_start_date = local_timestamp.date() - dt.timedelta(days=days_since_week_start)
-        week_start = dt.datetime.combine(
-            week_start_date,
-            dt.time(hour=offset_hour, minute=0, second=0),
-            tzinfo=tz,
-        )
-
-        if week_start > local_timestamp:
-            week_start -= dt.timedelta(weeks=1)
-
-        return week_start.astimezone(dt.UTC)
-
-    else:
-        raise ValueError(f"Unknown interval: {interval}")
-
-
 async def _get_backfill_info_for_events(
     batch_export: BatchExport,
     start_at: dt.datetime | None,
@@ -314,7 +258,7 @@ async def _get_backfill_info_for_events(
         {filters_str}
         {date_conditions}
         FORMAT JSONEachRow
-        SETTINGS log_comment=%(log_comment)s
+        SETTINGS max_execution_time=%(max_execution_time)s, log_comment=%(log_comment)s
     """
 
     query_parameters = {
@@ -322,6 +266,7 @@ async def _get_backfill_info_for_events(
         "include_events": include_events,
         "exclude_events": exclude_events,
         "log_comment": log_comment,
+        "max_execution_time": BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
         **extra_query_parameters,
     }
 
@@ -375,7 +320,11 @@ async def _get_backfill_info_for_persons(
     lower_bound_condition = ""
     date_conditions = ""
     having_date_conditions = ""
-    query_parameters: dict[str, typing.Any] = {"team_id": team_id, "log_comment": log_comment}
+    query_parameters: dict[str, typing.Any] = {
+        "team_id": team_id,
+        "log_comment": log_comment,
+        "max_execution_time": BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
+    }
 
     if start_at is not None:
         lower_bound_condition = "AND _timestamp >= %(start_at)s "
@@ -402,7 +351,7 @@ async def _get_backfill_info_for_persons(
         AND _timestamp > '2000-01-01'
         {date_conditions}
         FORMAT JSONEachRow
-        SETTINGS log_comment=%(log_comment)s
+        SETTINGS max_execution_time=%(max_execution_time)s, log_comment=%(log_comment)s
     """
 
     min_timestamp_query_id = str(uuid.uuid4())
@@ -470,7 +419,7 @@ async def _get_backfill_info_for_persons(
         SELECT uniq(distinct_id) AS record_count
         FROM distinct_ids
         FORMAT JSONEachRow
-        SETTINGS optimize_uniq_to_count = 0, log_comment=%(log_comment)s
+        SETTINGS optimize_uniq_to_count = 0, max_execution_time=%(max_execution_time)s, log_comment=%(log_comment)s
     """
 
     count_query_id = str(uuid.uuid4())
@@ -506,7 +455,12 @@ async def _get_backfill_info_for_sessions(
     """
 
     model = SessionsRecordBatchModel(team_id=batch_export.team_id, batch_export_id=str(batch_export.id))
-    min_timestamp, record_count = await model.get_backfill_info(start_at, end_at, log_comment=log_comment)
+    min_timestamp, record_count = await model.get_backfill_info(
+        start_at,
+        end_at,
+        log_comment=log_comment,
+        max_execution_time_seconds=BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
+    )
 
     if min_timestamp is None:
         return None, 0
@@ -597,9 +551,30 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
                 total_records_count=None,
                 interval_seconds=interval_seconds,
             )
+    except ClickHouseQueryTimeoutError:
+        logger.warning(
+            "Backfill estimation query timed out, proceeding without estimate",
+            model=model,
+            timeout_seconds=BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
+        )
+        return GetBackfillInfoOutputs(
+            adjusted_start_at=inputs.start_at,
+            total_records_count=None,
+            interval_seconds=interval_seconds,
+        )
     except ClickHouseMemoryLimitExceededError:
         logger.warning(
             "Backfill estimation query exceeded memory limit, proceeding without estimate",
+            model=model,
+        )
+        return GetBackfillInfoOutputs(
+            adjusted_start_at=inputs.start_at,
+            total_records_count=None,
+            interval_seconds=interval_seconds,
+        )
+    except ClickHouseTooManyBytesError:
+        logger.warning(
+            "Backfill estimation query exceeded bytes-read limit, proceeding without estimate",
             model=model,
         )
         return GetBackfillInfoOutputs(
@@ -621,7 +596,7 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
             interval_seconds=interval_seconds,
         )
 
-    adjusted_start_at = _align_timestamp_to_interval(min_timestamp, batch_export)
+    adjusted_start_at = align_timestamp_to_interval(min_timestamp, batch_export)
 
     adjusted_start_at_str = inputs.start_at
     if start_at is not None and adjusted_start_at != start_at:
@@ -682,7 +657,6 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             settings.TEMPORAL_HOST,
             settings.TEMPORAL_PORT,
             settings.TEMPORAL_NAMESPACE,
-            settings.TEMPORAL_CLIENT_ROOT_CA,
             settings.TEMPORAL_CLIENT_CERT,
             settings.TEMPORAL_CLIENT_KEY,
         )
@@ -945,6 +919,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=120),
                     maximum_attempts=0,
+                    non_retryable_error_types=["InvalidFilterError"],
                 ),
             )
 

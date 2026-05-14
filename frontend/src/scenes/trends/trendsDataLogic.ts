@@ -29,7 +29,7 @@ import {
     TrendsFilter,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { isValidBreakdown } from '~/queries/utils'
+import { hasBreakdownFilter } from '~/queries/utils'
 import {
     ChartDisplayType,
     CountPerActorMathType,
@@ -188,7 +188,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
 
         isBreakdownValid: [
             (s) => [s.breakdownFilter],
-            (breakdownFilter: BreakdownFilter | null) => isValidBreakdown(breakdownFilter),
+            (breakdownFilter: BreakdownFilter | null) => hasBreakdownFilter(breakdownFilter),
         ],
 
         indexedResults: [

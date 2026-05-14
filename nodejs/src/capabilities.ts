@@ -147,6 +147,7 @@ export function getPluginServerCapabilities(
                 evaluationScheduler: true,
             }
         case PluginServerMode.ingestion_logs:
+        case PluginServerMode.ingestion_metrics:
         case PluginServerMode.ingestion_traces:
             throw new Error(`Mode ${mode} is handled by a dedicated server, not PluginServer`)
         case PluginServerMode.ingestion_error_tracking:
@@ -169,6 +170,8 @@ export function getPluginServerCapabilities(
         case PluginServerMode.ingestion_v2_testing:
         case PluginServerMode.ingestion_v2_combined:
             throw new Error(`Mode ${mode} is handled by IngestionGeneralServer, not PluginServer`)
+        case PluginServerMode.ingestion_api:
+            throw new Error(`Mode ${mode} is handled by IngestionApiServer, not PluginServer`)
         case PluginServerMode.cdp_hogflow_scheduler:
             return {
                 cdpHogflowScheduler: true,

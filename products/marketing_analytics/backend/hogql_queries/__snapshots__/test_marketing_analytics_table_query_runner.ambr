@@ -1,0 +1,33 @@
+# serializer version: 1
+# name: TestMarketingAnalyticsTableQueryRunner.test_channel_drill_down_meta_to_facebook_mapping_snapshot
+  '''
+  
+  SELECT
+      multiIf(match(lower(nullIf(nullIf('', ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf('cpc', ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf('cpc', ''), 'null')), 'paid'), false, notEquals(nullIf(nullIf(NULL, ''), 'null'), NULL)), coalesce(lookupPaidSourceType(lower(nullIf(nullIf(if(equals(lower(source), 'meta'), 'facebook', source), ''), 'null'))), if(match(lower(nullIf(nullIf('', ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), lookupPaidMediumType(lower(nullIf(nullIf('cpc', ''), 'null'))), lookupPaidSourceType('$direct'), multiIf(equals(nullIf(nullIf(NULL, ''), 'null'), '1'), 'Paid Search', match(lower(nullIf(nullIf('', ''), 'null')), '^(.*video.*)$'), 'Paid Video', false, 'Paid Social', 'Paid Unknown')), and(equals('$direct', '$direct'), equals(lower(nullIf(nullIf('cpc', ''), 'null')), NULL), or(equals(lower(nullIf(nullIf(if(equals(lower(source), 'meta'), 'facebook', source), ''), 'null')), NULL), in(lower(nullIf(nullIf(if(equals(lower(source), 'meta'), 'facebook', source), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(false)), 'Direct', coalesce(lookupOrganicSourceType(lower(nullIf(nullIf(if(equals(lower(source), 'meta'), 'facebook', source), ''), 'null'))), if(match(lower(nullIf(nullIf('', ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), lookupOrganicMediumType(lower(nullIf(nullIf('cpc', ''), 'null'))), lookupOrganicSourceType('$direct'), multiIf(match(lower(nullIf(nullIf('', ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf('cpc', ''), 'null')), 'push$'), 'Push', false, 'Organic Social', equals('$direct', '$direct'), 'Direct', notEquals('$direct', NULL), 'Referral', 'Unknown'))) AS campaign,
+      '' AS id,
+      '' AS match_key,
+      sum(ifNull(toFloat(cost), 0)) AS total_cost,
+      sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
+      sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
+      sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
+      sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
+  
+  FROM
+      (
+  SELECT
+          '' AS match_key,
+          'campaign_meta' AS campaign,
+          'id_meta' AS id,
+          'meta' AS source,
+          0.0 AS impressions,
+          0.0 AS clicks,
+          0.0 AS cost,
+          0.0 AS reported_conversion,
+          0.0 AS reported_conversion_value)
+  
+  GROUP BY
+      multiIf(match(lower(nullIf(nullIf('', ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf('cpc', ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf('cpc', ''), 'null')), 'paid'), false, notEquals(nullIf(nullIf(NULL, ''), 'null'), NULL)), coalesce(lookupPaidSourceType(lower(nullIf(nullIf(if(equals(lower(source), 'meta'), 'facebook', source), ''), 'null'))), if(match(lower(nullIf(nullIf('', ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), lookupPaidMediumType(lower(nullIf(nullIf('cpc', ''), 'null'))), lookupPaidSourceType('$direct'), multiIf(equals(nullIf(nullIf(NULL, ''), 'null'), '1'), 'Paid Search', match(lower(nullIf(nullIf('', ''), 'null')), '^(.*video.*)$'), 'Paid Video', false, 'Paid Social', 'Paid Unknown')), and(equals('$direct', '$direct'), equals(lower(nullIf(nullIf('cpc', ''), 'null')), NULL), or(equals(lower(nullIf(nullIf(if(equals(lower(source), 'meta'), 'facebook', source), ''), 'null')), NULL), in(lower(nullIf(nullIf(if(equals(lower(source), 'meta'), 'facebook', source), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(false)), 'Direct', coalesce(lookupOrganicSourceType(lower(nullIf(nullIf(if(equals(lower(source), 'meta'), 'facebook', source), ''), 'null'))), if(match(lower(nullIf(nullIf('', ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), lookupOrganicMediumType(lower(nullIf(nullIf('cpc', ''), 'null'))), lookupOrganicSourceType('$direct'), multiIf(match(lower(nullIf(nullIf('', ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf('cpc', ''), 'null')), 'push$'), 'Push', false, 'Organic Social', equals('$direct', '$direct'), 'Direct', notEquals('$direct', NULL), 'Referral', 'Unknown')))
+  
+  LIMIT 100
+  '''
+# ---

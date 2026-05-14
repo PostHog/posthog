@@ -105,7 +105,7 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
 
         # First call should hit the database and cache the result
         with (
-            patch("products.logs.backend.api.HasLogsQueryRunner") as mock_runner,
+            patch("products.logs.backend.has_logs_query_runner.HasLogsQueryRunner") as mock_runner,
             patch("products.logs.backend.api.report_user_action") as mock_report,
         ):
             mock_runner.return_value.run.return_value = True
@@ -130,7 +130,7 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_has_logs_api_does_not_cache_negative_results(self):
         cache.clear()
 
-        with patch("products.logs.backend.api.HasLogsQueryRunner") as mock_runner:
+        with patch("products.logs.backend.has_logs_query_runner.HasLogsQueryRunner") as mock_runner:
             mock_runner.return_value.run.return_value = False
 
             # First call returns False

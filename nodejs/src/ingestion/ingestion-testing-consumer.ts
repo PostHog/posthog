@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { KAFKA_INGESTION_WARNINGS } from '../config/kafka-topics'
-import { KafkaConsumer } from '../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { HealthCheckResult, HealthCheckResultError, PluginServerService, PluginsServerConfig } from '../types'
 import { logger } from '../utils/logger'
@@ -20,6 +20,7 @@ import {
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from './common/outputs'
 import { latestOffsetTimestampGauge } from './ingestion-consumer'
 import { IngestionOutputs } from './outputs/ingestion-outputs'
+import { SingleIngestionOutput } from './outputs/single-ingestion-output'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createOkContext } from './pipelines/helpers'
@@ -46,7 +47,7 @@ export class IngestionTestingConsumer {
     protected groupId: string
     protected topic: string
     protected dlqTopic: string
-    protected kafkaConsumer: KafkaConsumer
+    protected kafkaConsumer: KafkaConsumerInterface
     isStopping = false
     protected kafkaProducer?: KafkaProducerWrapper
     public readonly promiseScheduler = new PromiseScheduler()
@@ -74,7 +75,7 @@ export class IngestionTestingConsumer {
 
         this.name = `ingestion-testing-consumer-${this.topic}`
 
-        this.kafkaConsumer = new KafkaConsumer({
+        this.kafkaConsumer = createKafkaConsumer({
             groupId: this.groupId,
             topic: this.topic,
         })
@@ -93,34 +94,25 @@ export class IngestionTestingConsumer {
 
     public async start(): Promise<void> {
         const outputs = new IngestionOutputs({
-            [EVENTS_OUTPUT]: [
-                {
-                    topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                    producer: this.kafkaProducer!,
-                    producerName: 'default',
-                },
-            ],
-            [HEATMAPS_OUTPUT]: [
-                {
-                    topic: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                    producer: this.kafkaProducer!,
-                    producerName: 'default',
-                },
-            ],
-            [INGESTION_WARNINGS_OUTPUT]: [
-                {
-                    topic: KAFKA_INGESTION_WARNINGS,
-                    producer: this.kafkaProducer!,
-                    producerName: 'default',
-                },
-            ],
-            [DLQ_OUTPUT]: [
-                {
-                    topic: this.dlqTopic,
-                    producer: this.kafkaProducer!,
-                    producerName: 'default',
-                },
-            ],
+            [EVENTS_OUTPUT]: new SingleIngestionOutput(
+                EVENTS_OUTPUT,
+                this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                this.kafkaProducer!,
+                'default'
+            ),
+            [HEATMAPS_OUTPUT]: new SingleIngestionOutput(
+                HEATMAPS_OUTPUT,
+                this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                this.kafkaProducer!,
+                'default'
+            ),
+            [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
+                INGESTION_WARNINGS_OUTPUT,
+                KAFKA_INGESTION_WARNINGS,
+                this.kafkaProducer!,
+                'default'
+            ),
+            [DLQ_OUTPUT]: new SingleIngestionOutput(DLQ_OUTPUT, this.dlqTopic, this.kafkaProducer!, 'default'),
         })
 
         const joinedPipelineConfig: TestingJoinedIngestionPipelineConfig = {

@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, InsightType, ItemMode } from '~/types'
 
@@ -64,6 +64,46 @@ describe('insightSceneLogic', () => {
         expect((logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode).source?.kind).toEqual(
             'FunnelsQuery'
         )
+    })
+
+    it('tags new default insights with product_analytics productKey', async () => {
+        router.actions.push(urls.insightNew())
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode
+        expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
+    })
+
+    it('tags new typed insights with product_analytics productKey', async () => {
+        router.actions.push(urls.insightNew({ type: InsightType.FUNNELS }))
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode
+        expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
+    })
+
+    it('does not overwrite existing productKey tags on queries from URL', async () => {
+        router.actions.push(
+            urls.insightNew({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        ...examples.InsightTrendsQuery,
+                        tags: { productKey: ProductKey.WEB_ANALYTICS },
+                    },
+                } as InsightVizNode,
+            })
+        )
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode
+        expect(query.source?.tags?.productKey).toEqual(ProductKey.WEB_ANALYTICS)
     })
 
     it('redirects maintaining url params when opening /insight/new with query in the url', async () => {
@@ -141,6 +181,74 @@ describe('insightSceneLogic', () => {
         // The insight should be reset - no id means it's a new unsaved insight
         expect(logic.values.insightLogicRef?.logic.values.insight.id).toBeUndefined()
         expect(logic.values.insightLogicRef?.logic.values.insight.dashboards).toEqual([6])
+    })
+
+    it('remounts when URL insight id disagrees with dashboard tile id on the mounted editor (save-as regression)', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/trend/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/': (req) => {
+                    const shortId = req.url.searchParams.get('short_id') || ''
+                    const id = shortId === '12' ? 12 : 42
+                    const sid = (shortId === '12' ? Insight12 : Insight42) as InsightShortId
+                    return [
+                        200,
+                        {
+                            results: [
+                                {
+                                    id,
+                                    short_id: sid,
+                                    result: ['result from api'],
+                                    name: shortId === '12' ? 'copy' : 'original',
+                                },
+                            ],
+                        },
+                    ]
+                },
+            },
+            post: {
+                '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/': (req) => [
+                    200,
+                    { id: 12, short_id: Insight12, ...(req.body as any) },
+                ],
+                '/api/environments/:team_id/query/upgrade/': { query: {} },
+            },
+        })
+
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+
+        router.actions.push(urls.insightEdit(Insight42))
+        await expectLogic(logic).toFinishAllListeners()
+
+        const refBefore = logic.values.insightLogicRef
+        expect(refBefore?.logic.props.dashboardItemId).toBe(Insight42)
+        expect(refBefore?.logic.values.insight.short_id).toBe(Insight42)
+
+        // Stale state from the old save-as flow: copy loaded in the editor while props still target the tile.
+        refBefore?.logic.actions.setInsight(
+            {
+                id: 12,
+                short_id: Insight12,
+                name: 'copy',
+                query: examples.InsightFunnels,
+                result: [],
+            },
+            { fromPersistentApi: true, overrideQuery: true }
+        )
+
+        expect(refBefore?.logic.values.insight.short_id).toBe(Insight12)
+
+        router.actions.push(urls.insightEdit(Insight12))
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic).toDispatchActions(['setInsightLogicRef']).toFinishAllListeners()
+
+        const refAfter = logic.values.insightLogicRef
+        expect(refAfter).not.toBe(refBefore)
+        expect(refAfter?.logic.props.dashboardItemId).toBe(Insight12)
+        await expectLogic(refAfter!.logic).toFinishAllListeners()
+        expect(refAfter?.logic.values.insight.short_id).toBe(Insight12)
     })
 
     it('reloads insight when navigating back to the same insight via PUSH', async () => {

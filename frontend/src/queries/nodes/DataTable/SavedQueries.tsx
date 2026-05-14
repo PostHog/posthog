@@ -5,7 +5,7 @@ import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getEventsQueriesForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { DataTableNode, EventsQuery } from '~/queries/schema/schema-general'
 
 interface SavedQueriesProps {
     query: DataTableNode
@@ -20,12 +20,16 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
     }
 
     const eventsQueries = getEventsQueriesForTeam(currentTeam)
-    let selectedTitle = Object.keys(eventsQueries).find((key) => equal(eventsQueries[key], query.source))
+    const { filterTestAccounts, ...sourceForComparison } = query.source as EventsQuery
+    let selectedTitle = Object.keys(eventsQueries).find((key) => equal(eventsQueries[key], sourceForComparison))
 
     if (!selectedTitle) {
         // is there any query that only changed the dates
         selectedTitle = Object.keys(eventsQueries).find((key) => {
-            return equal({ ...eventsQueries[key], before: '', after: '' }, { ...query.source, before: '', after: '' })
+            return equal(
+                { ...eventsQueries[key], before: '', after: '' },
+                { ...sourceForComparison, before: '', after: '' }
+            )
         })
     }
     if (!selectedTitle) {
@@ -41,7 +45,15 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
                         key={title}
                         fullWidth
                         active={title === selectedTitle}
-                        onClick={() => setQuery?.({ ...query, source: eventsQuery })}
+                        onClick={() =>
+                            setQuery?.({
+                                ...query,
+                                source:
+                                    filterTestAccounts !== undefined
+                                        ? { ...eventsQuery, filterTestAccounts }
+                                        : eventsQuery,
+                            })
+                        }
                     >
                         {title}
                     </LemonButton>

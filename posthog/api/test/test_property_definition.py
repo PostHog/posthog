@@ -1,5 +1,5 @@
 import json
-from typing import Optional, Union
+from typing import Any, Optional, Union, cast
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import ANY, patch
@@ -258,22 +258,25 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             f"/api/projects/{self.team.pk}/property_definitions/?event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true"
         )
         assert response.status_code == status.HTTP_200_OK
+        db_results = self._exclude_virtual(response.json()["results"])
         assert sorted(
-            [(r["name"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]],
+            [(r["name"], r["is_seen_on_filtered_events"]) for r in db_results],
             key=lambda tup: tup[0],
         ) == [
             ("$browser", True),
             ("first_visit", True),
         ]
+        # virtual properties are always included in scoped results
+        virtual_results = [r for r in response.json()["results"] if r.get("virtual")]
+        assert all(r["is_seen_on_filtered_events"] is True for r in virtual_results)
 
         # can combine the filters
         response = self.client.get(
             "/api/projects/@current/property_definitions/?search=firs&event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true"
         )
         assert response.status_code == status.HTTP_200_OK
-        assert [(r["name"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
-            ("first_visit", True)
-        ]
+        db_results = self._exclude_virtual(response.json()["results"])
+        assert [(r["name"], r["is_seen_on_filtered_events"]) for r in db_results] == [("first_visit", True)]
 
     def test_person_property_filter_setup(self):
         PropertyDefinition.objects.create(
@@ -304,22 +307,55 @@ class TestPropertyDefinitionAPI(APIBaseTest):
     @parameterized.expand(
         [
             (
-                "Get all person properties",
+                "no search returns all person properties sorted by name",
                 "type=person",
                 [
+                    "$browser",
+                    "$initial_browser",
+                    "$initial_os",
                     "$initial_referrer",
+                    "$os",
                     "another",
                     "person property",
                 ],
             ),
-            ("Search person properties containing 'prop'", "type=person&search=prop", ["person property"]),
-            ("Search all properties containing 'prop'", "search=prop", ["event property"]),
+            ("substring match on name", "type=person&search=prop", ["person property"]),
+            ("type=event excludes person properties", "search=prop", ["event property"]),
             (
-                "Search person properties containing 'latest'",
+                "'latest' alone finds all 'Latest X' properties via label alias",
                 "type=person&search=latest",
-                ["another", "person property"],
+                ["$os", "$browser"],
             ),
-            ("Search person properties containing 'late'", "type=person&search=late", ["another", "person property"]),
+            (
+                "'late' matches same aliases ('late' is substring of 'Latest' labels)",
+                "type=person&search=late",
+                ["$os", "$browser"],
+            ),
+            (
+                "'latest os' finds $os via label alias ('Latest OS'), excludes $initial_os",
+                "type=person&search=latest os",
+                ["$os"],
+            ),
+            (
+                "'latest browser' finds $browser via label alias ('Latest browser'), excludes $initial_browser",
+                "type=person&search=latest browser",
+                ["$browser"],
+            ),
+            (
+                "'initial' matches properties containing 'initial' in name (sorted by length)",
+                "type=person&search=initial",
+                ["$initial_os", "$initial_browser", "$initial_referrer"],
+            ),
+            (
+                "'initial os' matches only $initial_os (both words must match)",
+                "type=person&search=initial os",
+                ["$initial_os"],
+            ),
+            (
+                "'os' matches name substring and label alias",
+                "type=person&search=os",
+                ["$os", "$initial_os"],
+            ),
         ]
     )
     def test_person_property_filters(self, _name: str, query_params: str, expected_results: list[str]) -> None:
@@ -340,10 +376,34 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             name="$initial_referrer",
             property_type="String",
             type=PropertyDefinition.Type.PERSON,
-        )  # We want to hide this property on events, but not on persons
+        )
         PropertyDefinition.objects.create(
             team=self.team,
             name="another",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$os",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$initial_os",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$browser",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$initial_browser",
             property_type="String",
             type=PropertyDefinition.Type.PERSON,
         )
@@ -479,9 +539,10 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             scope="PropertyDefinition", activity="deleted"
         ).first()
         assert activity_log is not None
-        assert activity_log.detail["type"] == "event"
+        detail = cast(dict[str, Any], activity_log.detail)
+        assert detail["type"] == "event"
         assert activity_log.item_id == str(property_definition.id)
-        assert activity_log.detail["name"] == "test_property"
+        assert detail["name"] == "test_property"
         assert activity_log.activity == "deleted"
 
     def test_event_name_filter_json_contains_int(self):
@@ -561,6 +622,42 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == expected_results
+
+    def test_seen_together_runs_one_query_per_request(self) -> None:
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        for event_name in ["e1", "e2", "e3", "e4", "e5"]:
+            EventProperty.objects.create(team=self.team, event=event_name, property="$session_id")
+
+        # Build the query string with many event_names so a regression to the N+1
+        # loop would show up as a query count that grows with the input size.
+        event_name_params = "&".join(f"event_names=e{i}" for i in range(1, 11))
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/property_definitions/seen_together/?{event_name_params}&property_name=$session_id"
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "e1": True,
+            "e2": True,
+            "e3": True,
+            "e4": True,
+            "e5": True,
+            "e6": False,
+            "e7": False,
+            "e8": False,
+            "e9": False,
+            "e10": False,
+        }
+
+        event_property_queries = [q for q in ctx.captured_queries if "posthog_eventproperty" in q["sql"]]
+        assert len(event_property_queries) == 1, (
+            f"expected a single posthog_eventproperty query, got {len(event_property_queries)}: "
+            f"{[q['sql'] for q in event_property_queries]}"
+        )
 
     def test_property_definition_project_id_coalesce(self):
         # Create legacy property with only team_id (old style)

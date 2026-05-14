@@ -37,6 +37,10 @@ export class PersonContext {
     }
 
     async produceMessages(messages: PersonMessage[]): Promise<void> {
-        await Promise.all(messages.map((msg) => this.outputs.produce(msg.output, { value: msg.value, key: null })))
+        await Promise.all(
+            messages.map((msg) =>
+                this.outputs.produce(msg.output, { value: msg.value, key: null, teamId: this.team.id })
+            )
+        )
     }
 }

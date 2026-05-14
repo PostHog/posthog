@@ -12,8 +12,8 @@ from products.event_definitions.backend.models.property_definition import Proper
 
 @dataclass(frozen=True)
 class TimeRange:
-    start_time: datetime
-    end_time: datetime
+    start_time: datetime.datetime
+    end_time: datetime.datetime
 
     def get_expression(self, column: str) -> str:
         return f"{column} >= '{self.start_time.isoformat()}' AND {column} < '{self.end_time.isoformat()}'"
@@ -33,7 +33,7 @@ class PropertyDefinitionsConfig(dagster.Config):
         default="1 hour",
     )
 
-    def validate(self, cluster: ClickhouseCluster) -> TimeRange:
+    def get_time_range(self, cluster: ClickhouseCluster) -> TimeRange:
         """Validate the configuration values, returning a time range."""
         [[start_time, end_time]] = cluster.any_host(
             Query(
@@ -50,7 +50,7 @@ def setup_job(
     config: PropertyDefinitionsConfig,
 ) -> TimeRange:
     """Validates the job configuration to be provided to other ops."""
-    return config.validate(cluster)
+    return config.get_time_range(cluster)
 
 
 @dataclass(frozen=True)

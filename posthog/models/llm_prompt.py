@@ -1,3 +1,6 @@
+import json
+from typing import Any
+
 from django.db import models, transaction
 from django.db.models import Count, DateTimeField, IntegerField, OuterRef, QuerySet, Subquery, UUIDField
 from django.db.models.signals import post_delete, post_save
@@ -6,6 +9,28 @@ from django.utils import timezone
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import UUIDModel
+
+from products.llm_analytics.backend.markdown_outline import get_markdown_outline
+
+
+def normalize_prompt_to_string(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except Exception:
+        return ""
+
+
+def get_prompt_outline(value: Any) -> list[dict[str, Any]]:
+    """Extract a flat list of markdown headings from a prompt payload.
+
+    Agents consuming the MCP/API can use this as a lightweight table of contents
+    without pulling the full prompt content. Returns `[]` for non-markdown
+    payloads (e.g. message arrays serialized to JSON).
+    """
+    text = normalize_prompt_to_string(value)
+    return get_markdown_outline(text)
 
 
 class LLMPrompt(UUIDModel):

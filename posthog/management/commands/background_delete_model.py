@@ -33,6 +33,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         model_name = args[0] if args else options.get("model_name")
+        if model_name is None:
+            raise CommandError("model_name is required")
         team_id = options["team_id"]
         batch_size = options.get("batch_size", 10000)
         max_delete_size = options.get("max_delete_size", 5000000)

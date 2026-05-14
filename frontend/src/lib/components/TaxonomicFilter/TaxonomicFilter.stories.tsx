@@ -2,12 +2,14 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
+import { useEffect } from 'react'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { CategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { actionsModel } from '~/models/actionsModel'
@@ -28,7 +30,7 @@ const meta: Meta<TaxonomicFilterProps> = {
         docs: {
             description: {
                 component:
-                    'Taxonomic Filter allows users to select from various categories of data in PostHog, like events, actions, properties, etc. It supports both horizontal and vertical (columnar) layouts.',
+                    'Taxonomic Filter allows users to select from various categories of data in PostHog, like events, actions, properties, etc.',
             },
         },
     },
@@ -37,28 +39,30 @@ const meta: Meta<TaxonomicFilterProps> = {
 type Story = StoryObj<TaxonomicFilterProps>
 export default meta
 
+function EventsStoryRender(args: TaxonomicFilterProps): JSX.Element {
+    useMountedLogic(actionsModel)
+
+    const { setIndex } = useActions(
+        infiniteListLogic({
+            ...args,
+            taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string,
+            listGroupType: TaxonomicFilterGroupType.Events,
+        })
+    )
+
+    // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
+    // - we do want to show the definition popover here too
+    useDelayedOnMountEffect(() => setIndex(1))
+
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+
 export const EventsFree: Story = {
-    render: (args) => {
-        useMountedLogic(actionsModel)
-
-        const { setIndex } = useActions(
-            infiniteListLogic({
-                ...args,
-                taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string,
-                listGroupType: TaxonomicFilterGroupType.Events,
-            })
-        )
-
-        // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
-        // - we do want to show the definition popover here too
-        useDelayedOnMountEffect(() => setIndex(1))
-
-        return (
-            <div className="w-fit border rounded p-2 bg-surface-primary">
-                <TaxonomicFilter {...args} />
-            </div>
-        )
-    },
+    render: EventsStoryRender,
     args: {
         taxonomicFilterLogicKey: 'events-free',
         taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
@@ -184,117 +188,22 @@ export const NumericalProperties: Story = {
     },
 }
 
-/**
- * This story demonstrates the automatic columnar layout that's triggered when there are more than 4 group types.
- * The layout switches from horizontal tabs to a vertical/columnar layout to better organize the many categories.
- */
-export const Columnar: Story = {
-    render: (args) => {
-        useMountedLogic(actionsModel)
-
-        const { setIndex } = useActions(
-            infiniteListLogic({
-                ...args,
-                taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string,
-                listGroupType: TaxonomicFilterGroupType.Events,
-            })
-        )
-
-        useDelayedOnMountEffect(() => setIndex(1))
-
-        return (
-            <div className="w-fit border rounded p-2 bg-surface-primary">
-                <TaxonomicFilter {...args} />
-            </div>
-        )
-    },
+export const ThreeGroupsDefaultLayout: Story = {
+    render: EventsStoryRender,
     args: {
-        taxonomicFilterLogicKey: 'columnar-five-groups',
-        taxonomicGroupTypes: [
-            TaxonomicFilterGroupType.Events,
-            TaxonomicFilterGroupType.Actions,
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.Cohorts,
-        ],
-    },
-    parameters: {
-        docs: {
-            description: {
-                story: 'Automatically switches to columnar/vertical layout when there are 5 or more group types.',
-            },
-        },
-    },
-}
-
-/**
- * This story demonstrates forcing the columnar/vertical layout even when there are fewer than 5 group types.
- * This is done by setting the `useVerticalLayout` prop to true.
- */
-export const ForceColumnar: Story = {
-    render: (args) => {
-        useMountedLogic(actionsModel)
-
-        const { setIndex } = useActions(
-            infiniteListLogic({
-                ...args,
-                taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string,
-                listGroupType: TaxonomicFilterGroupType.Events,
-            })
-        )
-
-        useDelayedOnMountEffect(() => setIndex(1))
-
-        return (
-            <div className="w-fit border rounded p-2 bg-surface-primary">
-                <TaxonomicFilter {...args} />
-            </div>
-        )
-    },
-    args: {
-        taxonomicFilterLogicKey: 'force-columnar-three-groups',
+        taxonomicFilterLogicKey: 'three-groups-default-layout',
         taxonomicGroupTypes: [
             TaxonomicFilterGroupType.Events,
             TaxonomicFilterGroupType.Actions,
             TaxonomicFilterGroupType.EventProperties,
         ],
-        useVerticalLayout: true,
-    },
-    parameters: {
-        docs: {
-            description: {
-                story: 'Forces columnar/vertical layout even with only 3 group types by setting useVerticalLayout to true.',
-            },
-        },
     },
 }
 
-/**
- * This story demonstrates forcing a horizontal layout even when there are many group types.
- * This is done by setting the `useVerticalLayout` prop to false.
- */
-export const ForceNonColumnar: Story = {
-    render: (args) => {
-        useMountedLogic(actionsModel)
-
-        const { setIndex } = useActions(
-            infiniteListLogic({
-                ...args,
-                taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string,
-                listGroupType: TaxonomicFilterGroupType.Events,
-            })
-        )
-
-        useDelayedOnMountEffect(() => setIndex(1))
-
-        return (
-            <div className="w-fit border rounded p-2 bg-surface-primary">
-                <TaxonomicFilter {...args} />
-            </div>
-        )
-    },
+export const SixGroupsDefaultLayout: Story = {
+    render: EventsStoryRender,
     args: {
-        taxonomicFilterLogicKey: 'force-non-columnar-six-groups',
+        taxonomicFilterLogicKey: 'six-groups-default-layout',
         taxonomicGroupTypes: [
             TaxonomicFilterGroupType.Events,
             TaxonomicFilterGroupType.Actions,
@@ -303,14 +212,6 @@ export const ForceNonColumnar: Story = {
             TaxonomicFilterGroupType.Cohorts,
             TaxonomicFilterGroupType.Elements,
         ],
-        useVerticalLayout: false,
-    },
-    parameters: {
-        docs: {
-            description: {
-                story: 'Forces horizontal layout even with 6 group types by setting useVerticalLayout to false.',
-            },
-        },
     },
 }
 
@@ -375,14 +276,14 @@ function SeedRecents({ count }: { count: number }): null {
     useOnMountEffect(() => {
         recentTaxonomicFiltersLogic.actions.clearRecentFilters()
         for (const recent of RECENT_ITEMS.slice(0, count)) {
-            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
-                recent.groupType,
-                recent.groupName,
-                recent.value,
-                recent.item,
-                MOCK_TEAM_ID,
-                recent.propertyFilter
-            )
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: recent.groupType,
+                groupName: recent.groupName,
+                value: recent.value,
+                item: recent.item,
+                teamId: MOCK_TEAM_ID,
+                propertyFilter: recent.propertyFilter,
+            })
         }
     })
 
@@ -398,7 +299,6 @@ const SUGGESTED_FILTERS_ARGS = {
 }
 
 const SUGGESTED_FILTERS_PARAMETERS = {
-    featureFlags: [FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS],
     testOptions: { waitForSelector: '.taxonomic-infinite-list' },
 }
 
@@ -536,6 +436,67 @@ export const AutocaptureContextPromotesElements: Story = {
         docs: {
             description: {
                 story: 'When $autocapture is the selected event, SuggestedFilters shows "text" and "selector" autocapture properties and the Elements group is promoted after SuggestedFilters/Recents.',
+            },
+        },
+    },
+}
+
+function CategoryDropdownStoryRender({
+    variant,
+    ...args
+}: TaxonomicFilterProps & { variant: CategoryDropdownVariant }): JSX.Element {
+    useMountedLogic(actionsModel)
+    useMountedLogic(featureFlagLogic)
+
+    useEffect(() => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+            [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
+        })
+    }, [variant])
+
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+
+const CATEGORY_DROPDOWN_ARGS: TaxonomicFilterProps = {
+    taxonomicFilterLogicKey: 'category-dropdown',
+    taxonomicGroupTypes: [
+        TaxonomicFilterGroupType.Events,
+        TaxonomicFilterGroupType.Actions,
+        TaxonomicFilterGroupType.PersonProperties,
+    ],
+}
+
+const CATEGORY_DROPDOWN_PARAMETERS = {
+    testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+}
+
+export const CategoryDropdownControl: Story = {
+    render: (args) => <CategoryDropdownStoryRender {...args} variant="control" />,
+    args: CATEGORY_DROPDOWN_ARGS,
+    tags: ['test-skip'], // featureFlagLogic setup via useEffect races with the visual-regression runner — verified manually in storybook
+    parameters: {
+        ...CATEGORY_DROPDOWN_PARAMETERS,
+        docs: {
+            description: {
+                story: 'A/B test control: left-hand Categories column is visible and Tab/Shift+Tab cycles between categories.',
+            },
+        },
+    },
+}
+
+export const CategoryDropdownPill: Story = {
+    render: (args) => <CategoryDropdownStoryRender {...args} variant="pill" />,
+    args: CATEGORY_DROPDOWN_ARGS,
+    tags: ['test-skip'], // featureFlagLogic setup via useEffect races with the visual-regression runner — verified manually in storybook
+    parameters: {
+        ...CATEGORY_DROPDOWN_PARAMETERS,
+        docs: {
+            description: {
+                story: 'Test variant "pill": left-hand Categories column is hidden; the current category is shown as a pill in the right-hand suffix of the search input.',
             },
         },
     },

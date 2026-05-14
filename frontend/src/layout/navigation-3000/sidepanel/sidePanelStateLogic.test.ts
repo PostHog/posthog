@@ -71,10 +71,10 @@ describe('sidePanelStateLogic - onSceneTabChanged', () => {
     })
 
     it('restores selectedTabOptions along with the tab', async () => {
-        logic.actions.openSidePanel(SidePanelTab.Support, 'bug:analytics')
+        logic.actions.openSidePanel(SidePanelTab.Activity, 'bug:analytics')
         await expectLogic(logic).toMatchValues({
             sidePanelOpen: true,
-            selectedTab: SidePanelTab.Support,
+            selectedTab: SidePanelTab.Activity,
             selectedTabOptions: 'bug:analytics',
         })
 
@@ -85,7 +85,7 @@ describe('sidePanelStateLogic - onSceneTabChanged', () => {
 
         await expectLogic(logic).toMatchValues({
             sidePanelOpen: true,
-            selectedTab: SidePanelTab.Support,
+            selectedTab: SidePanelTab.Activity,
             selectedTabOptions: 'bug:analytics',
         })
     })

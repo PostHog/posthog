@@ -66,6 +66,8 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
                 messages[0] = SystemMessage(content=system_content)
                 final_error = e
         else:
+            if final_error is None:
+                raise RuntimeError("Failed to parse updated error tracking filters")
             raise final_error
 
         return "✅ Updated error tracking filters.", parsed_result

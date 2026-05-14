@@ -44,6 +44,20 @@ describe('statistics', () => {
             const result = trendLine(values)
             expect(result).toEqual([10])
         })
+
+        it('fits only up to fitUpTo and extrapolates past it', () => {
+            // Clean slope of 1 on first 3 points; tail is artificially flat and would
+            // drag the fit down if included.
+            const values = [1, 2, 3, 10, 10]
+            const result = trendLine(values, 3)
+            expect(result.map((n) => n.toFixed(2))).toEqual(['1.00', '2.00', '3.00', '4.00', '5.00'])
+        })
+
+        it('falls back to 2-point fit when fitUpTo is less than 2', () => {
+            const values = [10, 1, 2, 3, 4]
+            const result = trendLine(values, 1)
+            expect(result.map((n) => n.toFixed(2))).toEqual(['10.00', '1.00', '-8.00', '-17.00', '-26.00'])
+        })
     })
 
     describe('movingAverage', () => {

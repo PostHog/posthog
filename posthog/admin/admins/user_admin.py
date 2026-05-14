@@ -13,7 +13,7 @@ from django.utils.translation import gettext_lazy as _
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
-from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
+from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline
 from posthog.admin.inlines.personal_api_key_inline import PersonalAPIKeyInline
 from posthog.admin.inlines.scim_provisioned_user_inline import SCIMProvisionedUserInline
 from posthog.admin.inlines.totp_device_inline import TOTPDeviceInline
@@ -58,7 +58,7 @@ class UserAdmin(DjangoUserAdmin):
     change_form_template = "admin/posthog/user/change_form.html"
 
     inlines = [
-        OrganizationMemberInline,
+        OrganizationMemberForUserInline,
         PersonalAPIKeyInline,
         TOTPDeviceInline,
         UserSocialAuthInline,
@@ -70,6 +70,7 @@ class UserAdmin(DjangoUserAdmin):
             {
                 "fields": (
                     "id",
+                    "distinct_id",
                     "email",
                     "password",
                     "current_organization",
@@ -100,9 +101,10 @@ class UserAdmin(DjangoUserAdmin):
     list_display_links = ("id", "email")
     list_filter = ("is_staff", "is_active", "groups")
     list_select_related = ("current_team", "current_organization")
-    search_fields = ("email", "first_name", "last_name")
+    search_fields = ("email", "first_name", "last_name", "distinct_id")
     readonly_fields = [
         "id",
+        "distinct_id",
         "email",
         "pending_email",
         "current_team",

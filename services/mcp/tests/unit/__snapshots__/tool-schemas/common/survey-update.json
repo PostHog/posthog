@@ -124,7 +124,7 @@
                         },
                         "deviceTypesMatchType": {
                             "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains",
-                            "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
+                            "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
                             "type": "string"
                         },
                         "events": {
@@ -167,7 +167,7 @@
                         },
                         "urlMatchType": {
                             "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains",
-                            "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
+                            "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
                             "type": "string"
                         }
                     },
@@ -177,11 +177,21 @@
                     "type": "null"
                 }
             ],
-            "description": "Display and targeting conditions for the survey."
+            "description": "Complete replacement display and targeting conditions object. Do not provide this field unless changing display targeting. Preserve existing URL, selector, event, device, wait-period, and linked flag variant conditions unless explicitly changing them."
         },
         "description": {
             "description": "Survey description.",
             "type": "string"
+        },
+        "enable_iframe_embedding": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ]
         },
         "enable_partial_responses": {
             "anyOf": [
@@ -198,7 +208,7 @@
             "anyOf": [
                 {
                     "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
                     "type": "string"
                 },
                 {
@@ -206,6 +216,9 @@
                 }
             ],
             "description": "When the survey stopped being shown to users. Setting this will complete the survey."
+        },
+        "form_content": {
+            "description": "Hosted-form content configuration for external_survey forms. Do not provide this field unless editing hosted-form content. Preserve existing content fields that should remain."
         },
         "id": {
             "description": "A UUID string identifying this survey.",
@@ -271,7 +284,7 @@
                                     },
                                     "descriptionContentType": {
                                         "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
-                                        "enum": ["text", "html"],
+                                        "enum": ["html", "text"],
                                         "type": "string"
                                     },
                                     "optional": {
@@ -303,7 +316,7 @@
                                     },
                                     "descriptionContentType": {
                                         "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
-                                        "enum": ["text", "html"],
+                                        "enum": ["html", "text"],
                                         "type": "string"
                                     },
                                     "link": {
@@ -418,7 +431,7 @@
                                     },
                                     "descriptionContentType": {
                                         "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
-                                        "enum": ["text", "html"],
+                                        "enum": ["html", "text"],
                                         "type": "string"
                                     },
                                     "display": {
@@ -556,7 +569,7 @@
                                     },
                                     "descriptionContentType": {
                                         "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
-                                        "enum": ["text", "html"],
+                                        "enum": ["html", "text"],
                                         "type": "string"
                                     },
                                     "hasOpenChoice": {
@@ -605,7 +618,7 @@
                                     },
                                     "descriptionContentType": {
                                         "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
-                                        "enum": ["text", "html"],
+                                        "enum": ["html", "text"],
                                         "type": "string"
                                     },
                                     "hasOpenChoice": {
@@ -641,7 +654,7 @@
                     "type": "null"
                 }
             ],
-            "description": "\n        The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.\n\n        Basic (open-ended question)\n        - `id`: The question ID\n        - `type`: `open`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Link (a question with a link)\n        - `id`: The question ID\n        - `type`: `link`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `link`: The URL associated with the question.\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Rating (a question with a rating scale)\n        - `id`: The question ID\n        - `type`: `rating`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `display`: Display style of the rating (`number` or `emoji`).\n        - `scale`: The scale of the rating (`number`).\n        - `lowerBoundLabel`: Label for the lower bound of the scale.\n        - `upperBoundLabel`: Label for the upper bound of the scale.\n        - `isNpsQuestion`: Whether the question is an NPS rating.\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Multiple choice\n        - `id`: The question ID\n        - `type`: `single_choice` or `multiple_choice`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `choices`: An array of choices for the question.\n        - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).\n        - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Branching logic can be one of the following types:\n\n        Next question: Proceeds to the next question\n        ```json\n        {\n            \"type\": \"next_question\"\n        }\n        ```\n\n        End: Ends the survey, optionally displaying a confirmation message.\n        ```json\n        {\n            \"type\": \"end\"\n        }\n        ```\n\n        Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.\n        ```json\n        {\n            \"type\": \"response_based\",\n            \"responseValues\": {\n                \"responseKey\": \"value\"\n            }\n        }\n        ```\n\n        Specific question: Proceeds to a specific question by index.\n        ```json\n        {\n            \"type\": \"specific_question\",\n            \"index\": 2\n        }\n        ```\n\n        Translations: Each question can include inline translations.\n        - `translations`: Object mapping language codes to translated fields.\n        - Language codes: Any string - allows customers to use their own language keys (e.g., \"es\", \"es-MX\", \"english\", \"french\")\n        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`\n\n        Example with translations:\n        ```json\n        {\n            \"id\": \"uuid\",\n            \"type\": \"rating\",\n            \"question\": \"How satisfied are you?\",\n            \"lowerBoundLabel\": \"Not satisfied\",\n            \"upperBoundLabel\": \"Very satisfied\",\n            \"translations\": {\n                \"es\": {\n                    \"question\": \"¿Qué tan satisfecho estás?\",\n                    \"lowerBoundLabel\": \"No satisfecho\",\n                    \"upperBoundLabel\": \"Muy satisfecho\"\n                },\n                \"fr\": {\n                    \"question\": \"Dans quelle mesure êtes-vous satisfait?\"\n                }\n            }\n        }\n        ```\n        "
+            "description": "Complete replacement question list. Existing question IDs are tied to response data and must be preserved. Before sending this field, fetch the survey first, modify the existing question objects in place, keep every unchanged or edited question's id, and include the complete intended ordered question list. New questions should omit id. Do not regenerate existing questions from scratch."
         },
         "remove_targeting_flag": {
             "anyOf": [
@@ -668,17 +681,9 @@
         "schedule": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `once` - once\n* `recurring` - recurring\n* `always` - always",
-                            "enum": ["once", "recurring", "always"],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `once` - once\n* `recurring` - recurring\n* `always` - always",
+                    "enum": ["once", "recurring", "always"],
+                    "type": "string"
                 },
                 {
                     "type": "null"
@@ -690,7 +695,7 @@
             "anyOf": [
                 {
                     "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
                     "type": "string"
                 },
                 {
@@ -877,8 +882,8 @@
                                                             "description": "Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before",
                                                             "enum": [
                                                                 "is_date_exact",
-                                                                "is_date_after",
-                                                                "is_date_before"
+                                                                "is_date_before",
+                                                                "is_date_after"
                                                             ],
                                                             "type": "string"
                                                         },
@@ -1183,6 +1188,9 @@
         "targeting_flag_id": {
             "description": "An existing targeting flag to use for this survey.",
             "type": "number"
+        },
+        "translations": {
+            "description": "Complete replacement survey-level translations object. Do not provide this field unless changing translations. Preserve existing language keys and translated fields that should remain. Use null only when the user explicitly asks to remove survey-level translations."
         },
         "type": {
             "description": "Survey type.\n\n* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api",

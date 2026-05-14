@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { IconBell, IconClock, IconDownload } from '@posthog/icons'
+import { IconBell, IconClock, IconDownload, IconNotification } from '@posthog/icons'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -9,8 +9,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
+import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { groupsModel } from '~/models/groupsModel'
@@ -19,9 +22,41 @@ import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/p
 import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
 import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
 import { SettingSectionId } from '~/scenes/settings/types'
-import { ActivityTab, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
+import { ActivityTab, FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
+import { filterSearchItems } from './utils'
+
+let cachedProductIconColorByType: Map<string, FileSystemIconColor> | null = null
+
+const getProductIconColorByType = (): Map<string, FileSystemIconColor> => {
+    if (cachedProductIconColorByType === null) {
+        cachedProductIconColorByType = new Map()
+        for (const product of getTreeItemsProducts()) {
+            const key = product.type || product.iconType
+            if (key && product.iconColor) {
+                cachedProductIconColorByType.set(key, product.iconColor)
+            }
+        }
+    }
+    return cachedProductIconColorByType
+}
+
+const fileSystemEntryToSearchItem = (
+    item: FileSystemEntry,
+    overrides: { id: string; category: string; searchKeywords?: string[] }
+): SearchItem => {
+    const name = splitPath(item.path).pop()
+    const productIconColor = item.type ? getProductIconColorByType().get(item.type) : undefined
+    return {
+        name: name ? unescapePath(name) : item.path,
+        href: item.href || '#',
+        lastViewedAt: item.last_viewed_at ?? null,
+        itemType: item.type ?? null,
+        record: { ...item, iconColor: productIconColor },
+        ...overrides,
+    }
+}
 
 // Types for command search results
 export interface SearchItem {
@@ -73,10 +108,14 @@ export const searchLogic = kea<searchLogicType>([
             ['featureFlags'],
             preflightLogic,
             ['isDev'],
+            userLogic,
+            ['user'],
             recentItemsModel,
             ['recents as cachedRecents', 'recentsHasLoaded', 'sceneLogViewsByRef', 'sceneLogViewsHasLoaded'],
             projectTreeDataLogic,
-            ['shortcutData as cachedStarred', 'shortcutDataHasLoaded'],
+            ['shortcutData as cachedStarred', 'shortcutDataHasLoaded', 'groupItems as treeGroupItems'],
+            organizationIntegrationsLogic,
+            ['organizationIntegrations'],
         ],
     })),
     actions({
@@ -248,18 +287,7 @@ export const searchLogic = kea<searchLogicType>([
             (s) => [s.searchedRecents, s.cachedRecents, s.search],
             (searchedRecents, cachedRecents, search): SearchItem[] => {
                 const source = search.trim() ? (searchedRecents ?? []) : cachedRecents.slice(0, RECENTS_LIMIT)
-                return source.map((item) => {
-                    const name = splitPath(item.path).pop()
-                    return {
-                        id: item.path,
-                        name: name ? unescapePath(name) : item.path,
-                        category: 'recents',
-                        href: item.href || '#',
-                        lastViewedAt: item.last_viewed_at ?? null,
-                        itemType: item.type ?? null,
-                        record: item as unknown as Record<string, unknown>,
-                    }
-                })
+                return source.map((item) => fileSystemEntryToSearchItem(item, { id: item.path, category: 'recents' }))
             },
         ],
         starredItems: [
@@ -268,30 +296,24 @@ export const searchLogic = kea<searchLogicType>([
                 return cachedStarred
                     .filter((e) => e.type !== 'folder')
                     .slice(0, STARRED_LIMIT)
-                    .map((item) => {
-                        const name = splitPath(item.path).pop()
-                        return {
+                    .map((item) =>
+                        fileSystemEntryToSearchItem(item, {
                             id: `starred-${item.id}`,
-                            name: name ? unescapePath(name) : item.path,
                             category: 'starred',
-                            href: item.href || '#',
-                            lastViewedAt: item.last_viewed_at ?? null,
-                            itemType: item.type ?? null,
                             searchKeywords: ['starred', 'favorite', 'favourite', 'shortcut'],
-                            record: item as unknown as Record<string, unknown>,
-                        }
-                    })
+                        })
+                    )
             },
         ],
         appsItems: [
-            (s) => [s.featureFlags, s.isDev, s.sceneLogViewsByRef],
-            (featureFlags, isDev, sceneLogViewsByRef): SearchItem[] => {
+            (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
+            (featureFlags, isDev, user, sceneLogViewsByRef): SearchItem[] => {
                 const allProducts = getTreeItemsProducts()
                 const filteredProducts = allProducts.filter((product) => {
                     if (!product.href) {
                         return false
                     }
-                    if (!isDev && product.category === 'Unreleased') {
+                    if (!isDev && !user?.is_staff && product.category === 'Unreleased') {
                         return false
                     }
                     if (product.flag && !(featureFlags as Record<string, boolean>)[product.flag]) {
@@ -316,41 +338,23 @@ export const searchLogic = kea<searchLogicType>([
                         iconColor: product.iconColor,
                     },
                 }))
-                items.push(
-                    {
-                        id: 'app-activity',
-                        name: 'Activity',
-                        displayName: 'Activity',
-                        category: 'apps',
-                        productCategory: null,
-                        href: urls.activity(ActivityTab.ExploreEvents),
-                        icon: <IconClock />,
-                        itemType: null,
-                        tags: undefined,
-                        lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
-                        record: {
-                            type: 'activity',
-                            iconType: undefined,
-                            iconColor: undefined,
-                        },
+                items.push({
+                    id: 'app-activity',
+                    name: 'Activity',
+                    displayName: 'Activity',
+                    category: 'apps',
+                    productCategory: null,
+                    href: urls.activity(ActivityTab.ExploreEvents),
+                    icon: <IconClock />,
+                    itemType: null,
+                    tags: undefined,
+                    lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
+                    record: {
+                        type: 'activity',
+                        iconType: undefined,
+                        iconColor: undefined,
                     },
-                    {
-                        id: 'app-cohorts',
-                        name: 'Cohorts',
-                        displayName: 'Cohorts',
-                        category: 'apps',
-                        productCategory: null,
-                        href: urls.cohorts(),
-                        itemType: 'cohort',
-                        tags: undefined,
-                        lastViewedAt: sceneLogViewsByRef['Cohorts'] ?? null,
-                        record: {
-                            type: 'cohort',
-                            iconType: 'cohort',
-                            iconColor: undefined,
-                        },
-                    }
-                )
+                })
 
                 // Sort by lastViewedAt (most recent first), items without lastViewedAt go to the end
                 return items.sort((a, b) => {
@@ -368,11 +372,11 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         dataManagementItems: [
-            (s) => [s.featureFlags, s.isDev, s.sceneLogViewsByRef],
-            (featureFlags, isDev, sceneLogViewsByRef): SearchItem[] => {
+            (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
+            (featureFlags, isDev, user, sceneLogViewsByRef): SearchItem[] => {
                 const allMetadata = getTreeItemsMetadata()
                 const filteredMetadata = allMetadata.filter((item) => {
-                    if (!isDev && item.category === 'Unreleased') {
+                    if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
                     if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {
@@ -419,11 +423,11 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         newItems: [
-            (s) => [s.featureFlags, s.isDev],
-            (featureFlags, isDev): SearchItem[] => {
+            (s) => [s.featureFlags, s.isDev, s.user],
+            (featureFlags, isDev, user): SearchItem[] => {
                 const allNewItems = getTreeItemsNew()
                 const filteredItems = allNewItems.filter((item) => {
-                    if (!isDev && item.category === 'Unreleased') {
+                    if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
                     if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {
@@ -465,6 +469,28 @@ export const searchLogic = kea<searchLogicType>([
                         },
                     }
                 })
+            },
+        ],
+        peopleItems: [
+            (s) => [s.treeGroupItems, s.sceneLogViewsByRef],
+            (treeGroupItems, sceneLogViewsByRef): SearchItem[] => {
+                const combined = [...getDefaultTreePersons(), ...treeGroupItems]
+                return combined.map((item) => ({
+                    id: `people-${item.path}`,
+                    name: item.path,
+                    displayName: item.path,
+                    category: 'people',
+                    productCategory: item.category || null,
+                    href: item.href || '#',
+                    itemType: item.iconType || item.type || null,
+                    tags: item.tags,
+                    lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
+                    record: {
+                        type: item.type || item.iconType,
+                        iconType: item.iconType,
+                        iconColor: item.iconColor,
+                    },
+                }))
             },
         ],
         groupItems: [
@@ -590,11 +616,22 @@ export const searchLogic = kea<searchLogicType>([
                     lastViewedAt: sceneLogViewsByRef['SavedInsights'] ?? null,
                     record: { type: 'alerts' },
                 },
+                {
+                    id: 'misc-subscriptions',
+                    name: 'Subscriptions',
+                    displayName: 'Subscriptions',
+                    category: 'misc',
+                    href: urls.subscriptions(),
+                    icon: <IconNotification />,
+                    itemType: null,
+                    lastViewedAt: sceneLogViewsByRef['Subscriptions'] ?? null,
+                    record: { type: 'subscriptions' },
+                },
             ],
         ],
         settingsItems: [
-            (s) => [s.featureFlags],
-            (featureFlags): SearchItem[] => {
+            (s) => [s.featureFlags, s.organizationIntegrations],
+            (featureFlags, organizationIntegrations): SearchItem[] => {
                 const items: SearchItem[] = []
 
                 const checkFlag = (flag: string): boolean => {
@@ -611,6 +648,14 @@ export const searchLogic = kea<searchLogicType>([
                     // Skip sections hidden from navigation (they are only accessible
                     // from their product's own configuration page)
                     if (section.hideFromNavigation) {
+                        continue
+                    }
+
+                    // Mirror sidebar gating: only surface organization integrations when any exist
+                    if (
+                        section.id === 'organization-integrations' &&
+                        (!organizationIntegrations || organizationIntegrations.length === 0)
+                    ) {
                         continue
                     }
 
@@ -659,7 +704,7 @@ export const searchLogic = kea<searchLogicType>([
                             : toSentenceCase(section.id.replace(/[-]/g, ' '))
 
                     const displayNameSuffix =
-                        displayName === 'General' || displayName === 'Danger zone'
+                        displayName === 'General' || displayName === 'Danger zone' || displayName === 'Integrations'
                             ? ` (${toSentenceCase(effectiveLevel)})`
                             : ''
 
@@ -803,6 +848,7 @@ export const searchLogic = kea<searchLogicType>([
                 s.starredItems,
                 s.appsItems,
                 s.dataManagementItems,
+                s.peopleItems,
                 s.healthItems,
                 s.miscItems,
                 s.settingsItems,
@@ -819,6 +865,7 @@ export const searchLogic = kea<searchLogicType>([
                 starredItems: SearchItem[],
                 appsItems: SearchItem[],
                 dataManagementItems: SearchItem[],
+                peopleItems: SearchItem[],
                 healthItems: SearchItem[],
                 miscItems: SearchItem[],
                 settingsItems: SearchItem[],
@@ -855,30 +902,12 @@ export const searchLogic = kea<searchLogicType>([
                 const categories: SearchCategory[] = []
                 const hasSearch = search.trim() !== ''
 
-                // Filter items by search term
+                // Filter items by search term using Fuse.js fuzzy search
                 const filterBySearch = (items: SearchItem[]): SearchItem[] => {
                     if (!hasSearch) {
                         return items
                     }
-                    const searchLower = search.toLowerCase()
-                    return items.filter((item) => {
-                        const name = item.name.toLowerCase()
-                        const category = item.category.toLowerCase()
-                        if (name.includes(searchLower) || category.includes(searchLower)) {
-                            return true
-                        }
-                        if (item.searchKeywords?.some((kw) => kw.toLowerCase().includes(searchLower))) {
-                            return true
-                        }
-                        // Chunk matching: every word in the query must match somewhere
-                        const searchChunks = searchLower.split(' ').filter((s) => s)
-                        return searchChunks.every(
-                            (chunk) =>
-                                name.includes(chunk) ||
-                                category.includes(chunk) ||
-                                (item.searchKeywords?.some((kw) => kw.toLowerCase().includes(chunk)) ?? false)
-                        )
-                    })
+                    return filterSearchItems(items, search)
                 }
 
                 // Always show recents first - show loading skeleton until first load completes
@@ -915,6 +944,16 @@ export const searchLogic = kea<searchLogicType>([
                         key: 'data-management',
                         items: isAppsLoading ? [] : filteredDataManagement,
                         isLoading: isAppsLoading,
+                    })
+                }
+
+                // Show people items (persons, cohorts, group types) if searching with matching results
+                const filteredPeople = filterBySearch(peopleItems)
+                if (hasSearch && filteredPeople.length > 0) {
+                    categories.push({
+                        key: 'people',
+                        items: filteredPeople,
+                        isLoading: false,
                     })
                 }
 

@@ -3,10 +3,9 @@ import { toast, type ToastOptions } from 'react-toastify'
 
 import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
+import { getIncidentStatus, INCIDENT_IO_STATUS_PAGE_BASE } from 'lib/components/HealthMenu/incidentStatusLogic'
 import { isChristmas } from 'lib/holidays'
 import { hashCodeForString } from 'lib/utils'
-
-import { getIncidentStatus, INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
 
 import { IconErrorOutline, IconGift } from '../icons'
 import { LemonButton } from '../LemonButton'
@@ -125,6 +124,20 @@ export const lemonToast = {
             }
             toast.info(<ToastContent type="info" message={message} button={button} id={id} />, {
                 icon: <IconInfo />,
+                ...options,
+            })
+        })
+        return id
+    },
+    loading(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
+        const options = ensureToastId(toastOptions, 'loading', message)
+        const id = options.toastId!
+        queueMicrotask(() => {
+            if (cancelledIds.delete(id)) {
+                return
+            }
+            toast.loading(<ToastContent type="info" message={message} button={button} id={id} />, {
+                icon: <Spinner />,
                 ...options,
             })
         })

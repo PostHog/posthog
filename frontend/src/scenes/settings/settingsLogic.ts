@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -24,8 +25,10 @@ import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, S
 const FUSE_THRESHOLD = 0.2
 
 // Helping kea-typegen navigate the exported default class for Fuse
-export interface SettingsFuse extends FuseClass<Setting> {}
-export interface SectionsFuse extends FuseClass<SettingSection> {}
+export interface SettingsFuse extends FuseClass<Setting & { searchValue: string }> {}
+export interface SectionsFuse extends FuseClass<
+    SettingSection & { searchValue: string; settingsSearchValues: string }
+> {}
 
 export interface SearchIndexEntry {
     settingId: SettingId
@@ -89,7 +92,7 @@ export const settingsLogic = kea<settingsLogicType>([
             teamLogic,
             ['currentTeam'],
             organizationLogic,
-            ['currentOrganization'],
+            ['currentOrganization', 'isAdminOrOwner'],
             organizationIntegrationsLogic,
             ['organizationIntegrations'],
             billingLogic,
@@ -252,6 +255,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.organizationIntegrations,
                 s.preflight,
                 s.canAccessBilling,
+                s.isAdminOrOwner,
             ],
             (
                 doesMatchFlags,
@@ -260,7 +264,8 @@ export const settingsLogic = kea<settingsLogicType>([
                 currentOrganization,
                 organizationIntegrations,
                 preflight,
-                canAccessBilling
+                canAccessBilling,
+                isAdminOrOwner
             ): SettingSection[] => {
                 const isSettingVisible = (setting: Setting): boolean => {
                     if (!doesMatchFlags(setting)) {
@@ -285,7 +290,12 @@ export const settingsLogic = kea<settingsLogicType>([
                     ) {
                         return false
                     }
+
+                    // Explicit gates to avoid showing this in the sidebar when the use doesn't have access to it
                     if (section.id === 'organization-billing' && !canAccessBilling) {
+                        return false
+                    }
+                    if (section.id === 'organization-legal-documents' && !isAdminOrOwner) {
                         return false
                     }
 
@@ -456,7 +466,7 @@ export const settingsLogic = kea<settingsLogicType>([
                     searchValue: getSettingStringValue(setting),
                 }))
 
-                return new FuseClass(settingsWithSearchValues || [], {
+                return createFuse(settingsWithSearchValues || [], {
                     keys: ['searchValue', 'id'],
                     threshold: FUSE_THRESHOLD,
                 })
@@ -472,7 +482,7 @@ export const settingsLogic = kea<settingsLogicType>([
                     settingsSearchValues: section.settings.map(getSettingStringValue).join(' '),
                 }))
 
-                return new FuseClass(sectionsWithSearchValues || [], {
+                return createFuse(sectionsWithSearchValues || [], {
                     keys: ['searchValue', 'settingsSearchValues', 'id'],
                     threshold: FUSE_THRESHOLD,
                 })
@@ -536,7 +546,7 @@ export const settingsLogic = kea<settingsLogicType>([
                     }
                 }
 
-                return new FuseClass(entries, {
+                return createFuse(entries, {
                     keys: [
                         { name: 'settingTitle', weight: 2 },
                         { name: 'keywords', weight: 1.5 },
@@ -617,6 +627,19 @@ export const settingsLogic = kea<settingsLogicType>([
             if (!selectedSettingId) {
                 return
             }
+
+            if (values.selectedSettingId !== selectedSettingId) {
+                actions.selectSetting(selectedSettingId)
+            }
+        },
+        ['*/logs']: (_, searchParams, hashParams) => {
+            const fromHash = hashParams.selectedSetting as string | undefined
+            const fromQuery = typeof searchParams?.setting === 'string' ? searchParams.setting : undefined
+            const raw = fromHash ?? fromQuery
+            if (!raw) {
+                return
+            }
+            const selectedSettingId = (raw === 'logs-sampling' ? 'logs-drop-rules' : raw) as SettingId
 
             if (values.selectedSettingId !== selectedSettingId) {
                 actions.selectSetting(selectedSettingId)

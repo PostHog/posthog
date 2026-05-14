@@ -1,0 +1,13 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "Project ID, or `@current` to fetch the caller's active project.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

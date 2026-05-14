@@ -29,10 +29,14 @@ class EndpointRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Human-readable description of what this endpoint returns.",
     )
-    cache_age_seconds = serializers.FloatField(
+    data_freshness_seconds = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text="Cache TTL in seconds (60–86400).",
+        help_text=(
+            "How fresh the data should be, in seconds. Must be one of: "
+            "900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), "
+            "86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency."
+        ),
     )
     is_active = serializers.BooleanField(
         required=False,
@@ -43,11 +47,6 @@ class EndpointRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Whether query results are materialized to S3.",
-    )
-    sync_frequency = serializers.CharField(
-        required=False,
-        allow_null=True,
-        help_text="Materialization refresh frequency (e.g. 'every_hour', 'every_day').",
     )
     derived_from_insight = serializers.CharField(
         required=False,
@@ -74,6 +73,9 @@ class EndpointRequestSerializer(serializers.Serializer):
 class EndpointMaterializationSerializer(serializers.Serializer):
     """Materialization status for an endpoint version."""
 
+    name = serializers.CharField(
+        help_text="URL-safe endpoint name.",
+    )
     status = serializers.CharField(
         required=False,
         help_text="Current materialization status (e.g. 'Completed', 'Running').",
@@ -96,10 +98,10 @@ class EndpointMaterializationSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Last materialization error message, if any.",
     )
-    sync_frequency = serializers.CharField(
+    saved_query_id = serializers.UUIDField(
         required=False,
         allow_null=True,
-        help_text="How often the materialization refreshes (e.g. 'every_hour').",
+        help_text="UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.",
     )
 
 
@@ -128,9 +130,8 @@ class EndpointResponseSerializer(serializers.Serializer):
     is_active = serializers.BooleanField(
         help_text="Whether the endpoint can be executed via the API.",
     )
-    cache_age_seconds = serializers.FloatField(
-        allow_null=True,
-        help_text="Cache TTL in seconds, or null for default interval-based caching.",
+    data_freshness_seconds = serializers.IntegerField(
+        help_text="How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800.",
     )
     endpoint_path = serializers.CharField(
         help_text="Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run).",
@@ -153,6 +154,13 @@ class EndpointResponseSerializer(serializers.Serializer):
         help_text="Whether the current version's results are pre-computed to S3.",
     )
     current_version = serializers.IntegerField(help_text="Latest version number.")
+
+    current_version_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="UUID of the current EndpointVersion row.",
+    )
+
     versions_count = serializers.IntegerField(help_text="Total number of versions for this endpoint.")
     derived_from_insight = serializers.CharField(
         allow_null=True,
@@ -175,6 +183,29 @@ class EndpointResponseSerializer(serializers.Serializer):
     )
 
 
+class EndpointRunResponseSerializer(serializers.Serializer):
+    """Response from executing an endpoint query."""
+
+    name = serializers.CharField(help_text="URL-safe endpoint name that was executed.")
+    results = serializers.ListField(
+        required=False,
+        help_text="Query result rows. Each row is a list of values matching the columns order.",
+    )
+    columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Column names from the query SELECT clause.",
+    )
+    hasMore = serializers.BooleanField(
+        required=False,
+        help_text="Whether more results are available beyond the limit.",
+    )
+    endpoint_version = serializers.IntegerField(
+        required=False,
+        help_text="Version number of the endpoint that was executed.",
+    )
+
+
 class EndpointVersionResponseSerializer(EndpointResponseSerializer):
     """Extended endpoint representation when viewing a specific version."""
 
@@ -185,6 +216,10 @@ class EndpointVersionResponseSerializer(EndpointResponseSerializer):
     )
     version_created_at = serializers.CharField(
         help_text="ISO 8601 timestamp when this version was created.",
+    )
+    version_updated_at = serializers.CharField(
+        allow_null=True,
+        help_text="ISO 8601 timestamp when this version was last updated.",
     )
     version_created_by = UserBasicSerializer(
         read_only=True,

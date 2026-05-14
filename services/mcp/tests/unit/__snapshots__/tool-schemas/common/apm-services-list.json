@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dateRange": {
+            "description": "JSON-encoded date range, e.g. '{\"date_from\": \"-1h\"}'.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "search": {
+            "description": "Search filter for service names.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

@@ -170,11 +170,11 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                       We currently don't support the following features:
 
                       - No de-obfuscating stacktraces from obfuscated builds ([\\--obfuscate](https://docs.flutter.dev/deployment/obfuscate) and [\\--split-debug-info](https://docs.flutter.dev/deployment/obfuscate)) for Dart code
-                      - No [Source code context](/docs/error-tracking/stack-traces.md) associated with an exception (native Android Java/Kotlin errors and Flutter web only)
+                      - No [Source code context](https://posthog.com/docs/error-tracking/stack-traces) associated with an exception (native Android Java/Kotlin errors and Flutter web only)
                       - No native C/C++ exception capture on Android (Java/Kotlin only)
                       - No background isolate error capture
 
-                      For symbolicated stack traces on native platforms, see the [Flutter debug symbols guide](/docs/error-tracking/upload-source-maps/flutter).
+                      For symbolicated stack traces on native platforms, see the [Flutter debug symbols guide](https://posthog.com/docs/error-tracking/upload-source-maps/flutter).
 
                       These features will be added in future releases. We recommend you stay 
                       up to date with the latest version of the PostHog Flutter SDK.

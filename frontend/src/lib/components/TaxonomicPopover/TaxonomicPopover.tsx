@@ -49,6 +49,9 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     allowNonCapturedEvents?: boolean
     sideIcon?: React.ReactElement | null
     definitionPopoverRenderer?: DefinitionPopoverRenderer
+    suggestedFiltersLabel?: string
+    enableKeywordShortcuts?: boolean
+    selectingKeyOnly?: boolean
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -88,6 +91,9 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         maxContextOptions,
         allowNonCapturedEvents,
         definitionPopoverRenderer,
+        suggestedFiltersLabel,
+        enableKeywordShortcuts,
+        selectingKeyOnly,
         width,
         placement,
         sideIcon,
@@ -144,6 +150,9 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     maxContextOptions={maxContextOptions}
                     allowNonCapturedEvents={allowNonCapturedEvents}
                     definitionPopoverRenderer={definitionPopoverRenderer}
+                    suggestedFiltersLabel={suggestedFiltersLabel}
+                    enableKeywordShortcuts={enableKeywordShortcuts}
+                    selectingKeyOnly={selectingKeyOnly}
                     width={width}
                 />
             }

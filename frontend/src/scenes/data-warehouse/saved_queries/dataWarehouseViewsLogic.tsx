@@ -54,6 +54,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     view: Partial<DataWarehouseSavedQuery> & {
                         types: string[][]
                         folder_id?: string | null
+                        dag_id?: string
                     }
                 ) => {
                     const newView = await api.dataWarehouseSavedQueries.create(view)
