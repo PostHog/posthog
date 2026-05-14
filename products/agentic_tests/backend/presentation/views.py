@@ -1,9 +1,19 @@
 """DRF views for agentic_tests."""
 
-from typing import Any
+import json
+import asyncio
+import threading
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import Task
 
 from django.db.models import QuerySet
+from django.http import StreamingHttpResponse
+from django.utils import timezone
 
+from asgiref.sync import sync_to_async
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -13,10 +23,16 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.agentic_tests.backend.logic.execution import queue_agentic_test_run
+from products.agentic_tests.backend.logic.runner import AgentEvent, run_agent
 from products.agentic_tests.backend.logic.scheduling import refresh_next_run_at
 from products.agentic_tests.backend.models import AgenticTest, AgenticTestRun
 
-from .serializers import AgenticTestRunSerializer, AgenticTestSerializer
+from .serializers import (
+    AgenticTestRunSerializer,
+    AgenticTestSerializer,
+    DetectFlowsRequestSerializer,
+    DetectFlowsResponseSerializer,
+)
 
 
 class AgenticTestViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -39,15 +55,117 @@ class AgenticTestViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         refresh_next_run_at(test)
 
     @extend_schema(
+        methods=["GET"],
+        request=None,
+        responses={200: DetectFlowsResponseSerializer},
+        description="Get the latest flow-detection task for this team, if any.",
+    )
+    @extend_schema(
+        methods=["POST"],
+        request=DetectFlowsRequestSerializer,
+        responses={202: DetectFlowsResponseSerializer},
+        description="Launch a sandboxed agent to analyze a GitHub repository and propose test flows.",
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        request=None,
+        responses={204: None},
+        description="Dismiss the latest flow-detection task (soft-delete).",
+    )
+    @action(detail=False, methods=["get", "post", "delete"])
+    def detect_flows(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if request.method == "GET":
+            return self._get_detect_flows_status()
+        if request.method == "DELETE":
+            return self._dismiss_detect_flows()
+        return self._start_detect_flows(request)
+
+    def _get_detect_flows_status(self) -> Response:
+        task = self._get_latest_detect_flows_task()
+        if task is None:
+            return Response(None, status=status.HTTP_204_NO_CONTENT)
+
+        run = task.runs.order_by("-created_at").first()
+        if run is None:
+            return Response(None, status=status.HTTP_204_NO_CONTENT)
+
+        return Response(
+            DetectFlowsResponseSerializer({"task_id": task.id, "task_run_id": run.id, "status": run.status}).data,
+        )
+
+    def _dismiss_detect_flows(self) -> Response:
+        task = self._get_latest_detect_flows_task()
+        if task is not None:
+            task.soft_delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _get_latest_detect_flows_task(self) -> "Task | None":
+        from products.tasks.backend.models import Task
+
+        return (
+            Task.objects.filter(
+                team_id=self.team_id,
+                origin_product=Task.OriginProduct.AGENTIC_TESTS,
+                deleted=False,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+    def _start_detect_flows(self, request: Request) -> Response:
+        serializer = DetectFlowsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        from products.agentic_tests.backend.logic.detect_flows import launch_detect_flows_task
+
+        task = launch_detect_flows_task(
+            team=self.team,
+            user=request.user,
+            repository=serializer.validated_data["repository"],
+            domain=serializer.validated_data["domain"],
+        )
+        task_run = task.runs.order_by("-created_at").first()
+        return Response(
+            DetectFlowsResponseSerializer({"task_id": task.id, "task_run_id": task_run.id if task_run else None}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @extend_schema(
         request=None,
         responses=AgenticTestRunSerializer,
-        description="Trigger an immediate run of this agentic test (mocked until browserbase wiring lands).",
+        description="Trigger an immediate run of this agentic test (blocks until complete; for long runs prefer `stream`).",
     )
     @action(detail=True, methods=["post"])
     def run_now(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         test: AgenticTest = self.get_object()
         run = queue_agentic_test_run(test)
         return Response(AgenticTestRunSerializer(run).data, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        request=None,
+        responses={200: None},
+        description=(
+            "Trigger a run and stream progress as Server-Sent Events. "
+            "Each event is a JSON line with `type` and `data`. A terminal event with `type='final'` "
+            "carries the persisted AgenticTestRun id (`run_id`) so the client can fetch the row."
+        ),
+    )
+    @action(detail=True, methods=["post"])
+    def stream(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+        test: AgenticTest = self.get_object()
+        run = AgenticTestRun.objects.create(
+            agentic_test=test,
+            status=AgenticTestRun.Status.RUNNING,
+        )
+
+        response = StreamingHttpResponse(
+            _stream_run(run=run, test=test),
+            content_type="text/event-stream",
+        )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        response["Connection"] = "keep-alive"
+        return response
 
     @extend_schema(
         request=None,
@@ -105,3 +223,92 @@ class AgenticTestRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
         if test_id:
             qs = qs.filter(agentic_test_id=test_id)
         return qs.order_by("-started_at")
+
+
+_SSE_KEEPALIVE = b": keepalive\n\n"
+_SSE_KEEPALIVE_INTERVAL_S = 10.0
+
+
+def _sse(event: str, data: dict[str, Any]) -> bytes:
+    """Format a Server-Sent Events frame."""
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n".encode()
+
+
+async def _stream_run(*, run: AgenticTestRun, test: AgenticTest) -> AsyncIterator[bytes]:
+    """Async SSE generator. Bridges the sync `run_agent` via a producer thread.
+
+    Why this shape: `run_agent` uses sync_playwright(), which can't run inside an
+    asyncio event loop. We spawn a thread that consumes the sync generator and
+    pushes events into an asyncio.Queue; this async generator awaits the queue
+    and yields SSE frames. The async generator is what lets Django's ASGI handler
+    (Granian) actually stream chunks to the client instead of collecting them.
+    """
+    yield _sse("run_started", {"run_id": str(run.id), "agentic_test_id": str(test.id)})
+
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[AgentEvent | object] = asyncio.Queue()
+    SENTINEL: object = object()
+
+    def producer() -> None:
+        try:
+            for event in run_agent(prompt=test.prompt, target_url=test.target_url):
+                loop.call_soon_threadsafe(queue.put_nowait, event)
+        except Exception as exc:  # noqa: BLE001 — surface crashes as a final event
+            crash = AgentEvent(
+                "final",
+                {
+                    "passed": False,
+                    "error": f"Runner crashed: {exc}",
+                    "output": {},
+                    "external_session_id": "",
+                    "screenshot_url": "",
+                },
+            )
+            loop.call_soon_threadsafe(queue.put_nowait, crash)
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+
+    threading.Thread(target=producer, daemon=True).start()
+
+    final: dict[str, Any] | None = None
+    try:
+        while True:
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=_SSE_KEEPALIVE_INTERVAL_S)
+            except TimeoutError:
+                # No event for a while — emit a comment to keep the connection warm
+                # and to force a flush through any intermediate buffer.
+                yield _SSE_KEEPALIVE
+                continue
+            if item is SENTINEL:
+                break
+            assert isinstance(item, AgentEvent)
+            yield _sse(item.type, {"step": item.step, **item.data})
+            if item.type == "final":
+                final = item.data
+    finally:
+        await sync_to_async(_persist_run_terminal, thread_sensitive=True)(
+            run=run,
+            test=test,
+            result=final or {},
+        )
+
+    yield _sse("run_finished", {"run_id": str(run.id), "status": run.status})
+
+
+def _persist_run_terminal(*, run: AgenticTestRun, test: AgenticTest, result: dict[str, Any]) -> None:
+    """Write the final state of a streamed run, mirroring execute_agentic_test."""
+    passed = bool(result.get("passed", False))
+    output = result.get("output") or {}
+    run.finished_at = timezone.now()
+    run.duration_ms = int(output.get("duration_ms") or 0)
+    run.output = output
+    run.external_session_id = result.get("external_session_id", "") or ""
+    run.screenshot_url = result.get("screenshot_url", "") or ""
+    run.status = AgenticTestRun.Status.PASSED if passed else AgenticTestRun.Status.FAILED
+    if not passed:
+        run.error_message = (result.get("error") or "")[:5000]
+    run.save()
+
+    test.last_run_at = run.started_at
+    test.save(update_fields=["last_run_at", "updated_at"])

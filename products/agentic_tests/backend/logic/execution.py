@@ -1,20 +1,24 @@
 """
 Execution path for an agentic test run.
 
-For now this is a deterministic mock — the browserbase integration is a teammate's
-piece and will replace `_run_mock`. The expected shape from any real runner is:
+Runner contract (returned by `_run` and persisted by `execute_agentic_test`):
 
     { passed: bool, output: dict, error?: str, external_session_id?: str, screenshot_url?: str }
 
-On failure we emit a `$agentic_test_result` event so anyone wanting Slack / PagerDuty /
-etc alerts can wire a HogFunction destination filtered on that event — no per-test
-config needed.
+The default backend is the Python agent loop in `runner.py` (Anthropic +
+Playwright + Browserbase). `_run_mock` is kept for tests/demos where we
+don't want to hit a real LLM.
+
+On failure we emit a `$agentic_test_result` event so anyone wanting Slack /
+PagerDuty / etc alerts can wire a HogFunction destination filtered on that
+event — no per-test config needed.
 """
 
 import time
 from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -23,6 +27,8 @@ import structlog
 from posthog.ph_client import ph_scoped_capture
 
 from products.agentic_tests.backend.models import AgenticTest, AgenticTestRun
+
+from .runner import run_agent
 
 logger = structlog.get_logger(__name__)
 
@@ -52,7 +58,7 @@ def execute_agentic_test_run(run_id: str) -> None:
 
     start = time.monotonic()
     try:
-        result = _run_mock(test)
+        result = _run(test)
     except Exception as exc:  # noqa: BLE001 — surface anything as a failed run
         logger.exception("agentic_test_runner_error", test_id=str(test.id), error=str(exc))
         result = {"passed": False, "output": {}, "error": f"Runner error: {exc}"}
@@ -143,13 +149,22 @@ def _check_event_captured(*, team_id: int, event: str, within_seconds: int, star
     return False, f"No '{event}' events captured within {within_seconds}s"
 
 
-def _run_mock(test: AgenticTest) -> dict[str, Any]:
-    """
-    Deterministic mock so the demo works without a real browser runner.
+def _run(test: AgenticTest) -> dict[str, Any]:
+    """Dispatch to the real Python agent loop or the deterministic mock based on settings."""
+    if getattr(settings, "AGENTIC_TESTS_USE_MOCK_RUNNER", False):
+        return _run_mock(test)
 
-    Always returns a passing result — failed runs in the demo come from seeded
-    history (see `seed_agentic_tests_demo`), not from this code path.
-    """
+    final: dict[str, Any] | None = None
+    for event in run_agent(prompt=test.prompt, target_url=test.target_url):
+        if event.type == "final":
+            final = event.data
+    if final is None:
+        return {"passed": False, "output": {}, "error": "Runner produced no final event"}
+    return final
+
+
+def _run_mock(test: AgenticTest) -> dict[str, Any]:
+    """Deterministic mock for tests and seeded demos. Always passes."""
     return {
         "passed": True,
         "output": {"steps_completed": 5, "evaluation": "Prompt satisfied."},

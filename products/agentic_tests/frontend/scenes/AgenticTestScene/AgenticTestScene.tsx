@@ -346,7 +346,7 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
 export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
     const logic = agenticTestSceneLogic({ id })
     const { test, testForm, isNew, testFormChanged, isTestFormSubmitting, willChangeEnabledOnSave } = useValues(logic)
-    const { runNow, activate, submitTestForm, setTestFormValue, clearChanges } = useActions(logic)
+    const { runNow, activate, reject, submitTestForm, setTestFormValue, clearChanges } = useActions(logic)
     const { searchParams } = useValues(router)
     const currentTab: AgenticTestTab = (searchParams.tab as AgenticTestTab) || 'configuration'
 
@@ -386,6 +386,16 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                 forceBackTo={{ key: 'AgenticTests', name: 'Agentic tests', path: '/agentic_tests' }}
                 actions={
                     <>
+                        {!isNew && test?.status === 'proposed' && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={reject}
+                                data-attr="agentic-test-reject-detail"
+                            >
+                                Reject proposal
+                            </LemonButton>
+                        )}
                         {!isNew && test?.status === 'proposed' && (
                             <LemonButton
                                 type="secondary"

@@ -110,6 +110,13 @@ LLMA_EVAL_OPENAI_BASE_URL = get_from_env("LLMA_EVAL_OPENAI_BASE_URL", "")
 LLMA_EVAL_ANTHROPIC_API_KEY = get_from_env("LLMA_EVAL_ANTHROPIC_API_KEY", "")
 LLMA_EVAL_GEMINI_API_KEY = get_from_env("LLMA_EVAL_GEMINI_API_KEY", "")
 
+# Agentic tests — Browserbase cloud Chrome powers the in-Django agent loop.
+BROWSERBASE_API_KEY = get_from_env("BROWSERBASE_API_KEY", "")
+BROWSERBASE_PROJECT_ID = get_from_env("BROWSERBASE_PROJECT_ID", "")
+# When true, execute_agentic_test() uses a deterministic mock instead of the real runner.
+# Useful for unit tests and seeded demos.
+AGENTIC_TESTS_USE_MOCK_RUNNER = get_from_env("AGENTIC_TESTS_USE_MOCK_RUNNER", False, type_cast=bool)
+
 SQS_QUEUES = {
     "usage_reports": {
         "url": get_from_env("SQS_USAGE_REPORT_QUEUE_URL", optional=True),
