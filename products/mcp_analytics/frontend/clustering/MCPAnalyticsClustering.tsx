@@ -50,10 +50,10 @@ function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
 
 function HeatmapCell({ entry }: { entry: MCPIntentClusterToolEntryApi | undefined }): JSX.Element {
     if (!entry || entry.count === 0) {
-        return <div className="h-6 w-full rounded-sm bg-surface-secondary/30" aria-hidden />
+        return <div className="h-3.5 w-3.5 rounded-[2px] bg-surface-secondary/30" aria-hidden />
     }
     // Floor opacity so any non-zero usage is at least faintly visible.
-    const opacity = Math.max(0.08, Math.min(1, entry.pct / 100))
+    const opacity = Math.max(0.12, Math.min(1, entry.pct / 100))
     const hasErrors = entry.error_rate_pct > 0
     return (
         <Tooltip
@@ -67,7 +67,7 @@ function HeatmapCell({ entry }: { entry: MCPIntentClusterToolEntryApi | undefine
             }
         >
             <div
-                className="h-6 w-full rounded-sm relative cursor-help"
+                className="h-3.5 w-3.5 rounded-[2px] cursor-help"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     backgroundColor: hasErrors ? 'var(--danger)' : 'var(--accent)',
@@ -168,22 +168,35 @@ function Heatmap(): JSX.Element {
 
     return (
         <div className="bg-surface-primary border rounded overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
+            <table className="text-sm border-collapse" style={{ borderSpacing: 0 }}>
                 <thead>
-                    <tr className="bg-surface-secondary text-xs text-muted">
-                        <th className="text-left px-3 py-2 sticky left-0 bg-surface-secondary z-10 min-w-[260px]">
+                    <tr className="bg-surface-secondary text-[10px] text-muted">
+                        <th className="text-left px-3 py-2 sticky left-0 bg-surface-secondary z-10 min-w-[220px] align-bottom text-xs">
                             Intent cluster
                         </th>
                         {toolColumns.map((tool) => (
-                            <th key={tool} className="px-2 py-2 text-center min-w-[64px] max-w-[120px] font-medium">
-                                <div className="truncate" title={tool}>
+                            <th
+                                key={tool}
+                                className="px-0 pb-1 pt-2 font-medium align-bottom"
+                                style={{ width: 18, minWidth: 18, maxWidth: 18 }}
+                            >
+                                <div
+                                    className="font-mono text-[10px] mx-auto whitespace-nowrap overflow-hidden text-ellipsis"
+                                    style={{
+                                        writingMode: 'vertical-rl',
+                                        transform: 'rotate(180deg)',
+                                        height: 96,
+                                        lineHeight: '18px',
+                                    }}
+                                    title={tool}
+                                >
                                     {tool}
                                 </div>
                             </th>
                         ))}
-                        <th className="px-3 py-2 text-right">Calls</th>
-                        <th className="px-3 py-2 text-right">Errors</th>
-                        <th className="px-3 py-2 text-left">Routing</th>
+                        <th className="px-3 py-2 text-right text-xs align-bottom">Calls</th>
+                        <th className="px-3 py-2 text-right text-xs align-bottom">Errors</th>
+                        <th className="px-3 py-2 text-left text-xs align-bottom">Routing</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -204,13 +217,13 @@ function Heatmap(): JSX.Element {
                                 }`}
                             >
                                 <td
-                                    className={`px-3 py-2 sticky left-0 z-10 min-w-[260px] max-w-[320px] transition-colors ${rowBg}`}
+                                    className={`px-3 py-1.5 sticky left-0 z-10 min-w-[220px] max-w-[280px] transition-colors ${rowBg}`}
                                 >
                                     <div className="flex flex-col">
                                         <span className="font-medium truncate" title={cluster.label}>
                                             {cluster.label}
                                         </span>
-                                        <span className="text-xs text-muted">
+                                        <span className="text-[10px] text-muted">
                                             {cluster.session_count} session
                                             {cluster.session_count === 1 ? '' : 's'} · {cluster.intent_count} intent
                                             {cluster.intent_count === 1 ? '' : 's'}
@@ -218,21 +231,27 @@ function Heatmap(): JSX.Element {
                                     </div>
                                 </td>
                                 {toolColumns.map((tool) => (
-                                    <td key={tool} className="px-1 py-2 align-middle">
-                                        <HeatmapCell entry={byTool.get(tool)} />
+                                    <td
+                                        key={tool}
+                                        className="p-0 align-middle"
+                                        style={{ width: 18, minWidth: 18, maxWidth: 18 }}
+                                    >
+                                        <div className="flex justify-center items-center py-[2px]">
+                                            <HeatmapCell entry={byTool.get(tool)} />
+                                        </div>
                                     </td>
                                 ))}
-                                <td className="px-3 py-2 text-right tabular-nums">
+                                <td className="px-3 py-1.5 text-right tabular-nums text-xs">
                                     {cluster.call_count.toLocaleString()}
                                 </td>
                                 <td
-                                    className={`px-3 py-2 text-right tabular-nums ${
+                                    className={`px-3 py-1.5 text-right tabular-nums text-xs ${
                                         cluster.error_rate_pct > 5 ? 'text-danger font-semibold' : ''
                                     }`}
                                 >
                                     {cluster.error_rate_pct.toFixed(1)}%
                                 </td>
-                                <td className="px-3 py-2">
+                                <td className="px-3 py-1.5">
                                     <EntropyBadge entropy={cluster.routing_entropy} />
                                 </td>
                             </tr>
