@@ -1643,6 +1643,36 @@ describe('llmPlaygroundLogic', () => {
 
             expect(llmPlaygroundPromptsLogic.values.sourceSetupLoading).toBe(false)
         })
+
+        it('syncs source param via replace, not push (regression for pageview loop)', async () => {
+            // Previously `finishSourceSetup` used `router.actions.push`, which adds a history
+            // entry and fires a `$pageview` on every setup. If `urlToAction` re-entered the
+            // setup path (e.g. because multiple keyed logic instances were mounted), each
+            // iteration pushed another history entry, producing thousands of pageviews per
+            // minute on the LLM Analytics playground. Switching to `replace` keeps history
+            // bounded so a single missed dedup cannot snowball.
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/evaluations/:id/': {
+                        id: 'eval-1',
+                        name: 'judge-eval',
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: 'Rate.' },
+                    },
+                },
+            })
+
+            const initialHistoryLength = window.history.length
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'evaluation',
+                sourceEvaluationId: 'eval-1',
+            })
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(router.values.searchParams).toHaveProperty('source_evaluation_id', 'eval-1')
+            expect(window.history.length).toBe(initialHistoryLength)
+        })
     })
 
     describe('save actions', () => {
