@@ -145,32 +145,7 @@ class GitHubIntegrationAdapter(NullGitHubAdapter):
             raise GitHubError("GitHub API returned an unexpected response shape.")
         return payload
 
-    def get_repository_by_id(self, *, integration: Integration, github_repo_id: int) -> GitHubRepository:
-        try:
-            repositories = GitHubIntegration(integration).list_all_cached_repositories()
-        except GitHubIntegrationError as err:
-            raise GitHubError(str(err)) from err
-
-        repo_full_name = next(
-            (
-                str(repository["full_name"])
-                for repository in repositories
-                if int(repository.get("id", 0)) == github_repo_id and repository.get("full_name")
-            ),
-            None,
-        )
-        if repo_full_name is None:
-            raise GitHubError("GitHub repository not found in this integration.")
-        return self.get_repository(integration=integration, repo_full_name=repo_full_name)
-
-    def get_repository(self, *, integration: Integration, repo_full_name: str) -> GitHubRepository:
-        validate_repo_full_name(repo_full_name)
-        payload = self._get_json(
-            integration=integration,
-            path=f"/repos/{repo_full_name}",
-            endpoint="/repos/{owner}/{repo}",
-        )
-
+    def _repository_from_payload(self, payload: dict[str, Any]) -> GitHubRepository:
         repository_id = payload.get("id")
         full_name = payload.get("full_name")
         default_branch = payload.get("default_branch")
@@ -190,6 +165,27 @@ class GitHubIntegrationAdapter(NullGitHubAdapter):
             default_branch=default_branch,
             html_url=html_url,
         )
+
+    def get_repository_by_id(self, *, integration: Integration, github_repo_id: int) -> GitHubRepository:
+        payload = self._get_json(
+            integration=integration,
+            path=f"/repositories/{github_repo_id}",
+            endpoint="/repositories/{repository_id}",
+        )
+        repository = self._repository_from_payload(payload)
+        if repository.id != github_repo_id:
+            raise GitHubError("GitHub repository response id did not match the requested repository.")
+        return repository
+
+    def get_repository(self, *, integration: Integration, repo_full_name: str) -> GitHubRepository:
+        validate_repo_full_name(repo_full_name)
+        payload = self._get_json(
+            integration=integration,
+            path=f"/repos/{repo_full_name}",
+            endpoint="/repos/{owner}/{repo}",
+        )
+
+        return self._repository_from_payload(payload)
 
     def get_branch(self, *, integration: Integration, repo_full_name: str, branch: str) -> GitHubBranch:
         validate_repo_full_name(repo_full_name)
