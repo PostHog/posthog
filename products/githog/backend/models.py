@@ -2,6 +2,8 @@
 
 from django.db import models
 
+from posthog.models.utils import UUIDModel
+
 
 class GitHogPullRequestDataFlow(models.Model):
     """Cached LLM-generated execution-flow analysis for a single PR head SHA.
@@ -66,7 +68,7 @@ class GitHogPullRequestLayout(models.Model):
         ]
 
 
-class GitHogConversationMessage(models.Model):
+class GitHogConversationMessage(UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     repository = models.CharField(max_length=512, help_text="Repository in owner/name format.")
     pull_request_number = models.IntegerField()
