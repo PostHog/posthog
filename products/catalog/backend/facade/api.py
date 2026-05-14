@@ -9,6 +9,7 @@ from products.catalog.backend.facade.contracts import (
     CatalogRelationshipDTO,
     ProposeRelationshipParams,
     UpdateColumnParams,
+    UpdateMetricParams,
     UpdateNodeParams,
     UpdateRelationshipParams,
     UpsertColumnParams,
@@ -56,6 +57,18 @@ class CatalogAPI:
         write semantics — metric row and node row are created/updated together.
         """
         return logic.upsert_metric(params)
+
+    @staticmethod
+    def list_metrics(team_id: int) -> list[CatalogMetricDTO]:
+        return logic.list_metrics(team_id)
+
+    @staticmethod
+    def get_metric(team_id: int, metric_id: UUID) -> CatalogMetricDTO | None:
+        return logic.get_metric(team_id, metric_id)
+
+    @staticmethod
+    def update_metric(params: UpdateMetricParams) -> CatalogMetricDTO | None:
+        return logic.update_metric(params)
 
     @staticmethod
     def propose_relationship(params: ProposeRelationshipParams) -> CatalogRelationshipDTO:

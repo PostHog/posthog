@@ -52,14 +52,14 @@ def to_node_dto(node: CatalogNode, *, columns: list[CatalogColumn] | None = None
     )
 
 
-def to_metric_dto(metric: CatalogMetric, node_id: UUID) -> contracts.CatalogMetricDTO:
+def to_metric_dto(metric: CatalogMetric, node: CatalogNode) -> contracts.CatalogMetricDTO:
     return contracts.CatalogMetricDTO(
         id=metric.id,
         team_id=metric.team_id,
         name=metric.name,
         description=metric.description,
         definition=metric.definition or {},
-        node_id=node_id,
+        node=to_node_dto(node),
         created_at=metric.created_at,
         updated_at=metric.updated_at,
     )
@@ -160,6 +160,65 @@ def upsert_node(params: contracts.UpsertNodeParams) -> contracts.CatalogNodeDTO:
     return to_node_dto(node)
 
 
+def _metric_nodes_by_metric_id(team_id: int, metric_ids: list[UUID]) -> dict[UUID, CatalogNode]:
+    """Fetch each metric row's bound CatalogNode(kind=metric) in one query.
+
+    Returned mapping is keyed by CatalogMetric.id (the node's `object_id` via the
+    GenericForeignKey). Metrics without a bound node are omitted — callers decide
+    whether to skip them or raise. `columns` is prefetched so to_node_dto doesn't
+    issue per-row queries when the metric is bundled into a DTO.
+    """
+    if not metric_ids:
+        return {}
+    metric_ct = ContentType.objects.get_for_model(CatalogMetric)
+    nodes = CatalogNode.objects.filter(
+        team_id=team_id,
+        kind=CatalogNode.Kind.METRIC,
+        content_type=metric_ct,
+        object_id__in=metric_ids,
+    ).prefetch_related("columns")
+    return {node.object_id: node for node in nodes if node.object_id is not None}
+
+
+def list_metrics(team_id: int) -> list[contracts.CatalogMetricDTO]:
+    metrics = list(CatalogMetric.objects.filter(team_id=team_id).order_by("name"))
+    node_by_metric = _metric_nodes_by_metric_id(team_id, [m.id for m in metrics])
+    # Skip rows whose bound node has been deleted — they're zombies; the cleanup
+    # signal hasn't run yet or the node was force-removed. Don't surface them to
+    # callers expecting a `node`.
+    return [to_metric_dto(m, node=node_by_metric[m.id]) for m in metrics if m.id in node_by_metric]
+
+
+def get_metric(team_id: int, metric_id: UUID) -> contracts.CatalogMetricDTO | None:
+    metric = CatalogMetric.objects.filter(team_id=team_id, id=metric_id).first()
+    if metric is None:
+        return None
+    node = _metric_nodes_by_metric_id(team_id, [metric.id]).get(metric.id)
+    if node is None:
+        return None
+    return to_metric_dto(metric, node=node)
+
+
+@transaction.atomic
+def update_metric(params: contracts.UpdateMetricParams) -> contracts.CatalogMetricDTO | None:
+    metric = CatalogMetric.objects.filter(team_id=params.team_id, id=params.metric_id).first()
+    if metric is None:
+        return None
+    fields: list[str] = []
+    if params.description is not None:
+        metric.description = params.description
+        fields.append("description")
+    if params.definition is not None:
+        metric.definition = params.definition
+        fields.append("definition")
+    if fields:
+        metric.save(update_fields=[*fields, "updated_at"])
+    node = _metric_nodes_by_metric_id(params.team_id, [metric.id]).get(metric.id)
+    if node is None:
+        return None
+    return to_metric_dto(metric, node=node)
+
+
 @transaction.atomic
 def upsert_metric(params: contracts.UpsertMetricParams) -> contracts.CatalogMetricDTO:
     """Upsert a CatalogMetric and bind a CatalogNode(kind=metric) to it.
@@ -192,7 +251,7 @@ def upsert_metric(params: contracts.UpsertMetricParams) -> contracts.CatalogMetr
         name=params.name,
         defaults=node_defaults,
     )
-    return to_metric_dto(metric, node_id=node.id)
+    return to_metric_dto(metric, node=node)
 
 
 @transaction.atomic

@@ -1198,6 +1198,52 @@ aggregate (DataWarehouseNode), or a raw HogQL query (HogQLQuery). All three carr
  */
 export type MetricDefinitionSchemaApi = EventsNodeApi | DataWarehouseNodeApi | HogQLQueryApi
 
+export interface CatalogNodeDTOApi {
+    columns: CatalogColumnDTOApi[]
+    id: string
+    team_id: number
+    kind: string
+    name: string
+    /** @nullable */
+    description: string | null
+    /** @nullable */
+    semantic_role: string | null
+    /** @nullable */
+    business_domain: string | null
+    tags: string[]
+    /** @nullable */
+    first_seen_at: string | null
+    /** @nullable */
+    last_seen_at: string | null
+    /** @nullable */
+    last_traversed_at: string | null
+    /** @nullable */
+    confidence: number | null
+    status: string
+    /** @nullable */
+    reviewed_at: string | null
+}
+
+export interface CatalogMetricDTOApi {
+    definition: MetricDefinitionSchemaApi
+    node: CatalogNodeDTOApi
+    id: string
+    team_id: number
+    name: string
+    description: string
+    created_at: string
+    updated_at: string
+}
+
+export interface PaginatedCatalogMetricDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CatalogMetricDTOApi[]
+}
+
 /**
  * Body for catalog-metrics-create. team_id is taken from the URL, not the body.
 
@@ -1230,41 +1276,17 @@ export interface UpsertMetricInputApi {
     confidence?: number | null
 }
 
-export interface CatalogMetricDTOApi {
-    definition: MetricDefinitionSchemaApi
-    id: string
-    team_id: number
-    name: string
-    description: string
-    node_id: string
-    created_at: string
-    updated_at: string
-}
+/**
+ * Body for catalog-metrics-partial-update. Every field optional; only supplied fields are written.
 
-export interface CatalogNodeDTOApi {
-    columns: CatalogColumnDTOApi[]
-    id: string
-    team_id: number
-    kind: string
-    name: string
-    /** @nullable */
-    description: string | null
-    /** @nullable */
-    semantic_role: string | null
-    /** @nullable */
-    business_domain: string | null
-    tags: string[]
-    /** @nullable */
-    first_seen_at: string | null
-    /** @nullable */
-    last_seen_at: string | null
-    /** @nullable */
-    last_traversed_at: string | null
-    /** @nullable */
-    confidence: number | null
-    status: string
-    /** @nullable */
-    reviewed_at: string | null
+Status / tags / semantic_role for the metric live on the bound CatalogNode(kind=metric).
+Use the metric DTO's `node_id` to PATCH `/catalog/nodes/:node_id/` for those.
+ */
+export interface PatchedUpdateMetricInputApi {
+    /** Human-readable description of what this metric measures, when to use it, and any caveats. Updating clears the old text — pass the full description, not a diff. */
+    description?: string
+    /** How the metric is computed. Exactly one of `EventsNode`, `DataWarehouseNode`, or `HogQLQuery` — the same shape `Insight.query.series` uses, discriminated by the inner `kind` field. Replaces the existing definition wholesale; supply the complete body. */
+    definition?: MetricDefinitionSchemaApi
 }
 
 export interface PaginatedCatalogNodeDTOListApi {
@@ -1541,6 +1563,17 @@ export interface PatchedUpdateRelationshipInputApi {
     confidence?: number
     /** Free-text justification, typically extended during human review. */
     reasoning?: string
+}
+
+export type CatalogMetricsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type CatalogNodesListParams = {

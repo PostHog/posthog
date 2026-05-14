@@ -151,10 +151,11 @@ class UpdateRelationshipParams:
 class CatalogMetricDTO:
     """A semantic metric proposed for the catalog (e.g. "MRR", "DAU", "pricing-page conversion").
 
-    Pairs 1:1 with a `CatalogNode(kind=metric)` whose polymorphic pointer
-    (content_type/object_id) targets this row. Display metadata (status, semantic_role,
-    business_domain, tags) lives on the node; the metric row holds the computational
-    definition.
+    Pairs 1:1 with a `CatalogNode(kind=metric)`, bundled here so the UI gets review
+    state (status, confidence, tags, semantic_role, business_domain) without a second
+    fetch. Definition lives on the metric row; everything review-related lives on the node.
+    Status changes route through PATCH /catalog/nodes/:node.id/ — partial_update on the
+    metric endpoint only touches metric-row fields (description, definition).
     """
 
     id: UUID
@@ -162,9 +163,23 @@ class CatalogMetricDTO:
     name: str
     description: str
     definition: dict[str, Any]
-    node_id: UUID
+    node: CatalogNodeDTO
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class UpdateMetricParams:
+    """Partial update of a CatalogMetric. Only fields supplied are written.
+
+    Status / tags / semantic metadata live on the bound CatalogNode and are updated via
+    PATCH /catalog/nodes/:id/ with the metric DTO's `node.id`.
+    """
+
+    team_id: int
+    metric_id: UUID
+    description: str | None = None
+    definition: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

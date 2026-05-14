@@ -1,14 +1,19 @@
+from uuid import uuid4
+
 from posthog.test.base import BaseTest
 
 from products.catalog.backend.facade.api import CatalogAPI
 from products.catalog.backend.facade.contracts import (
     CatalogGraphDTO,
+    CatalogMetricDTO,
     CatalogNodeDTO,
     ProposeRelationshipParams,
     UpdateColumnParams,
+    UpdateMetricParams,
     UpdateNodeParams,
     UpdateRelationshipParams,
     UpsertColumnParams,
+    UpsertMetricParams,
     UpsertNodeParams,
 )
 
@@ -270,3 +275,64 @@ class TestCatalogAPIUpdate(BaseTest):
 
         assert accepted is not None
         assert accepted.status == "accepted"
+
+
+class TestCatalogAPIMetrics(BaseTest):
+    def _upsert(self, name: str = "monthly_recurring_revenue", **overrides) -> CatalogMetricDTO:
+        return CatalogAPI.upsert_metric(
+            UpsertMetricParams(
+                team_id=self.team.pk,
+                name=name,
+                description=overrides.get("description", "MRR across active subscriptions"),
+                definition=overrides.get(
+                    "definition",
+                    {"kind": "EventsNode", "event": "subscription_started", "math": "dau"},
+                ),
+                confidence=overrides.get("confidence", 0.9),
+            )
+        )
+
+    def test_upsert_bundles_node_metadata_into_metric_dto(self) -> None:
+        dto = self._upsert()
+        assert dto.name == "monthly_recurring_revenue"
+        assert dto.definition["kind"] == "EventsNode"
+        assert dto.node.kind == "metric"
+        assert dto.node.status == "proposed"
+        assert dto.node.confidence == 0.9
+
+    def test_list_metrics_returns_team_metrics_only(self) -> None:
+        self._upsert(name="mrr")
+        self._upsert(name="arr")
+        other_team = self.organization.teams.create(name="other")
+        CatalogAPI.upsert_metric(
+            UpsertMetricParams(
+                team_id=other_team.pk,
+                name="leaky",
+                definition={"kind": "EventsNode", "event": "signup", "math": "dau"},
+            )
+        )
+        metrics = CatalogAPI.list_metrics(self.team.pk)
+        assert sorted(m.name for m in metrics) == ["arr", "mrr"]
+
+    def test_get_metric_returns_none_for_missing(self) -> None:
+        assert CatalogAPI.get_metric(self.team.pk, uuid4()) is None
+
+    def test_update_metric_writes_only_supplied_fields(self) -> None:
+        original = self._upsert()
+        updated = CatalogAPI.update_metric(
+            UpdateMetricParams(
+                team_id=self.team.pk,
+                metric_id=original.id,
+                description="Refined MRR description",
+            )
+        )
+        assert updated is not None
+        assert updated.description == "Refined MRR description"
+        # Definition untouched
+        assert updated.definition == original.definition
+
+    def test_update_metric_returns_none_for_missing(self) -> None:
+        assert (
+            CatalogAPI.update_metric(UpdateMetricParams(team_id=self.team.pk, metric_id=uuid4(), description="x"))
+            is None
+        )
