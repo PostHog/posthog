@@ -15,9 +15,15 @@ from products.deployments.backend.services.detection import PackageManager, dete
         (["package-lock.json"], PackageManager.NPM),
         (["pnpm-lock.yaml"], PackageManager.PNPM),
         (["yarn.lock"], PackageManager.YARN),
+        # Bun pre-1.2 — binary lockfile.
         (["bun.lockb"], PackageManager.BUN),
+        # Bun 1.2+ — text lockfile is the new default and must not fall through to npm.
+        (["bun.lock"], PackageManager.BUN),
+        # Mid-upgrade repo with both Bun lockfiles still resolves to Bun.
+        (["bun.lock", "bun.lockb"], PackageManager.BUN),
         # Bun wins over everything — explicit lockfile beats accidental siblings.
         (["bun.lockb", "package-lock.json", "yarn.lock"], PackageManager.BUN),
+        (["bun.lock", "package-lock.json", "yarn.lock"], PackageManager.BUN),
         # pnpm beats a leftover npm lockfile from before a migration.
         (["pnpm-lock.yaml", "package-lock.json"], PackageManager.PNPM),
         # Nothing recognisable → npm as the conservative default.
@@ -69,6 +75,16 @@ def test_detect_framework_uses_first_matching_signature() -> None:
     package_json = {"dependencies": {"@remix-run/react": "^2", "@remix-run/node": "^2", "vite": "^5"}}
     result = detect_config(package_json, ["package-lock.json"])
     assert result.framework == "remix"
+
+
+def test_remix_signature_requires_all_dep_keys_present() -> None:
+    # A repo carrying only `@remix-run/react` (as some downstream library's
+    # transitive concern) but no Remix runtime is not a Remix project. The
+    # signature must require *all* listed deps so we don't suggest a
+    # wrong build command that breaks the deploy.
+    package_json = {"dependencies": {"@remix-run/react": "^2", "vite": "^5"}}
+    result = detect_config(package_json, ["package-lock.json"])
+    assert result.framework == "vite"
 
 
 def test_no_package_json_means_null_framework_with_no_build() -> None:

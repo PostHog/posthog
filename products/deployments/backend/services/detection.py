@@ -49,7 +49,12 @@ class DetectedConfig:
 # pnpm lockfile is the explicit signal a developer is using pnpm. npm is
 # the last-resort default because `package-lock.json` is what npm happily
 # generates on top of anything.
+#
+# Bun has two lockfile names in the wild: `bun.lockb` (binary, pre-1.2) and
+# `bun.lock` (text, 1.2+ default). Both are listed so a fresh Bun 1.2 repo
+# doesn't fall through to npm.
 _LOCKFILE_PRECEDENCE: tuple[tuple[str, PackageManager], ...] = (
+    ("bun.lock", PackageManager.BUN),
     ("bun.lockb", PackageManager.BUN),
     ("pnpm-lock.yaml", PackageManager.PNPM),
     ("yarn.lock", PackageManager.YARN),
@@ -90,11 +95,17 @@ def _build_invocation(manager: PackageManager, script: str) -> str:
 class _FrameworkSignature:
     """Detection rule for one framework.
 
-    `dep_keys` matches against the union of `dependencies` + `devDependencies`
-    in `package.json`. First framework whose signature matches wins, so
-    order in `_FRAMEWORK_SIGNATURES` is significant — more specific
-    frameworks (Remix, SvelteKit, Nuxt) come before more general ones
-    that share a transitive dep (Vite, React).
+    `dep_keys` is the set of dependencies that must *all* be present in the
+    union of `dependencies` + `devDependencies` for this framework to match.
+    First signature whose deps all match wins, so order in
+    `_FRAMEWORK_SIGNATURES` is significant — more specific frameworks
+    (Remix, SvelteKit, Nuxt) come before more general ones that share a
+    transitive dep (Vite, React).
+
+    `all()` (not `any()`): a repo carrying only `@remix-run/react` without
+    `@remix-run/node` is some downstream package's transitive dep, not a
+    Remix project. Picking Remix here would suggest the wrong build
+    command and break the user's deploy.
     """
 
     framework: str
@@ -127,7 +138,7 @@ def _collect_dependency_keys(package_json: dict[str, Any]) -> set[str]:
 def _detect_framework_signature(package_json: dict[str, Any]) -> _FrameworkSignature | None:
     all_deps = _collect_dependency_keys(package_json)
     for signature in _FRAMEWORK_SIGNATURES:
-        if any(dep in all_deps for dep in signature.dep_keys):
+        if all(dep in all_deps for dep in signature.dep_keys):
             return signature
     return None
 
