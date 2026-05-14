@@ -73,8 +73,18 @@ if (empty(group_key)) {
     return false
 }
 
-// Coarse loop guard: if our own follow-up $groupidentify already carries the
-// enriched name, skip. A stronger TTL-style dedupe needs durable group state.
+// Durable dedupe via the group's stored properties — blocks replay attacks
+// that re-send `$groupidentify` for the same key after a previous attempt
+// (match or no-match) has already stamped `$enriched_at`. Without this,
+// anyone with the project token could burn the Harmonic API quota by
+// looping the same group key.
+let stored_group := groups[inputs.group_type]
+if (not empty(stored_group) and not empty(stored_group.properties.$enriched_at)) {
+    return false
+}
+
+// Coarse loop guard for our own follow-up `$groupidentify` — that event
+// won't carry stored group state yet on the ingestion path.
 if (not empty(event.properties.$group_set.$enriched_org_name)) {
     return false
 }
@@ -99,9 +109,11 @@ let body := {
     'variables': {'identifiers': {'websiteUrl': f'https://{clean_domain}'}}
 }
 
-let response := fetch(f'https://api.harmonic.ai/graphql?apikey={api_key}', {
+// Pass the API key as a header rather than a query parameter — keeps the
+// credential out of egress/ingress access logs on both sides of the wire.
+let response := fetch('https://api.harmonic.ai/graphql', {
     'method': 'POST',
-    'headers': {'Content-Type': 'application/json'},
+    'headers': {'Content-Type': 'application/json', 'apikey': api_key},
     'body': body
 })
 
@@ -116,7 +128,21 @@ if (not empty(response.body.errors)) {
 
 let result := response.body.data.enrichCompanyByIdentifiers
 if (empty(result) or not result.companyFound or empty(result.company)) {
+    // Stamp `$enriched_at` on confirmed no-match so the gate above blocks
+    // retries for this group key. Without this, a replayed `$groupidentify`
+    // for an unknown domain would burn Harmonic quota on every attempt.
     print('Harmonic no match for', clean_domain)
+    postHogCapture({
+        'event': '$groupidentify',
+        'distinct_id': event.distinct_id,
+        'properties': {
+            '$lib': 'hog_function',
+            '$hog_function_source': source.url,
+            '$group_type': inputs.group_type,
+            '$group_key': group_key,
+            '$group_set': {'$enriched_at': now()}
+        }
+    })
     return false
 }
 

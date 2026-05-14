@@ -86,7 +86,9 @@ class TestTemplatePersonEnrichment(BaseHogFunctionTemplateTest):
         assert set_props["$enriched_location"] == "austria"
         assert "$enriched_at" in set_props
 
-    def test_no_match_when_pdl_404s(self):
+    def test_no_match_when_pdl_404s_stamps_enriched_at(self):
+        # 404 stamps `$enriched_at` so a replayed `$identify` for the same
+        # email hits the gate at the top of the template and skips the fetch.
         self.fetch_responses = {
             "https://api.peopledatalabs.com/v5/person/enrich?email=abhischek%40posthog.com&min_likelihood=4": {
                 "status": 404,
@@ -94,7 +96,13 @@ class TestTemplatePersonEnrichment(BaseHogFunctionTemplateTest):
             },
         }
         self.run_function(inputs=self._inputs())
-        assert self.get_mock_posthog_capture_calls() == []
+
+        capture_calls = self.get_mock_posthog_capture_calls()
+        assert len(capture_calls) == 1
+        capture_event = capture_calls[0][0]
+        assert capture_event["event"] == "$set"
+        set_props = capture_event["properties"]["$set"]
+        assert list(set_props.keys()) == ["$enriched_at"]
 
     def test_exits_cleanly_on_pdl_402(self):
         self.fetch_responses = {

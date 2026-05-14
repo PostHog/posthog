@@ -519,6 +519,8 @@ class PeopleEnrichmentWorkflow(PostHogWorkflow):
         # caller must cap iteration explicitly via `max_chunks`.
         if inputs.reenrich and inputs.max_chunks is None:
             raise ValueError("reenrich=True requires `max_chunks` to be set — otherwise the loop never terminates")
+        if inputs.chunk_size <= 0:
+            raise ValueError(f"chunk_size must be positive, got {inputs.chunk_size}")
 
         total = await workflow.execute_activity(
             count_targets_activity,

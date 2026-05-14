@@ -85,14 +85,16 @@ class TestTemplateOrganizationEnrichment(BaseHogFunctionTemplateTest):
         assert self.get_mock_fetch_calls() == []
 
     def test_emits_groupidentify_with_curated_fields_on_match(self):
-        self.fetch_responses = {"https://api.harmonic.ai/graphql?apikey=HK": GOOD_HARMONIC_RESPONSE}
+        self.fetch_responses = {"https://api.harmonic.ai/graphql": GOOD_HARMONIC_RESPONSE}
         self.run_function(inputs=self._inputs(), globals={"event": _group_event()})
 
         fetch_calls = self.get_mock_fetch_calls()
         assert len(fetch_calls) == 1
         url, options = fetch_calls[0]
-        assert "api.harmonic.ai/graphql" in url
-        assert "apikey=HK" in url
+        assert url == "https://api.harmonic.ai/graphql"
+        # API key must travel in the `apikey` header, not the URL query string.
+        assert "apikey=" not in url
+        assert options["headers"]["apikey"] == "HK"
         assert options["method"] == "POST"
         # Confirm the request body carries the cleaned websiteUrl variable.
         assert options["body"]["variables"] == {"identifiers": {"websiteUrl": "https://posthog.com"}}
@@ -121,12 +123,34 @@ class TestTemplateOrganizationEnrichment(BaseHogFunctionTemplateTest):
         assert gs["$enriched_org_linkedin_followers"] == 25000
         assert "$enriched_at" in gs
 
-    def test_no_capture_when_company_not_found(self):
+    def test_stamps_enriched_at_when_company_not_found(self):
+        # Confirmed no-match stamps `$enriched_at` on the group so the durable
+        # gate blocks future replays for this group key.
         self.fetch_responses = {
-            "https://api.harmonic.ai/graphql?apikey=HK": {
+            "https://api.harmonic.ai/graphql": {
                 "status": 200,
                 "body": {"data": {"enrichCompanyByIdentifiers": {"companyFound": False}}},
             },
         }
         self.run_function(inputs=self._inputs(), globals={"event": _group_event()})
-        assert self.get_mock_posthog_capture_calls() == []
+
+        capture_calls = self.get_mock_posthog_capture_calls()
+        assert len(capture_calls) == 1
+        ev = capture_calls[0][0]
+        assert ev["event"] == "$groupidentify"
+        assert ev["properties"]["$group_type"] == "organization"
+        assert ev["properties"]["$group_key"] == "org-123"
+        assert list(ev["properties"]["$group_set"].keys()) == ["$enriched_at"]
+
+    def test_skips_when_group_already_enriched_in_stored_properties(self):
+        # Stored `$enriched_at` on the group should block re-enrichment even
+        # when the incoming `$group_set` does not carry it.
+        result = self.run_function(
+            inputs=self._inputs(),
+            globals={
+                "event": _group_event(),
+                "groups": {"organization": {"properties": {"$enriched_at": "2026-05-13T00:00:00Z"}}},
+            },
+        )
+        assert result.result is False
+        assert self.get_mock_fetch_calls() == []

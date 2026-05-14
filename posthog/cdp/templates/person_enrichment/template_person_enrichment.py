@@ -70,8 +70,23 @@ if (empty(pdl_api_key)) {
 let pdl_url := f'https://api.peopledatalabs.com/v5/person/enrich?email={encodeURLComponent(email)}&min_likelihood=4'
 let response := fetch(pdl_url, {'method': 'GET', 'headers': {'X-Api-Key': pdl_api_key}})
 
+// 404 means PDL has no record matching this email. Stamp `$enriched_at` so
+// the gate at the top of the template blocks retries for this person —
+// otherwise a replayed `$identify` for the same address would re-burn quota
+// on every attempt. We only stamp on confirmed no-match; 402 (credits
+// exhausted) and other failure modes are transient, so we leave the gate
+// open for a later retry.
 if (response.status == 404) {
     print('PDL no match for', email)
+    postHogCapture({
+        'event': '$set',
+        'distinct_id': event.distinct_id,
+        'properties': {
+            '$lib': 'hog_function',
+            '$hog_function_source': source.url,
+            '$set': {'$enriched_at': now()}
+        }
+    })
     return false
 }
 if (response.status == 402) {
