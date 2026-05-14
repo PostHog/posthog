@@ -29,8 +29,11 @@
         "cli-table3": "^0.6.5",
         "conf": "^12.0.0",
         "eventsource-parser": "^3.0.0",
+        "ink": "^5.1.0",
+        "ink-spinner": "^5.0.0",
         "inquirer": "^9.2.0",
         "ora": "^8.0.1",
+        "react": "^18.3.1",
         "tsx": "^4.0.0",
         "uuid": "^11.1.0",
         "yaml": "^2.8.2",
@@ -40,6 +43,7 @@
     "devDependencies": {
         "@types/inquirer": "^9.0.0",
         "@types/node": "^20.0.0",
+        "@types/react": "^18.3.0",
         "@types/yargs": "^17.0.0",
         "oxfmt": "^0.35.0",
         "typescript": "^5.0.0"

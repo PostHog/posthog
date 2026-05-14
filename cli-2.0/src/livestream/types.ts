@@ -31,4 +31,5 @@ export type LivestreamOptions = {
   eventType?: string
   distinctId?: string
   geo?: boolean
+  json?: boolean
 }

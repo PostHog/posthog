@@ -133,6 +133,7 @@ async function main() {
                     eventType: argv.eventType,
                     distinctId: argv.distinctId,
                     geo: argv.geo,
+                    json: argv.json,
                 })
             }
         )

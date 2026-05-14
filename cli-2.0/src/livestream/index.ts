@@ -2,7 +2,7 @@ import type { LivestreamOptions } from './types.js'
 import { authenticate } from './auth.js'
 import { streamEvents } from './sse-client.js'
 
-export const runLivestream = async (options: LivestreamOptions): Promise<void> => {
+const runJsonStream = async (options: LivestreamOptions): Promise<void> => {
   const creds = await authenticate({
     token: options.token,
     host: options.host,
@@ -33,9 +33,28 @@ export const runLivestream = async (options: LivestreamOptions): Promise<void> =
     }
   } catch (err) {
     if ((err as Error).name === 'AbortError') {
-      // Normal exit via Ctrl+C
       return
     }
     throw err
   }
+}
+
+export const runLivestream = async (options: LivestreamOptions): Promise<void> => {
+  // JSON mode - non-interactive streaming
+  if (options.json || options.geo || !process.stdout.isTTY) {
+    return runJsonStream(options)
+  }
+
+  // TUI mode - interactive
+  const creds = await authenticate({
+    token: options.token,
+    host: options.host,
+    livestreamHost: options.livestreamHost,
+  })
+
+  const { runTui } = await import('./tui/index.js')
+  await runTui(creds, {
+    eventType: options.eventType,
+    distinctId: options.distinctId,
+  })
 }

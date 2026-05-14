@@ -19,7 +19,23 @@ const keychainGet = (): string | null => {
       ['find-generic-password', '-s', SERVICE_NAME, '-a', ACCOUNT_NAME, '-w'],
       { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }
     )
-    return result.trim()
+    const trimmed = result.trim()
+
+    // macOS security returns hex-encoded data for passwords with special chars
+    // Try to detect and decode hex (all hex chars, even length)
+    if (/^[0-9a-fA-F]+$/.test(trimmed) && trimmed.length % 2 === 0) {
+      try {
+        const decoded = Buffer.from(trimmed, 'hex').toString('utf-8')
+        // Verify it looks like JSON
+        if (decoded.startsWith('{')) {
+          return decoded
+        }
+      } catch {
+        // Not valid hex, return as-is
+      }
+    }
+
+    return trimmed
   } catch {
     return null
   }
