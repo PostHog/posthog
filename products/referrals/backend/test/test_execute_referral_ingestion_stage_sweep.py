@@ -4,9 +4,14 @@ from __future__ import annotations
 
 from posthog.test.base import PostHogTestCase
 
-from posthog.models import Organization, SocialReferral, Team
-from posthog.models.social_referral import REFEREE_STATE_ERRORS_INGESTION_SYNC_KEY, REFEREE_STATE_ERRORS_KEY
-from posthog.temporal.social_referral_status.activities import (
+from posthog.models import Organization, Team
+
+from products.referrals.backend.models import (
+    REFEREE_STATE_ERRORS_INGESTION_SYNC_KEY,
+    REFEREE_STATE_ERRORS_KEY,
+    SocialReferral,
+)
+from products.referrals.backend.temporal.activities import (
     build_pending_ingestion_snapshot,
     execute_referral_ingestion_stage_sweep,
     process_single_social_referral_ingestion_sync,

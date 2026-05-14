@@ -11,10 +11,15 @@ from django.utils import timezone
 import structlog
 from temporalio import activity
 
-from posthog.models import SocialReferral, Team
-from posthog.models.social_referral import REFEREE_STATE_ERRORS_INGESTION_SYNC_KEY, REFEREE_STATE_ERRORS_KEY
+from posthog.models import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.social_referral_status.types import (
+
+from products.referrals.backend.models import (
+    REFEREE_STATE_ERRORS_INGESTION_SYNC_KEY,
+    REFEREE_STATE_ERRORS_KEY,
+    SocialReferral,
+)
+from products.referrals.backend.temporal.types import (
     ProcessSingleReferralIngestionInput,
     RecordIngestionCheckFailureInput,
 )
@@ -208,7 +213,7 @@ async def referral_status_list_pending_ingestion_activity() -> dict[str, Any]:
 
 
 @activity.defn(name="referral-status-process-single-ingestion")
-async def referral_status_process_single_ingestion_activity(inp: ProcessSingleReferralIngestionInput):
+async def referral_status_process_single_ingestion_activity(inp: ProcessSingleReferralIngestionInput) -> dict[str, int]:
     @database_sync_to_async(thread_sensitive=True)
     def django_sync() -> dict[str, int]:
         return process_single_social_referral_ingestion_sync(UUID(inp.social_referral_id))

@@ -15,7 +15,8 @@ from temporalio.client import (
 )
 
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.social_referral_status.types import SocialReferralStatusInputs
+
+from products.referrals.backend.temporal.types import SocialReferralStatusInputs
 
 SCHEDULE_ID = "social-referral-status-schedule"
 WORKFLOW_NAME = "social-referral-status"

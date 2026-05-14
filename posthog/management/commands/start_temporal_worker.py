@@ -136,10 +136,6 @@ from posthog.temporal.session_replay.summarization_sweep import (
     SUMMARIZATION_SWEEP_ACTIVITIES,
     SUMMARIZATION_SWEEP_WORKFLOWS,
 )
-from posthog.temporal.social_referral_status import (
-    ACTIVITIES as SOCIAL_REFERRAL_STATUS_ACTIVITIES,
-    WORKFLOWS as SOCIAL_REFERRAL_STATUS_WORKFLOWS,
-)
 from posthog.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
@@ -172,6 +168,10 @@ from products.batch_exports.backend.temporal import (
 from products.logs.backend.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
+)
+from products.referrals.backend.temporal import (
+    ACTIVITIES as SOCIAL_REFERRAL_STATUS_ACTIVITIES,
+    WORKFLOWS as SOCIAL_REFERRAL_STATUS_WORKFLOWS,
 )
 from products.replay_vision.backend.temporal import (
     ACTIVITIES as REPLAY_VISION_ACTIVITIES,
