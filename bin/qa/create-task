@@ -45,8 +45,9 @@ prompt="The branch under QA is \`$branch\` from the $repository repository.
 body=$(jq -nc \
     --arg p "$prompt" \
     --arg t "$branch" \
+    --arg b "$branch" \
     --arg r "$repository" '
-    {prompt: $p, title: $t, repository: $r}
+    {prompt: $p, title: $t, branch: $b, repository: $r}
 ')
 
 echo "POST $HOBBYCTL_URL/posthog/tasks" >&2
