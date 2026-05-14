@@ -15,9 +15,12 @@ transition: slide-left
 
 ---
 
-# `ph --help`
+# Help is a first-class citizen
 
-```bash
+<Terminal title="zsh — ph">
+
+```shellsession
+$ ph --help
 Work with PostHog from the command line.
 
 ph <command> [options]
@@ -38,17 +41,20 @@ Commands:
   ph api <method> <path> Make direct API calls
 ```
 
-<div class="mt-4 opacity-80">
+</Terminal>
+
+<div class="mt-4 opacity-80 text-sm">
   Same shape everywhere: <code>ph &lt;group&gt; &lt;verb&gt;</code> — <code>list</code>, <code>view</code>, <code>create</code>, <code>update</code>, <code>delete</code>.
 </div>
 
 ---
 
-# `ph insights --help`
+# Drill into a group
 
-```bash
-ph insights
+<Terminal title="zsh — ph">
 
+```shellsession
+$ ph insights --help
 Manage insights
 
 Commands:
@@ -62,3 +68,5 @@ Commands:
   ph insights recent-activity  Get recent insight activity across the project
   ph insights trending         Get most-viewed insights
 ```
+
+</Terminal>
