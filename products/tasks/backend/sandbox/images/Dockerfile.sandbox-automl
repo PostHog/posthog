@@ -1,0 +1,58 @@
+# Dockerfile for the AutoML sandbox image — extends the base sandbox with the
+# heavy ML deps the AutoML bootstrap agent needs preinstalled.
+#
+# Why a dedicated image at all: the AutoML brief installs the `posthog-automl-cli`
+# editable from a bind-mount, which transitively pulls autogluon-tabular,
+# torch, and friends — multi-GB downloads that took ~18 min with plain pip and
+# ~5 min with uv on a fresh base sandbox. Pre-installing the heavy deps here
+# means `uv pip install --system -e <bind-mount>` resolves against an already-
+# populated environment and finishes in seconds.
+#
+# Version pins intentionally track `posthog/automl-cli`'s `pyproject.toml`. A
+# minor drift (e.g. CLI bumps autogluon's minor) just costs uv a single package
+# resolution at install time, not the full multi-GB download — the heavy
+# wheels are already on disk. When the CLI grows or removes a dep, mirror the
+# change here so the preinstall stays useful.
+
+ARG BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:master
+FROM ${BASE_IMAGE}
+
+# Belt-and-suspenders for older base images that still ship the PEP 668 marker
+# (the marker is now dropped in `Dockerfile.sandbox-base` too, but local /
+# stale base images may still carry it). `rm -f` is a no-op when absent.
+RUN rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED
+
+# Install uv globally so the brief can use `uv pip install --system` without a
+# bootstrap step. Pinning the version keeps image rebuilds reproducible — bump
+# in step with the CI workflow's uv-setup pin.
+ARG UV_VERSION=0.10.2
+RUN curl -fsSL https://astral.sh/uv/${UV_VERSION}/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh && \
+    uv --version
+
+# Preinstall the heavy AutoGluon stack + supporting libs. Versions mirror
+# `posthog/automl-cli`'s pyproject.toml so the editable install of the CLI
+# resolves against this preinstalled environment.
+#
+# Split into two RUN layers so a CLI bump that only touches autogluon doesn't
+# invalidate the torch layer (torch is the single biggest wheel, ~1.5GB).
+RUN uv pip install --system --no-cache-dir \
+    "torch>=2.8.0,<3.0.0"
+
+RUN uv pip install --system --no-cache-dir \
+    "autogluon-tabular[catboost,fastai,lightgbm,xgboost]>=1.2" \
+    "polars>=1.37" \
+    "duckdb>=1.5" \
+    "pyarrow>=18.1" \
+    "numpy>=2.0" \
+    "click>=8.0" \
+    "structlog>=25.4.0,<26.0.0" \
+    "requests~=2.33.0" \
+    "ipython>=9.3.0,<10.0.0" \
+    "setuptools>=70,<80"
+
+# Sanity check — fail the build if any heavy dep won't import. Catches broken
+# wheel pulls before the image ever lands on a sandbox.
+RUN python3 -c "import torch, autogluon, polars, duckdb, pyarrow, click, structlog, requests" && \
+    python3 -c "from autogluon.tabular import TabularPredictor"
+
+CMD ["/bin/bash"]

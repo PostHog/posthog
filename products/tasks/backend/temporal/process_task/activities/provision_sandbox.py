@@ -11,7 +11,7 @@ from posthog.temporal.common.utils import asyncify
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.agentsh import ENV_FILE
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
@@ -340,7 +340,7 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
 
         config = SandboxConfig(
             name=prepared.sandbox_name,
-            template=SandboxTemplate.DEFAULT_BASE,
+            template=ctx.sandbox_template,
             environment_variables=prepared.environment_variables,
             snapshot_id=prepared.snapshot_id,
             snapshot_external_id=prepared.snapshot_external_id,

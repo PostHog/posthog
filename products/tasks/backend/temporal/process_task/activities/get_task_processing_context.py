@@ -10,6 +10,7 @@ from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.services.sandbox import SandboxTemplate
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
@@ -72,6 +73,28 @@ class TaskProcessingContext:
     @property
     def sandbox_environment_id(self) -> str | None:
         return (self.state or {}).get("sandbox_environment_id")
+
+    @property
+    def sandbox_template(self) -> SandboxTemplate:
+        """Which sandbox image template to provision this run on.
+
+        Stashed on `TaskRun.state["sandbox_template"]` at task creation
+        (`Task.create_and_run(..., sandbox_template=...)`). Most callers leave
+        it unset and ride the default base image; AutoML overrides it to
+        ``SandboxTemplate.AUTOML`` so the heavy ML deps are preinstalled.
+
+        An unknown value (e.g. a forward-compat string a future caller stashed
+        before the worker knew about it) falls back to ``DEFAULT_BASE`` rather
+        than crashing — better to run on the base image than to deadletter the
+        whole run.
+        """
+        raw = (self.state or {}).get("sandbox_template")
+        if not isinstance(raw, str):
+            return SandboxTemplate.DEFAULT_BASE
+        try:
+            return SandboxTemplate(raw)
+        except ValueError:
+            return SandboxTemplate.DEFAULT_BASE
 
     @property
     def runtime_adapter(self) -> str | None:

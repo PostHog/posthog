@@ -58,6 +58,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 PI_IMAGE_NAME = "posthog-sandbox-pi"
+AUTOML_IMAGE_NAME = "posthog-sandbox-automl"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
 
 
@@ -248,6 +249,20 @@ class DockerSandbox(SandboxBase):
                 build_args={"BASE_IMAGE": DEFAULT_IMAGE_NAME},
             )
             return PI_IMAGE_NAME
+
+        if template == SandboxTemplate.AUTOML:
+            automl_dockerfile = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-automl"
+            )
+            # Extend the locally-built base image rather than the GHCR one — keeps
+            # a developer's iteration on Dockerfile.sandbox-base visible to the
+            # AutoML image without a registry round-trip.
+            DockerSandbox._build_image_if_needed(
+                AUTOML_IMAGE_NAME,
+                automl_dockerfile,
+                build_args={"BASE_IMAGE": DEFAULT_IMAGE_NAME},
+            )
+            return AUTOML_IMAGE_NAME
 
         local_packages = DockerSandbox._get_local_posthog_code_packages()
         if local_packages:

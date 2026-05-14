@@ -69,8 +69,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
+AUTOML_MODAL_APP_NAME = "posthog-sandbox-automl"
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
+SANDBOX_AUTOML_IMAGE = "ghcr.io/posthog/posthog-sandbox-automl"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 
@@ -89,6 +91,7 @@ def _get_modal_region() -> str:
 LOCAL_MODAL_DOCKERFILES = {
     SandboxTemplate.DEFAULT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"),
     SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"),
+    SandboxTemplate.AUTOML: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-automl"),
 }
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 
@@ -168,6 +171,7 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
     registry_image = {
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
+        SandboxTemplate.AUTOML: SANDBOX_AUTOML_IMAGE,
     }.get(template)
     if registry_image is None:
         raise ValueError(f"Unknown template: {template}")
@@ -225,6 +229,7 @@ class ModalSandbox(SandboxBase):
     provision_diagnostics: SandboxProvisionDiagnostics | None
     DEFAULT_APP_NAME = DEFAULT_MODAL_APP_NAME
     NOTEBOOK_APP_NAME = NOTEBOOK_MODAL_APP_NAME
+    AUTOML_APP_NAME = AUTOML_MODAL_APP_NAME
 
     def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig, sandbox_url: str | None = None):
         self.id = sandbox.object_id
@@ -247,6 +252,10 @@ class ModalSandbox(SandboxBase):
     def _get_app_for_template(cls, template: SandboxTemplate) -> modal.App:
         if template == SandboxTemplate.NOTEBOOK_BASE:
             return modal.App.lookup(cls.NOTEBOOK_APP_NAME, create_if_missing=True)
+        # Scope the AutoML image to its own Modal app so its multi-GB image
+        # cache doesn't bleed into the default app's cache pressure.
+        if template == SandboxTemplate.AUTOML:
+            return modal.App.lookup(cls.AUTOML_APP_NAME, create_if_missing=True)
         return cls._get_default_app()
 
     @classmethod

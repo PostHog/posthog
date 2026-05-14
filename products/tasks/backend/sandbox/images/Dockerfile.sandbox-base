@@ -50,6 +50,13 @@ RUN apt-get update && \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
+# Ubuntu 24.04 marks the system Python externally-managed per PEP 668, which
+# forces every sandbox `pip install` to carry `--break-system-packages`. The
+# sandbox is single-use and disposable, so the protection is just friction —
+# drop the marker so briefs (and `pip install -e` from bind-mounted CLIs) can
+# install into the system Python directly.
+RUN rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED
+
 # Install Node.js 24.x
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \

@@ -5,7 +5,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import SandboxSnapshot, Task
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig
 from products.tasks.backend.temporal.exceptions import (
     GitHubAuthenticationError,
     OAuthTokenError,
@@ -116,7 +116,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
 
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
-            template=SandboxTemplate.DEFAULT_BASE,
+            template=ctx.sandbox_template,
             environment_variables=environment_variables,
             snapshot_id=str(snapshot.id),
             metadata={"task_id": ctx.task_id},

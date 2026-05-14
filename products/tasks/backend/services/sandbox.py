@@ -46,6 +46,7 @@ class SandboxTemplate(str, Enum):
     DEFAULT_BASE = "default_base"
     NOTEBOOK_BASE = "notebook_base"
     PI_BASE = "pi_base"
+    AUTOML = "automl"
 
 
 class ExecutionResult(BaseModel):

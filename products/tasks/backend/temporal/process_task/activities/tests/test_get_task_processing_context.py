@@ -9,6 +9,7 @@ from posthog.models import OrganizationMembership, User
 from posthog.models.user_integration import UserIntegration
 
 from products.tasks.backend.models import SandboxEnvironment, Task
+from products.tasks.backend.services.sandbox import SandboxTemplate
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
@@ -283,3 +284,33 @@ class TestGetTaskProcessingContextActivity:
         assert result.provider == "openai"
         assert result.model == "gpt-5.3-codex"
         assert result.reasoning_effort == "high"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_sandbox_template_defaults_to_default_base_when_unset(self, activity_environment, test_task):
+        """Runs that don't carry an explicit template should ride the default
+        base image — the implicit fallback every existing caller relies on."""
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_template == SandboxTemplate.DEFAULT_BASE
+
+    @pytest.mark.django_db(transaction=True)
+    def test_sandbox_template_reads_value_from_run_state(self, activity_environment, test_task):
+        """AutoML stashes `"sandbox_template": "automl"` on TaskRun.state — the
+        context should surface that as the typed enum."""
+        task_run = test_task.create_run(extra_state={"sandbox_template": "automl"})
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_template == SandboxTemplate.AUTOML
+
+    @pytest.mark.django_db(transaction=True)
+    def test_sandbox_template_falls_back_on_unknown_value(self, activity_environment, test_task):
+        """A forward-compat string stashed by a newer client should degrade to
+        DEFAULT_BASE rather than crashing the workflow."""
+        task_run = test_task.create_run(extra_state={"sandbox_template": "future_image_v999"})
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_template == SandboxTemplate.DEFAULT_BASE

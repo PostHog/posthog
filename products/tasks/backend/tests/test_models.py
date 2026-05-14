@@ -19,6 +19,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
 from products.tasks.backend.models import CodeInvite, SandboxEnvironment, SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.services.sandbox import SandboxTemplate
 
 
 class TestTask(TestCase):
@@ -360,6 +361,48 @@ class TestTask(TestCase):
 
         task.refresh_from_db()
         self.assertTrue(task.internal)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_stashes_sandbox_template_in_run_state(self, mock_execute_workflow):
+        """AutoML routes onto the dedicated AUTOML image — verify the template
+        lands in `TaskRun.state` so `TaskProcessingContext.sandbox_template`
+        can read it back."""
+        user = User.objects.create(email="automl_template@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        Task.create_and_run(
+            team=self.team,
+            title="AutoML Task",
+            description="Description",
+            origin_product=Task.OriginProduct.AUTOML,
+            user_id=user.id,
+            sandbox_template=SandboxTemplate.AUTOML,
+        )
+
+        run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertEqual(task_run.state["sandbox_template"], "automl")
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_omits_sandbox_template_for_default(self, mock_execute_workflow):
+        """The default template is the implicit fallback in
+        `TaskProcessingContext.sandbox_template`, so we don't pollute every
+        TaskRun.state with a redundant `"sandbox_template": "default_base"`."""
+        user = User.objects.create(email="default_template@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        Task.create_and_run(
+            team=self.team,
+            title="Default Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_id=user.id,
+            repository="posthog/posthog",
+        )
+
+        run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertNotIn("sandbox_template", task_run.state)
 
 
 class TestTaskSlug(TestCase):

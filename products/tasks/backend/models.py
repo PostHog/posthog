@@ -38,6 +38,12 @@ from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
 from products.tasks.backend.metrics import observe_task_run_created
 from products.tasks.backend.stream.redis_stream import publish_task_run_stream_event
 
+if TYPE_CHECKING:
+    # Deferred at runtime to avoid the `services.sandbox` ← `docker_sandbox` →
+    # `models` cycle (sandbox.py instantiates the backend class at import time,
+    # which transitively imports SandboxSnapshot from this very module).
+    from products.tasks.backend.services.sandbox import SandboxTemplate
+
 logger = structlog.get_logger(__name__)
 
 LogLevel = Literal["debug", "info", "warn", "error"]
@@ -286,7 +292,9 @@ class Task(DeletedMetaFields, models.Model):
         interaction_origin: str | None = None,
         model: str | None = None,
         initial_permission_mode: str | None = None,
+        sandbox_template: "SandboxTemplate | None" = None,
     ) -> "Task":
+        from products.tasks.backend.services.sandbox import SandboxTemplate
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
         created_by = User.objects.get(id=user_id)
@@ -379,6 +387,14 @@ class Task(DeletedMetaFields, models.Model):
 
         if sandbox_env is not None:
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
+
+        # Persist the requested image template on the run so all three
+        # `SandboxConfig` call sites in the workflow can pick it up through
+        # `TaskProcessingContext.sandbox_template`. Leaving this unset rides
+        # the default base image — only callers with heavy preinstall needs
+        # (AutoML's autogluon + torch stack) override it.
+        if sandbox_template is not None and sandbox_template != SandboxTemplate.DEFAULT_BASE:
+            extra_state["sandbox_template"] = sandbox_template.value
 
         if model:
             extra_state["model"] = model
