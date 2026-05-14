@@ -34,8 +34,8 @@
   - [x] Expose the supported `author` query param.
   - [x] Regenerate MCP/OpenAPI artifacts.
 
-- [ ] Remove bogus params from `deployments-events`
-  - [ ] Ensure the generated schema does not expose unsupported `search` or `ordering` params.
+- [x] Remove bogus params from `deployments-events`
+  - [x] Ensure the generated schema does not expose unsupported `search` or `ordering` params.
 
 - [x] Fix `projects-list` response filtering
   - [x] Resolved by reverting the unrelated core `projects-list` tool enablement, so the incorrect response filter is no longer exposed.

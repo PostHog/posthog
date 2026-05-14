@@ -96,8 +96,6 @@ export const DeploymentProjectsDeploymentsEventsListParams = /* @__PURE__ */ zod
 export const DeploymentProjectsDeploymentsEventsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    ordering: zod.string().optional().describe('Which field to use when ordering the results.'),
-    search: zod.string().optional().describe('A search term.'),
 })
 
 /**
