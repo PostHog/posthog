@@ -4271,13 +4271,13 @@ snapshots:
     scenes-app-heatmap--iframe-example--light:
         hash: v1.k794b7964.82d72b4b351af7a90c3fa41ca60e5b90faf7b89c5a05f9e420fdf8a815161101.S0CiHD71oZXhhHC1XK4aSh505GVqf4n7aY_Hd1WeBPU
     scenes-app-heatmap--new--dark:
-        hash: v1.k794b7964.d2d666ce58722b5bc91dbcdfeb49e447af73c55d896bd193e7c32c565c65a010.O6EMeGiUajUC9O90fgPQu6__7JWaUW7n-lk1PO8PhDA
+        hash: v1.k794b7964.eebfffb6141fa152d17e856998a2ffd28a6c32594fdfd964bef560c55b6c093d.atMcJIWTo4O4JsB-88fdGTG8tGKqkEM_6aaz4hgHGDI
     scenes-app-heatmap--new--light:
-        hash: v1.k794b7964.1b3cb1d976938020551a82055a436e2a0bebd4d4a351c15798847c374440cbb6.FxofkfnWZvbvJp38hO_9eXBbZLzJR5WKggGXPOxbixU
+        hash: v1.k794b7964.db738b49d015e243254ad61c075dc056b7f806cfc5c6d824f0c182db579a6b85.IVRJ88fouAhqtoZruYcl3_8wKpNtZeI6ui1H87BDp4w
     scenes-app-heatmap-new--new-form--dark:
-        hash: v1.k794b7964.d2d666ce58722b5bc91dbcdfeb49e447af73c55d896bd193e7c32c565c65a010.lmkeEiS0NqXV_HJSYwI16688X8qgl0WFpgU0NOQBBjc
+        hash: v1.k794b7964.eebfffb6141fa152d17e856998a2ffd28a6c32594fdfd964bef560c55b6c093d.zWqPSEmr4pX4SQ7fJEYL5iTHi4FFTIeyvk5VRhTMuOA
     scenes-app-heatmap-new--new-form--light:
-        hash: v1.k794b7964.1b3cb1d976938020551a82055a436e2a0bebd4d4a351c15798847c374440cbb6.xI4STzYTFuGQc9s3WkzyumJptJ6HKZHGMLMPijUXcSs
+        hash: v1.k794b7964.db738b49d015e243254ad61c075dc056b7f806cfc5c6d824f0c182db579a6b85.snJbtyG1U2yFQds8t0Nsy-aFDAYzmrIctCghjFL97nA
     scenes-app-heatmaps-saved--list--dark:
         hash: v1.k794b7964.7ad8cc210b80f81252bc578e73d81d34da03711247d59d3a6f22d896f1bf8030.d381UYxSFqzSbkHYWMVXUgAe-IUm85hI55Od2MEn8Z8
     scenes-app-heatmaps-saved--list--light:
