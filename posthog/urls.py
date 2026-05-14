@@ -57,6 +57,10 @@ from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
 from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
 from products.surveys.backend.api.survey import public_survey_page
+from products.user_interviews.backend.webhooks import (
+    start_call as user_interviews_start_call,
+    vapi_webhook,
+)
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -252,6 +256,16 @@ urlpatterns = [
         name="user_signal_autonomy",
     ),
     path("api/environments/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
+    path(
+        "api/user_interviews/vapi_webhook/",
+        csrf_exempt(vapi_webhook),
+        name="user_interviews_vapi_webhook",
+    ),
+    path(
+        "api/user_interviews/share/<str:access_token>/start_call/",
+        csrf_exempt(user_interviews_start_call),
+        name="user_interviews_start_call",
+    ),
     path("api/sdk_doctor/", sdk_doctor),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
     path(
@@ -353,6 +367,10 @@ urlpatterns = [
     ),
     path(
         "embedded/<str:access_token>",
+        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+    ),
+    path(
+        "interview/<str:access_token>",
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("render_query", render_query, name="render_query"),

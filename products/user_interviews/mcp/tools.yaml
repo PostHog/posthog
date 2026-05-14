@@ -37,15 +37,61 @@ tools:
     user-interview-topics-destroy:
         operation: user_interview_topics_destroy
         enabled: false
+    user-interview-topics-generate-links:
+        operation: user_interview_topics_generate_links_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Generate public interview links for a topic
+        description: >
+            Generate one public, unauthenticated interview link per targeted interviewee on a user interview topic. For
+            each identifier in the topic's `interviewee_emails` and `interviewee_distinct_ids`, materializes (or reuses)
+            an IntervieweeContext row and an enabled SharingConfiguration, and returns the merged voice-agent context
+            alongside the URL the interviewee should open. The URL hosts the call publicly — no PostHog login required.
+            Calling this multiple times is safe: existing share links are reused.
+        feature_flag: user-interviews
     user-interview-topics-interviewees-create:
         operation: user_interview_topics_interviewees_create
-        enabled: false
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Add per-interviewee context to a topic
+        description: >
+            Attach extra context for a single interviewee on a user interview topic. Use this to give the voice agent
+            background it should know about this specific person — e.g. "uses the replay product but has never used
+            summarization". `interviewee_identifier` is the email or PostHog distinct ID matching one of the entries in
+            the parent topic's targeting fields. `agent_context` is free text. At most one row per (topic,
+            interviewee_identifier) — calling create twice for the same pair will conflict.
+        include_params:
+            - interviewee_identifier
+            - agent_context
+        feature_flag: user-interviews
     user-interview-topics-interviewees-destroy:
         operation: user_interview_topics_interviewees_destroy
         enabled: false
     user-interview-topics-interviewees-list:
         operation: user_interview_topics_interviewees_list
-        enabled: false
+        enabled: true
+        scopes:
+            - user_interview:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List per-interviewee contexts for a topic
+        description: >
+            List the per-interviewee context rows attached to a single user interview topic. Each row is
+            (interviewee_identifier, agent_context). Use this to see who has extra context attached before adding more.
+        feature_flag: user-interviews
     user-interview-topics-interviewees-partial-update:
         operation: user_interview_topics_interviewees_partial_update
         enabled: false
@@ -78,6 +124,27 @@ tools:
     user-interview-topics-retrieve:
         operation: user_interview_topics_retrieve
         enabled: false
+    user-interview-topics-send-invites:
+        operation: user_interview_topics_send_invites_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Email interview invites to every targeted interviewee
+        description: >
+            Generate (if not yet created) and email a personalized public interview link to every targeted interviewee
+            on a user interview topic whose identifier is an email address. The email includes a friendly greeting and a
+            button linking to the public voice-interview page. Distinct-ID-only interviewees are skipped and surfaced in
+            the response. Use this once a topic is finalized; safe to call repeatedly — invites are deduplicated per
+            share via the messaging system's idempotency record, and a token rotation produces a fresh send key.
+        include_params:
+            - subject
+            - reply_to
+            - send_async
+        feature_flag: user-interviews
     user-interview-topics-update:
         operation: user_interview_topics_update
         enabled: false
