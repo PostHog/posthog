@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconRefresh } from '@posthog/icons'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -12,7 +12,7 @@ import { founderLogic } from '../scenes/founderLogic'
 
 export function Step3(): JSX.Element {
     const { currentProjectId, gtmResult, gtmStatus, gtmIsRunning, gtmError, gtmLoaded } = useValues(founderLogic)
-    const { triggerGtm } = useActions(founderLogic)
+    const { triggerGtm, advanceStep } = useActions(founderLogic)
 
     // Auto-fire GTM once the existing state has loaded and there's no result yet
     const autoFired = useRef(false)
@@ -73,6 +73,17 @@ export function Step3(): JSX.Element {
             )}
 
             {gtmResult && <GTMResultView result={gtmResult} />}
+
+            {gtmResult && !gtmIsRunning && (
+                <div className="flex justify-between items-center mt-2 pt-4 border-t border-border">
+                    <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={() => advanceStep('validation')}>
+                        Back to validation
+                    </LemonButton>
+                    <LemonButton type="primary" sideIcon={<IconArrowRight />} onClick={() => advanceStep('mvp')}>
+                        Continue to MVP
+                    </LemonButton>
+                </div>
+            )}
         </div>
     )
 }
