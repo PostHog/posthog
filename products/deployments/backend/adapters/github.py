@@ -198,8 +198,8 @@ class GitHubIntegrationAdapter(NullGitHubAdapter):
         )
 
         branch_name = payload.get("name")
-        commit = payload.get("commit") if isinstance(payload.get("commit"), dict) else {}
-        sha = commit.get("sha")
+        commit = payload.get("commit")
+        sha = commit.get("sha") if isinstance(commit, dict) else None
         if not isinstance(branch_name, str) or not branch_name:
             branch_name = branch
         if not isinstance(sha, str) or not sha:
