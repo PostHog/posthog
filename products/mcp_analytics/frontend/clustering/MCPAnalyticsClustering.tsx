@@ -1,0 +1,463 @@
+import { useActions, useValues } from 'kea'
+
+import { IconSparkles, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+
+import type { MCPIntentClusterApi, MCPIntentClusterToolEntryApi } from '../generated/api.schemas'
+import { ClusterSortKey, mcpClusteringLogic } from './mcpClusteringLogic'
+
+const SORT_LABELS: Record<ClusterSortKey, string> = {
+    calls: 'Calls',
+    errors: 'Error rate',
+    entropy: 'Routing entropy',
+    concentration: 'Top-tool %',
+}
+
+function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
+    if (entropy < 0.3) {
+        return (
+            <Tooltip title={`Routing entropy ${entropy.toFixed(2)} — one tool dominates this cluster's calls.`}>
+                <LemonTag type="success" size="small">
+                    Concentrated · {entropy.toFixed(2)}
+                </LemonTag>
+            </Tooltip>
+        )
+    }
+    if (entropy < 0.6) {
+        return (
+            <Tooltip title={`Routing entropy ${entropy.toFixed(2)} — calls split between a few tools.`}>
+                <LemonTag type="warning" size="small">
+                    Mixed · {entropy.toFixed(2)}
+                </LemonTag>
+            </Tooltip>
+        )
+    }
+    return (
+        <Tooltip
+            title={`Routing entropy ${entropy.toFixed(2)} — calls spread across many tools. Either a real multi-step workflow or the agent is improvising; the aggregate alone can't tell.`}
+        >
+            <LemonTag type="danger" size="small">
+                Spread · {entropy.toFixed(2)}
+            </LemonTag>
+        </Tooltip>
+    )
+}
+
+function HeatmapCell({ entry }: { entry: MCPIntentClusterToolEntryApi | undefined }): JSX.Element {
+    if (!entry || entry.count === 0) {
+        return <div className="h-6 w-full rounded-sm bg-surface-secondary/30" aria-hidden />
+    }
+    // Floor opacity so any non-zero usage is at least faintly visible.
+    const opacity = Math.max(0.08, Math.min(1, entry.pct / 100))
+    const hasErrors = entry.error_rate_pct > 0
+    return (
+        <Tooltip
+            title={
+                <div className="flex flex-col gap-0.5">
+                    <span className="font-semibold">{entry.tool}</span>
+                    <span>{entry.count.toLocaleString()} calls</span>
+                    <span>{entry.pct.toFixed(1)}% of cluster</span>
+                    {hasErrors ? <span className="text-danger">{entry.error_rate_pct.toFixed(1)}% errors</span> : null}
+                </div>
+            }
+        >
+            <div
+                className="h-6 w-full rounded-sm relative cursor-help"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    backgroundColor: hasErrors ? 'var(--danger)' : 'var(--accent)',
+                    opacity,
+                }}
+            />
+        </Tooltip>
+    )
+}
+
+function Scorecards(): JSX.Element {
+    const { concentratedRoutes, spreadRoutes, topErrorRoute, clusters } = useValues(mcpClusteringLogic)
+
+    const concentratedShare =
+        concentratedRoutes.total > 0 ? Math.round((100 * concentratedRoutes.focused) / concentratedRoutes.total) : 0
+
+    return (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
+                <span className="text-muted text-xs font-medium uppercase">Concentrated routes</span>
+                <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-2xl font-semibold">
+                        {concentratedRoutes.focused}
+                        <span className="text-muted text-base"> / {concentratedRoutes.total}</span>
+                    </span>
+                    <span className="text-xs text-muted">({concentratedShare}%)</span>
+                </div>
+                <span className="text-xs text-muted mt-1">Intent groups where one tool handles ≥80% of calls.</span>
+            </div>
+            <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
+                <span className="text-muted text-xs font-medium uppercase">Spread routes</span>
+                <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-2xl font-semibold">{spreadRoutes}</span>
+                    <span className="text-xs text-muted">of {clusters.length}</span>
+                </div>
+                <span className="text-xs text-muted mt-1">
+                    Intent groups where no single tool covers half the calls — possible drift.
+                </span>
+            </div>
+            <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
+                <span className="text-muted text-xs font-medium uppercase">Top error route</span>
+                {topErrorRoute && topErrorRoute.error_rate_pct > 0 ? (
+                    <>
+                        <div className="flex items-baseline gap-2 mt-1">
+                            <span className="text-2xl font-semibold text-danger">
+                                {topErrorRoute.error_rate_pct.toFixed(1)}%
+                            </span>
+                            <span className="text-xs text-muted">over {topErrorRoute.call_count} calls</span>
+                        </div>
+                        <span className="text-xs text-muted mt-1 truncate" title={topErrorRoute.label}>
+                            {topErrorRoute.label}
+                        </span>
+                    </>
+                ) : (
+                    <>
+                        <div className="flex items-baseline gap-2 mt-1">
+                            <span className="text-2xl font-semibold text-success">0%</span>
+                        </div>
+                        <span className="text-xs text-muted mt-1">No errors observed across clusters.</span>
+                    </>
+                )}
+            </div>
+        </div>
+    )
+}
+
+function SortHeader(): JSX.Element {
+    const { sortKey } = useValues(mcpClusteringLogic)
+    const { setSortKey } = useActions(mcpClusteringLogic)
+    return (
+        <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted">Sort clusters by</span>
+            {(Object.keys(SORT_LABELS) as ClusterSortKey[]).map((key) => (
+                <LemonButton
+                    key={key}
+                    size="xsmall"
+                    type={sortKey === key ? 'primary' : 'tertiary'}
+                    onClick={() => setSortKey(key)}
+                >
+                    {SORT_LABELS[key]}
+                </LemonButton>
+            ))}
+        </div>
+    )
+}
+
+function Heatmap(): JSX.Element {
+    const { sortedClusters, toolColumns, selectedClusterId } = useValues(mcpClusteringLogic)
+    const { selectCluster } = useActions(mcpClusteringLogic)
+
+    if (toolColumns.length === 0) {
+        return (
+            <div className="bg-surface-primary border rounded p-4 text-center text-muted text-sm">
+                No tool calls observed in any cluster yet.
+            </div>
+        )
+    }
+
+    return (
+        <div className="bg-surface-primary border rounded overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+                <thead>
+                    <tr className="bg-surface-secondary text-xs text-muted">
+                        <th className="text-left px-3 py-2 sticky left-0 bg-surface-secondary z-10 min-w-[260px]">
+                            Intent cluster
+                        </th>
+                        {toolColumns.map((tool) => (
+                            <th key={tool} className="px-2 py-2 text-center min-w-[64px] max-w-[120px] font-medium">
+                                <div className="truncate" title={tool}>
+                                    {tool}
+                                </div>
+                            </th>
+                        ))}
+                        <th className="px-3 py-2 text-right">Calls</th>
+                        <th className="px-3 py-2 text-right">Errors</th>
+                        <th className="px-3 py-2 text-left">Routing</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {sortedClusters.map((cluster) => {
+                        const isSelected = cluster.id === selectedClusterId
+                        const byTool = new Map(cluster.tool_distribution.map((e) => [e.tool, e]))
+                        // Sticky cells need their own background — `tr` backgrounds don't paint
+                        // through to sticky-positioned children when scrolled horizontally.
+                        const rowBg = isSelected
+                            ? 'bg-accent/10'
+                            : 'bg-surface-primary group-hover:bg-surface-secondary/60'
+                        return (
+                            <tr
+                                key={cluster.id}
+                                onClick={() => selectCluster(cluster.id)}
+                                className={`group border-t border-primary cursor-pointer transition-colors ${
+                                    isSelected ? 'bg-accent/10' : 'hover:bg-surface-secondary/60'
+                                }`}
+                            >
+                                <td
+                                    className={`px-3 py-2 sticky left-0 z-10 min-w-[260px] max-w-[320px] transition-colors ${rowBg}`}
+                                >
+                                    <div className="flex flex-col">
+                                        <span className="font-medium truncate" title={cluster.label}>
+                                            {cluster.label}
+                                        </span>
+                                        <span className="text-xs text-muted">
+                                            {cluster.intent_count} intent
+                                            {cluster.intent_count === 1 ? '' : 's'}
+                                        </span>
+                                    </div>
+                                </td>
+                                {toolColumns.map((tool) => (
+                                    <td key={tool} className="px-1 py-2 align-middle">
+                                        <HeatmapCell entry={byTool.get(tool)} />
+                                    </td>
+                                ))}
+                                <td className="px-3 py-2 text-right tabular-nums">
+                                    {cluster.call_count.toLocaleString()}
+                                </td>
+                                <td
+                                    className={`px-3 py-2 text-right tabular-nums ${
+                                        cluster.error_rate_pct > 5 ? 'text-danger font-semibold' : ''
+                                    }`}
+                                >
+                                    {cluster.error_rate_pct.toFixed(1)}%
+                                </td>
+                                <td className="px-3 py-2">
+                                    <EntropyBadge entropy={cluster.routing_entropy} />
+                                </td>
+                            </tr>
+                        )
+                    })}
+                </tbody>
+            </table>
+        </div>
+    )
+}
+
+function ClusterDetail({ cluster }: { cluster: MCPIntentClusterApi }): JSX.Element {
+    const worstTool = [...cluster.tool_distribution].sort((a, b) => b.error_rate_pct - a.error_rate_pct)[0]
+    return (
+        <div className="bg-surface-primary border rounded p-4 flex flex-col gap-4">
+            <header className="flex flex-col gap-2">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-1 min-w-0">
+                        <span className="text-xs uppercase text-muted font-medium">Selected cluster</span>
+                        <h3 className="text-lg font-semibold leading-tight">{cluster.label}</h3>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <EntropyBadge entropy={cluster.routing_entropy} />
+                        <LemonTag type={cluster.error_rate_pct > 5 ? 'danger' : 'muted'} size="small">
+                            {cluster.error_rate_pct.toFixed(1)}% errors
+                        </LemonTag>
+                        <LemonTag type="muted" size="small">
+                            {cluster.call_count.toLocaleString()} calls
+                        </LemonTag>
+                        <LemonTag type="muted" size="small">
+                            {cluster.intent_count} intent{cluster.intent_count === 1 ? '' : 's'}
+                        </LemonTag>
+                    </div>
+                </div>
+                {worstTool && worstTool.error_rate_pct > 0 ? (
+                    <div className="flex items-center gap-1 text-xs text-muted">
+                        <IconWarning className="text-danger" />
+                        Weakest tool in this cluster: <span className="font-mono">{worstTool.tool}</span>
+                        <span className="text-danger ml-1">{worstTool.error_rate_pct.toFixed(1)}% errors</span>
+                    </div>
+                ) : null}
+            </header>
+
+            <section className="flex flex-col gap-2">
+                <span className="text-xs uppercase text-muted font-medium">Sample intents in this cluster</span>
+                {cluster.sample_intents.length === 0 ? (
+                    <div className="text-sm text-muted">No representative intents recorded.</div>
+                ) : (
+                    <div className="flex flex-col gap-2">
+                        {cluster.sample_intents.map((intent, idx) => (
+                            <div
+                                key={idx}
+                                className="bg-surface-secondary rounded p-2 text-xs font-mono leading-relaxed"
+                            >
+                                <span className="text-muted mr-1">&ldquo;</span>
+                                {intent}
+                                <span className="text-muted ml-1">&rdquo;</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </section>
+
+            <section className="flex flex-col gap-2">
+                <span className="text-xs uppercase text-muted font-medium">Tool routing breakdown</span>
+                <LemonTable
+                    embedded
+                    size="small"
+                    dataSource={[...cluster.tool_distribution]}
+                    rowKey={(row) => row.tool}
+                    columns={[
+                        {
+                            title: 'Tool',
+                            key: 'tool',
+                            render: (_, row) => <span className="font-mono">{row.tool}</span>,
+                        },
+                        {
+                            title: 'Calls',
+                            key: 'count',
+                            align: 'right',
+                            render: (_, row) => row.count.toLocaleString(),
+                        },
+                        {
+                            title: 'Share of cluster',
+                            key: 'pct',
+                            render: (_, row) => (
+                                <div className="flex items-center gap-2 min-w-[160px]">
+                                    <LemonProgress percent={row.pct} className="flex-1" />
+                                    <span className="text-xs text-muted tabular-nums w-10 text-right">
+                                        {row.pct.toFixed(1)}%
+                                    </span>
+                                </div>
+                            ),
+                        },
+                        {
+                            title: 'Errors',
+                            key: 'errors',
+                            align: 'right',
+                            render: (_, row) =>
+                                row.error_rate_pct > 0 ? (
+                                    <span className="text-danger tabular-nums">
+                                        {row.error_rate_pct.toFixed(1)}%{' '}
+                                        <span className="text-muted">({row.errors})</span>
+                                    </span>
+                                ) : (
+                                    <span className="text-muted">0%</span>
+                                ),
+                        },
+                    ]}
+                />
+            </section>
+        </div>
+    )
+}
+
+function StatusRow(): JSX.Element | null {
+    const { snapshot, isComputing } = useValues(mcpClusteringLogic)
+    if (snapshot.status === 'error') {
+        return null
+    }
+    if (isComputing) {
+        return (
+            <div className="flex items-center gap-2 text-sm text-muted">
+                <Spinner />
+                Embedding intents and clustering — usually 30–60 seconds.
+            </div>
+        )
+    }
+    if (snapshot.last_computed_at) {
+        const meta = snapshot.computed_with
+        return (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                <span>Last computed</span>
+                <TZLabel time={snapshot.last_computed_at} />
+                {meta ? (
+                    <>
+                        <span>·</span>
+                        <span>{meta.n_clusters} clusters</span>
+                        <span>·</span>
+                        <span>{meta.n_intents} intents</span>
+                        <span>·</span>
+                        <span>cosine threshold {meta.distance_threshold.toFixed(2)}</span>
+                    </>
+                ) : null}
+            </div>
+        )
+    }
+    return null
+}
+
+function EmptyState(): JSX.Element {
+    const { recompute } = useActions(mcpClusteringLogic)
+    const { snapshotLoading } = useValues(mcpClusteringLogic)
+    return (
+        <div className="bg-surface-primary border rounded p-8 flex flex-col items-center text-center gap-3 max-w-2xl mx-auto">
+            <IconSparkles className="text-4xl text-accent" />
+            <h3 className="text-lg font-semibold">No intent clusters yet</h3>
+            <p className="text-sm text-muted max-w-md">
+                Clustering groups your agents&apos; session-level goals into themes, then shows which tools each theme
+                routes to. It surfaces whether your MCP sends similar goals to the same tools, and which routes are the
+                most error-prone.
+            </p>
+            <LemonButton type="primary" icon={<IconSparkles />} onClick={recompute} loading={snapshotLoading}>
+                Compute intent clusters
+            </LemonButton>
+            <span className="text-xs text-muted">
+                Needs sessions with a summarized intent — usually a few minutes after sessions are recorded.
+            </span>
+        </div>
+    )
+}
+
+function ComputingSkeleton(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <LemonSkeleton className="h-24 w-full" />
+                <LemonSkeleton className="h-24 w-full" />
+                <LemonSkeleton className="h-24 w-full" />
+            </div>
+            <LemonSkeleton className="h-96 w-full" />
+            <LemonSkeleton className="h-48 w-full" />
+        </div>
+    )
+}
+
+export function MCPAnalyticsClustering(): JSX.Element {
+    const { snapshot, selectedCluster, hasSnapshot, isComputing, snapshotLoading } = useValues(mcpClusteringLogic)
+    const { recompute } = useActions(mcpClusteringLogic)
+
+    if (snapshot.status === 'error') {
+        return (
+            <div className="flex flex-col gap-3">
+                <LemonBanner type="error" action={{ children: 'Retry', onClick: recompute }}>
+                    {snapshot.error_message || 'The last clustering run failed.'}
+                </LemonBanner>
+            </div>
+        )
+    }
+
+    if (!hasSnapshot && !isComputing && !snapshotLoading) {
+        return <EmptyState />
+    }
+
+    if (isComputing || (snapshotLoading && !hasSnapshot)) {
+        return (
+            <div className="flex flex-col gap-4">
+                <StatusRow />
+                <ComputingSkeleton />
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex flex-col gap-4">
+            <StatusRow />
+            <Scorecards />
+            <SortHeader />
+            <Heatmap />
+            {selectedCluster ? (
+                <ClusterDetail cluster={selectedCluster} />
+            ) : (
+                <div className="bg-surface-primary border rounded p-6 text-center text-muted text-sm">
+                    Click a cluster row above to see its sample intents and tool breakdown.
+                </div>
+            )}
+        </div>
+    )
+}

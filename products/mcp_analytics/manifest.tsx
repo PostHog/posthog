@@ -29,6 +29,7 @@ export const manifest: ProductManifest = {
         '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
         '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
         '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
+        '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
     },
     redirects: {},
     urls: {
@@ -36,6 +37,7 @@ export const manifest: ProductManifest = {
         mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
         mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
         mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
+        mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
     },
     fileSystemTypes: {},
     treeItemsNew: [],
