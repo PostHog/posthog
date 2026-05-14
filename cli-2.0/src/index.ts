@@ -169,6 +169,32 @@ async function main() {
             }
         )
 
+        // Hedgehog mode command
+        .command(
+            'hedgehog-mode',
+            'Watch hedgehogs walk around your terminal 🦔',
+            (yargs) => {
+                return yargs
+                    .option('speed', { 
+                        type: 'number', 
+                        describe: 'Animation speed in milliseconds (default: 200)',
+                        default: 200 
+                    })
+                    .option('count', {
+                        type: 'number',
+                        describe: 'Number of hedgehogs (default: 6, max: 6)',
+                        default: 6
+                    })
+            },
+            async (argv) => {
+                const { runHedgehogMode } = await import('./hedgehog-mode.js')
+                await runHedgehogMode({
+                    speed: argv.speed,
+                    count: argv.count,
+                })
+            }
+        )
+
     // Add human-readable commands from the new command mappings
 
     for (const [commandName, command] of Object.entries(commands)) {
