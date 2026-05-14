@@ -142,6 +142,31 @@ class TestInternalIntegrationLookupTeam:
         )
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
+    def test_lookup_returns_503_when_no_admin_available_to_mint_token(self, client: HttpClient):
+        # created_by inactive and no other admin in the org → no user to mint a token under.
+        self.connector.is_active = False
+        self.connector.save(update_fields=["is_active"])
+        response = _post(
+            client,
+            {"kind": "github", "integration_id": "12345678", "scope_id": _fresh_scope()},
+            **AUTH_HEADER,
+        )
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert "access_token" not in response.json()
+
+    def test_lookup_returns_503_when_mint_task_token_errors(self, client: HttpClient, mocker):
+        mocker.patch(
+            "posthog.api.internal_integration.create_oauth_access_token_for_user",
+            side_effect=RuntimeError("oauth backend down"),
+        )
+        response = _post(
+            client,
+            {"kind": "github", "integration_id": "12345678", "scope_id": _fresh_scope()},
+            **AUTH_HEADER,
+        )
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert "access_token" not in response.json()
+
 
 class TestInternalIntegrationLookupUser:
     @pytest.fixture(autouse=True)
@@ -208,6 +233,19 @@ class TestInternalIntegrationLookupUser:
             **AUTH_HEADER,
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_user_match_returns_503_when_mint_task_token_errors(self, client: HttpClient, mocker):
+        mocker.patch(
+            "posthog.api.internal_integration.create_oauth_access_token_for_user",
+            side_effect=RuntimeError("oauth backend down"),
+        )
+        response = _post(
+            client,
+            {"kind": "github", "integration_id": "55555555", "scope_id": _fresh_scope()},
+            **AUTH_HEADER,
+        )
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert "access_token" not in response.json()
 
 
 class TestInternalIntegrationLookupCaching:

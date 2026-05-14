@@ -173,6 +173,9 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
             200: OpenApiResponse(description="Resolved team + minted OAuth access token."),
             400: OpenApiResponse(description="Missing or invalid request fields."),
             404: OpenApiResponse(description="No matching integration."),
+            503: OpenApiResponse(
+                description="Integration found but no OAuth token could be minted (no eligible admin, or token issuer error)."
+            ),
         },
     )
     def lookup(self, request: Request, **kwargs: Any) -> Response:
@@ -201,6 +204,8 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
             if token_user is None:
                 token_user = _pick_org_admin(organization_id)
             access_token = _mint_task_token(token_user, team_match.team_id, cache_key) if token_user else None
+            if access_token is None:
+                return Response({"error": "Could not mint access token for integration"}, status=503)
             return Response(
                 {
                     "source": "team",
@@ -223,6 +228,8 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
             if user.current_team_id is None or user.current_organization_id is None:
                 return Response({"error": "User has no current team"}, status=404)
             access_token = _mint_task_token(user, user.current_team_id, cache_key)
+            if access_token is None:
+                return Response({"error": "Could not mint access token for integration"}, status=503)
             return Response(
                 {
                     "source": "user",
