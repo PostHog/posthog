@@ -1,5 +1,7 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
@@ -17,7 +19,7 @@ from posthog.tasks.csp_signal import (
 )
 
 
-def _csp_properties(**overrides) -> dict:
+def _csp_properties(**overrides: Any) -> dict:
     base = {
         "$csp_violated_directive": "script-src",
         "$csp_effective_directive": "script-src",
@@ -63,12 +65,12 @@ class TestCSPSignalFingerprint(BaseTest):
             ),
         ]
     )
-    def test_fingerprint_uniqueness(self, _name, a, b, should_match):
+    def test_fingerprint_uniqueness(self, _name: str, a: dict, b: dict, should_match: bool) -> None:
         assert (_fingerprint(a) == _fingerprint(b)) is should_match
 
 
 class TestCSPSignalDescription(BaseTest):
-    def test_description_includes_key_fields(self):
+    def test_description_includes_key_fields(self) -> None:
         description = _build_description(_csp_properties())
         assert "script-src" in description
         assert "https://evil.example.com/x.js" in description
@@ -77,13 +79,13 @@ class TestCSPSignalDescription(BaseTest):
         assert "https://example.com/page.html:42:7" in description
         assert "Mozilla/5.0" in description
 
-    def test_description_handles_missing_fields(self):
+    def test_description_handles_missing_fields(self) -> None:
         description = _build_description({})
         assert "unknown directive" in description
         assert "unknown resource" in description
         assert "unknown page" in description
 
-    def test_extra_payload_shape(self):
+    def test_extra_payload_shape(self) -> None:
         extra = _build_extra(_csp_properties())
         assert extra["document_url"] == "https://example.com/page"
         assert extra["violated_directive"] == "script-src"
@@ -93,7 +95,7 @@ class TestCSPSignalDescription(BaseTest):
         assert extra["disposition"] == "enforce"
         assert extra["user_agent"] == "Mozilla/5.0"
 
-    def test_extra_payload_handles_missing(self):
+    def test_extra_payload_handles_missing(self) -> None:
         extra = _build_extra({})
         assert extra["document_url"] is None
         assert extra["line_number"] is None
@@ -106,13 +108,13 @@ class TestCSPSignalDescription(BaseTest):
             ("negative_infinity", "-Infinity"),
         ]
     )
-    def test_extra_payload_rejects_non_finite_numbers(self, _name, value):
+    def test_extra_payload_rejects_non_finite_numbers(self, _name: str, value: str) -> None:
         extra = _build_extra(_csp_properties(**{"$csp_line_number": value}))
         assert extra["line_number"] is None
 
 
 class TestCSPSignalFingerprintRobustness(BaseTest):
-    def test_empty_fields_do_not_collapse_with_pipe_embedded_fields(self):
+    def test_empty_fields_do_not_collapse_with_pipe_embedded_fields(self) -> None:
         empty = _csp_properties(
             **{
                 "$csp_violated_directive": None,
@@ -141,7 +143,7 @@ def _disable_csp_signals(team_id: int) -> None:
 
 
 class TestCSPSignalThrottle(BaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         from posthog.redis import get_client
 
@@ -152,7 +154,7 @@ class TestCSPSignalThrottle(BaseTest):
         _enable_csp_signals(self.team.id)
 
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
-    def test_first_violation_enqueues_one_task(self, mock_delay):
+    def test_first_violation_enqueues_one_task(self, mock_delay: MagicMock) -> None:
         enqueued = enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
         assert enqueued == 1
         mock_delay.assert_called_once()
@@ -161,7 +163,7 @@ class TestCSPSignalThrottle(BaseTest):
         assert len(kwargs["signals"]) == 1
 
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
-    def test_duplicate_violation_is_throttled(self, mock_delay):
+    def test_duplicate_violation_is_throttled(self, mock_delay: MagicMock) -> None:
         first = enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
         second = enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
         assert first == 1
@@ -169,7 +171,7 @@ class TestCSPSignalThrottle(BaseTest):
         mock_delay.assert_called_once()
 
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
-    def test_batch_of_distinct_violations_enqueues_one_task_with_all(self, mock_delay):
+    def test_batch_of_distinct_violations_enqueues_one_task_with_all(self, mock_delay: MagicMock) -> None:
         distinct_violations = [
             _csp_properties(),
             _csp_properties(**{"$csp_blocked_url": "https://other.example.com/x.js"}),
@@ -182,7 +184,7 @@ class TestCSPSignalThrottle(BaseTest):
         assert len(kwargs["signals"]) == 3
 
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
-    def test_batch_with_duplicates_only_enqueues_new(self, mock_delay):
+    def test_batch_with_duplicates_only_enqueues_new(self, mock_delay: MagicMock) -> None:
         violations = [
             _csp_properties(),
             _csp_properties(),
@@ -195,7 +197,7 @@ class TestCSPSignalThrottle(BaseTest):
         assert len(kwargs["signals"]) == 2
 
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
-    def test_throttle_is_per_team(self, mock_delay):
+    def test_throttle_is_per_team(self, mock_delay: MagicMock) -> None:
         from posthog.models import Organization, Team
 
         other_org = Organization.objects.create(name="other")
@@ -207,7 +209,7 @@ class TestCSPSignalThrottle(BaseTest):
         assert mock_delay.call_count == 2
 
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
-    def test_ttl_is_24_hours(self, mock_delay):
+    def test_ttl_is_24_hours(self, mock_delay: MagicMock) -> None:
         from posthog.redis import get_client
 
         properties = _csp_properties()
@@ -219,7 +221,7 @@ class TestCSPSignalThrottle(BaseTest):
 
     @patch("posthog.tasks.csp_signal.get_client")
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
-    def test_redis_failure_skips_violation(self, mock_delay, mock_get_client):
+    def test_redis_failure_skips_violation(self, mock_delay: MagicMock, mock_get_client: MagicMock) -> None:
         fake_client = mock_get_client.return_value
         fake_client.set.side_effect = RuntimeError("redis down")
 
@@ -228,19 +230,18 @@ class TestCSPSignalThrottle(BaseTest):
         mock_delay.assert_not_called()
 
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay", side_effect=RuntimeError("broker down"))
-    def test_celery_dispatch_failure_releases_dedup_keys(self, _mock_delay):
+    def test_celery_dispatch_failure_releases_dedup_keys(self, _mock_delay: MagicMock) -> None:
         from posthog.redis import get_client
 
         properties = _csp_properties()
         result = enqueue_csp_violation_signals(self.team.id, [properties])
         assert result == 0
 
-        # The dedup key must have been DEL'd so a retry can fire.
         key = _dedup_key(self.team.id, _fingerprint(properties))
         assert get_client().get(key) is None
 
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
-    def test_disabled_team_skips_throttle_and_enqueue(self, mock_delay):
+    def test_disabled_team_skips_throttle_and_enqueue(self, mock_delay: MagicMock) -> None:
         _disable_csp_signals(self.team.id)
         result = enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
         assert result == 0
@@ -248,7 +249,7 @@ class TestCSPSignalThrottle(BaseTest):
 
     @patch("posthog.tasks.csp_signal.SignalSourceConfig.is_source_enabled")
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
-    def test_enabled_check_is_cached(self, mock_delay, mock_is_enabled):
+    def test_enabled_check_is_cached(self, mock_delay: MagicMock, mock_is_enabled: MagicMock) -> None:
         cache.delete(_enabled_cache_key(self.team.id))
         mock_is_enabled.return_value = True
 
@@ -261,8 +262,8 @@ class TestCSPSignalThrottle(BaseTest):
 
 class TestCSPSignalTask(BaseTest):
     @patch("products.signals.backend.api.emit_signal")
-    def test_task_calls_emit_signal_for_each_signal_in_batch(self, mock_emit_signal):
-        async def fake_emit(*args, **kwargs):
+    def test_task_calls_emit_signal_for_each_signal_in_batch(self, mock_emit_signal: MagicMock) -> None:
+        async def fake_emit(*args: Any, **kwargs: Any) -> None:
             return None
 
         mock_emit_signal.side_effect = fake_emit
@@ -284,7 +285,7 @@ class TestCSPSignalTask(BaseTest):
             assert c.kwargs["team"].id == self.team.id
 
     @patch("products.signals.backend.api.emit_signal")
-    def test_task_swallows_missing_team(self, mock_emit_signal):
+    def test_task_swallows_missing_team(self, mock_emit_signal: MagicMock) -> None:
         emit_csp_violation_signals_task(
             team_id=999_999_999,
             signals=[{"source_id": "csp:a", "description": "d", "extra": {}}],
@@ -292,10 +293,10 @@ class TestCSPSignalTask(BaseTest):
         mock_emit_signal.assert_not_called()
 
     @patch("products.signals.backend.api.emit_signal")
-    def test_task_continues_after_emit_failure_for_one_signal(self, mock_emit_signal):
+    def test_task_continues_after_emit_failure_for_one_signal(self, mock_emit_signal: MagicMock) -> None:
         call_count = {"count": 0}
 
-        async def maybe_boom(*args, **kwargs):
+        async def maybe_boom(*args: Any, **kwargs: Any) -> None:
             call_count["count"] += 1
             if call_count["count"] == 1:
                 raise RuntimeError("temporal unavailable")

@@ -1,6 +1,7 @@
 import json
 import math
 import hashlib
+from typing import Any
 
 from django.core.cache import cache
 
@@ -37,7 +38,7 @@ def _stringify(value: object) -> str:
     return "" if value is None else str(value)
 
 
-def _csp_property(properties: dict, key: str) -> object:
+def _csp_property(properties: dict, key: str) -> Any:
     return properties.get(f"$csp_{key}")
 
 
@@ -49,7 +50,7 @@ def _fingerprint(properties: dict) -> str:
         ],
         separators=(",", ":"),
     )
-    return hashlib.sha1(fingerprint_input.encode("utf-8")).hexdigest()
+    return hashlib.sha256(fingerprint_input.encode("utf-8")).hexdigest()
 
 
 def _dedup_key(team_id: int, fingerprint: str) -> str:
