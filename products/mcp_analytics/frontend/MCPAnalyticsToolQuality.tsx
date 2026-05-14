@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { Query } from '~/queries/Query/Query'
@@ -96,7 +98,16 @@ export function MCPAnalyticsToolQuality(): JSX.Element {
                                 if (!value || value === 'null') {
                                     return <span className="text-muted">Unknown tool</span>
                                 }
-                                return <span className="font-mono text-sm">{String(value)}</span>
+                                const toolName = String(value)
+                                return (
+                                    <Link
+                                        to={urls.mcpAnalyticsTool(toolName)}
+                                        className="font-mono text-sm"
+                                        data-attr="mcp-tool-quality-tool-link"
+                                    >
+                                        {toolName}
+                                    </Link>
+                                )
                             },
                         },
                         total_calls: {

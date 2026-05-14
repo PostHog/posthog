@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
-from django.db.models import QuerySet
+from django.db.models import CharField, F, Func, Q, QuerySet, Value
 from django.utils import timezone
 
 from posthog.hogql import ast
@@ -45,15 +45,75 @@ def list_submissions(team: Team, kind: enums.SubmissionKind) -> QuerySet[MCPAnal
     return MCPAnalyticsSubmission.objects.filter(team=team, kind=kind).order_by("-created_at")
 
 
-def list_mcp_sessions(team: Team, limit: int, offset: int) -> list[contracts.MCPSession]:
+SESSION_SORT_FIELDS: frozenset[str] = frozenset(
+    {
+        "session_id",
+        "session_start",
+        "session_end",
+        "duration_seconds",
+        "tool_call_count",
+        "mcp_client_name",
+        "distinct_id",
+    }
+)
+DEFAULT_SESSION_ORDER_BY = "-session_end"
+
+
+def _normalise_order_by(order_by: str) -> str:
+    """Validate and normalise the order_by query param.
+
+    Accepts a single column with an optional leading '-' for descending. Falls
+    back to the default if the field isn't whitelisted; we don't want a stray
+    query param to ORDER BY an arbitrary column.
+    """
+    raw = (order_by or "").strip()
+    if not raw:
+        return DEFAULT_SESSION_ORDER_BY
+    descending = raw.startswith("-")
+    field = raw.lstrip("-")
+    if field not in SESSION_SORT_FIELDS:
+        return DEFAULT_SESSION_ORDER_BY
+    return f"-{field}" if descending else field
+
+
+def list_mcp_sessions(
+    team: Team,
+    limit: int,
+    offset: int,
+    search: str = "",
+    order_by: str = "",
+) -> list[contracts.MCPSession]:
     """Read the denormalized session metadata that the Temporal backfill maintains.
 
     Person email/name are resolved on the fly by joining MCPSession.distinct_id to
     the Person model (routed through personhog), matching how SessionRecording
     handles it. event_count is approximated by the size of tools_used since the
     new table does not carry a per-call counter.
+
+    ``search`` does case-insensitive substring matching across session_id,
+    distinct_id, mcp_client_name, and any element of tools_used.
+
+    ``order_by`` is a whitelisted column name; prefix with '-' for descending.
     """
-    rows = list(MCPSession.objects.filter(team=team).order_by("-session_end")[offset : offset + limit])
+    queryset: QuerySet[MCPSession] = MCPSession.objects.filter(team=team)
+    term = search.strip()
+    if term:
+        # tools_used is a Postgres array; flatten it to a single string so a single
+        # ILIKE catches the substring match across all tool names.
+        queryset = queryset.annotate(
+            _tools_used_text=Func(
+                F("tools_used"),
+                Value(" "),
+                function="array_to_string",
+                output_field=CharField(),
+            )
+        ).filter(
+            Q(session_id__icontains=term)
+            | Q(distinct_id__icontains=term)
+            | Q(mcp_client_name__icontains=term)
+            | Q(_tools_used_text__icontains=term)
+        )
+    rows = list(queryset.order_by(_normalise_order_by(order_by))[offset : offset + limit])
     persons_by_distinct_id = _resolve_persons(team.id, rows)
     return [_to_session_contract(row, persons_by_distinct_id) for row in rows]
 
@@ -173,6 +233,7 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
 
 
 def _to_cluster_dto(item: dict[str, Any]) -> contracts.IntentCluster:
+    journey_raw = item.get("journey")
     return contracts.IntentCluster(
         id=int(item.get("id", 0)),
         label=str(item.get("label", "")),
@@ -194,7 +255,7 @@ def _to_cluster_dto(item: dict[str, Any]) -> contracts.IntentCluster:
             if isinstance(entry, dict)
         ],
         sample_intents=[str(s) for s in item.get("sample_intents", []) if isinstance(s, str)],
-        journey=_to_journey_dto(item.get("journey")) if isinstance(item.get("journey"), dict) else None,
+        journey=_to_journey_dto(journey_raw) if isinstance(journey_raw, dict) else None,
     )
 
 

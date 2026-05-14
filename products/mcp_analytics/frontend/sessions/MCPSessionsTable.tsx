@@ -8,17 +8,17 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import type { MCPSessionApi } from '../generated/api.schemas'
 import { MCPSessionDetail } from './MCPSessionDetail'
-import { mcpSessionsLogic } from './mcpSessionsLogic'
+import { mcpSessionsLogic, type MCPSessionSortColumn } from './mcpSessionsLogic'
 import { formatDuration, sessionDurationMs } from './utils'
 
 export function MCPSessionsTable(): JSX.Element {
-    const { setFilters, loadSessions, selectSession } = useActions(mcpSessionsLogic)
-    const { sessions, allSessionsLoading, filters, selectedSessionId } = useValues(mcpSessionsLogic)
+    const { setFilters, loadSessions, selectSession, setSorting } = useActions(mcpSessionsLogic)
+    const { sessions, sessionsLoading, filters, selectedSessionId, sorting } = useValues(mcpSessionsLogic)
 
     const columns: LemonTableColumns<MCPSessionApi> = [
         {
             title: 'Person',
-            key: 'person',
+            key: 'distinct_id',
             render: (_, record) => {
                 const label = record.person_name || record.person_email
                 if (label) {
@@ -29,37 +29,32 @@ export function MCPSessionsTable(): JSX.Element {
                 }
                 return <span className="text-secondary">—</span>
             },
-            sorter: (a, b) => {
-                const labelA = a.person_name || a.person_email || a.distinct_id
-                const labelB = b.person_name || b.person_email || b.distinct_id
-                return labelA.localeCompare(labelB)
-            },
+            sorter: true,
         },
         {
             title: 'Started',
             key: 'session_start',
             render: (_, record) => <TZLabel time={record.session_start} />,
-            sorter: (a, b) => a.session_start.localeCompare(b.session_start),
+            sorter: true,
         },
         {
             title: 'Tool calls',
-            key: 'tool_calls',
+            key: 'tool_call_count',
             dataIndex: 'tool_calls',
             align: 'right',
             render: (_, record) => <span className="text-xs whitespace-nowrap">{record.tool_calls}</span>,
-            sorter: (a, b) => a.tool_calls - b.tool_calls,
+            sorter: true,
         },
         {
             title: 'Duration',
-            key: 'duration',
+            key: 'duration_seconds',
             align: 'right',
             render: (_, record) => (
                 <span className="text-xs whitespace-nowrap">
                     {formatDuration(sessionDurationMs(record.session_start, record.session_end))}
                 </span>
             ),
-            sorter: (a, b) =>
-                sessionDurationMs(a.session_start, a.session_end) - sessionDurationMs(b.session_start, b.session_end),
+            sorter: true,
         },
     ]
 
@@ -77,7 +72,7 @@ export function MCPSessionsTable(): JSX.Element {
                     type="secondary"
                     icon={<IconRefresh />}
                     onClick={() => loadSessions()}
-                    loading={allSessionsLoading}
+                    loading={sessionsLoading}
                     size="small"
                 >
                     Reload
@@ -92,8 +87,19 @@ export function MCPSessionsTable(): JSX.Element {
                         dataSource={sessions}
                         rowKey="session_id"
                         columns={columns}
-                        loading={allSessionsLoading}
-                        defaultSorting={{ columnKey: 'session_start', order: -1 }}
+                        loading={sessionsLoading}
+                        sorting={sorting ? { columnKey: sorting.column, order: sorting.order } : null}
+                        onSort={(newSorting) =>
+                            setSorting(
+                                newSorting
+                                    ? {
+                                          column: newSorting.columnKey as MCPSessionSortColumn,
+                                          order: newSorting.order,
+                                      }
+                                    : null
+                            )
+                        }
+                        useURLForSorting={false}
                         emptyState="No MCP sessions yet — try the seed_mcp_sessions management command for local data."
                         nouns={['session', 'sessions']}
                         onRow={(record) => ({

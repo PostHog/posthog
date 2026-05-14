@@ -1,7 +1,7 @@
 from pathlib import Path
 
-QUERIES_DIR = Path(__file__).resolve().parents[1] / "queries"
-TOOL_QUALITY_SQL_PATH = QUERIES_DIR / "tool_quality.sql"
+TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
+TOOL_QUALITY_SQL_PATH = TEMPLATES_DIR / "tool_quality.sql"
 
 
 def test_tool_quality_sql_exists() -> None:

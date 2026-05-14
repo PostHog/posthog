@@ -7,7 +7,7 @@ from django.core.management.base import BaseCommand, CommandParser
 
 from posthog.models.event.util import create_event
 from posthog.models.person import Person, PersonDistinctId
-from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.models.person.util import create_person, create_person_distinct_id, get_person_by_distinct_id
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 
@@ -142,15 +142,19 @@ class Command(BaseCommand):
                 "name": persona["name"],
                 "role": persona["role"],
             }
-            existing_distinct = PersonDistinctId.objects.filter(team=team, distinct_id=persona["distinct_id"]).first()
-            if existing_distinct:
-                person = existing_distinct.person
+            existing_person = get_person_by_distinct_id(team_id=team.id, distinct_id=persona["distinct_id"])
+            if existing_person:
+                person = existing_person
                 person.properties = properties
                 person.is_identified = True
                 person.save(update_fields=["properties", "is_identified"])
             else:
-                person = Person.objects.create(team=team, properties=properties, is_identified=True)
-                PersonDistinctId.objects.create(team=team, distinct_id=persona["distinct_id"], person=person)
+                person = Person.objects.create(  # nosemgrep: no-direct-persons-db-orm
+                    team=team, properties=properties, is_identified=True
+                )
+                PersonDistinctId.objects.create(  # nosemgrep: no-direct-persons-db-orm
+                    team=team, distinct_id=persona["distinct_id"], person=person
+                )
             person_uuid = str(person.uuid)
             create_person(
                 team_id=team.id,

@@ -2,7 +2,8 @@ from typing import Any, cast
 
 from django.db.models import QuerySet
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
@@ -124,14 +125,36 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="mcp_analytics_sessions_list",
-        description="List MCP sessions for the current project, derived by grouping mcp_tool_call events by $session_id. Ordered by most recent activity first.",
+        description="List MCP sessions for the current project, derived by grouping mcp_tool_call events by $mcp_conversation_id. Ordered by most recent activity first by default.",
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.",
+            ),
+            OpenApiParameter(
+                name="order_by",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Sort column. Allowed: session_id, session_start, session_end, "
+                    "duration_seconds, tool_call_count, mcp_client_name, distinct_id. "
+                    "Prefix with '-' for descending. Defaults to '-session_end'."
+                ),
+            ),
+        ],
         responses={200: MCPSessionSerializer(many=True)},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         paginator = self.pagination_class()
         limit = paginator.get_limit(request) or paginator.default_limit
         offset = paginator.get_offset(request)
-        sessions = api.list_mcp_sessions(self.team, limit=limit, offset=offset)
+        search = request.query_params.get("search", "")
+        order_by = request.query_params.get("order_by", "")
+        sessions = api.list_mcp_sessions(self.team, limit=limit, offset=offset, search=search, order_by=order_by)
         serializer = self.get_serializer(sessions, many=True)
         return Response({"results": serializer.data})
 
