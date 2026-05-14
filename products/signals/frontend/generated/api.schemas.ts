@@ -116,6 +116,7 @@ export interface PaginatedSignalReportListApi {
  * `zendesk` - Zendesk
  * `conversations` - Conversations
  * `error_tracking` - Error tracking
+ * `csp_reporting` - CSP reporting
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -127,6 +128,7 @@ export const SourceProductEnumApi = {
     Zendesk: 'zendesk',
     Conversations: 'conversations',
     ErrorTracking: 'error_tracking',
+    CspReporting: 'csp_reporting',
 } as const
 
 /**
@@ -137,6 +139,7 @@ export const SourceProductEnumApi = {
  * `issue_created` - Issue created
  * `issue_reopened` - Issue reopened
  * `issue_spiking` - Issue spiking
+ * `violation` - Violation
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -149,6 +152,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     IssueCreated: 'issue_created',
     IssueReopened: 'issue_reopened',
     IssueSpiking: 'issue_spiking',
+    Violation: 'violation',
 } as const
 
 export interface SignalSourceConfigApi {
