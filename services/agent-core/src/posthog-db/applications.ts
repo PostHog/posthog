@@ -61,6 +61,37 @@ export class ApplicationsRepository {
     }
 
     /**
+     * Verify a bearer token against the team's shared-secret tokens. PostHog's
+     * `Team` model carries `secret_api_token` and `secret_api_token_backup` —
+     * either one is a valid client credential. Backup exists for rotation: you
+     * mint a new primary, leave the old one as backup, and rotate clients over
+     * before clearing it.
+     *
+     * Returns `true` on match. Constant-time comparison avoids leaking timing
+     * info about which slot matched.
+     */
+    async verifyTeamSecret(teamId: number, token: string): Promise<boolean> {
+        if (!token) {
+            return false
+        }
+        const { rows } = await this.options.db.pool.query<{
+            secret_api_token: string | null
+            secret_api_token_backup: string | null
+        }>(
+            `SELECT secret_api_token, secret_api_token_backup
+             FROM posthog_team
+             WHERE id = $1`,
+            [teamId]
+        )
+        if (rows.length === 0) {
+            return false
+        }
+        const primary = rows[0].secret_api_token ?? ''
+        const backup = rows[0].secret_api_token_backup ?? ''
+        return constantTimeEquals(token, primary) || constantTimeEquals(token, backup)
+    }
+
+    /**
      * Returns the decrypted `encrypted_env` as a parsed Record<string,string>. v1 stores
      * the whole `.env` as one encrypted blob; we deserialize line-by-line with `=` as the
      * separator. Empty / null env → empty record.
@@ -150,6 +181,25 @@ function parseAuth(config: Record<string, unknown> | null): ResolvedRevision['au
         return { mode: 'webhook_signature', provider: auth.provider, secret: auth.secret }
     }
     return { mode: 'public' }
+}
+
+/**
+ * Constant-time string equality. Both sides are padded to the longer length so
+ * the loop runs the same number of iterations regardless of mismatch position.
+ * Empty `expected` always returns `false` to reject blank-token comparisons.
+ */
+function constantTimeEquals(provided: string, expected: string): boolean {
+    if (expected.length === 0) {
+        return false
+    }
+    const a = Buffer.from(provided, 'utf8')
+    const b = Buffer.from(expected, 'utf8')
+    const len = Math.max(a.length, b.length)
+    let mismatch = a.length ^ b.length
+    for (let i = 0; i < len; i++) {
+        mismatch |= (a[i] ?? 0) ^ (b[i] ?? 0)
+    }
+    return mismatch === 0
 }
 
 function parseDotenv(input: string): Record<string, string> {

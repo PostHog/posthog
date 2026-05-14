@@ -32,6 +32,7 @@ describe('agent-ingress /listen SSE flow', () => {
         } as unknown as RevisionResolver
         const repository = {
             decryptEnv: async () => ({}),
+            verifyTeamSecret: async () => true,
         } as unknown as ApplicationsRepository
 
         const deps: ServerDeps = {

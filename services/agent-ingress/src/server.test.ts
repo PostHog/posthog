@@ -46,6 +46,7 @@ function makeRepository(env: Record<string, string> = {}): ApplicationsRepositor
         resolveByDomain: async () => null,
         resolveBySlug: async () => null,
         resolveById: async () => null,
+        verifyTeamSecret: async () => true,
     } as unknown as ApplicationsRepository
 }
 
@@ -154,29 +155,23 @@ describe('agent-ingress server', () => {
         expect(res.status).toBe(400)
     })
 
-    it('returns 401 on /run when agent auth is pat and no bearer token is provided', async () => {
-        // parsedManifest can override; here we just simulate by setting topLevelConfig with auth.
-        // The current compileAgent maps revision.auth from the row, so flip the revision to
-        // webhook_signature(slack) which compileAgent supports — but that demands a slack
-        // trigger, so instead we patch authenticatePat to fail and rely on the agent's default
-        // visibility=private → pat behavior coming through the manifest.
-        const revision = makeRevision({
-            parsedManifest: { systemPrompt: 'pat-only agent' },
-            // The revision.auth field still drives compileAgent's auth mapping in v1.
-            // For this test we'll instead assert the path indirectly via authenticatePat.
-        })
-        const resolver = makeResolver(revision)
+    it('authenticatePat callback signature is (teamId, token) and stays unbound from request team', async () => {
+        // The fixture revision is `auth: public`, so the callback isn't invoked
+        // for this path. The assertion is that the signature is the team-scoped
+        // shape; negative-auth behavior is covered in @repo/ass-server's tests.
+        const calls: Array<{ teamId: number; token: string }> = []
         harness = await startServer({
-            resolver,
-            authenticatePat: async () => false,
+            authenticatePat: async (teamId, token) => {
+                calls.push({ teamId, token })
+                return true
+            },
         })
         const res = await supertest(harness.app)
             .post('/run')
             .set('x-original-host', 'analytics-bot.agents.posthog.com')
             .send({})
-        // public agent → 202 still; the negative-auth path is covered in
-        // @repo/ass-server's own tests. The stub here ensures the callback is wired.
         expect(res.status).toBe(202)
+        expect(calls).toHaveLength(0)
     })
 
     it('POST /send/:id routes through route() → control:send → bus.publishInput', async () => {

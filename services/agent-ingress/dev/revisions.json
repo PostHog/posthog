@@ -8,7 +8,20 @@
         "bundleS3Key": "dev/local/demo.tar.gz",
         "bundleSha256": "0000000000000000000000000000000000000000000000000000000000000000",
         "topLevelConfig": {},
-        "parsedManifest": null,
+        "parsedManifest": {
+            "systemPrompt": "You are a snarky weather bot. Be brief.",
+            "triggers": [
+                { "id": "chat", "type": "http_invoke" },
+                {
+                    "id": "slack",
+                    "type": "slack_event",
+                    "events": ["app_mention"],
+                    "signing_secret_name": "SLACK_SIGNING_SECRET"
+                }
+            ],
+            "tools": ["http.fetch"],
+            "skills": []
+        },
         "auth": { "mode": "public" }
     }
 ]

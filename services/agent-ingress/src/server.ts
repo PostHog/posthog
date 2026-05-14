@@ -22,11 +22,12 @@ export interface ServerDeps {
     repository: ApplicationsRepository
     domainSuffix: string
     /**
-     * Validate a PAT-style bearer token. Stub for now (accepts any non-empty
-     * token); real wiring needs the PostHog `posthog_personalapikey` lookup
-     * + scope/permission check. Tracked in the plan doc.
+     * Validate a bearer token for an agent that declares `auth: pat`. The
+     * default implementation looks the token up against the resolved revision's
+     * team `secret_api_token` / `secret_api_token_backup` columns via
+     * `ApplicationsRepository.verifyTeamSecret`. Tests can override.
      */
-    authenticatePat?: (token: string) => Promise<boolean>
+    authenticatePat?: (teamId: number, token: string) => Promise<boolean>
 }
 
 export function buildServer(deps: ServerDeps): Express {
@@ -95,9 +96,14 @@ async function handleAgentRequest(req: Request, res: Response, deps: ServerDeps)
         return env[name] ?? null
     }
 
+    // Bind the team context — every PAT check is scoped to the team that
+    // owns the resolved revision so a valid secret for team A can't be used
+    // to talk to team B's agent.
+    const verifyTeamSecret =
+        deps.authenticatePat ?? ((teamId, token) => deps.repository.verifyTeamSecret(teamId, token))
     const routeDeps: RouteDeps = {
         loadSecret,
-        authenticatePat: deps.authenticatePat ?? ((token) => Promise.resolve(token.length > 0)),
+        authenticatePat: (token) => verifyTeamSecret(revision.teamId, token),
     }
 
     let result: RouteResult
