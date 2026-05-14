@@ -4311,6 +4311,60 @@ export namespace Schemas {
       baseline_content: string;
     }
 
+    export type AutoMLModelVersionDTOMetrics = { [key: string]: unknown };
+
+    export type AutoMLModelVersionDTOLeaderboardItem = { [key: string]: unknown };
+
+    export type AutoMLModelVersionDTOTrainingParams = { [key: string]: unknown };
+
+    export type AutoMLModelVersionDTOTrackingMetadata = { [key: string]: unknown };
+
+    /**
+     * * `champion` - CHAMPION
+    * `challenger` - CHALLENGER
+    * `archived` - ARCHIVED
+     */
+    export type RoleEnum = typeof RoleEnum[keyof typeof RoleEnum];
+
+
+    export const RoleEnum = {
+      Champion: 'champion',
+      Challenger: 'challenger',
+      Archived: 'archived',
+    } as const;
+
+    /**
+     * Output shape of one trained model version on a pipeline.
+
+    One row per training run; ``id`` is what propagates onto emitted predictions
+    as ``$model_version_id``. ``role`` (champion / challenger / archived) drives
+    whether the version serves traffic.
+     */
+    export interface AutoMLModelVersionDTO {
+      id: string;
+      pipeline_id: string;
+      team_id: number;
+      role: RoleEnum;
+      metrics: AutoMLModelVersionDTOMetrics;
+      leaderboard: AutoMLModelVersionDTOLeaderboardItem[];
+      training_params: AutoMLModelVersionDTOTrainingParams;
+      tracking_metadata: AutoMLModelVersionDTOTrackingMetadata;
+      eval_metric: string;
+      problem_type: string;
+      artifact_uri: string;
+      features_hash: string;
+      /** @nullable */
+      rows_train: number | null;
+      /** @nullable */
+      rows_val: number | null;
+      /** @nullable */
+      rows_test: number | null;
+      /** @nullable */
+      training_task_id: string | null;
+      created_at: string;
+      updated_at: string;
+    }
+
     export type AutoMLPipelineDTOConfig = { [key: string]: unknown };
 
     export type AutoMLPipelineDTOTrainingPopulation = { [key: string]: unknown };
@@ -20936,6 +20990,15 @@ export namespace Schemas {
       results?: AsyncDeletionStatus[];
     }
 
+    export interface PaginatedAutoMLModelVersionDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AutoMLModelVersionDTO[];
+    }
+
     export interface PaginatedAutoMLPipelineDTOList {
       count: number;
       /** @nullable */
@@ -32956,6 +33019,41 @@ export namespace Schemas {
       ci_rerun_error?: string | null;
     }
 
+    export type RecordTrainingResultInputMetrics = { [key: string]: unknown };
+
+    export type RecordTrainingResultInputLeaderboardItem = { [key: string]: unknown };
+
+    export type RecordTrainingResultInputTrainingParams = { [key: string]: unknown };
+
+    export type RecordTrainingResultInputTrackingMetadata = { [key: string]: unknown };
+
+    /**
+     * Request body for ``POST /automl_pipelines/{id}/model_versions/``.
+
+    Called by the bootstrap / retraining agent when a training run finishes.
+    ``role`` defaults to ``challenger`` so a fresh run never auto-displaces the
+    existing champion — promotion is a separate explicit step.
+     */
+    export interface RecordTrainingResultInput {
+      metrics: RecordTrainingResultInputMetrics;
+      leaderboard: RecordTrainingResultInputLeaderboardItem[];
+      role?: RoleEnum;
+      training_params?: RecordTrainingResultInputTrainingParams;
+      tracking_metadata?: RecordTrainingResultInputTrackingMetadata;
+      eval_metric?: string;
+      problem_type?: string;
+      artifact_uri?: string;
+      features_hash?: string;
+      /** @nullable */
+      rows_train?: number | null;
+      /** @nullable */
+      rows_val?: number | null;
+      /** @nullable */
+      rows_test?: number | null;
+      /** @nullable */
+      training_task_id?: string | null;
+    }
+
     export interface ReorderTilesRequest {
       /**
          * Array of tile IDs in the desired display order (top to bottom, left to right).
@@ -40250,6 +40348,24 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type AutomlPipelinesModelVersionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AutomlPipelinesModelVersionsActiveRetrieveParams = {
+    /**
+     * Role to look up. Defaults to 'champion'. One of: champion, challenger, archived.
+     */
+    role?: string;
     };
 
     export type BatchExportsListParams = {

@@ -184,6 +184,103 @@ export interface PatchedUpdatePipelineInputApi {
 }
 
 /**
+ * * `champion` - CHAMPION
+ * `challenger` - CHALLENGER
+ * `archived` - ARCHIVED
+ */
+export type RoleEnumApi = (typeof RoleEnumApi)[keyof typeof RoleEnumApi]
+
+export const RoleEnumApi = {
+    Champion: 'champion',
+    Challenger: 'challenger',
+    Archived: 'archived',
+} as const
+
+export type AutoMLModelVersionDTOApiMetrics = { [key: string]: unknown }
+
+export type AutoMLModelVersionDTOApiLeaderboardItem = { [key: string]: unknown }
+
+export type AutoMLModelVersionDTOApiTrainingParams = { [key: string]: unknown }
+
+export type AutoMLModelVersionDTOApiTrackingMetadata = { [key: string]: unknown }
+
+/**
+ * Output shape of one trained model version on a pipeline.
+
+One row per training run; ``id`` is what propagates onto emitted predictions
+as ``$model_version_id``. ``role`` (champion / challenger / archived) drives
+whether the version serves traffic.
+ */
+export interface AutoMLModelVersionDTOApi {
+    id: string
+    pipeline_id: string
+    team_id: number
+    role: RoleEnumApi
+    metrics: AutoMLModelVersionDTOApiMetrics
+    leaderboard: AutoMLModelVersionDTOApiLeaderboardItem[]
+    training_params: AutoMLModelVersionDTOApiTrainingParams
+    tracking_metadata: AutoMLModelVersionDTOApiTrackingMetadata
+    eval_metric: string
+    problem_type: string
+    artifact_uri: string
+    features_hash: string
+    /** @nullable */
+    rows_train: number | null
+    /** @nullable */
+    rows_val: number | null
+    /** @nullable */
+    rows_test: number | null
+    /** @nullable */
+    training_task_id: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface PaginatedAutoMLModelVersionDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AutoMLModelVersionDTOApi[]
+}
+
+export type RecordTrainingResultInputApiMetrics = { [key: string]: unknown }
+
+export type RecordTrainingResultInputApiLeaderboardItem = { [key: string]: unknown }
+
+export type RecordTrainingResultInputApiTrainingParams = { [key: string]: unknown }
+
+export type RecordTrainingResultInputApiTrackingMetadata = { [key: string]: unknown }
+
+/**
+ * Request body for ``POST /automl_pipelines/{id}/model_versions/``.
+
+Called by the bootstrap / retraining agent when a training run finishes.
+``role`` defaults to ``challenger`` so a fresh run never auto-displaces the
+existing champion — promotion is a separate explicit step.
+ */
+export interface RecordTrainingResultInputApi {
+    metrics: RecordTrainingResultInputApiMetrics
+    leaderboard: RecordTrainingResultInputApiLeaderboardItem[]
+    role?: RoleEnumApi
+    training_params?: RecordTrainingResultInputApiTrainingParams
+    tracking_metadata?: RecordTrainingResultInputApiTrackingMetadata
+    eval_metric?: string
+    problem_type?: string
+    artifact_uri?: string
+    features_hash?: string
+    /** @nullable */
+    rows_train?: number | null
+    /** @nullable */
+    rows_val?: number | null
+    /** @nullable */
+    rows_test?: number | null
+    /** @nullable */
+    training_task_id?: string | null
+}
+
+/**
  * * `info` - INFO
  * `warn` - WARN
  * `block` - BLOCK
@@ -249,4 +346,22 @@ export type AutomlPipelinesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type AutomlPipelinesModelVersionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AutomlPipelinesModelVersionsActiveRetrieveParams = {
+    /**
+     * Role to look up. Defaults to 'champion'. One of: champion, challenger, archived.
+     */
+    role?: string
 }

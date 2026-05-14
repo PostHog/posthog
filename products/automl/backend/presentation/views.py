@@ -24,10 +24,13 @@ from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..facade import api
-from ..facade.contracts import CreatePipelineInput, UpdatePipelineInput
+from ..facade.contracts import CreatePipelineInput, RecordTrainingResultInput, UpdatePipelineInput
+from ..facade.enums import ModelRole
 from .serializers import (
+    AutoMLModelVersionSerializer,
     AutoMLPipelineSerializer,
     CreatePipelineInputSerializer,
+    RecordTrainingResultInputSerializer,
     UpdatePipelineInputSerializer,
     ValidationReportSerializer,
 )
@@ -47,8 +50,23 @@ class AutoMLPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "automl"
-    scope_object_write_actions = ["create", "partial_update", "start", "pause", "resume", "archive"]
-    scope_object_read_actions = ["list", "retrieve", "validate"]
+    scope_object_write_actions = [
+        "create",
+        "partial_update",
+        "start",
+        "pause",
+        "resume",
+        "archive",
+        "record_model_version",
+        "promote_model_version",
+    ]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "validate",
+        "list_model_versions",
+        "active_model_version",
+    ]
     serializer_class = AutoMLPipelineSerializer
 
     @extend_schema(responses={200: AutoMLPipelineSerializer(many=True)})
@@ -172,6 +190,120 @@ class AutoMLPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """
         report = api.validate(team_id=self.team_id, params=request.validated_data)
         return Response(ValidationReportSerializer(instance=report).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: AutoMLModelVersionSerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="model_versions")
+    def list_model_versions(self, request: Request, pk: str, **kwargs) -> Response:
+        """List every trained model version on a pipeline, newest first.
+
+        Archived versions are included — they're the audit trail and the
+        ``$model_version_id`` on past prediction events still needs to resolve.
+        """
+        try:
+            versions = api.list_model_versions(team_id=self.team_id, pipeline_id=UUID(pk))
+        except api.PipelineNotFoundError:
+            return Response({"detail": "Pipeline not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AutoMLModelVersionSerializer(instance=versions, many=True).data)
+
+    @extend_schema(parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)])
+    @validated_request(
+        request_serializer=RecordTrainingResultInputSerializer,
+        responses={201: OpenApiResponse(response=AutoMLModelVersionSerializer)},
+    )
+    @list_model_versions.mapping.post
+    def record_model_version(self, request: TypedRequest[RecordTrainingResultInput], pk: str, **kwargs) -> Response:
+        """Persist a completed training run as a new model version.
+
+        Always recorded as ``challenger`` by default — promotion to champion is
+        the explicit ``promote`` action below. Called by the bootstrap and
+        retraining agents from inside their sandbox after the trainer returns.
+        """
+        try:
+            dto = api.record_training_result(
+                team_id=self.team_id,
+                pipeline_id=UUID(pk),
+                params=request.validated_data,
+            )
+        except api.PipelineNotFoundError:
+            return Response({"detail": "Pipeline not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AutoMLModelVersionSerializer(instance=dto).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter(
+                "role",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="Role to look up. Defaults to 'champion'. One of: champion, challenger, archived.",
+                required=False,
+            ),
+        ],
+        responses={200: AutoMLModelVersionSerializer},
+    )
+    @action(detail=True, methods=["get"], url_path="model_versions/active")
+    def active_model_version(self, request: Request, pk: str, **kwargs) -> Response:
+        """Get the model version currently holding a role on a pipeline.
+
+        The partial unique constraint guarantees at most one champion and one
+        challenger per pipeline. Returns 404 when no version holds the role —
+        the most common cause is a pipeline that hasn't completed bootstrap yet.
+        """
+        raw_role = request.query_params.get("role", ModelRole.CHAMPION.value)
+        try:
+            role = ModelRole(raw_role)
+        except ValueError:
+            return Response(
+                {"detail": f"Unknown role: {raw_role}", "code": "invalid_role"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            dto = api.get_active_model(team_id=self.team_id, pipeline_id=UUID(pk), role=role)
+        except api.PipelineNotFoundError:
+            return Response({"detail": "Pipeline not found"}, status=status.HTTP_404_NOT_FOUND)
+        if dto is None:
+            return Response(
+                {"detail": f"No model version holds role '{role.value}' on this pipeline."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(AutoMLModelVersionSerializer(instance=dto).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter("version_id", OpenApiTypes.STR, OpenApiParameter.PATH),
+        ],
+        request=None,
+        responses={200: AutoMLModelVersionSerializer},
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"model_versions/(?P<version_id>[^/.]+)/promote",
+    )
+    def promote_model_version(self, request: Request, pk: str, version_id: str, **kwargs) -> Response:
+        """Make ``version_id`` the champion for its pipeline.
+
+        Atomic: the prior champion (if any) is archived in the same transaction
+        the target is set to champion. Idempotent — promoting an existing
+        champion is a no-op. Returns 404 if the version doesn't belong to the
+        team or pipeline.
+        """
+        try:
+            target_uuid = UUID(version_id)
+        except ValueError:
+            return Response(
+                {"detail": "Invalid version_id", "code": "invalid_version_id"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            dto = api.promote_to_champion(team_id=self.team_id, model_version_id=target_uuid)
+        except api.ModelVersionNotFoundError:
+            return Response({"detail": "Model version not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AutoMLModelVersionSerializer(instance=dto).data)
 
     def _run_transition(self, pk: str, transition: str) -> Response:
         """Dispatch a status transition. Maps facade exceptions to HTTP responses."""

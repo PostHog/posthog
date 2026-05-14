@@ -9,11 +9,16 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AutoMLModelVersionDTOApi,
     AutoMLPipelineDTOApi,
     AutomlPipelinesListParams,
+    AutomlPipelinesModelVersionsActiveRetrieveParams,
+    AutomlPipelinesModelVersionsListParams,
     CreatePipelineInputApi,
+    PaginatedAutoMLModelVersionDTOListApi,
     PaginatedAutoMLPipelineDTOListApi,
     PatchedUpdatePipelineInputApi,
+    RecordTrainingResultInputApi,
     ValidationReportApi,
 } from './api.schemas'
 
@@ -122,6 +127,141 @@ export const automlPipelinesArchiveCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getAutomlPipelinesModelVersionsListUrl = (
+    projectId: string,
+    id: string,
+    params?: AutomlPipelinesModelVersionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/automl_pipelines/${id}/model_versions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/automl_pipelines/${id}/model_versions/`
+}
+
+/**
+ * List every trained model version on a pipeline, newest first.
+
+Archived versions are included — they're the audit trail and the
+``$model_version_id`` on past prediction events still needs to resolve.
+ */
+export const automlPipelinesModelVersionsList = async (
+    projectId: string,
+    id: string,
+    params?: AutomlPipelinesModelVersionsListParams,
+    options?: RequestInit
+): Promise<PaginatedAutoMLModelVersionDTOListApi> => {
+    return apiMutator<PaginatedAutoMLModelVersionDTOListApi>(
+        getAutomlPipelinesModelVersionsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAutomlPipelinesModelVersionsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/automl_pipelines/${id}/model_versions/`
+}
+
+/**
+ * Persist a completed training run as a new model version.
+
+Always recorded as ``challenger`` by default — promotion to champion is
+the explicit ``promote`` action below. Called by the bootstrap and
+retraining agents from inside their sandbox after the trainer returns.
+ */
+export const automlPipelinesModelVersionsCreate = async (
+    projectId: string,
+    id: string,
+    recordTrainingResultInputApi: RecordTrainingResultInputApi,
+    options?: RequestInit
+): Promise<AutoMLModelVersionDTOApi> => {
+    return apiMutator<AutoMLModelVersionDTOApi>(getAutomlPipelinesModelVersionsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(recordTrainingResultInputApi),
+    })
+}
+
+export const getAutomlPipelinesModelVersionsPromoteCreateUrl = (projectId: string, id: string, versionId: string) => {
+    return `/api/projects/${projectId}/automl_pipelines/${id}/model_versions/${versionId}/promote/`
+}
+
+/**
+ * Make ``version_id`` the champion for its pipeline.
+
+Atomic: the prior champion (if any) is archived in the same transaction
+the target is set to champion. Idempotent — promoting an existing
+champion is a no-op. Returns 404 if the version doesn't belong to the
+team or pipeline.
+ */
+export const automlPipelinesModelVersionsPromoteCreate = async (
+    projectId: string,
+    id: string,
+    versionId: string,
+    options?: RequestInit
+): Promise<AutoMLModelVersionDTOApi> => {
+    return apiMutator<AutoMLModelVersionDTOApi>(
+        getAutomlPipelinesModelVersionsPromoteCreateUrl(projectId, id, versionId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getAutomlPipelinesModelVersionsActiveRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AutomlPipelinesModelVersionsActiveRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/automl_pipelines/${id}/model_versions/active/?${stringifiedParams}`
+        : `/api/projects/${projectId}/automl_pipelines/${id}/model_versions/active/`
+}
+
+/**
+ * Get the model version currently holding a role on a pipeline.
+
+The partial unique constraint guarantees at most one champion and one
+challenger per pipeline. Returns 404 when no version holds the role —
+the most common cause is a pipeline that hasn't completed bootstrap yet.
+ */
+export const automlPipelinesModelVersionsActiveRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AutomlPipelinesModelVersionsActiveRetrieveParams,
+    options?: RequestInit
+): Promise<AutoMLModelVersionDTOApi> => {
+    return apiMutator<AutoMLModelVersionDTOApi>(
+        getAutomlPipelinesModelVersionsActiveRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getAutomlPipelinesPauseCreateUrl = (projectId: string, id: string) => {

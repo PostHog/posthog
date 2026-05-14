@@ -6,6 +6,13 @@ import {
     AutomlPipelinesArchiveCreateParams,
     AutomlPipelinesCreateBody,
     AutomlPipelinesListQueryParams,
+    AutomlPipelinesModelVersionsActiveRetrieveParams,
+    AutomlPipelinesModelVersionsActiveRetrieveQueryParams,
+    AutomlPipelinesModelVersionsCreateBody,
+    AutomlPipelinesModelVersionsCreateParams,
+    AutomlPipelinesModelVersionsListParams,
+    AutomlPipelinesModelVersionsListQueryParams,
+    AutomlPipelinesModelVersionsPromoteCreateParams,
     AutomlPipelinesPartialUpdateBody,
     AutomlPipelinesPartialUpdateParams,
     AutomlPipelinesPauseCreateParams,
@@ -160,6 +167,174 @@ const automlPause = (): ToolBase<typeof AutomlPauseSchema, WithPostHogUrl<Schema
         const result = await context.api.request<Schemas.AutoMLPipelineDTO>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/pause/`,
+        })
+        return await withPostHogUrl(context, result, `/automl/${result.id}`)
+    },
+})
+
+const AutomlGetActiveModelSchema = AutomlPipelinesModelVersionsActiveRetrieveParams.omit({ project_id: true })
+    .extend(AutomlPipelinesModelVersionsActiveRetrieveQueryParams.shape)
+    .extend({
+        id: AutomlPipelinesModelVersionsActiveRetrieveParams.shape['id'].describe(
+            'Pipeline UUID. The version is scoped to the pipeline — calling this against the wrong pipeline returns 404 even if a version with that role exists on another pipeline.'
+        ),
+        role: AutomlPipelinesModelVersionsActiveRetrieveQueryParams.shape['role'].describe(
+            'Role to look up. One of "champion", "challenger", "archived". Defaults to "champion" if omitted.'
+        ),
+    })
+
+const automlGetActiveModel = (): ToolBase<
+    typeof AutomlGetActiveModelSchema,
+    WithPostHogUrl<Schemas.AutoMLModelVersionDTO>
+> => ({
+    name: 'automl-get-active-model',
+    schema: AutomlGetActiveModelSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlGetActiveModelSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AutoMLModelVersionDTO>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/model_versions/active/`,
+            query: {
+                role: params.role,
+            },
+        })
+        return await withPostHogUrl(context, result, `/automl/${result.id}`)
+    },
+})
+
+const AutomlRecordTrainingResultSchema = AutomlPipelinesModelVersionsCreateParams.omit({ project_id: true })
+    .extend(AutomlPipelinesModelVersionsCreateBody.shape)
+    .extend({
+        id: AutomlPipelinesModelVersionsCreateParams.shape['id'].describe(
+            'Pipeline UUID this training run belongs to. Versions are pipeline-scoped and never moved between pipelines.'
+        ),
+        metrics: AutomlPipelinesModelVersionsCreateBody.shape['metrics'].describe(
+            "Final evaluation metrics from the trainer (AutoGluon's leaderboard column names verbatim, e.g. accuracy / roc_auc / log_loss for classification). Used by the promotion gate."
+        ),
+        leaderboard: AutomlPipelinesModelVersionsCreateBody.shape['leaderboard'].describe(
+            'Per-model leaderboard rows the trainer produced. List of dicts; shape is task-type-specific. Stored for audit and surfaced in the outcome report.'
+        ),
+        role: AutomlPipelinesModelVersionsCreateBody.shape['role'].describe(
+            'One of "champion" / "challenger" / "archived". Defaults to "challenger". Pipelines have at most one champion + one challenger at a time (DB-enforced partial unique constraint).'
+        ),
+        training_params: AutomlPipelinesModelVersionsCreateBody.shape['training_params'].describe(
+            'Parameters the trainer was invoked with — preset, time_limit_s, target column, training query. Round-tripped on the version for reproducibility.'
+        ),
+        artifact_uri: AutomlPipelinesModelVersionsCreateBody.shape['artifact_uri'].describe(
+            'Pointer to the persisted model directory or archive (local path during dev, s3:// in production). Not validated by the API; the inference workflow will need it to load the model later.'
+        ),
+        features_hash: AutomlPipelinesModelVersionsCreateBody.shape['features_hash'].describe(
+            'Short hash of the sorted feature column names. Used downstream to detect feature drift between training runs without diffing schemas.'
+        ),
+    })
+
+const automlRecordTrainingResult = (): ToolBase<
+    typeof AutomlRecordTrainingResultSchema,
+    WithPostHogUrl<Schemas.AutoMLModelVersionDTO>
+> => ({
+    name: 'automl-record-training-result',
+    schema: AutomlRecordTrainingResultSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlRecordTrainingResultSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.metrics !== undefined) {
+            body['metrics'] = params.metrics
+        }
+        if (params.leaderboard !== undefined) {
+            body['leaderboard'] = params.leaderboard
+        }
+        if (params.role !== undefined) {
+            body['role'] = params.role
+        }
+        if (params.training_params !== undefined) {
+            body['training_params'] = params.training_params
+        }
+        if (params.tracking_metadata !== undefined) {
+            body['tracking_metadata'] = params.tracking_metadata
+        }
+        if (params.eval_metric !== undefined) {
+            body['eval_metric'] = params.eval_metric
+        }
+        if (params.problem_type !== undefined) {
+            body['problem_type'] = params.problem_type
+        }
+        if (params.artifact_uri !== undefined) {
+            body['artifact_uri'] = params.artifact_uri
+        }
+        if (params.features_hash !== undefined) {
+            body['features_hash'] = params.features_hash
+        }
+        if (params.rows_train !== undefined) {
+            body['rows_train'] = params.rows_train
+        }
+        if (params.rows_val !== undefined) {
+            body['rows_val'] = params.rows_val
+        }
+        if (params.rows_test !== undefined) {
+            body['rows_test'] = params.rows_test
+        }
+        if (params.training_task_id !== undefined) {
+            body['training_task_id'] = params.training_task_id
+        }
+        const result = await context.api.request<Schemas.AutoMLModelVersionDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/model_versions/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/automl/${result.id}`)
+    },
+})
+
+const AutomlListModelVersionsSchema = AutomlPipelinesModelVersionsListParams.omit({ project_id: true })
+    .extend(AutomlPipelinesModelVersionsListQueryParams.shape)
+    .extend({
+        id: AutomlPipelinesModelVersionsListParams.shape['id'].describe(
+            "Pipeline UUID. Returns 404 if the pipeline doesn't exist on the team."
+        ),
+    })
+
+const automlListModelVersions = (): ToolBase<
+    typeof AutomlListModelVersionsSchema,
+    WithPostHogUrl<Schemas.PaginatedAutoMLModelVersionDTOList>
+> => ({
+    name: 'automl-list-model-versions',
+    schema: AutomlListModelVersionsSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlListModelVersionsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAutoMLModelVersionDTOList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/model_versions/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, `/automl/${result.id}`)
+    },
+})
+
+const AutomlPromoteModelVersionSchema = AutomlPipelinesModelVersionsPromoteCreateParams.omit({
+    project_id: true,
+}).extend({
+    id: AutomlPipelinesModelVersionsPromoteCreateParams.shape['id'].describe(
+        'Pipeline UUID. Used for URL routing only — the actual lookup is by version_id + team, and a version can only be a champion on its own pipeline.'
+    ),
+    version_id: AutomlPipelinesModelVersionsPromoteCreateParams.shape['version_id'].describe(
+        'UUID of the model version to promote. Must be a version on this pipeline; 404 otherwise.'
+    ),
+})
+
+const automlPromoteModelVersion = (): ToolBase<
+    typeof AutomlPromoteModelVersionSchema,
+    WithPostHogUrl<Schemas.AutoMLModelVersionDTO>
+> => ({
+    name: 'automl-promote-model-version',
+    schema: AutomlPromoteModelVersionSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlPromoteModelVersionSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AutoMLModelVersionDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/model_versions/${encodeURIComponent(String(params.version_id))}/promote/`,
         })
         return await withPostHogUrl(context, result, `/automl/${result.id}`)
     },
@@ -325,6 +500,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'automl-get': automlGet,
     'automl-list': automlList,
     'automl-pause': automlPause,
+    'automl-get-active-model': automlGetActiveModel,
+    'automl-record-training-result': automlRecordTrainingResult,
+    'automl-list-model-versions': automlListModelVersions,
+    'automl-promote-model-version': automlPromoteModelVersion,
     'automl-resume': automlResume,
     'automl-start': automlStart,
     'automl-update': automlUpdate,

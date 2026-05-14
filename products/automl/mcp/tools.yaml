@@ -122,6 +122,117 @@ tools:
             Pause scheduled inference and retraining for an active pipeline. The model and history are kept; no new
             predictions are produced until automl-resume is called. Idempotent — pausing an already paused pipeline is a
             no-op.
+    automl-get-active-model:
+        operation: automl_pipelines_model_versions_active_retrieve
+        enabled: true
+        scopes:
+            - automl:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get the active model version for a pipeline
+        description: >
+            Look up the model version currently holding a role on a pipeline. Defaults to champion. Returns 404 when no
+            version holds the role — most commonly because the pipeline hasn't completed bootstrap. Use this from the
+            bootstrap orchestration brief to check whether a champion already exists before promoting a freshly trained
+            challenger.
+        param_overrides:
+            id:
+                description: >
+                    Pipeline UUID. The version is scoped to the pipeline — calling this against the wrong pipeline
+                    returns 404 even if a version with that role exists on another pipeline.
+            role:
+                description: >
+                    Role to look up. One of "champion", "challenger", "archived". Defaults to "champion" if omitted.
+    automl-record-training-result:
+        operation: automl_pipelines_model_versions_create
+        enabled: true
+        scopes:
+            - automl:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Record an AutoML training result
+        description: >
+            Persist a completed training run as a new model version on a pipeline. Role defaults to "challenger" so a
+            fresh run never auto-displaces the existing champion — promotion is a separate explicit step via
+            automl-promote-model-version. Called by the bootstrap and retraining orchestration agents after the trainer
+            returns; not typically called by humans directly.
+        param_overrides:
+            id:
+                description: >
+                    Pipeline UUID this training run belongs to. Versions are pipeline-scoped and never moved between
+                    pipelines.
+            metrics:
+                description: >
+                    Final evaluation metrics from the trainer (AutoGluon's leaderboard column names verbatim, e.g.
+                    accuracy / roc_auc / log_loss for classification). Used by the promotion gate.
+            leaderboard:
+                description: >
+                    Per-model leaderboard rows the trainer produced. List of dicts; shape is task-type-specific. Stored
+                    for audit and surfaced in the outcome report.
+            role:
+                description: >
+                    One of "champion" / "challenger" / "archived". Defaults to "challenger". Pipelines have at most one
+                    champion + one challenger at a time (DB-enforced partial unique constraint).
+            training_params:
+                description: >
+                    Parameters the trainer was invoked with — preset, time_limit_s, target column, training query.
+                    Round-tripped on the version for reproducibility.
+            artifact_uri:
+                description: >
+                    Pointer to the persisted model directory or archive (local path during dev, s3:// in production).
+                    Not validated by the API; the inference workflow will need it to load the model later.
+            features_hash:
+                description: >
+                    Short hash of the sorted feature column names. Used downstream to detect feature drift between
+                    training runs without diffing schemas.
+    automl-list-model-versions:
+        operation: automl_pipelines_model_versions_list
+        enabled: true
+        scopes:
+            - automl:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: List AutoML model versions
+        description: >
+            List every trained model version on a pipeline, newest first. Includes archived versions — they're part of
+            the audit trail and the `$model_version_id` carried on past prediction events still needs to resolve. Use
+            this to walk a pipeline's training history or find a specific version by metrics before promoting.
+        param_overrides:
+            id:
+                description: Pipeline UUID. Returns 404 if the pipeline doesn't exist on the team.
+    automl-promote-model-version:
+        operation: automl_pipelines_model_versions_promote_create
+        enabled: true
+        scopes:
+            - automl:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        enrich_url: '{id}'
+        title: Promote a model version to champion
+        description: >
+            Make the specified version the champion for its pipeline. Atomic — the prior champion (if any and
+            different) is archived in the same transaction the target is set to champion. Idempotent: promoting an
+            already-champion version is a no-op. The bootstrap brief only calls this when no prior champion exists;
+            head-to-head displacement runs through the retraining flow with realized-metric gates.
+        param_overrides:
+            id:
+                description: >
+                    Pipeline UUID. Used for URL routing only — the actual lookup is by version_id + team, and a version
+                    can only be a champion on its own pipeline.
+            version_id:
+                description: >
+                    UUID of the model version to promote. Must be a version on this pipeline; 404 otherwise.
     automl-resume:
         operation: automl_pipelines_resume_create
         enabled: true

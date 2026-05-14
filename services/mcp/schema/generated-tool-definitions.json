@@ -423,12 +423,42 @@
             "readOnlyHint": true
         }
     },
+    "automl-get-active-model": {
+        "description": "Look up the model version currently holding a role on a pipeline. Defaults to champion. Returns 404 when no version holds the role — most commonly because the pipeline hasn't completed bootstrap. Use this from the bootstrap orchestration brief to check whether a champion already exists before promoting a freshly trained challenger.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Get the active model version for a pipeline",
+        "title": "Get the active model version for a pipeline",
+        "required_scopes": ["automl:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "automl-list": {
         "description": "List all non-archived AutoML pipelines for the current team, newest first. Each pipeline captures a configured ML task (clustering, classification, regression, or forecasting) along with its populations, cadence, autonomy, and lifecycle status. Use this to discover what pipelines exist before fetching one by id.",
         "category": "AutoML",
         "feature": "automl",
         "summary": "List AutoML pipelines",
         "title": "List AutoML pipelines",
+        "required_scopes": ["automl:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "automl-list-model-versions": {
+        "description": "List every trained model version on a pipeline, newest first. Includes archived versions — they're part of the audit trail and the `$model_version_id` carried on past prediction events still needs to resolve. Use this to walk a pipeline's training history or find a specific version by metrics before promoting.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "List AutoML model versions",
+        "title": "List AutoML model versions",
         "required_scopes": ["automl:read"],
         "new_mcp": true,
         "annotations": {
@@ -449,6 +479,36 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "automl-promote-model-version": {
+        "description": "Make the specified version the champion for its pipeline. Atomic — the prior champion (if any and different) is archived in the same transaction the target is set to champion. Idempotent: promoting an already-champion version is a no-op. The bootstrap brief only calls this when no prior champion exists; head-to-head displacement runs through the retraining flow with realized-metric gates.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Promote a model version to champion",
+        "title": "Promote a model version to champion",
+        "required_scopes": ["automl:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "automl-record-training-result": {
+        "description": "Persist a completed training run as a new model version on a pipeline. Role defaults to \"challenger\" so a fresh run never auto-displaces the existing champion — promotion is a separate explicit step via automl-promote-model-version. Called by the bootstrap and retraining orchestration agents after the trainer returns; not typically called by humans directly.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Record an AutoML training result",
+        "title": "Record an AutoML training result",
+        "required_scopes": ["automl:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }

@@ -149,6 +149,150 @@ class TestAutoMLPipelineViewSet(APIBaseTest):
         results = listed.get("results", listed)
         assert results == []
 
+    # ---------------------------------------------------------------------
+    # Model version endpoints
+    # ---------------------------------------------------------------------
+
+    def _create_pipeline_returning_id(self) -> str:
+        return self.client.post(self._url(), VALID_BODY, format="json").json()["id"]
+
+    def _record_body(self, **overrides: Any) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "metrics": {"accuracy": 0.84, "roc_auc": 0.91},
+            "leaderboard": [{"model": "WeightedEnsemble_L2", "score_val": 0.85}],
+            "training_params": {"presets": "medium_quality", "time_limit_s": 60},
+            "eval_metric": "accuracy",
+            "problem_type": "binary",
+            "artifact_uri": "s3://automl/models/x.tar.gz",
+            "features_hash": "abc123",
+            "rows_train": 4000,
+            "rows_val": 500,
+            "rows_test": 500,
+        }
+        body.update(overrides)
+        return body
+
+    def test_record_model_version_returns_201_and_dto(self):
+        pid = self._create_pipeline_returning_id()
+        response = self.client.post(
+            self._url(f"{pid}/model_versions/"),
+            self._record_body(),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.data
+        body = response.json()
+        assert body["role"] == "challenger"  # default
+        assert body["metrics"]["accuracy"] == 0.84
+        assert body["rows_train"] == 4000
+        assert body["pipeline_id"] == pid
+
+    def test_record_model_version_on_missing_pipeline_returns_404(self):
+        missing = "00000000-0000-7000-8000-000000000000"
+        response = self.client.post(
+            self._url(f"{missing}/model_versions/"),
+            self._record_body(),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_list_model_versions_lists_both_roles(self):
+        pid = self._create_pipeline_returning_id()
+        self.client.post(
+            self._url(f"{pid}/model_versions/"),
+            self._record_body(role="champion"),
+            format="json",
+        )
+        self.client.post(
+            self._url(f"{pid}/model_versions/"),
+            self._record_body(role="challenger", metrics={"accuracy": 0.9}),
+            format="json",
+        )
+        response = self.client.get(self._url(f"{pid}/model_versions/"))
+        assert response.status_code == status.HTTP_200_OK
+        rows = response.json()
+        assert isinstance(rows, list)
+        assert len(rows) == 2
+        # Roles present
+        assert {r["role"] for r in rows} == {"champion", "challenger"}
+
+    def test_active_model_version_returns_champion_by_default(self):
+        pid = self._create_pipeline_returning_id()
+        recorded = self.client.post(
+            self._url(f"{pid}/model_versions/"),
+            self._record_body(role="champion"),
+            format="json",
+        ).json()
+        response = self.client.get(self._url(f"{pid}/model_versions/active/"))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == recorded["id"]
+        assert response.json()["role"] == "champion"
+
+    def test_active_model_version_accepts_role_query_param(self):
+        pid = self._create_pipeline_returning_id()
+        challenger = self.client.post(
+            self._url(f"{pid}/model_versions/"),
+            self._record_body(role="challenger"),
+            format="json",
+        ).json()
+        response = self.client.get(self._url(f"{pid}/model_versions/active/?role=challenger"))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == challenger["id"]
+
+    def test_active_model_version_returns_404_when_no_holder(self):
+        pid = self._create_pipeline_returning_id()
+        response = self.client.get(self._url(f"{pid}/model_versions/active/"))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_active_model_version_rejects_unknown_role(self):
+        pid = self._create_pipeline_returning_id()
+        response = self.client.get(self._url(f"{pid}/model_versions/active/?role=overlord"))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "invalid_role"
+
+    def test_promote_model_version_when_no_prior_champion(self):
+        pid = self._create_pipeline_returning_id()
+        challenger = self.client.post(
+            self._url(f"{pid}/model_versions/"),
+            self._record_body(),  # default role = challenger
+            format="json",
+        ).json()
+        response = self.client.post(self._url(f"{pid}/model_versions/{challenger['id']}/promote/"))
+        assert response.status_code == status.HTTP_200_OK, response.data
+        assert response.json()["id"] == challenger["id"]
+        assert response.json()["role"] == "champion"
+
+    def test_promote_model_version_archives_prior_champion(self):
+        pid = self._create_pipeline_returning_id()
+        old_champ = self.client.post(
+            self._url(f"{pid}/model_versions/"),
+            self._record_body(role="champion"),
+            format="json",
+        ).json()
+        challenger = self.client.post(
+            self._url(f"{pid}/model_versions/"),
+            self._record_body(role="challenger", metrics={"accuracy": 0.91}),
+            format="json",
+        ).json()
+        promote_resp = self.client.post(self._url(f"{pid}/model_versions/{challenger['id']}/promote/"))
+        assert promote_resp.status_code == status.HTTP_200_OK
+        # The old champion should now be archived
+        listed = self.client.get(self._url(f"{pid}/model_versions/")).json()
+        roles_by_id = {row["id"]: row["role"] for row in listed}
+        assert roles_by_id[old_champ["id"]] == "archived"
+        assert roles_by_id[challenger["id"]] == "champion"
+
+    def test_promote_missing_version_returns_404(self):
+        pid = self._create_pipeline_returning_id()
+        missing = "00000000-0000-7000-8000-000000000000"
+        response = self.client.post(self._url(f"{pid}/model_versions/{missing}/promote/"))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_promote_rejects_malformed_version_id(self):
+        pid = self._create_pipeline_returning_id()
+        response = self.client.post(self._url(f"{pid}/model_versions/not-a-uuid/promote/"))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "invalid_version_id"
+
     def test_validate_surfaces_block_findings(self):
         """Low training volume produces a block finding and ok=False without creating anything."""
         stub_responses = [

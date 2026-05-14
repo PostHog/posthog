@@ -96,6 +96,36 @@ export const AutomlPipelinesPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Persist a completed training run as a new model version.
+
+Always recorded as ``challenger`` by default — promotion to champion is
+the explicit ``promote`` action below. Called by the bootstrap and
+retraining agents from inside their sandbox after the trainer returns.
+ */
+export const AutomlPipelinesModelVersionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        metrics: zod.record(zod.string(), zod.unknown()),
+        leaderboard: zod.array(zod.record(zod.string(), zod.unknown())),
+        role: zod
+            .enum(['champion', 'challenger', 'archived'])
+            .optional()
+            .describe('\* `champion` - CHAMPION\n\* `challenger` - CHALLENGER\n\* `archived` - ARCHIVED'),
+        training_params: zod.record(zod.string(), zod.unknown()).optional(),
+        tracking_metadata: zod.record(zod.string(), zod.unknown()).optional(),
+        eval_metric: zod.string().optional(),
+        problem_type: zod.string().optional(),
+        artifact_uri: zod.string().optional(),
+        features_hash: zod.string().optional(),
+        rows_train: zod.number().nullish(),
+        rows_val: zod.number().nullish(),
+        rows_test: zod.number().nullish(),
+        training_task_id: zod.uuid().nullish(),
+    })
+    .describe(
+        'Request body for ``POST \/automl_pipelines\/{id}\/model_versions\/``.\n\nCalled by the bootstrap \/ retraining agent when a training run finishes.\n``role`` defaults to ``challenger`` so a fresh run never auto-displaces the\nexisting champion — promotion is a separate explicit step.'
+    )
+
+/**
  * Run preflight validation against a proposed pipeline config.
 
 Side-effect-free: nothing is written, no pipeline is created. Same body
