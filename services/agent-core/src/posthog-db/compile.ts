@@ -1,49 +1,51 @@
-import type { AuthPolicy, CompiledAgent, SkillSpec, ToolSpec, TriggerConfig } from '@repo/ass-server'
+import type { AgentDefinition, TriggerDefinition } from '@repo/ass-server'
 
 import { logger } from '../logger'
 import type { ResolvedRevision } from './types'
 
 /**
  * Translate a PostHog-side `ResolvedRevision` (DB row materialized by
- * `ApplicationsRepository`) into the shared `CompiledAgent` shape that
+ * `ApplicationsRepository`) into the shared `AgentDefinition` shape that
  * `@repo/ass-server/route` consumes.
  *
- * v1 reads triggers / tools / skills / systemPrompt out of `parsedManifest`
- * when the validator has populated it; otherwise it falls back to safe defaults
- * (a single `http_invoke` trigger so `POST /run` is always reachable, empty
- * tools/skills lists, empty system prompt).
+ * v1 reads triggers / tools / skills / prompt out of `parsedManifest` when the
+ * validator has populated it; otherwise it falls back to safe defaults — a
+ * single `http_invoke` trigger so `POST /run` is always reachable, empty
+ * tools/skills lists, empty prompt.
  *
  * The trust boundary stays the same: this function never reaches into bundle
  * code or decrypts anything. Secrets are loaded lazily by the parent via the
  * `loadSecret` callback at request time.
  */
-export function compileAgent(revision: ResolvedRevision): CompiledAgent {
+export function compileAgent(revision: ResolvedRevision): AgentDefinition {
     const manifest = revision.parsedManifest ?? {}
 
     const triggers = readTriggers(manifest)
-    const tools = readToolSpecs(manifest)
-    const skills = readSkillSpecs(manifest)
-    const systemPrompt = typeof manifest.systemPrompt === 'string' ? manifest.systemPrompt : ''
+    const tools = readStringIds(manifest.tools)
+    const skills = readStringIds(manifest.skills)
+    const prompt = typeof manifest.prompt === 'string' ? manifest.prompt : ''
     const auth = translateAuth(revision.auth, revision.applicationSlug)
 
     return {
+        name: revision.applicationSlug,
         slug: revision.applicationSlug,
-        systemPrompt,
+        prompt,
         tools,
         skills,
         triggers,
         auth,
+        visibility: auth?.type === 'public' ? 'public' : 'private',
     }
 }
 
-function readTriggers(manifest: Record<string, unknown>): TriggerConfig[] {
+function readTriggers(manifest: Record<string, unknown>): TriggerDefinition[] {
     const raw = manifest.triggers
     if (!Array.isArray(raw) || raw.length === 0) {
         // Default — every agent has /run unless it explicitly opts out (which
         // the schema doesn't currently support).
         return [{ id: 'http', type: 'http_invoke' }]
     }
-    const out: TriggerConfig[] = []
+    const out: TriggerDefinition[] = []
     for (const entry of raw) {
         const trigger = translateTrigger(entry)
         if (trigger) {
@@ -56,7 +58,7 @@ function readTriggers(manifest: Record<string, unknown>): TriggerConfig[] {
     return out
 }
 
-function translateTrigger(entry: unknown): TriggerConfig | null {
+function translateTrigger(entry: unknown): TriggerDefinition | null {
     if (!entry || typeof entry !== 'object') {
         return null
     }
@@ -69,65 +71,39 @@ function translateTrigger(entry: unknown): TriggerConfig | null {
     }
     if (obj.type === 'slack_event') {
         const events = Array.isArray(obj.events) ? obj.events.filter((e): e is string => typeof e === 'string') : []
+        // Accept both snake_case (canonical, how it's written in agent.ts and the
+        // bundler-produced manifest) and the legacy camelCase form for
+        // forward-compat with any older revision rows.
         const signingSecretName = obj.signing_secret_name ?? obj.signingSecretName
         if (events.length === 0 || typeof signingSecretName !== 'string') {
             return null
         }
-        return { id: obj.id, type: 'slack_event', events, signingSecretName }
+        return { id: obj.id, type: 'slack_event', events, signing_secret_name: signingSecretName }
     }
     return null
 }
 
-function readToolSpecs(manifest: Record<string, unknown>): ToolSpec[] {
-    const raw = manifest.tools
+/**
+ * Normalize a `tools:` / `skills:` manifest entry into a flat list of ids.
+ * The new `AgentDefinition` schema only carries ids (string[]); any richer
+ * descriptions live on the registered builtin / loaded local-tool side.
+ */
+function readStringIds(raw: unknown): string[] {
     if (!Array.isArray(raw)) {
         return []
     }
-    const out: ToolSpec[] = []
+    const out: string[] = []
     for (const entry of raw) {
         if (typeof entry === 'string') {
-            out.push({ id: entry, description: '', inputSchema: {} })
+            out.push(entry)
         } else if (entry && typeof entry === 'object' && typeof (entry as { id?: unknown }).id === 'string') {
-            out.push({
-                id: (entry as { id: string }).id,
-                description:
-                    typeof (entry as { description?: unknown }).description === 'string'
-                        ? (entry as { description: string }).description
-                        : '',
-                inputSchema:
-                    (entry as { inputSchema?: unknown }).inputSchema &&
-                    typeof (entry as { inputSchema: unknown }).inputSchema === 'object'
-                        ? (entry as { inputSchema: Record<string, unknown> }).inputSchema
-                        : {},
-            })
+            out.push((entry as { id: string }).id)
         }
     }
     return out
 }
 
-function readSkillSpecs(manifest: Record<string, unknown>): SkillSpec[] {
-    const raw = manifest.skills
-    if (!Array.isArray(raw)) {
-        return []
-    }
-    const out: SkillSpec[] = []
-    for (const entry of raw) {
-        if (typeof entry === 'string') {
-            out.push({ id: entry, name: entry, description: '', body: '' })
-        } else if (entry && typeof entry === 'object' && typeof (entry as { id?: unknown }).id === 'string') {
-            const o = entry as { id: string; name?: unknown; description?: unknown; body?: unknown }
-            out.push({
-                id: o.id,
-                name: typeof o.name === 'string' ? o.name : o.id,
-                description: typeof o.description === 'string' ? o.description : '',
-                body: typeof o.body === 'string' ? o.body : '',
-            })
-        }
-    }
-    return out
-}
-
-function translateAuth(revisionAuth: ResolvedRevision['auth'], slug: string): AuthPolicy {
+function translateAuth(revisionAuth: ResolvedRevision['auth'], slug: string): AgentDefinition['auth'] {
     switch (revisionAuth.mode) {
         case 'public':
             return { type: 'public' }

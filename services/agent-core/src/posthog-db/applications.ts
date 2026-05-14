@@ -61,6 +61,15 @@ export class ApplicationsRepository {
     }
 
     /**
+     * Resolve a specific pinned revision regardless of which revision is currently
+     * live. Used by the runner: a session pins a revisionId when it's enqueued,
+     * and we want to run that exact bundle even if a newer one has shipped since.
+     */
+    async resolveByRevisionId(revisionId: string): Promise<ResolvedRevision | null> {
+        return this.fetchOne('rev.id = $1', [revisionId], { liveOnly: false })
+    }
+
+    /**
      * Verify a bearer token against the team's shared-secret tokens. PostHog's
      * `Team` model carries `secret_api_token` and `secret_api_token_backup` —
      * either one is a valid client credential. Backup exists for rotation: you
@@ -114,7 +123,12 @@ export class ApplicationsRepository {
         return parseDotenv(plaintext)
     }
 
-    private async fetchOne(whereClause: string, params: unknown[]): Promise<ResolvedRevision | null> {
+    private async fetchOne(
+        whereClause: string,
+        params: unknown[],
+        options: { liveOnly?: boolean } = {}
+    ): Promise<ResolvedRevision | null> {
+        const liveOnly = options.liveOnly ?? true
         const sql = `
             SELECT
                 app.id::text          AS application_id,
@@ -131,7 +145,7 @@ export class ApplicationsRepository {
               ON rev.application_id = app.id
             WHERE ${whereClause}
               AND app.deleted = FALSE
-              AND rev.deployment_status = 'live'
+              ${liveOnly ? "AND rev.deployment_status = 'live'" : ''}
             LIMIT 1`
         let result
         try {
