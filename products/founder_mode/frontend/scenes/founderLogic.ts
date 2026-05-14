@@ -9,7 +9,14 @@ export type FounderStep = 'ideation' | 'validation' | 'gtm' | 'mvp' | 'marketing
 
 export const FOUNDER_STEPS: FounderStep[] = ['ideation', 'validation', 'gtm', 'mvp', 'marketing']
 
-import type { GTMEnvelopeApi, GTMSummaryApi, MVPEnvelopeApi, MVPHappyPathApi } from '../generated/api.schemas'
+import type {
+    GTMEnvelopeApi,
+    GTMSummaryApi,
+    MarketingStepsEnvelopeApi,
+    MVPEnvelopeApi,
+    MVPHappyPathApi,
+    PracticalStepsResultApi,
+} from '../generated/api.schemas'
 
 interface FounderProjectListItem {
     id: string
@@ -41,6 +48,12 @@ export const founderLogic = kea<founderLogicType>([
         stopGtmPolling: true,
         pollMvpStatus: true,
         stopMvpPolling: true,
+        triggerMarketing: true,
+        setMarketingEnvelope: (marketing: MarketingStepsEnvelopeApi | null) => ({ marketing }),
+        setMarketingLoaded: (loaded: boolean) => ({ loaded }),
+        loadExistingMarketing: true,
+        pollMarketingStatus: true,
+        stopMarketingPolling: true,
         setProjectLoaded: (loaded: boolean) => ({ loaded }),
     }),
 
@@ -110,6 +123,26 @@ export const founderLogic = kea<founderLogicType>([
                 stopMvpPolling: () => false,
             },
         ],
+        marketingEnvelope: [
+            null as MarketingStepsEnvelopeApi | null,
+            {
+                setMarketingEnvelope: (_, { marketing }) => marketing,
+                triggerMarketing: () => ({ status: 'running' }) as MarketingStepsEnvelopeApi,
+            },
+        ],
+        marketingLoaded: [
+            false,
+            {
+                setMarketingLoaded: (_, { loaded }) => loaded,
+            },
+        ],
+        marketingPolling: [
+            false,
+            {
+                triggerMarketing: () => true,
+                stopMarketingPolling: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -122,6 +155,13 @@ export const founderLogic = kea<founderLogicType>([
         mvpResult: [(s) => [s.mvpEnvelope], (mvp): MVPHappyPathApi | null => mvp?.result ?? null],
         mvpIsRunning: [(s) => [s.mvpStatus], (status): boolean => status === 'pending' || status === 'running'],
         mvpError: [(s) => [s.mvpEnvelope], (mvp): string => mvp?.error ?? ''],
+        marketingStatus: [(s) => [s.marketingEnvelope], (m): string => m?.status ?? 'idle'],
+        marketingResult: [(s) => [s.marketingEnvelope], (m): PracticalStepsResultApi | null => m?.result ?? null],
+        marketingIsRunning: [
+            (s) => [s.marketingStatus],
+            (status): boolean => status === 'pending' || status === 'running',
+        ],
+        marketingError: [(s) => [s.marketingEnvelope], (m): string => m?.error ?? ''],
     }),
 
     listeners(({ actions, values }) => ({
@@ -236,6 +276,7 @@ export const founderLogic = kea<founderLogicType>([
                 // No existing state
             }
             actions.setMvpLoaded(true)
+            actions.loadExistingMarketing()
         },
 
         triggerMvp: async () => {
@@ -276,6 +317,68 @@ export const founderLogic = kea<founderLogicType>([
                 }
             } catch {
                 actions.stopMvpPolling()
+            }
+        },
+
+        loadExistingMarketing: async () => {
+            if (!values.currentProjectId) {
+                actions.setMarketingLoaded(true)
+                return
+            }
+            try {
+                const project = await api.get<{ marketing_steps: MarketingStepsEnvelopeApi | null }>(
+                    `${FOUNDER_PROJECTS_URL}${values.currentProjectId}/`
+                )
+                if (project.marketing_steps?.status) {
+                    actions.setMarketingEnvelope(project.marketing_steps)
+                    if (project.marketing_steps.status === 'pending' || project.marketing_steps.status === 'running') {
+                        actions.pollMarketingStatus()
+                    }
+                }
+            } catch {
+                // No existing state
+            }
+            actions.setMarketingLoaded(true)
+        },
+
+        triggerMarketing: async () => {
+            if (!values.currentProjectId) {
+                return
+            }
+            try {
+                const project = await api.create<{ marketing_steps: MarketingStepsEnvelopeApi }>(
+                    `${FOUNDER_PROJECTS_URL}${values.currentProjectId}/run_practical_steps/`
+                )
+                actions.setMarketingEnvelope(project.marketing_steps)
+                actions.pollMarketingStatus()
+            } catch (e: unknown) {
+                const msg = e instanceof Error ? e.message : 'Request failed'
+                actions.setMarketingEnvelope({ status: 'failed', error: msg })
+                actions.stopMarketingPolling()
+            }
+        },
+
+        pollMarketingStatus: async (_, breakpoint) => {
+            await breakpoint(POLL_INTERVAL_MS)
+            if (!values.marketingPolling || !values.currentProjectId) {
+                return
+            }
+            try {
+                const project = await api.get<{ marketing_steps: MarketingStepsEnvelopeApi | null }>(
+                    `${FOUNDER_PROJECTS_URL}${values.currentProjectId}/`
+                )
+                if (project.marketing_steps?.status) {
+                    actions.setMarketingEnvelope(project.marketing_steps)
+                    if (project.marketing_steps.status === 'completed' || project.marketing_steps.status === 'failed') {
+                        actions.stopMarketingPolling()
+                    } else {
+                        actions.pollMarketingStatus()
+                    }
+                } else {
+                    actions.stopMarketingPolling()
+                }
+            } catch {
+                actions.stopMarketingPolling()
             }
         },
     })),
