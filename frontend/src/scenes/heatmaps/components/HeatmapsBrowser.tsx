@@ -2,15 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { IconDownload, IconGear, IconRevert } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDivider,
-    LemonInput,
-    LemonLabel,
-    LemonSkeleton,
-    LemonTag,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -20,6 +12,7 @@ import { DetectiveHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/components/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -73,10 +66,7 @@ function ExportButton({
                 disabledReason={!dataUrl ? 'We can export only the URL with heatmaps' : undefined}
             >
                 <div className="flex w-full gap-x-2 justify-between items-center">
-                    Export{' '}
-                    <LemonTag type="warning" size="small">
-                        BETA
-                    </LemonTag>
+                    Export <LabsTag stage="beta" size="small" />
                 </div>
             </LemonButton>
         </div>

@@ -16,6 +16,7 @@ import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -399,10 +400,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'csp-reporting',
                 title: (
                     <>
-                        CSP reporting{' '}
-                        <LemonTag type="warning" className="ml-1 uppercase">
-                            Beta
-                        </LemonTag>
+                        CSP reporting <LabsTag stage="beta" className="ml-1" />
                     </>
                 ),
                 description:
@@ -796,9 +794,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: (
                     <>
                         Chart color themes
-                        <LemonTag type="warning" className="ml-1 uppercase">
-                            Beta
-                        </LemonTag>
+                        <LabsTag stage="beta" className="ml-1" />
                     </>
                 ),
                 description: 'Customize the color palette used in charts and visualizations.',

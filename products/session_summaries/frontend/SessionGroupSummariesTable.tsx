@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -104,7 +105,7 @@ export function SessionGroupSummariesTable(): JSX.Element {
                 resourceType={{
                     type: config.iconType || 'notebook',
                 }}
-                actions={<LemonTag type="warning">BETA</LemonTag>}
+                actions={<LabsTag stage="beta" />}
             />
             <div className="deprecated-space-y-4">
                 <div className="flex justify-between gap-2 flex-wrap">

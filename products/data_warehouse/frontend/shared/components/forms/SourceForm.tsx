@@ -15,6 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -76,9 +77,7 @@ export function SourceAccessMethodSelector({
                             <div>
                                 <div className="flex items-center gap-2">
                                     <span>Query directly</span>
-                                    <LemonTag type="warning" size="small">
-                                        BETA
-                                    </LemonTag>
+                                    <LabsTag stage="beta" size="small" />
                                 </div>
                                 <div className="text-xs text-secondary">
                                     Run queries live against this Postgres connection. Data from this source can&apos;t

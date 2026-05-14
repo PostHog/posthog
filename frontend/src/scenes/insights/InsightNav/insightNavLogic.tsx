@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -502,10 +502,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     tabs.push({
                         label: (
                             <>
-                                Web Analytics{' '}
-                                <LemonTag type="warning" className="uppercase ml-2">
-                                    Beta
-                                </LemonTag>
+                                Web Analytics <LabsTag stage="beta" className="ml-2" />
                             </>
                         ),
                         type: InsightType.WEB_ANALYTICS,
@@ -525,10 +522,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     tabs.push({
                         label: (
                             <>
-                                {humanFriendlyQueryKind ?? 'Custom'}{' '}
-                                <LemonTag type="warning" className="uppercase ml-2">
-                                    Beta
-                                </LemonTag>
+                                {humanFriendlyQueryKind ?? 'Custom'} <LabsTag stage="beta" className="ml-2" />
                             </>
                         ),
                         type: InsightType.JSON,

@@ -47,6 +47,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
@@ -1799,10 +1800,7 @@ const EventContent = React.memo(
                                               key: TraceViewMode.Feedback,
                                               label: (
                                                   <>
-                                                      Feedback{' '}
-                                                      <LemonTag className="ml-1" type="completion">
-                                                          Beta
-                                                      </LemonTag>
+                                                      Feedback <LabsTag stage="beta" className="ml-1" />
                                                   </>
                                               ),
                                               content: <FeedbackViewDisplay />,

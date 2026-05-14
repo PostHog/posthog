@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRewindPlay } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
 
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useOpenAi } from 'scenes/max/useOpenAi'
@@ -62,9 +62,7 @@ export const SummarizeSessionReplaysButton = ({
             tooltip="Use AI to analyze session recordings and identify patterns in user behavior across experiment variants. Discover insights about how users interact with your variants."
         >
             Summarize session recordings
-            <LemonTag type="highlight" size="small" className="ml-1">
-                Beta
-            </LemonTag>
+            <LabsTag stage="beta" size="small" className="ml-1" />
         </LemonButton>
     )
 }

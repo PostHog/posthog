@@ -5,6 +5,7 @@ import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -178,7 +179,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                 <div>
                     <div className="flex flex-row items-center gap-2">
                         <h3 className="mb-0">Materialization</h3>
-                        <LemonTag type="warning">BETA</LemonTag>
+                        <LabsTag stage="beta" />
                         {savedQuery?.latest_error && savedQuery.status === 'Failed' && (
                             <Tooltip title={savedQuery.latest_error} interactive>
                                 <LemonTag type="danger">Error</LemonTag>

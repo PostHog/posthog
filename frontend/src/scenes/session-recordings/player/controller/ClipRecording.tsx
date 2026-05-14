@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { LemonButton, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { IconRecordingClip } from 'lib/lemon-ui/icons'
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { colonDelimitedDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -145,9 +146,7 @@ function ClipRecording_({ current, className }: { current: string; className?: s
                 <span>
                     Create clip around {current} <KeyboardShortcut x />
                 </span>
-                <LemonTag type="warning" size="small">
-                    BETA
-                </LemonTag>
+                <LabsTag stage="beta" size="small" />
             </div>
         ),
         [current]

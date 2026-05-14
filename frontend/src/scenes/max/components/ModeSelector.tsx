@@ -3,10 +3,11 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo } from 'react'
 
 import { IconArrowRight, IconWrench } from '@posthog/icons'
-import { LemonSelect, LemonSelectSection, LemonTag } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
@@ -40,15 +41,9 @@ function buildModeTooltip(description: string, tools: ToolDefinition[]): JSX.Ele
                                 <span>
                                     <strong className="italic">
                                         {tool.name}
-                                        {tool.beta && (
-                                            <LemonTag size="small" type="warning" className="ml-1 not-italic">
-                                                BETA
-                                            </LemonTag>
-                                        )}
+                                        {tool.beta && <LabsTag stage="beta" size="small" className="ml-1 not-italic" />}
                                         {tool.alpha && (
-                                            <LemonTag size="small" type="danger" className="ml-1 not-italic">
-                                                ALPHA
-                                            </LemonTag>
+                                            <LabsTag stage="alpha" size="small" className="ml-1 not-italic" />
                                         )}
                                     </strong>
                                     {tool.description?.replace(tool.name, '')}
@@ -140,11 +135,7 @@ function getModeOptions({
             label: (
                 <span className="flex items-center gap-1">
                     {SPECIAL_MODES.plan.name}
-                    {SPECIAL_MODES.plan.beta && (
-                        <LemonTag size="small" type="warning">
-                            BETA
-                        </LemonTag>
-                    )}
+                    {SPECIAL_MODES.plan.beta && <LabsTag stage="beta" size="small" />}
                 </span>
             ),
             icon: SPECIAL_MODES.plan.icon,
@@ -158,11 +149,7 @@ function getModeOptions({
             label: (
                 <span className="flex items-center gap-1">
                     {SPECIAL_MODES.research.name}
-                    {SPECIAL_MODES.research.beta && (
-                        <LemonTag size="small" type="warning">
-                            BETA
-                        </LemonTag>
-                    )}
+                    {SPECIAL_MODES.research.beta && <LabsTag stage="beta" size="small" />}
                 </span>
             ),
             icon: SPECIAL_MODES.research.icon,
@@ -176,11 +163,7 @@ function getModeOptions({
             label: (
                 <span className="flex items-center gap-1">
                     {SPECIAL_MODES.sandbox.name}
-                    {SPECIAL_MODES.sandbox.alpha && (
-                        <LemonTag size="small" type="danger">
-                            ALPHA
-                        </LemonTag>
-                    )}
+                    {SPECIAL_MODES.sandbox.alpha && <LabsTag stage="alpha" size="small" />}
                 </span>
             ),
             icon: SPECIAL_MODES.sandbox.icon,
@@ -204,16 +187,8 @@ function getModeOptions({
                     def.beta || def.alpha ? (
                         <span className="flex items-center gap-1">
                             {def.name}
-                            {def.beta && (
-                                <LemonTag size="small" type="warning">
-                                    BETA
-                                </LemonTag>
-                            )}
-                            {def.alpha && (
-                                <LemonTag size="small" type="danger">
-                                    ALPHA
-                                </LemonTag>
-                            )}
+                            {def.beta && <LabsTag stage="beta" size="small" />}
+                            {def.alpha && <LabsTag stage="alpha" size="small" />}
                         </span>
                     ) : (
                         def.name

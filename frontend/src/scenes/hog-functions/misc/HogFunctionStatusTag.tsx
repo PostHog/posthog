@@ -1,5 +1,6 @@
 import { LemonTag } from '@posthog/lemon-ui'
 
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { HogFunctionTemplateStatus } from '~/types'
@@ -11,9 +12,9 @@ export interface HogFunctionStatusTagProps {
 export function HogFunctionStatusTag({ status }: HogFunctionStatusTagProps): JSX.Element | null {
     switch (status) {
         case 'alpha':
-            return <LemonTag type="danger">Experimental</LemonTag>
+            return <LabsTag stage="alpha" />
         case 'beta':
-            return <LemonTag type="completion">Beta</LemonTag>
+            return <LabsTag stage="beta" />
         case 'stable':
             return null
         case 'coming_soon':

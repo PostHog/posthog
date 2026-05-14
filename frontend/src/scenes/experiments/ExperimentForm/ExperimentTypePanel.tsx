@@ -1,4 +1,4 @@
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { SelectableCard } from 'scenes/experiments/components/SelectableCard'
 
 import type { Experiment } from '~/types'
@@ -20,9 +20,7 @@ export const ExperimentTypePanel = ({ experiment, setExperimentType }: Experimen
             title={
                 <span>
                     No-Code experiment&nbsp;
-                    <LemonTag type="option" size="small">
-                        Beta
-                    </LemonTag>
+                    <LabsTag stage="beta" size="small" />
                 </span>
             }
             description="Define variants on your website using the PostHog toolbar, no coding required."

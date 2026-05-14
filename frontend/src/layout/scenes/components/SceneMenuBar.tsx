@@ -3,7 +3,6 @@ import { Children, ComponentProps, ReactNode } from 'react'
 
 import { IconExternal, IconSidePanel } from '@posthog/icons'
 import {
-    Badge,
     Button,
     Menubar,
     MenubarCheckboxItem,
@@ -24,6 +23,7 @@ import {
 } from '@posthog/quill'
 
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 
@@ -72,7 +72,10 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
             */}
             <Menubar className="gap-0 border-0 text-tertiary hover:text-primary">{children}</Menubar>
 
-            <Badge>OS-like menu (alpha)</Badge>
+            <span className="flex items-center gap-1">
+                OS-like menu
+                <LabsTag stage="alpha" size="small" />
+            </span>
             <SceneMenuBarRightLinks />
         </div>
     )

@@ -12,11 +12,11 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -507,9 +507,7 @@ const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: strin
             label: (
                 <div className="flex items-center gap-1">
                     Live
-                    <LemonTag type="completion" className="uppercase">
-                        Alpha
-                    </LemonTag>
+                    <LabsTag stage="alpha" />
                 </div>
             ),
             link: '/web/live',
@@ -530,9 +528,7 @@ const botAnalyticsTab = (
             label: (
                 <div className="flex items-center gap-1">
                     Bots
-                    <LemonTag type="completion" className="uppercase">
-                        Alpha
-                    </LemonTag>
+                    <LabsTag stage="alpha" />
                 </div>
             ),
             link: urls.webAnalyticsBotAnalytics(),
@@ -647,9 +643,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                     label: (
                         <div className="flex items-center gap-1">
                             Page reports
-                            <LemonTag type="warning" className="uppercase">
-                                Beta
-                            </LemonTag>
+                            <LabsTag stage="beta" />
                         </div>
                     ),
                     link: '/web/page-reports',

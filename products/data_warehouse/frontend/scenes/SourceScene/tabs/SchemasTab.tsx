@@ -18,6 +18,7 @@ import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkli
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -188,9 +189,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                             }}
                         >
                             See data in Revenue analytics
-                            <LemonTag className="ml-2" type="danger" size="small">
-                                ALPHA
-                            </LemonTag>
+                            <LabsTag className="ml-2" stage="alpha" size="small" />
                         </LemonButton>
                     </div>
                 )}

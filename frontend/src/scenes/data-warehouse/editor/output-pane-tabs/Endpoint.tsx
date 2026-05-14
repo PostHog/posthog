@@ -1,17 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEndpoints } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonInput,
-    LemonSelect,
-    LemonSwitch,
-    LemonTag,
-    LemonTextArea,
-    Link,
-    lemonToast,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTextArea, Link, lemonToast } from '@posthog/lemon-ui'
 
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
@@ -100,7 +92,7 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
         <div className="overflow-auto" data-attr="sql-editor-endpoint-pane">
             <div className="flex flex-row items-center gap-2">
                 <h3 className="mb-0">Endpoint</h3>
-                <LemonTag type="warning">BETA</LemonTag>
+                <LabsTag stage="beta" />
             </div>
             <div className="space-y-2">
                 <p className="text-xs">

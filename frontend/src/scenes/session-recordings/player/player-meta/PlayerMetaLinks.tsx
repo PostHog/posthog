@@ -10,10 +10,11 @@ import {
     IconPlusSmall,
     IconTrash,
 } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -197,10 +198,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
             isStandardMode && {
                 label: (
                     <div className="flex w-full gap-x-2 justify-between items-center">
-                        Export to MP4{' '}
-                        <LemonTag type="warning" size="small">
-                            BETA
-                        </LemonTag>
+                        Export to MP4 <LabsTag stage="beta" size="small" />
                     </div>
                 ),
                 status: hasReachedExportFullVideoLimit ? 'danger' : 'default',

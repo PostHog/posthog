@@ -4,8 +4,8 @@ import { useEffect } from 'react'
 import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -46,7 +46,7 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
         <div className="mt-4 mb-4">
             <h2 className="font-semibold text-lg m-0 mb-2 flex items-center gap-2">
                 AI analysis
-                <LemonTag type="warning">BETA</LemonTag>
+                <LabsTag stage="beta" />
             </h2>
 
             {!hasClickedAnalyze ? (
