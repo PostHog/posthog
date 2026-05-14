@@ -15,9 +15,10 @@ chosen). Stop before checkout, comments, or edits when:
 Stop rules that apply to both modes:
 
 - The local PostHog stack is not reachable.
-- Both `LOGIN_USERNAME` and `--login-username` are missing, or both
-  `LOGIN_PASSWORD` and `--login-password` are missing.
-- Playwright MCP cannot navigate or login.
+- Playwright MCP cannot navigate or login. (Credentials always resolve to at
+  least the documented seed defaults, so a missing-credentials stop is no
+  longer separately required; if the resolved credentials do not work, the
+  login step itself fails and aborts here.)
 
 Local mode does not require `PR_REF` and allows a dirty working tree by
 design; do not abort local-mode runs for either reason.

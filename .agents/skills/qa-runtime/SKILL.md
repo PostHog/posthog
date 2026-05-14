@@ -86,10 +86,10 @@ Parse `$ARGUMENTS` into:
 
 - `PR_REF`: first non-option token, or the value after `--pr`. Optional in
   local mode, required in PR mode.
-- `LOGIN_USERNAME_OVERRIDE`: value after `--login-username` or `--username`.
-- `LOGIN_PASSWORD_OVERRIDE`: value after `--login-password` or `--password`.
+- `LOGIN_USERNAME`: value after `--login-username` or `--username`.
+- `LOGIN_PASSWORD`: value after `--login-password` or `--password`.
 
-Do not print, log, or include `LOGIN_PASSWORD_OVERRIDE` in evidence or comments.
+Do not print, log, or include `LOGIN_PASSWORD` in evidence or comments.
 Reject unknown options only if they prevent identifying `PR_REF`.
 
 ### PR mode preconditions
@@ -219,29 +219,26 @@ comment-only "nothing meaningful to runtime QA" report.
 
 ## Login
 
-Prefer these environment variables:
+Default to the public PostHog local-dev seed: `test@posthog.com` / `12345678`.
+These are documented in
+[`docs/published/handbook/engineering/manual-dev-setup.md`](../../../docs/published/handbook/engineering/manual-dev-setup.md)
+and are seeded by `bin/start`. They only exist on a local stack, so falling
+back to them is safe.
+
+The skill parses `--login-username` / `--login-password` from `$ARGUMENTS` into
+`LOGIN_USERNAME` / `LOGIN_PASSWORD` (see Preconditions). Apply the seed default
+only if those are still unset after parsing:
 
 ```bash
-LOGIN_USERNAME
-LOGIN_PASSWORD
+LOGIN_USERNAME="${LOGIN_USERNAME:-test@posthog.com}"
+LOGIN_PASSWORD="${LOGIN_PASSWORD:-12345678}"
 ```
 
-If either variable is missing, allow explicit chat overrides from `$ARGUMENTS`:
+This gives three sources of credentials, in precedence order: chat flag → env
+var (if `LOGIN_USERNAME` / `LOGIN_PASSWORD` are already exported in the shell)
+→ seed default. No `_OVERRIDE` / `_EFFECTIVE` indirection needed.
 
-```text
---login-username <email>
---login-password <password>
-```
-
-Resolve login credentials as:
-
-```bash
-LOGIN_USERNAME_EFFECTIVE="${LOGIN_USERNAME:-$LOGIN_USERNAME_OVERRIDE}"
-LOGIN_PASSWORD_EFFECTIVE="${LOGIN_PASSWORD:-$LOGIN_PASSWORD_OVERRIDE}"
-```
-
-Do not substitute literal seed credentials in this file or in PR comments. Never
-print the effective password, and refer to chat-provided credentials only as
+Never print the password. Refer to chat-provided credentials only as
 "login override provided" in user-facing output.
 
 With Playwright MCP:
