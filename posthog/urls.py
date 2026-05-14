@@ -92,6 +92,36 @@ else:
     extend_api_router()
 
 
+HOGNIPOTENT_PROXY_EVENTS = {"issue_comment", "pull_request_review_comment"}
+HOGNIPOTENT_FORWARDED_HEADERS = (
+    "X-Hub-Signature-256",
+    "X-Hub-Signature",
+    "X-GitHub-Event",
+    "X-GitHub-Delivery",
+    "X-GitHub-Hook-ID",
+    "X-GitHub-Hook-Installation-Target-ID",
+    "X-GitHub-Hook-Installation-Target-Type",
+    "Content-Type",
+    "User-Agent",
+)
+
+
+def _proxy_to_hognipotent(request: HttpRequest) -> None:
+    """Forward the original GitHub webhook request to hognipotent unchanged.
+
+    The original ``X-Hub-Signature-256`` header is preserved so that the
+    downstream receiver verifies it against the shared webhook secret exactly
+    as if GitHub had delivered the event directly.
+    """
+    import requests
+
+    headers = {name: request.headers[name] for name in HOGNIPOTENT_FORWARDED_HEADERS if name in request.headers}
+    try:
+        requests.post(settings.HOGNIPOTENT_WEBHOOK_URL, data=request.body, headers=headers, timeout=10)
+    except Exception as e:
+        logger.warning("hognipotent_webhook_proxy_failed", error=str(e))
+
+
 @csrf_exempt
 def github_webhook(request: HttpRequest) -> HttpResponse:
     """Unified GitHub App webhook dispatcher.
@@ -120,6 +150,9 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
         return HttpResponse("Invalid JSON", status=400)
 
     event_type = request.headers.get("X-GitHub-Event", "")
+
+    if event_type in HOGNIPOTENT_PROXY_EVENTS:
+        _proxy_to_hognipotent(request)
 
     if event_type in ("issues", "issue_comment"):
         from products.conversations.backend.api.github_events import dispatch_github_event

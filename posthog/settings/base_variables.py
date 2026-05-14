@@ -50,6 +50,11 @@ SERVER_GATEWAY_INTERFACE = get_from_env("SERVER_GATEWAY_INTERFACE", "WSGI", type
 # GitHub secret alert relay URL - set in US deployment to forward alerts to EU
 GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RELAY_URL", optional=True)
 
+# Hognipotent webhook proxy URL - GitHub issue/PR comment events are forwarded here
+HOGNIPOTENT_WEBHOOK_URL: str = get_from_env(
+    "HOGNIPOTENT_WEBHOOK_URL", "https://hognipotent.com/api/webhooks/github", type_cast=str
+)
+
 # Duckgres - URL, internal secret, and PG endpoint for the managed warehouse service
 DUCKGRES_API_URL: str | None = get_from_env("DUCKGRES_API_URL", optional=True)
 DUCKGRES_INTERNAL_SECRET: str | None = get_from_env("DUCKGRES_INTERNAL_SECRET", optional=True)
