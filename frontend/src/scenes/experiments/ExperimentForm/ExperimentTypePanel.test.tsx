@@ -34,7 +34,7 @@ describe('ExperimentTypePanel', () => {
                 screen.getByText('Define variants on your website using the PostHog toolbar, no coding required.')
             ).toBeInTheDocument()
 
-            const cards = container.querySelectorAll('[role="button"]')
+            const cards = container.querySelectorAll('[aria-pressed]')
             expect(cards).toHaveLength(2)
         })
 
@@ -57,7 +57,7 @@ describe('ExperimentTypePanel', () => {
                 />
             )
 
-            const cards = container.querySelectorAll('[role="button"]')
+            const cards = container.querySelectorAll('[aria-pressed]')
             const productCard = cards[0]
             const noCodeCard = cards[1]
 
@@ -74,7 +74,7 @@ describe('ExperimentTypePanel', () => {
                 />
             )
 
-            const updatedCards = container.querySelectorAll('[role="button"]')
+            const updatedCards = container.querySelectorAll('[aria-pressed]')
             const updatedProductCard = updatedCards[0]
             const updatedNoCodeCard = updatedCards[1]
 
@@ -95,7 +95,7 @@ describe('ExperimentTypePanel', () => {
                 />
             )
 
-            const cards = container.querySelectorAll('[role="button"]')
+            const cards = container.querySelectorAll('[aria-pressed]')
             const productCard = cards[0]
             await userEvent.click(productCard)
 
@@ -111,7 +111,7 @@ describe('ExperimentTypePanel', () => {
                 />
             )
 
-            const cards = container.querySelectorAll('[role="button"]')
+            const cards = container.querySelectorAll('[aria-pressed]')
             const noCodeCard = cards[1]
             await userEvent.click(noCodeCard)
 
@@ -127,7 +127,7 @@ describe('ExperimentTypePanel', () => {
                 />
             )
 
-            const cards = container.querySelectorAll('[role="button"]')
+            const cards = container.querySelectorAll('[aria-pressed]')
             const noCodeCard = cards[1] as HTMLElement
             noCodeCard.focus()
             await userEvent.keyboard('{Enter}')
@@ -143,7 +143,7 @@ describe('ExperimentTypePanel', () => {
                 />
             )
 
-            const cards = container.querySelectorAll('[role="button"]')
+            const cards = container.querySelectorAll('[aria-pressed]')
             const noCodeCard = cards[1] as HTMLElement
             noCodeCard.focus()
             await userEvent.keyboard(' ')
@@ -159,7 +159,7 @@ describe('ExperimentTypePanel', () => {
                 />
             )
 
-            const cards = container.querySelectorAll('[role="button"]')
+            const cards = container.querySelectorAll('[aria-pressed]')
             const productCard = cards[0]
             await userEvent.click(productCard)
 
