@@ -437,6 +437,7 @@ SPECTACULAR_SETTINGS = {
         "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
         "LiveDebuggerProgramStatusEnum": "products.live_debugger.backend.models.LiveDebuggerProgram.Status",
+        "LiveDebuggerSessionStatusEnum": "products.live_debugger.backend.models.LiveDebuggerSession.Status",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [

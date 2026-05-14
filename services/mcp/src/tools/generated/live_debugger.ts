@@ -3,25 +3,84 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    LiveDebuggerProgramsCreateBody,
-    LiveDebuggerProgramsEventsRetrieveParams,
-    LiveDebuggerProgramsEventsRetrieveQueryParams,
-    LiveDebuggerProgramsListQueryParams,
-    LiveDebuggerProgramsRetrieveParams,
-    LiveDebuggerProgramsUninstallCreateParams,
+    LiveDebuggerSessionsCloseCreateBody,
+    LiveDebuggerSessionsCloseCreateParams,
+    LiveDebuggerSessionsCreateBody,
+    LiveDebuggerSessionsEntriesCreateBody,
+    LiveDebuggerSessionsEntriesCreateParams,
+    LiveDebuggerSessionsInstallProgramCreateBody,
+    LiveDebuggerSessionsInstallProgramCreateParams,
+    LiveDebuggerSessionsListQueryParams,
+    LiveDebuggerSessionsProgramEventsRetrieveParams,
+    LiveDebuggerSessionsProgramEventsRetrieveQueryParams,
+    LiveDebuggerSessionsRetrieveParams,
+    LiveDebuggerSessionsUninstallProgramCreateBody,
+    LiveDebuggerSessionsUninstallProgramCreateParams,
 } from '@/generated/live_debugger/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const LiveDebuggerProgramsInstallSchema = LiveDebuggerProgramsCreateBody
+const DebuggingSessionAddEntrySchema = LiveDebuggerSessionsEntriesCreateParams.omit({ project_id: true }).extend(
+    LiveDebuggerSessionsEntriesCreateBody.shape
+)
 
-const liveDebuggerProgramsInstall = (): ToolBase<
-    typeof LiveDebuggerProgramsInstallSchema,
+const debuggingSessionAddEntry = (): ToolBase<
+    typeof DebuggingSessionAddEntrySchema,
+    Schemas.LiveDebuggerSessionEntryListItem
+> => ({
+    name: 'debugging-session-add-entry',
+    schema: DebuggingSessionAddEntrySchema,
+    handler: async (context: Context, params: z.infer<typeof DebuggingSessionAddEntrySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
+        }
+        const result = await context.api.request<Schemas.LiveDebuggerSessionEntryListItem>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/live_debugger_sessions/${encodeURIComponent(String(params.id))}/entries/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DebuggingSessionCloseSchema = LiveDebuggerSessionsCloseCreateParams.omit({ project_id: true }).extend(
+    LiveDebuggerSessionsCloseCreateBody.shape
+)
+
+const debuggingSessionClose = (): ToolBase<typeof DebuggingSessionCloseSchema, Schemas.LiveDebuggerSession> => ({
+    name: 'debugging-session-close',
+    schema: DebuggingSessionCloseSchema,
+    handler: async (context: Context, params: z.infer<typeof DebuggingSessionCloseSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.conclusion_markdown !== undefined) {
+            body['conclusion_markdown'] = params.conclusion_markdown
+        }
+        const result = await context.api.request<Schemas.LiveDebuggerSession>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/live_debugger_sessions/${encodeURIComponent(String(params.id))}/close/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DebuggingSessionInstallProgramSchema = LiveDebuggerSessionsInstallProgramCreateParams.omit({
+    project_id: true,
+}).extend(LiveDebuggerSessionsInstallProgramCreateBody.shape)
+
+const debuggingSessionInstallProgram = (): ToolBase<
+    typeof DebuggingSessionInstallProgramSchema,
     Schemas.LiveDebuggerProgram
 > => ({
-    name: 'live-debugger-programs-install',
-    schema: LiveDebuggerProgramsInstallSchema,
-    handler: async (context: Context, params: z.infer<typeof LiveDebuggerProgramsInstallSchema>) => {
+    name: 'debugging-session-install-program',
+    schema: DebuggingSessionInstallProgramSchema,
+    handler: async (context: Context, params: z.infer<typeof DebuggingSessionInstallProgramSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.code !== undefined) {
@@ -32,45 +91,27 @@ const liveDebuggerProgramsInstall = (): ToolBase<
         }
         const result = await context.api.request<Schemas.LiveDebuggerProgram>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/live_debugger_programs/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/live_debugger_sessions/${encodeURIComponent(String(params.id))}/install_program/`,
             body,
         })
         return result
     },
 })
 
-const LiveDebuggerProgramsUninstallSchema = LiveDebuggerProgramsUninstallCreateParams.omit({ project_id: true })
+const DebuggingSessionListSchema = LiveDebuggerSessionsListQueryParams
 
-const liveDebuggerProgramsUninstall = (): ToolBase<
-    typeof LiveDebuggerProgramsUninstallSchema,
-    Schemas.LiveDebuggerProgram
+const debuggingSessionList = (): ToolBase<
+    typeof DebuggingSessionListSchema,
+    WithPostHogUrl<Schemas.PaginatedLiveDebuggerSessionListItemList>
 > => ({
-    name: 'live-debugger-programs-uninstall',
-    schema: LiveDebuggerProgramsUninstallSchema,
-    handler: async (context: Context, params: z.infer<typeof LiveDebuggerProgramsUninstallSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.LiveDebuggerProgram>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/live_debugger_programs/${encodeURIComponent(String(params.id))}/uninstall/`,
-        })
-        return result
-    },
-})
-
-const LiveDebuggerProgramsListSchema = LiveDebuggerProgramsListQueryParams
-
-const liveDebuggerProgramsList = (): ToolBase<
-    typeof LiveDebuggerProgramsListSchema,
-    WithPostHogUrl<Schemas.PaginatedLiveDebuggerProgramListItemList>
-> => ({
-    name: 'live-debugger-programs-list',
-    schema: LiveDebuggerProgramsListSchema,
+    name: 'debugging-session-list',
+    schema: DebuggingSessionListSchema,
     mcpVersion: 1,
-    handler: async (context: Context, params: z.infer<typeof LiveDebuggerProgramsListSchema>) => {
+    handler: async (context: Context, params: z.infer<typeof DebuggingSessionListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedLiveDebuggerProgramListItemList>({
+        const result = await context.api.request<Schemas.PaginatedLiveDebuggerSessionListItemList>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/live_debugger_programs/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/live_debugger_sessions/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -81,7 +122,9 @@ const liveDebuggerProgramsList = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/live-debugger/${item.id}`))
+                    (result.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/live-debugger/sessions/${item.id}`)
+                    )
                 ),
             },
             '/live-debugger'
@@ -89,53 +132,105 @@ const liveDebuggerProgramsList = (): ToolBase<
     },
 })
 
-const LiveDebuggerProgramsShowSchema = LiveDebuggerProgramsRetrieveParams.omit({ project_id: true })
+const DebuggingSessionProgramEventsSchema = LiveDebuggerSessionsProgramEventsRetrieveParams.omit({
+    project_id: true,
+}).extend(LiveDebuggerSessionsProgramEventsRetrieveQueryParams.shape)
 
-const liveDebuggerProgramsShow = (): ToolBase<
-    typeof LiveDebuggerProgramsShowSchema,
-    WithPostHogUrl<Schemas.LiveDebuggerProgram>
-> => ({
-    name: 'live-debugger-programs-show',
-    schema: LiveDebuggerProgramsShowSchema,
-    mcpVersion: 1,
-    handler: async (context: Context, params: z.infer<typeof LiveDebuggerProgramsShowSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.LiveDebuggerProgram>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/live_debugger_programs/${encodeURIComponent(String(params.id))}/`,
-        })
-        return await withPostHogUrl(context, result, `/live-debugger/${result.id}`)
-    },
-})
-
-const LiveDebuggerProgramsEventsSchema = LiveDebuggerProgramsEventsRetrieveParams.omit({ project_id: true }).extend(
-    LiveDebuggerProgramsEventsRetrieveQueryParams.shape
-)
-
-const liveDebuggerProgramsEvents = (): ToolBase<
-    typeof LiveDebuggerProgramsEventsSchema,
+const debuggingSessionProgramEvents = (): ToolBase<
+    typeof DebuggingSessionProgramEventsSchema,
     Schemas.ProgramEventsResponse
 > => ({
-    name: 'live-debugger-programs-events',
-    schema: LiveDebuggerProgramsEventsSchema,
-    handler: async (context: Context, params: z.infer<typeof LiveDebuggerProgramsEventsSchema>) => {
+    name: 'debugging-session-program-events',
+    schema: DebuggingSessionProgramEventsSchema,
+    handler: async (context: Context, params: z.infer<typeof DebuggingSessionProgramEventsSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ProgramEventsResponse>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/live_debugger_programs/${encodeURIComponent(String(params.id))}/events/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/live_debugger_sessions/${encodeURIComponent(String(params.id))}/program_events/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                program_id: params.program_id,
             },
         })
         return result
     },
 })
 
+const DebuggingSessionShowSchema = LiveDebuggerSessionsRetrieveParams.omit({ project_id: true })
+
+const debuggingSessionShow = (): ToolBase<
+    typeof DebuggingSessionShowSchema,
+    WithPostHogUrl<Schemas.LiveDebuggerSession>
+> => ({
+    name: 'debugging-session-show',
+    schema: DebuggingSessionShowSchema,
+    mcpVersion: 1,
+    handler: async (context: Context, params: z.infer<typeof DebuggingSessionShowSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.LiveDebuggerSession>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/live_debugger_sessions/${encodeURIComponent(String(params.id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/live-debugger/sessions/${result.id}`)
+    },
+})
+
+const DebuggingSessionStartSchema = LiveDebuggerSessionsCreateBody
+
+const debuggingSessionStart = (): ToolBase<typeof DebuggingSessionStartSchema, Schemas.LiveDebuggerSession> => ({
+    name: 'debugging-session-start',
+    schema: DebuggingSessionStartSchema,
+    handler: async (context: Context, params: z.infer<typeof DebuggingSessionStartSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        const result = await context.api.request<Schemas.LiveDebuggerSession>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/live_debugger_sessions/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DebuggingSessionUninstallProgramSchema = LiveDebuggerSessionsUninstallProgramCreateParams.omit({
+    project_id: true,
+}).extend(LiveDebuggerSessionsUninstallProgramCreateBody.shape)
+
+const debuggingSessionUninstallProgram = (): ToolBase<
+    typeof DebuggingSessionUninstallProgramSchema,
+    Schemas.LiveDebuggerProgram
+> => ({
+    name: 'debugging-session-uninstall-program',
+    schema: DebuggingSessionUninstallProgramSchema,
+    handler: async (context: Context, params: z.infer<typeof DebuggingSessionUninstallProgramSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.program_id !== undefined) {
+            body['program_id'] = params.program_id
+        }
+        const result = await context.api.request<Schemas.LiveDebuggerProgram>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/live_debugger_sessions/${encodeURIComponent(String(params.id))}/uninstall_program/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'live-debugger-programs-install': liveDebuggerProgramsInstall,
-    'live-debugger-programs-uninstall': liveDebuggerProgramsUninstall,
-    'live-debugger-programs-list': liveDebuggerProgramsList,
-    'live-debugger-programs-show': liveDebuggerProgramsShow,
-    'live-debugger-programs-events': liveDebuggerProgramsEvents,
+    'debugging-session-add-entry': debuggingSessionAddEntry,
+    'debugging-session-close': debuggingSessionClose,
+    'debugging-session-install-program': debuggingSessionInstallProgram,
+    'debugging-session-list': debuggingSessionList,
+    'debugging-session-program-events': debuggingSessionProgramEvents,
+    'debugging-session-show': debuggingSessionShow,
+    'debugging-session-start': debuggingSessionStart,
+    'debugging-session-uninstall-program': debuggingSessionUninstallProgram,
 }

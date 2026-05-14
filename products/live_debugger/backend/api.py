@@ -124,6 +124,7 @@ class LiveDebuggerBreakpointFilterSet(FilterSet):
         fields = ["repository", "filename"]
 
 
+@extend_schema(tags=["live_debugger"])
 class LiveDebuggerBreakpointViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete breakpoints for live debugging.
@@ -443,6 +444,7 @@ class ProgramEventsRequestSerializer(serializers.Serializer):
     )
 
 
+@extend_schema(tags=["live_debugger"])
 class LiveDebuggerProgramViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Install, list, inspect, and uninstall live debugger programs (hogtrace programs).
@@ -626,6 +628,7 @@ def _build_program_list_bytes(programs: list[LiveDebuggerProgram]) -> bytes:
     return program_list.SerializeToString()
 
 
+@extend_schema(tags=["live_debugger"])
 class LiveDebuggerActiveProgramsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     Machine-facing endpoint for the libdebugger runtime poller. Returns the team's
@@ -816,6 +819,7 @@ class CloseSessionRequestSerializer(serializers.Serializer):
     )
 
 
+@extend_schema(tags=["live_debugger"])
 class LiveDebuggerSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Start, list, inspect, and close debugging sessions.

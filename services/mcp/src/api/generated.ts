@@ -3499,6 +3499,42 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    /**
+     * Payload shape depends on kind. note/conclusion: {markdown: str}. event_highlight: {event_uuids: list[str], caption: str}.
+     */
+    export type AddEntryRequestPayload = { [key: string]: unknown };
+
+    /**
+     * * `note` - note
+    * `event_highlight` - event_highlight
+    * `conclusion` - conclusion
+     */
+    export type AddEntryRequestKindEnum = typeof AddEntryRequestKindEnum[keyof typeof AddEntryRequestKindEnum];
+
+
+    export const AddEntryRequestKindEnum = {
+      Note: 'note',
+      EventHighlight: 'event_highlight',
+      Conclusion: 'conclusion',
+    } as const;
+
+    /**
+     * Validates a direct-write session entry (note / event_highlight / conclusion).
+
+    `program_install` and `program_uninstall` entries are server-written side effects
+    of the install/uninstall endpoints and cannot be appended via this endpoint.
+     */
+    export interface AddEntryRequest {
+      /** Entry kind: note, event_highlight, or conclusion.
+
+      * `note` - note
+      * `event_highlight` - event_highlight
+      * `conclusion` - conclusion */
+      kind: AddEntryRequestKindEnum;
+      /** Payload shape depends on kind. note/conclusion: {markdown: str}. event_highlight: {event_uuids: list[str], caption: str}. */
+      payload: AddEntryRequestPayload;
+    }
+
     export interface AddOptOutRequest {
       /**
          * The recipient identifier to opt out (e.g. email address).
@@ -7099,6 +7135,11 @@ export namespace Schemas {
       readonly person: ClickhouseEventPerson;
       readonly elements: readonly EventElement[];
       readonly elements_chain: string;
+    }
+
+    export interface CloseSessionRequest {
+      /** Optional markdown summary. If provided, a `conclusion` entry is appended before the session is closed. */
+      conclusion_markdown?: string;
     }
 
     export interface DiffCluster {
@@ -18479,6 +18520,13 @@ export namespace Schemas {
       posthog_code_callback_url?: string;
     }
 
+    export interface InstallProgramInSessionRequest {
+      /** The hogtrace program source code to install. */
+      code: string;
+      /** Human-readable description of what this program observes and why. */
+      description?: string;
+    }
+
     export interface InstallTemplate {
       template_id: string;
       api_key?: string;
@@ -19207,6 +19255,104 @@ export namespace Schemas {
       readonly created_at: string;
       /** Time the program record was last modified. */
       readonly updated_at: string;
+    }
+
+    /**
+     * * `open` - Open
+    * `closed` - Closed
+     */
+    export type LiveDebuggerSessionStatusEnum = typeof LiveDebuggerSessionStatusEnum[keyof typeof LiveDebuggerSessionStatusEnum];
+
+
+    export const LiveDebuggerSessionStatusEnum = {
+      Open: 'open',
+      Closed: 'closed',
+    } as const;
+
+    /**
+     * * `note` - Note
+    * `program_install` - Program install
+    * `program_uninstall` - Program uninstall
+    * `event_highlight` - Event highlight
+    * `conclusion` - Conclusion
+     */
+    export type LiveDebuggerSessionEntryListItemKindEnum = typeof LiveDebuggerSessionEntryListItemKindEnum[keyof typeof LiveDebuggerSessionEntryListItemKindEnum];
+
+
+    export const LiveDebuggerSessionEntryListItemKindEnum = {
+      Note: 'note',
+      ProgramInstall: 'program_install',
+      ProgramUninstall: 'program_uninstall',
+      EventHighlight: 'event_highlight',
+      Conclusion: 'conclusion',
+    } as const;
+
+    /**
+     * A single entry in a session's timeline.
+     */
+    export interface LiveDebuggerSessionEntryListItem {
+      /** Unique identifier for the entry. */
+      readonly id: string;
+      /** Entry kind discriminator. One of: note, program_install, program_uninstall, event_highlight, conclusion.
+
+      * `note` - Note
+      * `program_install` - Program install
+      * `program_uninstall` - Program uninstall
+      * `event_highlight` - Event highlight
+      * `conclusion` - Conclusion */
+      readonly kind: LiveDebuggerSessionEntryListItemKindEnum;
+      /** Entry payload — shape depends on kind. note/conclusion: {markdown: str}. program_install/program_uninstall: {program_id: uuid}. event_highlight: {event_uuids: list[str], caption: str}. */
+      readonly payload: unknown;
+      /** When the entry was appended. */
+      readonly created_at: string;
+    }
+
+    /**
+     * Full session with its ordered entries timeline.
+     */
+    export interface LiveDebuggerSession {
+      readonly id: string;
+      /** Short human-readable name for the investigation. */
+      title: string;
+      /** What the agent is trying to figure out. */
+      description?: string;
+      /** Lifecycle status: 'open' or 'closed'.
+
+      * `open` - Open
+      * `closed` - Closed */
+      readonly status: LiveDebuggerSessionStatusEnum;
+      /** When the session was started. */
+      readonly created_at: string;
+      /**
+         * When the session was closed (null while open).
+         * @nullable
+         */
+      readonly closed_at: string | null;
+      readonly entries: readonly LiveDebuggerSessionEntryListItem[];
+    }
+
+    /**
+     * Compact session for list views; omits entries.
+     */
+    export interface LiveDebuggerSessionListItem {
+      /** Unique identifier for the session. */
+      readonly id: string;
+      /** Short human-readable name for the investigation. */
+      readonly title: string;
+      /** What the agent is trying to figure out. */
+      readonly description: string;
+      /** Lifecycle status: 'open' or 'closed'.
+
+      * `open` - Open
+      * `closed` - Closed */
+      readonly status: LiveDebuggerSessionStatusEnum;
+      /** When the session was started. */
+      readonly created_at: string;
+      /**
+         * When the session was closed (null while open).
+         * @nullable
+         */
+      readonly closed_at: string | null;
     }
 
     export type LocalEvaluationResponseGroupTypeMapping = {[key: string]: string};
@@ -21533,6 +21679,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LiveDebuggerProgramListItem[];
+    }
+
+    export interface PaginatedLiveDebuggerSessionListItemList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LiveDebuggerSessionListItem[];
     }
 
     export interface PaginatedLogsAlertConfigurationList {
@@ -30090,14 +30245,21 @@ export namespace Schemas {
     }
 
     /**
-     * Snapshot of local variables captured at the probe site, as a key/value map.
+     * Probe specification — at minimum `specifier` (e.g. `myapp.users.create_user`) and `target` (`entry`/`exit`).
+     * @nullable
      */
-    export type ProgramEventLocals = { [key: string]: unknown };
+    export type ProgramEventProbeSpec = { [key: string]: unknown } | null;
 
-    export type ProgramEventStackTraceItem = { [key: string]: unknown };
+    /**
+     * User-named captures from the probe body, as a key/value map (whatever the program wrote in `capture(name=...)`).
+     */
+    export type ProgramEventCaptures = { [key: string]: unknown };
 
     /**
      * A single event emitted by a probe in a live debugger program.
+
+    Mirrors the property shape libdebugger emits for the `$hogtrace_capture`
+    event — see `libdebugger/instrumentation.py::_enqueue_message`.
      */
     export interface ProgramEvent {
       /** Unique identifier for this event. */
@@ -30112,21 +30274,22 @@ export namespace Schemas {
          */
       probe_id?: string | null;
       /**
-         * Source line where the probe fired (may be null if not applicable).
+         * Probe specification — at minimum `specifier` (e.g. `myapp.users.create_user`) and `target` (`entry`/`exit`).
          * @nullable
          */
-      line_number?: number | null;
+      probe_spec?: ProgramEventProbeSpec;
+      /** User-named captures from the probe body, as a key/value map (whatever the program wrote in `capture(name=...)`). */
+      captures: ProgramEventCaptures;
       /**
-         * Source file where the probe fired (may be null if not applicable).
+         * OS thread id of the request that hit the probe.
          * @nullable
          */
-      filename?: string | null;
-      /** Function containing the probe at the time it fired. */
-      function_name: string;
-      /** Snapshot of local variables captured at the probe site, as a key/value map. */
-      locals: ProgramEventLocals;
-      /** Stack trace at the time the probe fired; each frame is a dict with at least 'function' and source info. */
-      stack_trace: ProgramEventStackTraceItem[];
+      thread_id?: number | null;
+      /**
+         * Thread name of the request that hit the probe.
+         * @nullable
+         */
+      thread_name?: string | null;
     }
 
     /**
@@ -34898,6 +35061,11 @@ export namespace Schemas {
          * @maxLength 10
          */
       target_language?: string;
+    }
+
+    export interface UninstallProgramInSessionRequest {
+      /** ID of the program to uninstall. */
+      program_id: string;
     }
 
     /**
@@ -42471,6 +42639,32 @@ export namespace Schemas {
      * Pagination offset.
      */
     offset?: number;
+    };
+
+    export type LiveDebuggerSessionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LiveDebuggerSessionsProgramEventsRetrieveParams = {
+    /**
+     * Maximum number of events to return (default 100, max 1000).
+     */
+    limit?: number;
+    /**
+     * Pagination offset.
+     */
+    offset?: number;
+    /**
+     * ID of the program (must belong to this session).
+     */
+    program_id: string;
     };
 
     export type LogsAlertsListParams = {

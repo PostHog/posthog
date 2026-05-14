@@ -3,16 +3,16 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
 /**
- * List programs for the current team, most recently installed first. Omits program code.
- * @summary List live debugger programs
+ * List sessions for the current project, most recently started first.
+ * @summary List debugging sessions
  */
-export const LiveDebuggerProgramsListParams = /* @__PURE__ */ zod.object({
+export const LiveDebuggerSessionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -20,16 +20,20 @@ export const LiveDebuggerProgramsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LiveDebuggerProgramsListQueryParams = /* @__PURE__ */ zod.object({
+export const LiveDebuggerSessionsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**
- * Install a hogtrace program. The program will be picked up by the client-side runtime and its probes will start emitting events on hit. Returns the full program record including its newly assigned id.
- * @summary Install a live debugger program
+ * Start, list, inspect, and close debugging sessions.
+
+A session is the agent's investigation envelope. Every program install/uninstall,
+note, event highlight, and conclusion is appended to the session's timeline,
+producing a human-readable record of what the agent tried and what it learned.
+ * @summary Start a debugging session
  */
-export const LiveDebuggerProgramsCreateParams = /* @__PURE__ */ zod.object({
+export const LiveDebuggerSessionsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -37,26 +41,19 @@ export const LiveDebuggerProgramsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LiveDebuggerProgramsCreateBody = /* @__PURE__ */ zod
+export const LiveDebuggerSessionsCreateBody = /* @__PURE__ */ zod
     .object({
-        code: zod
-            .string()
-            .describe(
-                'The hogtrace program source code to install. This is executed by the client-side runtime to instrument production code with probes.'
-            ),
-        description: zod
-            .string()
-            .optional()
-            .describe('Human-readable description of what this program does and why it was installed.'),
+        title: zod.string().describe('Short human-readable name for the investigation.'),
+        description: zod.string().optional().describe('What the agent is trying to figure out.'),
     })
-    .describe('Full representation of a live debugger program, including its code.')
+    .describe('Full session with its ordered entries timeline.')
 
 /**
- * Retrieve a single program by id, including its full hogtrace program source code.
- * @summary Show a live debugger program
+ * Retrieve a single session with its full ordered entries timeline.
+ * @summary Show a debugging session
  */
-export const LiveDebuggerProgramsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this live debugger program.'),
+export const LiveDebuggerSessionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this live debugger session.'),
     project_id: zod
         .string()
         .describe(
@@ -65,11 +62,11 @@ export const LiveDebuggerProgramsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Retrieve probe-hit events emitted by this program from ClickHouse. Events are filtered by the program id stored in the `$program_id` property and returned most recent first.
- * @summary Get events emitted by a program
+ * Atomically transitions the session to `closed`, sets `closed_at`, optionally appends a `conclusion` entry, and auto-uninstalls every program that still has `installed` status in this session. Idempotent: closing an already-closed session returns the session unchanged.
+ * @summary Close a debugging session
  */
-export const LiveDebuggerProgramsEventsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this live debugger program.'),
+export const LiveDebuggerSessionsCloseCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this live debugger session.'),
     project_id: zod
         .string()
         .describe(
@@ -77,20 +74,101 @@ export const LiveDebuggerProgramsEventsRetrieveParams = /* @__PURE__ */ zod.obje
         ),
 })
 
-export const LiveDebuggerProgramsEventsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const LiveDebuggerSessionsCloseCreateBody = /* @__PURE__ */ zod.object({
+    conclusion_markdown: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional markdown summary. If provided, a `conclusion` entry is appended before the session is closed.'
+        ),
+})
+
+/**
+ * Appends a direct-write entry to the session's timeline. Use `kind` to select between `note`, `event_highlight`, and `conclusion`. `program_install` and `program_uninstall` entries are produced as side effects of the install/uninstall endpoints and cannot be added directly.
+ * @summary Append a note, event highlight, or conclusion entry
+ */
+export const LiveDebuggerSessionsEntriesCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this live debugger session.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const LiveDebuggerSessionsEntriesCreateBody = /* @__PURE__ */ zod
+    .object({
+        kind: zod
+            .enum(['note', 'event_highlight', 'conclusion'])
+            .describe('* `note` - note\n* `event_highlight` - event_highlight\n* `conclusion` - conclusion')
+            .describe(
+                'Entry kind: note, event_highlight, or conclusion.\n\n* `note` - note\n* `event_highlight` - event_highlight\n* `conclusion` - conclusion'
+            ),
+        payload: zod
+            .record(zod.string(), zod.unknown())
+            .describe(
+                'Payload shape depends on kind. note/conclusion: {markdown: str}. event_highlight: {event_uuids: list[str], caption: str}.'
+            ),
+    })
+    .describe(
+        'Validates a direct-write session entry (note / event_highlight / conclusion).\n\n`program_install` and `program_uninstall` entries are server-written side effects\nof the install/uninstall endpoints and cannot be appended via this endpoint.'
+    )
+
+/**
+ * Atomically installs a hogtrace program scoped to this session and appends a `program_install` entry to the timeline. Returns the installed program.
+ * @summary Install a hogtrace program inside a session
+ */
+export const LiveDebuggerSessionsInstallProgramCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this live debugger session.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const liveDebuggerSessionsInstallProgramCreateBodyDescriptionDefault = ``
+
+export const LiveDebuggerSessionsInstallProgramCreateBody = /* @__PURE__ */ zod.object({
+    code: zod.string().describe('The hogtrace program source code to install.'),
+    description: zod
+        .string()
+        .default(liveDebuggerSessionsInstallProgramCreateBodyDescriptionDefault)
+        .describe('Human-readable description of what this program observes and why.'),
+})
+
+/**
+ * Retrieves probe-hit events emitted by the given program. The program must belong to this session; otherwise 404 is returned. Returns events newest first.
+ * @summary Get probe events for a program in a session
+ */
+export const LiveDebuggerSessionsProgramEventsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this live debugger session.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const LiveDebuggerSessionsProgramEventsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Maximum number of events to return (default 100, max 1000).'),
     offset: zod.number().optional().describe('Pagination offset.'),
+    program_id: zod.string().describe('ID of the program (must belong to this session).'),
 })
 
 /**
- * Soft-uninstall a program by transitioning its status to 'uninstalled'. The program record and any events it previously emitted remain queryable. Returns the updated program.
- * @summary Uninstall a live debugger program
+ * Soft-uninstalls a program belonging to this session and appends a `program_uninstall` entry. Already-uninstalled programs are no-ops. Calling this on a program that does not belong to this session returns 404.
+ * @summary Uninstall a program from a session
  */
-export const LiveDebuggerProgramsUninstallCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this live debugger program.'),
+export const LiveDebuggerSessionsUninstallProgramCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this live debugger session.'),
     project_id: zod
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+export const LiveDebuggerSessionsUninstallProgramCreateBody = /* @__PURE__ */ zod.object({
+    program_id: zod.string().describe('ID of the program to uninstall.'),
 })

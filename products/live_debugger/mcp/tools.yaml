@@ -7,9 +7,10 @@
 category: Live debugger
 feature: live_debugger
 url_prefix: /live-debugger
+ui_apps: {}
 tools:
-    live-debugger-programs-install:
-        operation: live_debugger_programs_create
+    debugging-session-add-entry:
+        operation: live_debugger_sessions_entries_create
         enabled: true
         scopes:
             - live_debugger:write
@@ -17,16 +18,14 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        title: Install live debugger program
+        title: Append entry to debugging session
         description: >
-            Install a hogtrace program into the project. The program's probes will start
-            emitting events as soon as the client-side runtime picks it up.
-            Provide the program source code in `code` and a short human-readable
-            `description` explaining what it observes and why it was installed.
-            Returns the newly installed program including its id.
-
-    live-debugger-programs-uninstall:
-        operation: live_debugger_programs_uninstall_create
+            Append a direct-write entry to the session's timeline. `kind` is one of: `note` (payload `{markdown}`),
+            `event_highlight` (payload `{event_uuids: [uuid...], caption}`), or `conclusion` (payload `{markdown}`). Use
+            `note` for hypotheses / reasoning / observations; `event_highlight` to pin informative events for the human
+            reviewer with a group caption; `conclusion` for terminal summaries (typically supplied at close instead).
+    debugging-session-close:
+        operation: live_debugger_sessions_close_create
         enabled: true
         scopes:
             - live_debugger:write
@@ -34,51 +33,43 @@ tools:
             readOnly: false
             destructive: true
             idempotent: true
-        title: Uninstall live debugger program
+        title: Close a debugging session
         description: >
-            Soft-uninstall a previously installed program by its id. The program's
-            status transitions to `uninstalled` and its probes stop firing, but the
-            row and any events it previously emitted remain queryable for history.
-            Calling this on an already-uninstalled program is a no-op.
-
-    live-debugger-programs-list:
-        operation: live_debugger_programs_list
+            Close the session. Atomically transitions status to `closed`, optionally appends a final `conclusion` entry
+            (provide `conclusion_markdown`), and auto-uninstalls every program in this session that is still
+            `installed`. Closed sessions reject further entries.
+    debugging-session-install-program:
+        operation: live_debugger_sessions_install_program_create
         enabled: true
-        mcp_version: 1
+        scopes:
+            - live_debugger:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Install hogtrace program in session
+        description: >
+            Atomically install a hogtrace program scoped to this session and append a `program_install` timeline entry.
+            `code` is the hogtrace source; `description` should explain what this probe observes and why. Returns the
+            installed program including its id (needed for uninstall and program-events).
+    debugging-session-list:
+        operation: live_debugger_sessions_list
+        enabled: true
         scopes:
             - live_debugger:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
-        title: List live debugger programs
-        description: >
-            List all live debugger programs for the current project, most recently
-            installed first. Returns each program's id, description, and status
-            (`installed` or `uninstalled`). Program source code is omitted from this
-            list view — use the show tool to retrieve the full code for a specific
-            program.
+        enrich_url: sessions/{id}
         list: true
-        enrich_url: '{id}'
-
-    live-debugger-programs-show:
-        operation: live_debugger_programs_retrieve
-        enabled: true
+        title: List debugging sessions
+        description: >
+            List debugging sessions for the current project, most recently started first. Returns each session's id,
+            title, description, status, and timestamps. Timeline entries are omitted — use show to fetch them.
         mcp_version: 1
-        scopes:
-            - live_debugger:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Show live debugger program
-        description: >
-            Retrieve a single live debugger program by id, including its full
-            hogtrace program source code and lifecycle metadata.
-        enrich_url: '{id}'
-
-    live-debugger-programs-events:
-        operation: live_debugger_programs_events_retrieve
+    debugging-session-program-events:
+        operation: live_debugger_sessions_program_events_retrieve
         enabled: true
         scopes:
             - live_debugger:read
@@ -86,14 +77,53 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Get live debugger program events
+        title: Get program events in a session
         description: >
-            Retrieve probe-hit events emitted by a specific program. Events are
-            returned most recent first and include captured local variables and
-            the stack trace at the time each probe fired. Use this to inspect
-            the runtime behavior the program observed in production.
-
-    # Existing breakpoint endpoints — not yet exposed as MCP tools. Enable as needed.
+            Retrieve probe-hit events emitted by a program scoped to this session. Returns events newest first,
+            including captured local variables and stack trace. Use to inspect what the probe actually saw in
+            production.
+    debugging-session-show:
+        operation: live_debugger_sessions_retrieve
+        enabled: true
+        scopes:
+            - live_debugger:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: sessions/{id}
+        title: Show a debugging session
+        description: >
+            Retrieve a single debugging session with its full ordered entries timeline. Use this to review what was
+            tried, what was learned, and which events were highlighted in this investigation.
+        mcp_version: 1
+    debugging-session-start:
+        operation: live_debugger_sessions_create
+        enabled: true
+        scopes:
+            - live_debugger:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Start a debugging session
+        description: >
+            Start a new debugging session — the envelope for an investigation. Provide a short `title` and a
+            `description` of what you're trying to figure out. Returns the session including its id, which is required
+            for every subsequent operation (install programs, add notes, highlight events, close).
+    debugging-session-uninstall-program:
+        operation: live_debugger_sessions_uninstall_program_create
+        enabled: true
+        scopes:
+            - live_debugger:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Uninstall program from session
+        description: >
+            Soft-uninstall a program belonging to this session and append a `program_uninstall` timeline entry. Calling
+            this on an already-uninstalled program is a no-op; on a program not in the session it returns 404.
     live-debugger-breakpoints-active-retrieve:
         operation: live_debugger_breakpoints_active_retrieve
         enabled: false
@@ -103,6 +133,36 @@ tools:
     live-debugger-breakpoints-create:
         operation: live_debugger_breakpoints_create
         enabled: false
+    live-debugger-breakpoints-destroy:
+        operation: live_debugger_breakpoints_destroy
+        enabled: false
     live-debugger-breakpoints-list:
         operation: live_debugger_breakpoints_list
+        enabled: false
+    live-debugger-breakpoints-partial-update:
+        operation: live_debugger_breakpoints_partial_update
+        enabled: false
+    live-debugger-breakpoints-retrieve:
+        operation: live_debugger_breakpoints_retrieve
+        enabled: false
+    live-debugger-breakpoints-update:
+        operation: live_debugger_breakpoints_update
+        enabled: false
+    live-debugger-programs-active-retrieve:
+        operation: live_debugger_programs_active_retrieve
+        enabled: false
+    live-debugger-programs-events:
+        operation: live_debugger_programs_events_retrieve
+        enabled: false
+    live-debugger-programs-install:
+        operation: live_debugger_programs_create
+        enabled: false
+    live-debugger-programs-list:
+        operation: live_debugger_programs_list
+        enabled: false
+    live-debugger-programs-show:
+        operation: live_debugger_programs_retrieve
+        enabled: false
+    live-debugger-programs-uninstall:
+        operation: live_debugger_programs_uninstall_create
         enabled: false

@@ -33,6 +33,23 @@ export interface PaginatedLiveDebuggerBreakpointListApi {
     results: LiveDebuggerBreakpointApi[]
 }
 
+export interface PatchedLiveDebuggerBreakpointApi {
+    readonly id?: string
+    /** @nullable */
+    repository?: string | null
+    filename?: string
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    line_number?: number
+    enabled?: boolean
+    /** @nullable */
+    condition?: string | null
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
 /**
  * Schema for a single active breakpoint
  */
@@ -164,6 +181,225 @@ export interface LiveDebuggerProgramApi {
     readonly updated_at: string
 }
 
+/**
+ * Probe specification — at minimum `specifier` (e.g. `myapp.users.create_user`) and `target` (`entry`/`exit`).
+ * @nullable
+ */
+export type ProgramEventApiProbeSpec = { [key: string]: unknown } | null
+
+/**
+ * User-named captures from the probe body, as a key/value map (whatever the program wrote in `capture(name=...)`).
+ */
+export type ProgramEventApiCaptures = { [key: string]: unknown }
+
+/**
+ * A single event emitted by a probe in a live debugger program.
+
+Mirrors the property shape libdebugger emits for the `$hogtrace_capture`
+event — see `libdebugger/instrumentation.py::_enqueue_message`.
+ */
+export interface ProgramEventApi {
+    /** Unique identifier for this event. */
+    id: string
+    /** Wall-clock time at which the probe fired. */
+    timestamp: string
+    /** ID of the program that emitted this event. */
+    program_id: string
+    /**
+     * Identifier of the specific probe within the program that fired (may be null).
+     * @nullable
+     */
+    probe_id?: string | null
+    /**
+     * Probe specification — at minimum `specifier` (e.g. `myapp.users.create_user`) and `target` (`entry`/`exit`).
+     * @nullable
+     */
+    probe_spec?: ProgramEventApiProbeSpec
+    /** User-named captures from the probe body, as a key/value map (whatever the program wrote in `capture(name=...)`). */
+    captures: ProgramEventApiCaptures
+    /**
+     * OS thread id of the request that hit the probe.
+     * @nullable
+     */
+    thread_id?: number | null
+    /**
+     * Thread name of the request that hit the probe.
+     * @nullable
+     */
+    thread_name?: string | null
+}
+
+/**
+ * Paginated list of probe events for a single program.
+ */
+export interface ProgramEventsResponseApi {
+    /** List of probe events, most recent first. */
+    results: ProgramEventApi[]
+    /** Number of events returned in this page. */
+    count: number
+    /** Whether additional events are available beyond this page. */
+    has_more: boolean
+}
+
+/**
+ * * `open` - Open
+ * `closed` - Closed
+ */
+export type LiveDebuggerSessionStatusEnumApi =
+    (typeof LiveDebuggerSessionStatusEnumApi)[keyof typeof LiveDebuggerSessionStatusEnumApi]
+
+export const LiveDebuggerSessionStatusEnumApi = {
+    Open: 'open',
+    Closed: 'closed',
+} as const
+
+/**
+ * Compact session for list views; omits entries.
+ */
+export interface LiveDebuggerSessionListItemApi {
+    /** Unique identifier for the session. */
+    readonly id: string
+    /** Short human-readable name for the investigation. */
+    readonly title: string
+    /** What the agent is trying to figure out. */
+    readonly description: string
+    /** Lifecycle status: 'open' or 'closed'.
+
+  * `open` - Open
+  * `closed` - Closed */
+    readonly status: LiveDebuggerSessionStatusEnumApi
+    /** When the session was started. */
+    readonly created_at: string
+    /**
+     * When the session was closed (null while open).
+     * @nullable
+     */
+    readonly closed_at: string | null
+}
+
+export interface PaginatedLiveDebuggerSessionListItemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LiveDebuggerSessionListItemApi[]
+}
+
+/**
+ * * `note` - Note
+ * `program_install` - Program install
+ * `program_uninstall` - Program uninstall
+ * `event_highlight` - Event highlight
+ * `conclusion` - Conclusion
+ */
+export type LiveDebuggerSessionEntryListItemKindEnumApi =
+    (typeof LiveDebuggerSessionEntryListItemKindEnumApi)[keyof typeof LiveDebuggerSessionEntryListItemKindEnumApi]
+
+export const LiveDebuggerSessionEntryListItemKindEnumApi = {
+    Note: 'note',
+    ProgramInstall: 'program_install',
+    ProgramUninstall: 'program_uninstall',
+    EventHighlight: 'event_highlight',
+    Conclusion: 'conclusion',
+} as const
+
+/**
+ * A single entry in a session's timeline.
+ */
+export interface LiveDebuggerSessionEntryListItemApi {
+    /** Unique identifier for the entry. */
+    readonly id: string
+    /** Entry kind discriminator. One of: note, program_install, program_uninstall, event_highlight, conclusion.
+
+  * `note` - Note
+  * `program_install` - Program install
+  * `program_uninstall` - Program uninstall
+  * `event_highlight` - Event highlight
+  * `conclusion` - Conclusion */
+    readonly kind: LiveDebuggerSessionEntryListItemKindEnumApi
+    /** Entry payload — shape depends on kind. note/conclusion: {markdown: str}. program_install/program_uninstall: {program_id: uuid}. event_highlight: {event_uuids: list[str], caption: str}. */
+    readonly payload: unknown
+    /** When the entry was appended. */
+    readonly created_at: string
+}
+
+/**
+ * Full session with its ordered entries timeline.
+ */
+export interface LiveDebuggerSessionApi {
+    readonly id: string
+    /** Short human-readable name for the investigation. */
+    title: string
+    /** What the agent is trying to figure out. */
+    description?: string
+    /** Lifecycle status: 'open' or 'closed'.
+
+  * `open` - Open
+  * `closed` - Closed */
+    readonly status: LiveDebuggerSessionStatusEnumApi
+    /** When the session was started. */
+    readonly created_at: string
+    /**
+     * When the session was closed (null while open).
+     * @nullable
+     */
+    readonly closed_at: string | null
+    readonly entries: readonly LiveDebuggerSessionEntryListItemApi[]
+}
+
+export interface CloseSessionRequestApi {
+    /** Optional markdown summary. If provided, a `conclusion` entry is appended before the session is closed. */
+    conclusion_markdown?: string
+}
+
+/**
+ * Payload shape depends on kind. note/conclusion: {markdown: str}. event_highlight: {event_uuids: list[str], caption: str}.
+ */
+export type AddEntryRequestApiPayload = { [key: string]: unknown }
+
+/**
+ * * `note` - note
+ * `event_highlight` - event_highlight
+ * `conclusion` - conclusion
+ */
+export type AddEntryRequestKindEnumApi = (typeof AddEntryRequestKindEnumApi)[keyof typeof AddEntryRequestKindEnumApi]
+
+export const AddEntryRequestKindEnumApi = {
+    Note: 'note',
+    EventHighlight: 'event_highlight',
+    Conclusion: 'conclusion',
+} as const
+
+/**
+ * Validates a direct-write session entry (note / event_highlight / conclusion).
+
+`program_install` and `program_uninstall` entries are server-written side effects
+of the install/uninstall endpoints and cannot be appended via this endpoint.
+ */
+export interface AddEntryRequestApi {
+    /** Entry kind: note, event_highlight, or conclusion.
+
+  * `note` - note
+  * `event_highlight` - event_highlight
+  * `conclusion` - conclusion */
+    kind: AddEntryRequestKindEnumApi
+    /** Payload shape depends on kind. note/conclusion: {markdown: str}. event_highlight: {event_uuids: list[str], caption: str}. */
+    payload: AddEntryRequestApiPayload
+}
+
+export interface InstallProgramInSessionRequestApi {
+    /** The hogtrace program source code to install. */
+    code: string
+    /** Human-readable description of what this program observes and why. */
+    description?: string
+}
+
+export interface UninstallProgramInSessionRequestApi {
+    /** ID of the program to uninstall. */
+    program_id: string
+}
+
 export type LiveDebuggerBreakpointsListParams = {
     filename?: string
     /**
@@ -216,4 +452,41 @@ export type LiveDebuggerProgramsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type LiveDebuggerProgramsEventsRetrieveParams = {
+    /**
+     * Maximum number of events to return (default 100, max 1000).
+     */
+    limit?: number
+    /**
+     * Pagination offset.
+     */
+    offset?: number
+}
+
+export type LiveDebuggerSessionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LiveDebuggerSessionsProgramEventsRetrieveParams = {
+    /**
+     * Maximum number of events to return (default 100, max 1000).
+     */
+    limit?: number
+    /**
+     * Pagination offset.
+     */
+    offset?: number
+    /**
+     * ID of the program (must belong to this session).
+     */
+    program_id: string
 }

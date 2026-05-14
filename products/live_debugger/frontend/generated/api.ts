@@ -10,15 +10,27 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActiveBreakpointsResponseApi,
+    AddEntryRequestApi,
     BreakpointHitsResponseApi,
+    CloseSessionRequestApi,
+    InstallProgramInSessionRequestApi,
     LiveDebuggerBreakpointApi,
     LiveDebuggerBreakpointsActiveRetrieveParams,
     LiveDebuggerBreakpointsBreakpointHitsRetrieveParams,
     LiveDebuggerBreakpointsListParams,
     LiveDebuggerProgramApi,
+    LiveDebuggerProgramsEventsRetrieveParams,
     LiveDebuggerProgramsListParams,
+    LiveDebuggerSessionApi,
+    LiveDebuggerSessionEntryListItemApi,
+    LiveDebuggerSessionsListParams,
+    LiveDebuggerSessionsProgramEventsRetrieveParams,
     PaginatedLiveDebuggerBreakpointListApi,
     PaginatedLiveDebuggerProgramListItemListApi,
+    PaginatedLiveDebuggerSessionListItemListApi,
+    PatchedLiveDebuggerBreakpointApi,
+    ProgramEventsResponseApi,
+    UninstallProgramInSessionRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -102,6 +114,84 @@ export const liveDebuggerBreakpointsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(liveDebuggerBreakpointApi),
+    })
+}
+
+export const getLiveDebuggerBreakpointsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/live_debugger_breakpoints/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete breakpoints for live debugging.
+ */
+export const liveDebuggerBreakpointsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LiveDebuggerBreakpointApi> => {
+    return apiMutator<LiveDebuggerBreakpointApi>(getLiveDebuggerBreakpointsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLiveDebuggerBreakpointsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/live_debugger_breakpoints/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete breakpoints for live debugging.
+ */
+export const liveDebuggerBreakpointsUpdate = async (
+    projectId: string,
+    id: string,
+    liveDebuggerBreakpointApi: NonReadonly<LiveDebuggerBreakpointApi>,
+    options?: RequestInit
+): Promise<LiveDebuggerBreakpointApi> => {
+    return apiMutator<LiveDebuggerBreakpointApi>(getLiveDebuggerBreakpointsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(liveDebuggerBreakpointApi),
+    })
+}
+
+export const getLiveDebuggerBreakpointsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/live_debugger_breakpoints/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete breakpoints for live debugging.
+ */
+export const liveDebuggerBreakpointsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedLiveDebuggerBreakpointApi?: NonReadonly<PatchedLiveDebuggerBreakpointApi>,
+    options?: RequestInit
+): Promise<LiveDebuggerBreakpointApi> => {
+    return apiMutator<LiveDebuggerBreakpointApi>(getLiveDebuggerBreakpointsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLiveDebuggerBreakpointApi),
+    })
+}
+
+export const getLiveDebuggerBreakpointsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/live_debugger_breakpoints/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete breakpoints for live debugging.
+ */
+export const liveDebuggerBreakpointsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLiveDebuggerBreakpointsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -229,5 +319,281 @@ export const liveDebuggerProgramsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(liveDebuggerProgramApi),
+    })
+}
+
+export const getLiveDebuggerProgramsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/live_debugger_programs/${id}/`
+}
+
+/**
+ * Retrieve a single program by id, including its full hogtrace program source code.
+ * @summary Show a live debugger program
+ */
+export const liveDebuggerProgramsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LiveDebuggerProgramApi> => {
+    return apiMutator<LiveDebuggerProgramApi>(getLiveDebuggerProgramsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLiveDebuggerProgramsEventsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: LiveDebuggerProgramsEventsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/live_debugger_programs/${id}/events/?${stringifiedParams}`
+        : `/api/projects/${projectId}/live_debugger_programs/${id}/events/`
+}
+
+/**
+ * Retrieve probe-hit events emitted by this program from ClickHouse. Events are filtered by the program id stored in the `$program_id` property and returned most recent first.
+ * @summary Get events emitted by a program
+ */
+export const liveDebuggerProgramsEventsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: LiveDebuggerProgramsEventsRetrieveParams,
+    options?: RequestInit
+): Promise<ProgramEventsResponseApi> => {
+    return apiMutator<ProgramEventsResponseApi>(getLiveDebuggerProgramsEventsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLiveDebuggerProgramsUninstallCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/live_debugger_programs/${id}/uninstall/`
+}
+
+/**
+ * Soft-uninstall a program by transitioning its status to 'uninstalled'. The program record and any events it previously emitted remain queryable. Returns the updated program.
+ * @summary Uninstall a live debugger program
+ */
+export const liveDebuggerProgramsUninstallCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LiveDebuggerProgramApi> => {
+    return apiMutator<LiveDebuggerProgramApi>(getLiveDebuggerProgramsUninstallCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getLiveDebuggerSessionsListUrl = (projectId: string, params?: LiveDebuggerSessionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/live_debugger_sessions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/live_debugger_sessions/`
+}
+
+/**
+ * List sessions for the current project, most recently started first.
+ * @summary List debugging sessions
+ */
+export const liveDebuggerSessionsList = async (
+    projectId: string,
+    params?: LiveDebuggerSessionsListParams,
+    options?: RequestInit
+): Promise<PaginatedLiveDebuggerSessionListItemListApi> => {
+    return apiMutator<PaginatedLiveDebuggerSessionListItemListApi>(getLiveDebuggerSessionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLiveDebuggerSessionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/live_debugger_sessions/`
+}
+
+/**
+ * Start, list, inspect, and close debugging sessions.
+
+A session is the agent's investigation envelope. Every program install/uninstall,
+note, event highlight, and conclusion is appended to the session's timeline,
+producing a human-readable record of what the agent tried and what it learned.
+ * @summary Start a debugging session
+ */
+export const liveDebuggerSessionsCreate = async (
+    projectId: string,
+    liveDebuggerSessionApi: NonReadonly<LiveDebuggerSessionApi>,
+    options?: RequestInit
+): Promise<LiveDebuggerSessionApi> => {
+    return apiMutator<LiveDebuggerSessionApi>(getLiveDebuggerSessionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(liveDebuggerSessionApi),
+    })
+}
+
+export const getLiveDebuggerSessionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/live_debugger_sessions/${id}/`
+}
+
+/**
+ * Retrieve a single session with its full ordered entries timeline.
+ * @summary Show a debugging session
+ */
+export const liveDebuggerSessionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LiveDebuggerSessionApi> => {
+    return apiMutator<LiveDebuggerSessionApi>(getLiveDebuggerSessionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLiveDebuggerSessionsCloseCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/live_debugger_sessions/${id}/close/`
+}
+
+/**
+ * Atomically transitions the session to `closed`, sets `closed_at`, optionally appends a `conclusion` entry, and auto-uninstalls every program that still has `installed` status in this session. Idempotent: closing an already-closed session returns the session unchanged.
+ * @summary Close a debugging session
+ */
+export const liveDebuggerSessionsCloseCreate = async (
+    projectId: string,
+    id: string,
+    closeSessionRequestApi?: CloseSessionRequestApi,
+    options?: RequestInit
+): Promise<LiveDebuggerSessionApi> => {
+    return apiMutator<LiveDebuggerSessionApi>(getLiveDebuggerSessionsCloseCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(closeSessionRequestApi),
+    })
+}
+
+export const getLiveDebuggerSessionsEntriesCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/live_debugger_sessions/${id}/entries/`
+}
+
+/**
+ * Appends a direct-write entry to the session's timeline. Use `kind` to select between `note`, `event_highlight`, and `conclusion`. `program_install` and `program_uninstall` entries are produced as side effects of the install/uninstall endpoints and cannot be added directly.
+ * @summary Append a note, event highlight, or conclusion entry
+ */
+export const liveDebuggerSessionsEntriesCreate = async (
+    projectId: string,
+    id: string,
+    addEntryRequestApi: AddEntryRequestApi,
+    options?: RequestInit
+): Promise<LiveDebuggerSessionEntryListItemApi> => {
+    return apiMutator<LiveDebuggerSessionEntryListItemApi>(getLiveDebuggerSessionsEntriesCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addEntryRequestApi),
+    })
+}
+
+export const getLiveDebuggerSessionsInstallProgramCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/live_debugger_sessions/${id}/install_program/`
+}
+
+/**
+ * Atomically installs a hogtrace program scoped to this session and appends a `program_install` entry to the timeline. Returns the installed program.
+ * @summary Install a hogtrace program inside a session
+ */
+export const liveDebuggerSessionsInstallProgramCreate = async (
+    projectId: string,
+    id: string,
+    installProgramInSessionRequestApi: InstallProgramInSessionRequestApi,
+    options?: RequestInit
+): Promise<LiveDebuggerProgramApi> => {
+    return apiMutator<LiveDebuggerProgramApi>(getLiveDebuggerSessionsInstallProgramCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(installProgramInSessionRequestApi),
+    })
+}
+
+export const getLiveDebuggerSessionsProgramEventsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: LiveDebuggerSessionsProgramEventsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/live_debugger_sessions/${id}/program_events/?${stringifiedParams}`
+        : `/api/projects/${projectId}/live_debugger_sessions/${id}/program_events/`
+}
+
+/**
+ * Retrieves probe-hit events emitted by the given program. The program must belong to this session; otherwise 404 is returned. Returns events newest first.
+ * @summary Get probe events for a program in a session
+ */
+export const liveDebuggerSessionsProgramEventsRetrieve = async (
+    projectId: string,
+    id: string,
+    params: LiveDebuggerSessionsProgramEventsRetrieveParams,
+    options?: RequestInit
+): Promise<ProgramEventsResponseApi> => {
+    return apiMutator<ProgramEventsResponseApi>(
+        getLiveDebuggerSessionsProgramEventsRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getLiveDebuggerSessionsUninstallProgramCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/live_debugger_sessions/${id}/uninstall_program/`
+}
+
+/**
+ * Soft-uninstalls a program belonging to this session and appends a `program_uninstall` entry. Already-uninstalled programs are no-ops. Calling this on a program that does not belong to this session returns 404.
+ * @summary Uninstall a program from a session
+ */
+export const liveDebuggerSessionsUninstallProgramCreate = async (
+    projectId: string,
+    id: string,
+    uninstallProgramInSessionRequestApi: UninstallProgramInSessionRequestApi,
+    options?: RequestInit
+): Promise<LiveDebuggerProgramApi> => {
+    return apiMutator<LiveDebuggerProgramApi>(getLiveDebuggerSessionsUninstallProgramCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(uninstallProgramInSessionRequestApi),
     })
 }

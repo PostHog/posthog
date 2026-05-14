@@ -1009,6 +1009,126 @@
             "readOnlyHint": true
         }
     },
+    "debugging-session-add-entry": {
+        "description": "Append a direct-write entry to the session's timeline. `kind` is one of: `note` (payload `{markdown}`), `event_highlight` (payload `{event_uuids: [uuid...], caption}`), or `conclusion` (payload `{markdown}`). Use `note` for hypotheses / reasoning / observations; `event_highlight` to pin informative events for the human reviewer with a group caption; `conclusion` for terminal summaries (typically supplied at close instead).",
+        "category": "Live debugger",
+        "feature": "live_debugger",
+        "summary": "Append entry to debugging session",
+        "title": "Append entry to debugging session",
+        "required_scopes": ["live_debugger:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "debugging-session-close": {
+        "description": "Close the session. Atomically transitions status to `closed`, optionally appends a final `conclusion` entry (provide `conclusion_markdown`), and auto-uninstalls every program in this session that is still `installed`. Closed sessions reject further entries.",
+        "category": "Live debugger",
+        "feature": "live_debugger",
+        "summary": "Close a debugging session",
+        "title": "Close a debugging session",
+        "required_scopes": ["live_debugger:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "debugging-session-install-program": {
+        "description": "Atomically install a hogtrace program scoped to this session and append a `program_install` timeline entry. `code` is the hogtrace source; `description` should explain what this probe observes and why. Returns the installed program including its id (needed for uninstall and program-events).",
+        "category": "Live debugger",
+        "feature": "live_debugger",
+        "summary": "Install hogtrace program in session",
+        "title": "Install hogtrace program in session",
+        "required_scopes": ["live_debugger:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "debugging-session-list": {
+        "description": "List debugging sessions for the current project, most recently started first. Returns each session's id, title, description, status, and timestamps. Timeline entries are omitted — use show to fetch them.",
+        "category": "Live debugger",
+        "feature": "live_debugger",
+        "summary": "List debugging sessions",
+        "title": "List debugging sessions",
+        "required_scopes": ["live_debugger:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "debugging-session-program-events": {
+        "description": "Retrieve probe-hit events emitted by a program scoped to this session. Returns events newest first, including captured local variables and stack trace. Use to inspect what the probe actually saw in production.",
+        "category": "Live debugger",
+        "feature": "live_debugger",
+        "summary": "Get program events in a session",
+        "title": "Get program events in a session",
+        "required_scopes": ["live_debugger:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "debugging-session-show": {
+        "description": "Retrieve a single debugging session with its full ordered entries timeline. Use this to review what was tried, what was learned, and which events were highlighted in this investigation.",
+        "category": "Live debugger",
+        "feature": "live_debugger",
+        "summary": "Show a debugging session",
+        "title": "Show a debugging session",
+        "required_scopes": ["live_debugger:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "debugging-session-start": {
+        "description": "Start a new debugging session — the envelope for an investigation. Provide a short `title` and a `description` of what you're trying to figure out. Returns the session including its id, which is required for every subsequent operation (install programs, add notes, highlight events, close).",
+        "category": "Live debugger",
+        "feature": "live_debugger",
+        "summary": "Start a debugging session",
+        "title": "Start a debugging session",
+        "required_scopes": ["live_debugger:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "debugging-session-uninstall-program": {
+        "description": "Soft-uninstall a program belonging to this session and append a `program_uninstall` timeline entry. Calling this on an already-uninstalled program is a no-op; on a program not in the session it returns 404.",
+        "category": "Live debugger",
+        "feature": "live_debugger",
+        "summary": "Uninstall program from session",
+        "title": "Uninstall program from session",
+        "required_scopes": ["live_debugger:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "delete-feature-flag": {
         "description": "Soft-delete a feature flag by ID in the current project.",
         "category": "Feature flags",
@@ -2669,81 +2789,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "live-debugger-programs-events": {
-        "description": "Retrieve probe-hit events emitted by a specific program. Events are returned most recent first and include captured local variables and the stack trace at the time each probe fired. Use this to inspect the runtime behavior the program observed in production.",
-        "category": "Live debugger",
-        "feature": "live_debugger",
-        "summary": "Get live debugger program events",
-        "title": "Get live debugger program events",
-        "required_scopes": ["live_debugger:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "live-debugger-programs-install": {
-        "description": "Install a hogtrace program into the project. The program's probes will start emitting events as soon as the client-side runtime picks it up. Provide the program source code in `code` and a short human-readable `description` explaining what it observes and why it was installed. Returns the newly installed program including its id.",
-        "category": "Live debugger",
-        "feature": "live_debugger",
-        "summary": "Install live debugger program",
-        "title": "Install live debugger program",
-        "required_scopes": ["live_debugger:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "live-debugger-programs-list": {
-        "description": "List all live debugger programs for the current project, most recently installed first. Returns each program's id, description, and status (`installed` or `uninstalled`). Program source code is omitted from this list view — use the show tool to retrieve the full code for a specific program.",
-        "category": "Live debugger",
-        "feature": "live_debugger",
-        "summary": "List live debugger programs",
-        "title": "List live debugger programs",
-        "required_scopes": ["live_debugger:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "live-debugger-programs-show": {
-        "description": "Retrieve a single live debugger program by id, including its full hogtrace program source code and lifecycle metadata.",
-        "category": "Live debugger",
-        "feature": "live_debugger",
-        "summary": "Show live debugger program",
-        "title": "Show live debugger program",
-        "required_scopes": ["live_debugger:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "live-debugger-programs-uninstall": {
-        "description": "Soft-uninstall a previously installed program by its id. The program's status transitions to `uninstalled` and its probes stop firing, but the row and any events it previously emitted remain queryable for history. Calling this on an already-uninstalled program is a no-op.",
-        "category": "Live debugger",
-        "feature": "live_debugger",
-        "summary": "Uninstall live debugger program",
-        "title": "Uninstall live debugger program",
-        "required_scopes": ["live_debugger:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "llma-clustering-job-get": {
