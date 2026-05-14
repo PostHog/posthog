@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 
+import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
@@ -23,6 +24,7 @@ import {
     getQuestionLabel,
     surveyNotificationModalLogic,
 } from 'scenes/surveys/surveyNotificationModalLogic'
+import { urls } from 'scenes/urls'
 
 import { SurveyQuestionType } from '~/types'
 
@@ -151,6 +153,8 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
         templateGlobals,
         submitDisabledReason,
         notificationSubmissionError,
+        editingNotification,
+        copiedNotification,
     } = useValues(logic)
     const { closeDialog, setNotificationFormValue } = useActions(logic)
 
@@ -169,11 +173,32 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
         <LemonModal
             isOpen={isOpen}
             onClose={closeDialog}
-            title="Add survey notification"
-            description="Send survey updates to Slack, Discord, Microsoft Teams, or a webhook."
+            title={
+                editingNotification
+                    ? 'Edit survey notification'
+                    : copiedNotification
+                      ? 'Copy survey notification'
+                      : 'Add survey notification'
+            }
+            description={
+                editingNotification
+                    ? 'Update where this survey notification sends and what it includes.'
+                    : copiedNotification
+                      ? 'Review the copied notification before creating it for this survey.'
+                      : 'Send survey updates to Slack, Discord, Microsoft Teams, or a webhook.'
+            }
             width={720}
             footer={
                 <>
+                    {editingNotification ? (
+                        <LemonButton
+                            type="secondary"
+                            to={urls.hogFunction(editingNotification.id)}
+                            icon={<IconExternal />}
+                        >
+                            Open full editor
+                        </LemonButton>
+                    ) : null}
                     <LemonButton type="secondary" onClick={closeDialog}>
                         Cancel
                     </LemonButton>
@@ -184,7 +209,11 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                         loading={isNotificationFormSubmitting}
                         disabledReason={submitDisabledReason}
                     >
-                        Add notification
+                        {editingNotification
+                            ? 'Save changes'
+                            : copiedNotification
+                              ? 'Create notification'
+                              : 'Add notification'}
                     </LemonButton>
                 </>
             }
@@ -215,6 +244,7 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                                 <img src={option.iconUrl} alt="" className="h-5 w-5 object-contain" />
                                             ),
                                         }))}
+                                        disabled={!!editingNotification || !!copiedNotification}
                                         fullWidth
                                     />
                                 )}

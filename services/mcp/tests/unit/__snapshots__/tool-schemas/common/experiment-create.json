@@ -3,6 +3,7 @@
     "properties": {
         "allow_unknown_events": {
             "default": false,
+            "description": "Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it).",
             "type": "boolean"
         },
         "description": {
@@ -30,8 +31,8 @@
                                             "type": "string"
                                         },
                                         "kind": {
+                                            "const": "ExperimentEventExposureConfig",
                                             "default": "ExperimentEventExposureConfig",
-                                            "enum": ["ExperimentEventExposureConfig"],
                                             "type": "string"
                                         },
                                         "properties": {
@@ -49,89 +50,94 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ]
+                                                        ],
+                                                        "default": null
                                                     },
                                                     "operator": {
-                                                        "default": "exact",
-                                                        "enum": [
-                                                            "exact",
-                                                            "is_not",
-                                                            "icontains",
-                                                            "not_icontains",
-                                                            "regex",
-                                                            "not_regex",
-                                                            "gt",
-                                                            "gte",
-                                                            "lt",
-                                                            "lte",
-                                                            "is_set",
-                                                            "is_not_set",
-                                                            "is_date_exact",
-                                                            "is_date_before",
-                                                            "is_date_after",
-                                                            "between",
-                                                            "not_between",
-                                                            "min",
-                                                            "max",
-                                                            "in",
-                                                            "not_in",
-                                                            "is_cleaned_path_exact",
-                                                            "flag_evaluates_to",
-                                                            "semver_eq",
-                                                            "semver_neq",
-                                                            "semver_gt",
-                                                            "semver_gte",
-                                                            "semver_lt",
-                                                            "semver_lte",
-                                                            "semver_tilde",
-                                                            "semver_caret",
-                                                            "semver_wildcard",
-                                                            "icontains_multi",
-                                                            "not_icontains_multi"
+                                                        "anyOf": [
+                                                            {
+                                                                "enum": [
+                                                                    "exact",
+                                                                    "is_not",
+                                                                    "icontains",
+                                                                    "not_icontains",
+                                                                    "regex",
+                                                                    "not_regex",
+                                                                    "gt",
+                                                                    "gte",
+                                                                    "lt",
+                                                                    "lte",
+                                                                    "is_set",
+                                                                    "is_not_set",
+                                                                    "is_date_exact",
+                                                                    "is_date_before",
+                                                                    "is_date_after",
+                                                                    "between",
+                                                                    "not_between",
+                                                                    "min",
+                                                                    "max",
+                                                                    "in",
+                                                                    "not_in",
+                                                                    "is_cleaned_path_exact",
+                                                                    "flag_evaluates_to",
+                                                                    "semver_eq",
+                                                                    "semver_neq",
+                                                                    "semver_gt",
+                                                                    "semver_gte",
+                                                                    "semver_lt",
+                                                                    "semver_lte",
+                                                                    "semver_tilde",
+                                                                    "semver_caret",
+                                                                    "semver_wildcard",
+                                                                    "icontains_multi",
+                                                                    "not_icontains_multi"
+                                                                ],
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
                                                         ],
-                                                        "type": "string"
+                                                        "default": "exact"
                                                     },
                                                     "type": {
+                                                        "const": "event",
                                                         "default": "event",
                                                         "description": "Event properties",
-                                                        "enum": ["event"],
                                                         "type": "string"
                                                     },
                                                     "value": {
                                                         "anyOf": [
                                                             {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                "items": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "string"
                                                                         },
-                                                                        "type": "array"
-                                                                    },
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "boolean"
-                                                                    }
-                                                                ]
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "type": "array"
+                                                            },
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "boolean"
                                                             },
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ]
+                                                        ],
+                                                        "default": null
                                                     }
                                                 },
                                                 "required": ["key"],
@@ -146,7 +152,8 @@
                                 {
                                     "type": "null"
                                 }
-                            ]
+                            ],
+                            "default": null
                         },
                         "filterTestAccounts": {
                             "anyOf": [
@@ -156,7 +163,8 @@
                                 {
                                     "type": "null"
                                 }
-                            ]
+                            ],
+                            "default": null
                         }
                     },
                     "type": "object"
@@ -209,6 +217,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Human-readable variant name."
                                             },
                                             "rollout_percentage": {
@@ -219,7 +228,8 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ]
+                                                ],
+                                                "default": null
                                             },
                                             "split_percent": {
                                                 "anyOf": [
@@ -230,6 +240,7 @@
                                                         "type": "null"
                                                     }
                                                 ],
+                                                "default": null,
                                                 "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided."
                                             }
                                         },
@@ -242,6 +253,7 @@
                                     "type": "null"
                                 }
                             ],
+                            "default": null,
                             "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
                         },
                         "minimum_detectable_effect": {
@@ -253,6 +265,7 @@
                                     "type": "null"
                                 }
                             ],
+                            "default": null,
                             "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments."
                         },
                         "rollout_percentage": {
@@ -264,6 +277,7 @@
                                     "type": "null"
                                 }
                             ],
+                            "default": null,
                             "description": "Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100."
                         }
                     },
@@ -275,14 +289,7 @@
             ],
             "description": "Variant split and rollout scope. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set rollout_percentage (0-100) to control the overall fraction of users entering the experiment. Set feature_flag_variants with split_percent on each variant to customize the variant split. Default: 50/50 control/test, 100% rollout. HARD REQUIREMENT — when you provide feature_flag_variants, exactly one variant's `key` must be the literal string `control` (lowercase, no variations). It is the baseline used for analysis and the experiment runtime treats it specially. If the user describes variants as \"A/B\", \"old/new\", \"original/redesign\", or any other natural-language pair, map the baseline to `key: \"control\"` — not \"A\", \"Control\", \"old\", \"original\", or \"baseline\". Other variants can use any key (`test`, `variant_a`, etc.)."
         },
-        "stats_config": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        }
+        "stats_config": {}
     },
     "required": ["name", "feature_flag_key"],
     "type": "object"

@@ -1,0 +1,83 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: User interview topics
+feature: user_interviews
+url_prefix: /user_interviews
+ui_apps: {}
+tools:
+    user-interview-topics-create:
+        operation: user_interview_topics_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create user interview topic
+        description: >
+            Plan a user interview by recording who you want to target and what product or idea you want to ask them
+            about. `topic` is the free-text description of the question or product area. Targets can be specified as any
+            combination of `interviewee_cohort` (optional cohort identifier), `interviewee_emails` (list of email
+            addresses), and `interviewee_distinct_ids` (list of PostHog distinct IDs) — at least one target must be
+            provided. Pass `agent_context` (free text) to give the voice agent extra background or instructions, and
+            `questions` (list of strings) for the ordered set of questions the agent should work through.
+        include_params:
+            - interviewee_cohort
+            - interviewee_emails
+            - interviewee_distinct_ids
+            - topic
+            - agent_context
+            - questions
+        feature_flag: user-interviews
+    user-interview-topics-destroy:
+        operation: user_interview_topics_destroy
+        enabled: false
+    user-interview-topics-list:
+        operation: user_interview_topics_list
+        enabled: true
+        scopes:
+            - user_interview:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List user interview topics
+        description: >
+            List planned user interview topics in the current project, newest first. Each result includes the topic,
+            targeting (interviewee_cohort, interviewee_emails, interviewee_distinct_ids), and the voice agent setup
+            (agent_context, questions). Supports `search` for substring match against the topic, and `limit`/`offset`
+            for pagination.
+        feature_flag: user-interviews
+    user-interview-topics-partial-update:
+        operation: user_interview_topics_partial_update
+        enabled: false
+    user-interview-topics-retrieve:
+        operation: user_interview_topics_retrieve
+        enabled: false
+    user-interview-topics-update:
+        operation: user_interview_topics_update
+        enabled: false
+    user-interviews-create:
+        operation: user_interviews_create
+        enabled: false
+    user-interviews-destroy:
+        operation: user_interviews_destroy
+        enabled: false
+    user-interviews-list:
+        operation: user_interviews_list
+        enabled: false
+    user-interviews-partial-update:
+        operation: user_interviews_partial_update
+        enabled: false
+    user-interviews-retrieve:
+        operation: user_interviews_retrieve
+        enabled: false
+    user-interviews-update:
+        operation: user_interviews_update
+        enabled: false

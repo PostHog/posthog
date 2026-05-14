@@ -1,8 +1,6 @@
-import { cleanup } from '@testing-library/react'
-
 import type { ChartTheme, Series } from '../core/types'
 import { ReferenceLine } from '../overlays/ReferenceLine'
-import { clickAtIndex, hoverAtIndex, renderHogChart, setupJsdom, setupSyncRaf } from '../testing'
+import { renderHogChart } from '../testing'
 import { LineChart } from './LineChart'
 
 const THEME: ChartTheme = {
@@ -20,20 +18,6 @@ const SERIES: Series[] = [
 const LABELS = ['Mon', 'Tue', 'Wed']
 
 describe('LineChart', () => {
-    let teardownJsdom: () => void
-    let teardownRaf: () => void
-
-    beforeEach(() => {
-        teardownJsdom = setupJsdom()
-        teardownRaf = setupSyncRaf()
-    })
-
-    afterEach(() => {
-        teardownRaf()
-        teardownJsdom()
-        cleanup()
-    })
-
     it.each([
         ['default config', SERIES, undefined],
         ['area mode', [{ key: 'a', label: 'A', data: [10, 20, 30], fill: {} }] as Series[], undefined],
@@ -141,7 +125,7 @@ describe('LineChart', () => {
     describe('hover & tooltip', () => {
         it('mounts a tooltip on hover', async () => {
             const { chart } = renderHogChart(<LineChart series={SERIES} labels={LABELS} theme={THEME} />)
-            hoverAtIndex(chart.element, 1, LABELS.length)
+            chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.element.textContent).toContain('Tue')
         })
@@ -151,7 +135,7 @@ describe('LineChart', () => {
             const { chart } = renderHogChart(
                 <LineChart series={SERIES} labels={LABELS} theme={THEME} onPointClick={onPointClick} />
             )
-            await clickAtIndex(chart.element, 1, LABELS.length)
+            await chart.clickAtIndex(1)
             expect(onPointClick).toHaveBeenCalledWith(
                 expect.objectContaining({ dataIndex: 1, label: 'Tue', value: 20 })
             )
@@ -159,7 +143,7 @@ describe('LineChart', () => {
 
         it('passes hovered seriesData to the tooltip render prop', async () => {
             const { chart } = renderHogChart(<LineChart series={SERIES} labels={LABELS} theme={THEME} />)
-            hoverAtIndex(chart.element, 1, LABELS.length)
+            chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.seriesData).toHaveLength(SERIES.length)
         })
@@ -168,11 +152,9 @@ describe('LineChart', () => {
             const { chart } = renderHogChart(
                 <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ tooltip: { pinnable: true } }} />
             )
-            hoverAtIndex(chart.element, 1, LABELS.length)
-            await chart.waitForTooltip()
-            await clickAtIndex(chart.element, 1, LABELS.length)
+            await chart.clickAtIndex(1)
             const tooltip = await chart.waitForTooltip()
-            expect(tooltip.element.classList.contains('hog-charts-tooltip--pinned')).toBe(true)
+            expect(tooltip.isPinned).toBe(true)
         })
 
         it('does not crash on hover for overlay series', async () => {
@@ -181,7 +163,7 @@ describe('LineChart', () => {
                 { key: 'b', label: 'B', data: [5, 15, 25], overlay: true },
             ]
             const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
-            hoverAtIndex(chart.element, 1, LABELS.length)
+            chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.element.textContent).toContain('Tue')
         })
@@ -192,7 +174,7 @@ describe('LineChart', () => {
                 { key: 'b', label: 'B', data: [5, 15, 25], visibility: { tooltip: false } },
             ]
             const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
-            hoverAtIndex(chart.element, 1, LABELS.length)
+            chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.element.textContent).toContain('A')
             expect(tooltip.element.textContent).not.toContain('B')
@@ -232,7 +214,7 @@ describe('LineChart', () => {
                 const { chart } = renderHogChart(
                     <LineChart series={SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
                 )
-                hoverAtIndex(chart.element, 1, LABELS.length)
+                chart.hoverAtIndex(1)
                 expect(onError).toHaveBeenCalled()
             } finally {
                 consoleErrorSpy.mockRestore()

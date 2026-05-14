@@ -19,7 +19,7 @@ pub fn raw_obj(s: &str) -> Box<RawValue> {
 pub fn default_options() -> Options {
     Options {
         cookieless_mode: None,
-        disable_skew_adjustment: None,
+        disable_skew_correction: None,
         product_tour_id: None,
         process_person_profile: None,
     }
@@ -143,6 +143,9 @@ pub fn test_kafka_config() -> crate::v1::sinks::kafka::config::Config {
         ("TOPIC_HISTORICAL", "events_hist"),
         ("TOPIC_OVERFLOW", "events_overflow"),
         ("TOPIC_DLQ", "events_dlq"),
+        ("TOPIC_EXCEPTION", "error_tracking_events"),
+        ("TOPIC_HEATMAP", "heatmaps_ingestion"),
+        ("TOPIC_CLIENT_INGESTION_WARNING", "events_plugin_ingestion"),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -167,7 +170,7 @@ pub fn realistic_pageview(distinct_id: &str) -> WrappedEvent {
             window_id: Some("01jq9xyz-0000-4321-8765-fedcba987654".to_string()),
             options: Options {
                 cookieless_mode: Some(false),
-                disable_skew_adjustment: None,
+                disable_skew_correction: None,
                 product_tour_id: None,
                 process_person_profile: Some(true),
             },
@@ -201,7 +204,7 @@ pub fn realistic_identify(distinct_id: &str) -> WrappedEvent {
             window_id: None,
             options: Options {
                 cookieless_mode: None,
-                disable_skew_adjustment: None,
+                disable_skew_correction: None,
                 product_tour_id: None,
                 process_person_profile: Some(true),
             },
@@ -235,7 +238,7 @@ pub fn realistic_custom(distinct_id: &str, event_name: &str) -> WrappedEvent {
             window_id: Some("01jq9xyz-0000-4321-8765-fedcba987654".to_string()),
             options: Options {
                 cookieless_mode: None,
-                disable_skew_adjustment: None,
+                disable_skew_correction: None,
                 product_tour_id: None,
                 process_person_profile: Some(true),
             },
@@ -312,7 +315,7 @@ pub fn realistic_dup_uuid_pair() -> (Event, Event) {
         window_id: Some("01jq9xyz-0000-4321-8765-fedcba987654".to_string()),
         options: Options {
             cookieless_mode: Some(false),
-            disable_skew_adjustment: None,
+            disable_skew_correction: None,
             product_tour_id: None,
             process_person_profile: Some(true),
         },

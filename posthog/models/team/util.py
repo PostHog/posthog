@@ -27,6 +27,7 @@ def delete_bulky_postgres_data(team_ids: list[int]):
 
     from posthog.models.cohort import Cohort
     from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
+    from posthog.models.file_system.file_system_view_log import FileSystemViewLog
     from posthog.models.insight_caching_state import InsightCachingState
     from posthog.models.person import PersonlessDistinctId
 
@@ -38,6 +39,8 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     # Team cascades to DataWarehouseSavedQuery, but it has PROTECT on delete.
     _raw_delete(Edge.objects.filter(team_id__in=team_ids))
     _raw_delete(Node.objects.filter(team_id__in=team_ids))
+
+    _raw_delete(FileSystemViewLog.objects.filter(team_id__in=team_ids))
 
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(PersonlessDistinctId.objects.filter(team_id__in=team_ids))  # nosemgrep: no-direct-persons-db-orm

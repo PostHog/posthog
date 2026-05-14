@@ -8,7 +8,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from django.db.models import Prefetch, QuerySet, Subquery
+from django.db.models import Expression, Prefetch, QuerySet, Subquery
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Lower
 
 from social_django.models import UserSocialAuth
@@ -325,8 +326,17 @@ def _filter_github_login_field_lc(
     login_field_lookup: GitHubLoginFieldLookup,
     logins_lower: frozenset[str],
 ) -> QuerySet:
-    """Case-insensitive match: ``Lower(login_field_lookup) ∈ logins_lower`` (expects lowercased logins)."""
-    return qs.annotate(_github_login_lc_lookup=Lower(login_field_lookup)).filter(
+    """Case-insensitive match: ``Lower(login_field_lookup) ∈ logins_lower`` (expects lowercased logins).
+
+    Uses ``->>`` for the final JSON key so the operand of ``LOWER`` is text — Postgres has
+    no ``lower(jsonb)`` overload, and Django's plain ``__`` JSON path lookups render to
+    ``->`` (jsonb).
+    """
+    column, *intermediate_keys, final_key = login_field_lookup.split("__")
+    expr: str | Expression = column
+    for key in intermediate_keys:
+        expr = KeyTransform(key, expr)
+    return qs.annotate(_github_login_lc_lookup=Lower(KeyTextTransform(final_key, expr))).filter(
         _github_login_lc_lookup__in=sorted(logins_lower)
     )
 

@@ -91,6 +91,7 @@ rules:
                               |DataWarehouseSavedQueryDraft
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
+                              |Deployment
                               |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
@@ -141,6 +142,9 @@ rules:
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
+                              |KnowledgeChunk
+                              |KnowledgeDocument
+                              |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
@@ -169,6 +173,8 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |ReplayLens
+                              |ReplayObservation
                               |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
@@ -212,6 +218,7 @@ rules:
                               |TraceReviewScore
                               |UploadedMedia
                               |UserInterview
+                              |UserInterviewTopic
                               |UserRepoPreference
                               |WebAnalyticsFilterPreset
                           )$
@@ -302,6 +309,7 @@ rules:
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
+                        |Deployment
                         |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping
@@ -352,6 +360,9 @@ rules:
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
+                        |KnowledgeChunk
+                        |KnowledgeDocument
+                        |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration
@@ -376,6 +387,8 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |ReplayLens
+                        |ReplayObservation
                         |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
@@ -419,6 +432,7 @@ rules:
                         |TraceReviewScore
                         |UploadedMedia
                         |UserInterview
+                        |UserInterviewTopic
                         |UserRepoPreference
                         |WebAnalyticsFilterPreset
                     )$
@@ -505,7 +519,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              LegalDocument
+                              CIMDVerificationToken
+                              |LegalDocument
                               |OrganizationMembership
                               |OrganizationDomain
                               |OrganizationIntegration
@@ -568,7 +583,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        LegalDocument
+                        CIMDVerificationToken
+                        |LegalDocument
                         |OrganizationMembership
                         |OrganizationDomain
                         |OrganizationIntegration

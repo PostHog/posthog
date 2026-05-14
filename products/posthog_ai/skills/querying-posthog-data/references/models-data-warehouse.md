@@ -173,6 +173,33 @@ Column | Type | Nullable | Description
 
 ---
 
+## Tenant Query Configs (`system.tenant_query_configs`)
+
+Per-source configuration for the tenant query service, which rewrites HogQL SELECTs on direct-Postgres sources to
+enforce a tenant predicate (e.g. `WHERE customer_id = <tenant>`) on every enabled table.
+One row per direct-Postgres source that has tenant_query configured (enabled or disabled).
+
+### Columns
+
+Column | Type | Nullable | Description
+`id` | uuid | NOT NULL | Primary key
+`external_data_source_id` | uuid | NOT NULL | FK to `system.data_warehouse_sources.id` (direct-Postgres source)
+`enabled` | boolean | NOT NULL | Whether tenant-scoped querying is currently active for this source
+`tenant_column_name` | varchar(128) | NOT NULL | Column name enforced as the tenant key on every enabled table
+`tenant_column_type` | varchar(32) | NOT NULL | Auto-detected column type: `integer`, `string`, or `uuid`
+`default_timeout_ms` | integer | NOT NULL | Default statement timeout (default 30000)
+`max_timeout_ms` | integer | NOT NULL | Maximum allowed statement timeout (default 120000)
+`max_result_limit` | integer | NOT NULL | Maximum row count returnable per query (default 100000)
+`created_at` | timestamp with tz | NOT NULL | Creation timestamp
+`updated_at` | timestamp with tz | NOT NULL | Last update timestamp
+
+### Key Relationships
+
+- **Source**: `external_data_source_id` -> `system.data_warehouse_sources.id`
+  (only direct-Postgres sources — `access_method = 'direct'`)
+
+---
+
 ## Common Query Patterns
 
 **List all data warehouse tables:**

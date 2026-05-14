@@ -1013,6 +1013,8 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             "$ai_evaluation_reasoning": result["reasoning"],
             "$ai_target_event_id": event_data["uuid"],
             "$ai_target_event_type": event_data["event"],
+            "$ai_target_id": event_data["uuid"],
+            "$ai_target_type": "generation_uuid",
             "$ai_trace_id": source_props.get("$ai_trace_id"),
             # Carry the trigger user's session_id from the source event so evals
             # can link back to the session recording that originated the trace.

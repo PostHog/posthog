@@ -41,6 +41,7 @@ from posthog.storage import object_storage
 
 from ee.hogai.utils.aio import async_to_sync
 
+from .access import has_tasks_access
 from .automation_service import (
     delete_automation_schedule,
     run_task_automation,
@@ -196,29 +197,27 @@ def _resolve_cloud_pr_authorship_mode(
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
+def task_visibility_q(user_id: int | None) -> Q:
+    """Filter for tasks visible to the given user.
+
+    A task is visible if its creator matches `user_id`, or if it has no
+    creator at all (legacy unowned tasks remain visible to any team member —
+    they cannot be executed in any case because oauth.py requires
+    `task.created_by` to mint OAuth tokens).
+    """
+    return Q(created_by_id=user_id) | Q(created_by__isnull=True)
+
+
+def task_run_visibility_q(user_id: int | None) -> Q:
+    """`task_visibility_q` traversed via the `task` FK on TaskRun / TaskAutomation."""
+    return Q(task__created_by_id=user_id) | Q(task__created_by__isnull=True)
+
+
 class TasksAccessPermission(BasePermission):
     message = "You need a valid invite code to access this feature."
 
     def has_permission(self, request, view) -> bool:
-        user = request.user
-        if not user or not user.is_authenticated:
-            return False
-
-        # Check 1: feature flag (covers existing enrolled users, staff overrides)
-        org_id = str(view.organization.id)
-        flag_enabled = posthoganalytics.feature_enabled(
-            "tasks",
-            user.distinct_id,
-            groups={"organization": org_id},
-            group_properties={"organization": {"id": org_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-        if flag_enabled:
-            return True
-
-        # Check 2: invite code redemption (covers new invited users)
-        return CodeInviteRedemption.objects.filter(user=user).exists()
+        return has_tasks_access(request.user)
 
 
 @extend_schema(tags=["tasks"])
@@ -269,6 +268,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def repositories(self, request, **kwargs):
         repositories = (
             Task.objects.filter(team=self.team, deleted=False, internal=False)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
             .exclude(repository__isnull=True)
             .exclude(repository__exact="")
             .values_list("repository", flat=True)
@@ -324,6 +324,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         tasks = (
             Task.objects.filter(team=self.team, deleted=False, id__in=ids)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
             .annotate(_latest_run=Subquery(latest_run.values("_data")[:1]))
             .order_by("-created_at", "id")
         )
@@ -365,7 +366,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(result)
 
     def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team=self.team, deleted=False).order_by("-created_at")
+        qs = (
+            queryset.filter(team=self.team, deleted=False)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
+            .order_by("-created_at")
+        )
 
         params = self.request.query_params if hasattr(self, "request") else {}
 
@@ -828,7 +833,11 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_rewrite_rules = {"team_id": "task__team_id"}
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(task__team=self.team).order_by("task__title", "-created_at")
+        return (
+            queryset.filter(task__team=self.team)
+            .filter(task_run_visibility_q(getattr(self.request.user, "id", None)))
+            .order_by("task__title", "-created_at")
+        )
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
@@ -871,22 +880,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = TaskRun.objects.select_related(
         "task", "task__created_by", "task__github_integration", "task__github_user_integration"
     ).all()
-    posthog_feature_flag = {
-        "tasks": [
-            "list",
-            "retrieve",
-            "create",
-            "update",
-            "partial_update",
-            "set_output",
-            "append_log",
-            "relay_message",
-            "session_logs",
-            "command",
-            "stream",
-            "resume_in_cloud",
-        ]
-    }
     http_method_names = ["get", "post", "patch", "head", "options"]
     filter_rewrite_rules = {"team_id": "team_id"}
 
@@ -914,7 +907,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not task_id:
             raise NotFound("Task ID is required")
 
-        task = Task.objects.get(id=task_id, team=self.team)
+        task = (
+            Task.objects.filter(id=task_id, team=self.team)
+            .filter(task_visibility_q(getattr(request.user, "id", None)))
+            .first()
+        )
+        if task is None:
+            raise NotFound("Task not found")
         environment = request.validated_data.get("environment", TaskRun.Environment.LOCAL)
         mode = request.validated_data.get("mode", "background")
         branch = request.validated_data.get("branch")
@@ -1267,8 +1266,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not task_id:
             raise NotFound("Task ID is required")
 
-        # Verify task belongs to team
-        if not Task.objects.filter(id=task_id, team=self.team).exists():
+        task_visible = (
+            Task.objects.filter(id=task_id, team=self.team)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
+            .exists()
+        )
+        if not task_visible:
             raise NotFound("Task not found")
 
         return queryset.filter(team=self.team, task_id=task_id)
@@ -1280,7 +1283,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task_id = self.kwargs.get("parent_lookup_task_id")
         if not task_id:
             raise NotFound("Task ID is required")
-        task = Task.objects.get(id=task_id, team=self.team)
+        task = (
+            Task.objects.filter(id=task_id, team=self.team)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
+            .first()
+        )
+        if task is None:
+            raise NotFound("Task not found")
         serializer.save(team=self.team, task=task)
 
     def _trigger_workflow(self, task: Task, task_run: TaskRun, *, raise_on_error: bool = False) -> None:
@@ -2502,8 +2511,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
     )
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
-        has_redeemed = CodeInviteRedemption.objects.filter(user=request.user).exists()
-        return Response({"has_access": has_redeemed})
+        return Response({"has_access": has_tasks_access(request.user)})
 
 
 @extend_schema(tags=["sandbox-environments"])

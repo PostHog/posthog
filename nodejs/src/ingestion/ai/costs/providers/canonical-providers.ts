@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-06 20:29:04 UTC
+// Generated at: 2026-05-12 10:48:44 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -16,6 +16,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us'
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-west-2'
+    | 'ambient'
     | 'ambient-fp8'
     | 'anthropic'
     | 'anthropic-2'
@@ -27,6 +28,7 @@ export type CanonicalProvider =
     | 'azure-swedencentral'
     | 'azure-us-east-2'
     | 'baidu-fp8'
+    | 'baseten-2'
     | 'baseten-fp4'
     | 'cerebras-fp16'
     | 'chutes-fp4'
@@ -73,7 +75,6 @@ export type CanonicalProvider =
     | 'ionstream-fp8'
     | 'liquid'
     | 'mancer-fp8'
-    | 'mancer-int4'
     | 'mara'
     | 'minimax'
     | 'minimax-fp8'
@@ -113,7 +114,6 @@ export type CanonicalProvider =
     | 'sambanova'
     | 'sambanova-bf16'
     | 'sambanova-fp8'
-    | 'sambanova-high-throughput'
     | 'sambanova-turbo'
     | 'seed-fp8'
     | 'siliconflow'

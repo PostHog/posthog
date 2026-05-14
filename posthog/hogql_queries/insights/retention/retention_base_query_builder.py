@@ -84,6 +84,10 @@ class RetentionBaseQueryBuilder(ABC):
         return self.runner.is_custom_bracket_retention
 
     @property
+    def has_property_aggregation(self) -> bool:
+        return self.runner.has_property_aggregation
+
+    @property
     def minimum_occurrences(self) -> int:
         return self.query.retentionFilter.minimumOccurrences or 1
 

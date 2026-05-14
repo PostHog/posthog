@@ -20,6 +20,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
+import { type HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type {
@@ -297,6 +298,14 @@ function TenantQueryTableColumns({ columns }: { columns: TenantQueryTableColumn[
             </div>
         </div>
     )
+}
+
+function tenantQueryPlaygroundSourceQuery(query: string, connectionId: string): HogQLQuery {
+    return {
+        kind: NodeKind.HogQLQuery,
+        query,
+        connectionId,
+    }
 }
 
 export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element {
@@ -658,7 +667,8 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                                         queryKey={`tenant-query-playground/${connectionId}`}
                                         value={query}
                                         onChange={(newValue) => onChange(newValue ?? '')}
-                                        language="sql"
+                                        language="hogQL"
+                                        sourceQuery={tenantQueryPlaygroundSourceQuery(query, connectionId)}
                                         minHeight="180px"
                                         maxHeight="60vh"
                                         onPressCmdEnter={() => submitTenantQueryPlayground()}

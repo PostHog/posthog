@@ -1,0 +1,38 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "connection_id": {
+            "description": "Direct Postgres connection ID to query.",
+            "type": "string"
+        },
+        "query": {
+            "description": "HogQL SELECT query to execute against the tenant-scoped connection.",
+            "type": "string"
+        },
+        "tenant_value": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "number"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Tenant value to enforce against the configured tenant column."
+        },
+        "timeout_ms": {
+            "description": "Optional statement timeout in milliseconds, capped by the connection tenant-query config.",
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["connection_id", "query"],
+    "type": "object"
+}

@@ -57,6 +57,7 @@ PRODUCTS_APPS = [
     "products.posthog_ai.backend.apps.PosthogAiConfig",
     "products.signals.backend.apps.SignalsConfig",
     "products.visual_review.backend.apps.VisualReviewConfig",
+    "products.replay_vision.backend.apps.ReplayVisionConfig",
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
     "products.logs.backend.apps.LogsConfig",
@@ -72,6 +73,8 @@ PRODUCTS_APPS = [
     "products.query_performance_ai.orchestrator.apps.QueryPerformanceAiConfig",
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
+    "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
+    "products.deployments.backend.apps.DeploymentsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -335,7 +338,11 @@ STORAGES = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.ManifestStaticFilesStorage",
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if TEST
+            else "whitenoise.storage.ManifestStaticFilesStorage"
+        ),
     },
 }
 
@@ -375,6 +382,7 @@ if DEBUG:
 # DRF Spectacular
 
 SPECTACULAR_SETTINGS = {
+    "OAS_VERSION": "3.1.0",
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
     "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
@@ -419,6 +427,12 @@ SPECTACULAR_SETTINGS = {
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
+        "ModelEnum": "posthog.batch_exports.models.BatchExport.Model",
+        "LensModelEnum": "products.replay_vision.backend.models.replay_lens.LensModel",
+        "LensTypeEnum": "products.replay_vision.backend.models.replay_lens.LensType",
+        "LensProviderEnum": "products.replay_vision.backend.models.replay_lens.LensProvider",
+        "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
+        "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [
@@ -451,6 +465,8 @@ SPECTACULAR_SETTINGS = {
             "workflow_variable",
         ],
         "AssigneeTypeEnum": ["user", "role"],
+        "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+        "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
         "ExistenceOperatorEnum": ["is_set", "is_not_set"],
         "TaskExecutionModeEnum": ["interactive", "background"],
@@ -620,6 +636,14 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
+
+# Query service SLO sampling rate. Each QueryRunner.run() call emits two events
+# (slo_operation_started + slo_operation_completed); unsampled, that's many millions of
+# events per day. The chosen rate is stamped on each event as `properties.sample_rate`
+# so dashboards can weight by 1/sample_rate to reconstruct true counts. Tunable via env
+# var without redeploy. 1.0 = emit every operation, 0.01 = 1% sample.
+# Defaults to 1.0 under TEST so assertions on emitted SLO events are deterministic.
+QUERY_SERVICE_SLO_SAMPLE_RATE = get_from_env("QUERY_SERVICE_SLO_SAMPLE_RATE", 1.0 if TEST else 0.01, type_cast=float)
 
 ####
 # Livestream

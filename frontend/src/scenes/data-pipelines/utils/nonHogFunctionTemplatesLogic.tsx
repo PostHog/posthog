@@ -3,7 +3,7 @@ import { connect, kea, path, props, selectors } from 'kea'
 import { Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
-import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
 import { userLogic } from 'scenes/userLogic'
 
@@ -23,22 +23,6 @@ export interface NonHogFunctionTemplatesLogicProps {
 type SourceDisplayStatus = {
     status: HogFunctionTemplateStatus
     descriptionEl: string | JSX.Element
-}
-
-// Returns whether a connector should appear in the source picker. A flagged source is hidden
-// when its flag is off, UNLESS the source is also marked `unreleasedSource` — in which case it
-// stays visible and renders as a "Notify me" / coming-soon entry via getSourceDisplayStatus.
-export function shouldShowConnector(
-    connector: Pick<SourceConfig, 'featureFlag' | 'unreleasedSource'>,
-    featureFlags: FeatureFlagsSet
-): boolean {
-    if (!connector.featureFlag) {
-        return true
-    }
-    if (featureFlags[connector.featureFlag as FeatureFlagKey]) {
-        return true
-    }
-    return !!connector.unreleasedSource
 }
 
 function getSourceDisplayStatus(unreleased: boolean, featureFlag: boolean | undefined): SourceDisplayStatus {
@@ -89,16 +73,15 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
         hogFunctionTemplatesDataWarehouseSources: [
             (s) => [s.connectors, s.manualConnectors, s.featureFlags],
             (connectors, manualConnectors, featureFlags): HogFunctionTemplateType[] => {
-                const visibleConnectors = connectors.filter((connector: SourceConfig) =>
-                    shouldShowConnector(connector, featureFlags)
-                )
-                const managed = visibleConnectors.map((connector: SourceConfig): HogFunctionTemplateType => {
+                const managed = connectors.map((connector: SourceConfig): HogFunctionTemplateType => {
                     const featureFlagDefined = !!connector.featureFlag
                     const featureFlagRaw = featureFlags[connector.featureFlag as FeatureFlagKey]
-                    let featureFlagValue: boolean | undefined = undefined
-                    if (featureFlagDefined && featureFlagRaw !== undefined) {
-                        featureFlagValue = !!featureFlagRaw
-                    }
+                    // Treat "flag declared but absent in featureFlags" as off — non-cloud
+                    // featureFlagLogic only exposes truthy flags, so an undefined lookup means the
+                    // gate is closed for this user. Without this coercion, getSourceDisplayStatus
+                    // falls back to `unreleasedSource` and any flagged-but-not-unreleased source
+                    // (plain, supabase) would render as connectable instead of "Notify me".
+                    const featureFlagValue: boolean | undefined = featureFlagDefined ? !!featureFlagRaw : undefined
                     const unreleasedValue = !!connector.unreleasedSource
                     const { status, descriptionEl } = getSourceDisplayStatus(unreleasedValue, featureFlagValue)
                     // Only surface alpha/beta while the source is actually connectable — a source

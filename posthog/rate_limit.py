@@ -346,6 +346,19 @@ class SignupEmailPrecheckThrottle(IPThrottle):
     rate = "30/minute"
 
 
+class SignupResendInviteThrottle(UserOrEmailRateThrottle):
+    """
+    Rate limit signup invite-resend requests per email address.
+
+    Resending an invite triggers a real email side effect, so the per-email cap
+    bounds inbox spam to a victim regardless of how many IPs an attacker rotates
+    through.
+    """
+
+    scope = "signup_resend_invite"
+    rate = "5/hour"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -931,6 +944,25 @@ class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
     # per team to avoid bypass via rotated API keys, sessions, or integrations.
     scope = "github_repository_refresh"
     rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
+class HealthIssueRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "health_issue_refresh"
+    rate = "1/15minutes"
+
+    def parse_rate(self, rate):
+        if rate is None:
+            return (None, None)
+        num, period = rate.split("/")
+        if period.endswith("minutes"):
+            return (int(num), int(period[:-7]) * 60)
+        return super().parse_rate(rate)
 
     def get_cache_key(self, request, view):
         team_id = self.safely_get_team_id_from_view(view)

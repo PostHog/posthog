@@ -36,14 +36,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -63,7 +59,58 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface UserInterviewTopicApi {
+    readonly id: string
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /**
+     * Optional cohort ID identifying who to target. Not enforced as a foreign key.
+     * @nullable
+     */
+    interviewee_cohort?: number | null
+    /** Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids. */
+    interviewee_emails?: string[]
+    /** PostHog distinct IDs of people to interview. May be combined with interviewee_cohort and interviewee_emails. */
+    interviewee_distinct_ids?: string[]
+    /** The product, feature, or idea you want to ask interviewees about. */
+    topic: string
+    /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
+    agent_context?: string
+    /** Ordered list of questions the voice agent should work through during the interview. */
+    questions?: string[]
+}
+
+export interface PaginatedUserInterviewTopicListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: UserInterviewTopicApi[]
+}
+
+export interface PatchedUserInterviewTopicApi {
+    readonly id?: string
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /**
+     * Optional cohort ID identifying who to target. Not enforced as a foreign key.
+     * @nullable
+     */
+    interviewee_cohort?: number | null
+    /** Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids. */
+    interviewee_emails?: string[]
+    /** PostHog distinct IDs of people to interview. May be combined with interviewee_cohort and interviewee_emails. */
+    interviewee_distinct_ids?: string[]
+    /** The product, feature, or idea you want to ask interviewees about. */
+    topic?: string
+    /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
+    agent_context?: string
+    /** Ordered list of questions the voice agent should work through during the interview. */
+    questions?: string[]
 }
 
 export interface UserInterviewApi {
@@ -93,6 +140,21 @@ export interface PatchedUserInterviewApi {
     readonly transcript?: string
     summary?: string
     audio?: string
+}
+
+export type UserInterviewTopicsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
 }
 
 export type UserInterviewsListParams = {
