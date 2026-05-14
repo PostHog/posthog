@@ -8,13 +8,43 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { JourneySankey } from './JourneySankey'
+import claudeLogo from './harness-logos/claude.svg'
+import cursorLogo from './harness-logos/cursor.svg'
+import openaiLogo from './harness-logos/openai.svg'
+import vscodeLogo from './harness-logos/vscode.svg'
 import {
     DashboardJourney,
+    HarnessRow,
     KPIMetric,
     NotableSession,
     ToolRow,
     mcpDashboardOverviewLogic,
 } from './mcpDashboardOverviewLogic'
+
+const HARNESS_LOGOS: Record<string, string> = {
+    'Claude Code': claudeLogo,
+    'Claude.ai': claudeLogo,
+    'OpenAI Codex': openaiLogo,
+    Cursor: cursorLogo,
+    'VS Code': vscodeLogo,
+}
+
+export function HarnessPill({ category, title }: { category: string; title?: string }): JSX.Element {
+    const logo = HARNESS_LOGOS[category]
+    return (
+        <span
+            className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary bg-surface-primary px-2 py-0.5 text-xs"
+            title={title}
+        >
+            {logo ? (
+                <img src={logo} alt="" className="h-3.5 w-3.5 shrink-0 object-contain" />
+            ) : (
+                <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-secondary" aria-hidden />
+            )}
+            <span className="truncate">{category}</span>
+        </span>
+    )
+}
 
 type TileColor = 'blue' | 'red' | 'green'
 type DeltaKind = 'pct' | 'pp' | 'ms' | 'count'
@@ -161,6 +191,8 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         notableSessions,
         sessionRowsLoading,
         dashboardJourney,
+        harnessRows,
+        harnessRawRowsLoading,
     } = useValues(mcpDashboardOverviewLogic)
 
     const tiles: TileSpec[] = [
@@ -227,6 +259,9 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                 headerRight={<span className="text-[11px] text-tertiary">Sorted by call volume</span>}
             >
                 <ToolReliabilityMatrix rows={topToolRows} loading={toolRowsLoading} totalTools={toolRowsTotal} />
+            </Block>
+            <Block question="Which harnesses are calling the MCP?" title="Agent harnesses">
+                <HarnessBreakdown rows={harnessRows} loading={harnessRawRowsLoading} />
             </Block>
             <Block
                 question="How are agents actually using the MCP?"
@@ -347,7 +382,7 @@ function ToolRowItem({ row, maxVolume, isLast }: { row: ToolRow; maxVolume: numb
             }}
         >
             <Link
-                to={`${urls.mcpAnalyticsTools()}?tool=${encodeURIComponent(row.tool)}`}
+                to={urls.mcpAnalyticsTool(row.tool)}
                 className={`truncate font-mono text-xs ${nameClass}`}
                 title={row.tool}
             >
@@ -510,6 +545,75 @@ function AgentJourneysBlock({ journey }: { journey: DashboardJourney }): JSX.Ele
     )
 }
 
+const HARNESS_GRID_TEMPLATE = '160px 1fr 56px 56px'
+
+function HarnessBreakdown({ rows, loading }: { rows: HarnessRow[]; loading: boolean }): JSX.Element {
+    const maxCalls = rows.length ? Math.max(...rows.map((r) => r.total_calls)) : 0
+    const totalCalls = rows.reduce((acc, r) => acc + r.total_calls, 0)
+
+    return (
+        <Card>
+            <div
+                className="grid items-center gap-2.5 pb-1.5 text-[11px] text-secondary"
+                style={{
+                    gridTemplateColumns: HARNESS_GRID_TEMPLATE,
+                    borderBottom: '0.5px solid var(--color-border-secondary)',
+                }}
+            >
+                <span>Harness</span>
+                <span>
+                    <span className="text-[#185FA5]">Calls</span>
+                    <span className="mx-1">·</span>
+                    <span className="text-[#A32D2D]">errors</span>
+                </span>
+                <span>Err</span>
+                <span className="text-right">Share</span>
+            </div>
+            {loading && rows.length === 0 ? (
+                <div className="space-y-2 py-3">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                        <LemonSkeleton key={i} className="h-3.5 w-full" />
+                    ))}
+                </div>
+            ) : rows.length === 0 ? (
+                <div className="py-6 text-center text-[12px] text-secondary">No harness data yet.</div>
+            ) : (
+                rows.map((row, i) => {
+                    const callsPct = maxCalls ? (row.total_calls / maxCalls) * 100 : 0
+                    const errorsPct = maxCalls ? (row.errors / maxCalls) * 100 : 0
+                    const successPct = Math.max(callsPct - errorsPct, 0)
+                    const share = totalCalls ? (row.total_calls / totalCalls) * 100 : 0
+                    const tooltip = row.raw_clients.slice(0, 8).join(', ')
+                    return (
+                        <div
+                            key={row.category}
+                            className="grid items-center gap-2.5 py-1.5"
+                            style={{
+                                gridTemplateColumns: HARNESS_GRID_TEMPLATE,
+                                borderBottom:
+                                    i === rows.length - 1 ? 'none' : '0.5px solid var(--color-border-tertiary)',
+                            }}
+                        >
+                            <HarnessPill category={row.category} title={tooltip} />
+                            <div
+                                className="relative flex h-[14px] overflow-hidden rounded-[3px] bg-surface-secondary"
+                                title={`${row.total_calls} calls · ${row.errors} errors · ${row.sessions} sessions`}
+                            >
+                                <div className="h-full bg-[#B5D4F4]" style={{ width: `${successPct}%` }} />
+                                <div className="h-full bg-[#F09595]" style={{ width: `${errorsPct}%` }} />
+                            </div>
+                            <ErrorRatePill pct={row.error_rate_pct} />
+                            <span className="text-right font-mono text-xs text-primary">
+                                {share.toFixed(share >= 10 ? 0 : 1)}%
+                            </span>
+                        </div>
+                    )
+                })
+            )}
+        </Card>
+    )
+}
+
 function LeakCallout({ leak, totalSessions }: { leak: DashboardJourney['leak']; totalSessions: number }): JSX.Element {
     if (!leak) {
         return (
@@ -535,6 +639,7 @@ function LeakCallout({ leak, totalSessions }: { leak: DashboardJourney['leak']; 
         </div>
     )
 }
+
 
 function truncateSessionId(id: string): string {
     if (id.length <= 12) {
