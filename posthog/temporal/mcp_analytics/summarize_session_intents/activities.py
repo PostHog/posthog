@@ -31,7 +31,7 @@ SELECT JSONExtractString(properties, '$mcp_intent') AS intent
 FROM events
 WHERE team_id = %(team_id)s
     AND event = 'mcp_tool_call'
-    AND JSONExtractString(properties, '$session_id') = %(session_id)s
+    AND JSONExtractString(properties, '$mcp_conversation_id') = %(session_id)s
     AND JSONExtractString(properties, '$mcp_intent') != ''
 ORDER BY timestamp ASC
 LIMIT 200
