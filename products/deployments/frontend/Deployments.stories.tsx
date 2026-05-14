@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -41,7 +42,7 @@ const docsProject: DeploymentProjectApi = {
 
 const makeDeployment = (id: string, overrides: Partial<DeploymentApi> = {}): DeploymentApi => ({
     id,
-    project: 'project-1',
+    deployment_project_id: 'project-1',
     status: 'ready',
     started_at: '2026-05-13T12:00:00Z',
     finished_at: '2026-05-13T12:01:30Z',
@@ -74,7 +75,7 @@ const currentDeployment = makeDeployment('d-current', {
 })
 
 const docsCurrent = makeDeployment('d-docs', {
-    project: 'project-2',
+    deployment_project_id: 'project-2',
     is_current: true,
     commit_message: 'docs: refresh getting started',
     duration_seconds: 36,
@@ -149,6 +150,12 @@ type Story = StoryObj<{}>
 
 // Grid of project cards on /deployments
 export const ProjectGrid: Story = {}
+
+export const StubModePostHogCom: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.DEPLOYMENTS_STUB],
+    },
+}
 
 // Empty state — onboarding into the product, no projects yet
 export const NoProjects: Story = {

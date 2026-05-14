@@ -11,8 +11,7 @@ const STATUS_TYPE: Record<DeploymentStatus, LemonTagType> = {
     cancelled: 'muted',
 }
 
-const STATUS_LABEL: Record<DeploymentStatus, string> = {
-    ready: 'Ready',
+const STATUS_LABEL: Record<Exclude<DeploymentStatus, 'ready'>, string> = {
     error: 'Error',
     building: 'Building',
     queued: 'Queued',
@@ -20,6 +19,13 @@ const STATUS_LABEL: Record<DeploymentStatus, string> = {
     cancelled: 'Cancelled',
 }
 
-export function DeploymentStatusTag({ status }: { status: DeploymentStatus }): JSX.Element {
-    return <LemonTag type={STATUS_TYPE[status]}>{STATUS_LABEL[status]}</LemonTag>
+export function DeploymentStatusTag({
+    status,
+    isCurrent = false,
+}: {
+    status: DeploymentStatus
+    isCurrent?: boolean
+}): JSX.Element {
+    const label = status === 'ready' ? (isCurrent ? 'Live' : 'Successful') : STATUS_LABEL[status]
+    return <LemonTag type={STATUS_TYPE[status]}>{label}</LemonTag>
 }

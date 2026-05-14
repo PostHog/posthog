@@ -1,10 +1,14 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { deploymentsLogic } from './deploymentsLogic'
+import { POSTHOG_COM_PROJECT_ID } from './stubData'
 import { makeDeployment, makeProject } from './testHelpers'
 
 describe('deploymentsLogic (grid)', () => {
@@ -30,7 +34,7 @@ describe('deploymentsLogic (grid)', () => {
                 '/api/projects/:team/deployment_projects/:project_id/deployments/:id/': (req) => [
                     200,
                     makeDeployment(String(req.params.id), {
-                        project: String(req.params.project_id),
+                        deployment_project_id: String(req.params.project_id),
                         is_current: true,
                     }),
                 ],
@@ -42,7 +46,7 @@ describe('deploymentsLogic (grid)', () => {
                         previous: null,
                         results: [
                             makeDeployment(`${req.params.project_id}-d1`, {
-                                project: String(req.params.project_id),
+                                deployment_project_id: String(req.params.project_id),
                                 is_current: true,
                             }),
                         ],
@@ -81,6 +85,31 @@ describe('deploymentsLogic (grid)', () => {
         await expectLogic(logic, () => {
             logic.actions.closeAddProjectModal()
         }).toMatchValues({ addProjectModalOpen: false })
+    })
+
+    it('uses posthog.com stub data when deployments-stub is enabled', async () => {
+        logic.unmount()
+        initKeaTests()
+        const flagsLogic = featureFlagLogic()
+        flagsLogic.mount()
+        flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.DEPLOYMENTS_STUB], {
+            [FEATURE_FLAGS.DEPLOYMENTS_STUB]: true,
+        })
+
+        logic = deploymentsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isStubMode).toBe(true)
+        expect(logic.values.deploymentProjects[0]).toMatchObject({
+            name: 'posthog.com',
+            repo_url: 'https://github.com/PostHog/posthog.com',
+            default_branch: 'master',
+        })
+        expect(logic.values.currentDeploymentsByProject[POSTHOG_COM_PROJECT_ID]?.preview_image_url).toBeTruthy()
+
+        flagsLogic.actions.setFeatureFlags([], {})
+        flagsLogic.unmount()
     })
 
     it('reports hasNoProjects when the team has zero projects', async () => {

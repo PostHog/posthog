@@ -39,7 +39,7 @@ export function DeploymentProjectCard({ project, currentDeployment }: Deployment
                     </span>
                 </div>
                 {currentDeployment ? (
-                    <DeploymentStatusTag status={currentDeployment.status} />
+                    <DeploymentStatusTag status={currentDeployment.status} isCurrent={currentDeployment.is_current} />
                 ) : (
                     <LemonTag type="default">Building</LemonTag>
                 )}

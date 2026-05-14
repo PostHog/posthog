@@ -13,8 +13,10 @@ import { LogsViewer } from 'products/logs/frontend/components/LogsViewer/LogsVie
 
 import { CurrentDeploymentCard } from './components/CurrentDeploymentCard'
 import { openRedeployDialog, openRollbackDialog } from './components/deploymentActions'
+import { StubBuildLogs } from './components/StubBuildLogs'
 import { deploymentLogic, DeploymentLogicProps } from './deploymentLogic'
 import { deploymentProjectLogic } from './deploymentProjectLogic'
+import { deploymentsLogic } from './deploymentsLogic'
 
 export const scene: SceneExport<DeploymentLogicProps> = {
     component: Deployment,
@@ -34,6 +36,8 @@ export function Deployment({ projectId, id }: DeploymentLogicProps): JSX.Element
 
 function DeploymentInner({ projectId, id }: DeploymentLogicProps): JSX.Element {
     const { deployment, deploymentMissing, deploymentLoading } = useValues(deploymentLogic({ projectId, id }))
+    const { deploymentProject } = useValues(deploymentProjectLogic({ projectId }))
+    const { isStubMode } = useValues(deploymentsLogic)
     const { redeployDeployment, rollbackDeployment } = useActions(deploymentProjectLogic({ projectId }))
 
     if (deploymentMissing) {
@@ -78,34 +82,40 @@ function DeploymentInner({ projectId, id }: DeploymentLogicProps): JSX.Element {
             />
             <CurrentDeploymentCard deployment={d} />
             <div className="flex flex-col gap-2">
-                <h3 className="text-lg font-semibold">Logs</h3>
-                <p className="text-secondary text-sm">
-                    Filtered to this deployment via the <code>deployment_id</code> attribute. Once ingestion stamps that
-                    attribute, real entries will show here.
-                </p>
-                <LogsViewer
-                    id={`deployment-${id}`}
-                    initialFilters={{
-                        filterGroup: {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
+                {isStubMode ? (
+                    <StubBuildLogs deployment={d} project={deploymentProject} />
+                ) : (
+                    <>
+                        <h3 className="text-lg font-semibold">Logs</h3>
+                        <p className="text-secondary text-sm">
+                            Filtered to this deployment via the <code>deployment_id</code> attribute. Once ingestion
+                            stamps that attribute, real entries will show here.
+                        </p>
+                        <LogsViewer
+                            id={`deployment-${id}`}
+                            initialFilters={{
+                                filterGroup: {
                                     type: FilterLogicalOperator.And,
                                     values: [
                                         {
-                                            key: 'deployment_id',
-                                            type: PropertyFilterType.LogAttribute,
-                                            operator: PropertyOperator.Exact,
-                                            value: id,
-                                        } as any,
+                                            type: FilterLogicalOperator.And,
+                                            values: [
+                                                {
+                                                    key: 'deployment_id',
+                                                    type: PropertyFilterType.LogAttribute,
+                                                    operator: PropertyOperator.Exact,
+                                                    value: id,
+                                                } as any,
+                                            ],
+                                        },
                                     ],
                                 },
-                            ],
-                        },
-                    }}
-                    showFullScreenButton={false}
-                    showSavedViewsButton={false}
-                />
+                            }}
+                            showFullScreenButton={false}
+                            showSavedViewsButton={false}
+                        />
+                    </>
+                )}
             </div>
         </SceneContent>
     )

@@ -34,7 +34,7 @@ export const makeProject = (
 
 export const makeDeployment = (id: string, overrides: Partial<DeploymentApi> = {}): DeploymentApi => ({
     id,
-    project: 'project-1',
+    deployment_project_id: 'project-1',
     status: 'ready',
     started_at: '2026-05-13T12:00:00Z',
     finished_at: '2026-05-13T12:01:30Z',

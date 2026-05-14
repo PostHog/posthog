@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton/LemonSkeleton'
 
@@ -12,10 +12,16 @@ interface DeploymentPreviewImageProps {
 export function DeploymentPreviewImage({ src, alt, className, failed }: DeploymentPreviewImageProps): JSX.Element {
     const [loading, setLoading] = useState(!!src && !failed)
     const [errored, setErrored] = useState(false)
+
+    useEffect(() => {
+        setLoading(!!src && !failed)
+        setErrored(false)
+    }, [src, failed])
+
     const showImage = !failed && !!src && !errored
 
     return (
-        <div className={`relative overflow-hidden bg-surface-secondary rounded ${className ?? ''}`}>
+        <div className={`relative overflow-hidden bg-surface-secondary rounded min-h-40 ${className ?? ''}`}>
             {failed && (
                 <div className="absolute inset-0 flex items-center justify-center text-danger text-sm font-semibold">
                     Build failed

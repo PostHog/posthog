@@ -58,6 +58,8 @@ function DeploymentProjectInner({ projectId }: DeploymentProjectLogicProps): JSX
         )
     }
 
+    const canonicalProjectId = deploymentProject?.id ?? projectId
+
     const columns: LemonTableColumns<Deployment> = [
         {
             title: 'Deployment',
@@ -65,7 +67,7 @@ function DeploymentProjectInner({ projectId }: DeploymentProjectLogicProps): JSX
             sticky: true,
             render: (_, d) => (
                 <LemonTableLink
-                    to={urls.deployment(projectId, d.id)}
+                    to={urls.deployment(canonicalProjectId, d.id)}
                     title={
                         <span className="flex items-center gap-2 min-w-0">
                             <span className="truncate">{d.commit_message || d.id}</span>
@@ -78,7 +80,7 @@ function DeploymentProjectInner({ projectId }: DeploymentProjectLogicProps): JSX
         {
             title: 'Status',
             dataIndex: 'status',
-            render: (status) => <DeploymentStatusTag status={status as DeploymentStatus} />,
+            render: (_, d) => <DeploymentStatusTag status={d.status as DeploymentStatus} isCurrent={d.is_current} />,
         },
         {
             title: 'Duration',

@@ -8,9 +8,17 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { urls } from 'scenes/urls'
 
 import { deploymentsLogic } from '../deploymentsLogic'
+import { STUB_GITHUB_REPOSITORIES } from '../stubData'
 import { addProjectLogic } from './addProjectLogic'
+import { stubAddProjectLogic } from './stubAddProjectLogic'
 
 export function AddProjectModal(): JSX.Element {
+    const { isStubMode } = useValues(deploymentsLogic)
+
+    return isStubMode ? <StubAddProjectModal /> : <RealAddProjectModal />
+}
+
+function RealAddProjectModal(): JSX.Element {
     const { addProjectModalOpen } = useValues(deploymentsLogic)
     const { closeAddProjectModal } = useActions(deploymentsLogic)
     const { integrationId, repoName, name, slug, submitting, error, githubIntegrations, canSubmit } =
@@ -29,7 +37,7 @@ export function AddProjectModal(): JSX.Element {
             isOpen={addProjectModalOpen}
             onClose={handleClose}
             title="Add a deployment project"
-            description="Connect a GitHub repository. PostHog will create a Cloudflare-backed deployment for it and run the first build on save."
+            description="Connect a GitHub repository. PostHog will create a hosted deployment for it and run the first build on save."
             footer={
                 <>
                     <LemonButton
@@ -97,6 +105,76 @@ export function AddProjectModal(): JSX.Element {
                         {error && <LemonBanner type="error">{error}</LemonBanner>}
                     </>
                 )}
+            </div>
+        </LemonModal>
+    )
+}
+
+function StubAddProjectModal(): JSX.Element {
+    const { addProjectModalOpen } = useValues(deploymentsLogic)
+    const { closeAddProjectModal } = useActions(deploymentsLogic)
+    const { repoName, name, slug, submitting, error, canSubmit } = useValues(stubAddProjectLogic)
+    const { setRepoName, setName, setSlug, submit, reset } = useActions(stubAddProjectLogic)
+
+    const handleClose = (): void => {
+        closeAddProjectModal()
+        reset()
+    }
+
+    return (
+        <LemonModal
+            isOpen={addProjectModalOpen}
+            onClose={handleClose}
+            title="Add a deployment project"
+            description="Connect a GitHub repository. PostHog will create a hosted deployment for it and run the first build on save."
+            footer={
+                <>
+                    <LemonButton
+                        type="secondary"
+                        onClick={handleClose}
+                        disabledReason={submitting ? 'Saving…' : undefined}
+                    >
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => submit()}
+                        loading={submitting}
+                        disabledReason={!canSubmit ? 'Fill in all fields' : undefined}
+                        data-attr="add-deployment-project-submit"
+                    >
+                        Create & deploy
+                    </LemonButton>
+                </>
+            }
+        >
+            <div className="flex flex-col gap-3 min-w-[28rem]">
+                <LemonField.Pure label="GitHub repository">
+                    <LemonSelect
+                        value={repoName}
+                        onChange={(repository) => setRepoName(repository ?? '')}
+                        options={STUB_GITHUB_REPOSITORIES.map((repository) => ({
+                            value: repository.fullName,
+                            label: repository.fullName,
+                            icon: <IconGithub />,
+                        }))}
+                        placeholder="Select a GitHub repository"
+                        fullWidth
+                    />
+                </LemonField.Pure>
+
+                <LemonField.Pure label="Project name" info="Shown in the UI; can be edited later.">
+                    <LemonInput value={name} onChange={setName} placeholder="my-site" />
+                </LemonField.Pure>
+
+                <LemonField.Pure
+                    label="Slug"
+                    info="Used for the deployment subdomain. Only letters, numbers, underscores and hyphens."
+                >
+                    <LemonInput value={slug} onChange={setSlug} placeholder="my-site" />
+                </LemonField.Pure>
+
+                {error && <LemonBanner type="error">{error}</LemonBanner>}
             </div>
         </LemonModal>
     )

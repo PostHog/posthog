@@ -17,6 +17,14 @@ import {
     deploymentProjectsDeploymentsRollbackCreate,
 } from './generated/api'
 import type { DeploymentApi, DeploymentProjectApi, PaginatedDeploymentListApi } from './generated/api.schemas'
+import {
+    createStubRedeployment,
+    createStubRollbackDeployment,
+    createStubUuid,
+    getInitialStubProject,
+    getStubDeploymentsResponse,
+    resolveStubProjectId,
+} from './stubData'
 
 export interface DeploymentProjectLogicProps {
     projectId: string
@@ -91,8 +99,13 @@ export const deploymentProjectLogic = kea<deploymentProjectLogicType>([
     key((p) => p.projectId),
     path((projectId) => ['products', 'deployments', 'frontend', 'deploymentProjectLogic', projectId]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], deploymentsLogic, ['deploymentProjects', 'deploymentProjectsLoading']],
-        actions: [deploymentsLogic, ['loadDeploymentProjects']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            deploymentsLogic,
+            ['deploymentProjects', 'deploymentProjectsLoading', 'isStubMode', 'stubDeploymentsByProject'],
+        ],
+        actions: [deploymentsLogic, ['loadDeploymentProjects', 'addStubDeployment', 'markStubDeploymentReady']],
     })),
     actions({
         setFilters: (filters: Partial<DeploymentsFilters>) => ({ filters }),
@@ -122,6 +135,14 @@ export const deploymentProjectLogic = kea<deploymentProjectLogicType>([
             null as PaginatedDeploymentListApi | null,
             {
                 loadDeployments: async (): Promise<PaginatedDeploymentListApi | null> => {
+                    if (values.isStubMode) {
+                        const projectId = resolveStubProjectId(props.projectId)
+                        return getStubDeploymentsResponse(
+                            values.stubDeploymentsByProject[projectId] ?? [],
+                            values.filters,
+                            DEPLOYMENTS_PER_PAGE
+                        )
+                    }
                     const teamId = values.currentTeamId
                     if (!teamId) {
                         return null
@@ -141,8 +162,15 @@ export const deploymentProjectLogic = kea<deploymentProjectLogicType>([
             null as DeploymentApi | null,
             {
                 loadCurrentDeployment: async (): Promise<DeploymentApi | null> => {
-                    const teamId = values.currentTeamId
                     const currentId = values.deploymentProject?.current_deployment ?? null
+                    if (values.isStubMode) {
+                        if (!currentId) {
+                            return null
+                        }
+                        const projectId = resolveStubProjectId(props.projectId)
+                        return values.stubDeploymentsByProject[projectId]?.find((d) => d.id === currentId) ?? null
+                    }
+                    const teamId = values.currentTeamId
                     if (!teamId || !currentId) {
                         return null
                     }
@@ -159,6 +187,25 @@ export const deploymentProjectLogic = kea<deploymentProjectLogicType>([
             actions.loadDeployments()
         },
         redeployDeployment: async ({ id }) => {
+            if (values.isStubMode) {
+                const projectId = resolveStubProjectId(props.projectId)
+                const source = values.stubDeploymentsByProject[projectId]?.find((d) => d.id === id)
+                if (!source) {
+                    lemonToast.error('Could not find deployment to redeploy.')
+                    return
+                }
+                actions.addStubDeployment(
+                    projectId,
+                    createStubRedeployment({
+                        id: createStubUuid(),
+                        source,
+                        now: new Date().toISOString(),
+                    })
+                )
+                actions.loadDeployments()
+                actions.loadCurrentDeployment()
+                return
+            }
             const teamId = values.currentTeamId
             if (!teamId) {
                 return
@@ -172,6 +219,25 @@ export const deploymentProjectLogic = kea<deploymentProjectLogicType>([
             }
         },
         rollbackDeployment: async ({ id }) => {
+            if (values.isStubMode) {
+                const projectId = resolveStubProjectId(props.projectId)
+                const target = values.stubDeploymentsByProject[projectId]?.find((d) => d.id === id)
+                if (!target) {
+                    lemonToast.error('Could not find deployment to roll back to.')
+                    return
+                }
+                actions.addStubDeployment(
+                    projectId,
+                    createStubRollbackDeployment({
+                        id: createStubUuid(),
+                        target,
+                        now: new Date().toISOString(),
+                    })
+                )
+                actions.loadDeployments()
+                actions.loadCurrentDeployment()
+                return
+            }
             const teamId = values.currentTeamId
             if (!teamId) {
                 return
@@ -190,12 +256,29 @@ export const deploymentProjectLogic = kea<deploymentProjectLogicType>([
                 actions.loadCurrentDeployment()
             }
         },
+        addStubDeployment: ({ projectId }) => {
+            if (projectId === resolveStubProjectId(props.projectId)) {
+                actions.loadDeployments()
+                actions.loadCurrentDeployment()
+            }
+        },
+        markStubDeploymentReady: ({ projectId }) => {
+            if (projectId === resolveStubProjectId(props.projectId)) {
+                actions.loadDeployments()
+                actions.loadCurrentDeployment()
+            }
+        },
     })),
     selectors(({ props }) => ({
         deploymentProject: [
             (s) => [s.deploymentProjects],
-            (projects: DeploymentProjectApi[]): DeploymentProjectApi | null =>
-                projects.find((p) => p.id === props.projectId) ?? null,
+            (projects: DeploymentProjectApi[]): DeploymentProjectApi | null => {
+                const projectId = resolveStubProjectId(props.projectId)
+                return (
+                    projects.find((p) => p.id === projectId || p.slug === props.projectId) ??
+                    getInitialStubProject(props.projectId)
+                )
+            },
         ],
         deployments: [
             (s) => [s.deploymentsResponse],
@@ -223,7 +306,7 @@ export const deploymentProjectLogic = kea<deploymentProjectLogicType>([
     actionToUrl(({ values, props }) => {
         const updateUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => {
             return [
-                urls.deploymentProject(props.projectId),
+                urls.deploymentProject(values.deploymentProject?.id ?? resolveStubProjectId(props.projectId)),
                 filtersToParams(values.filters),
                 router.values.hashParams,
                 { replace: true },

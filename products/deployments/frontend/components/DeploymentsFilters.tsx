@@ -6,7 +6,7 @@ import { deploymentProjectLogic } from '../deploymentProjectLogic'
 import { DeploymentStatus } from '../fixtures'
 
 const STATUS_OPTIONS: { label: string; key: DeploymentStatus }[] = [
-    { label: 'Ready', key: 'ready' },
+    { label: 'Successful', key: 'ready' },
     { label: 'Error', key: 'error' },
     { label: 'Building', key: 'building' },
     { label: 'Queued', key: 'queued' },

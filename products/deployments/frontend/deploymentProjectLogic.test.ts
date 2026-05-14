@@ -36,7 +36,7 @@ describe('deploymentProjectLogic', () => {
                             previous: null,
                             results: [
                                 makeDeployment(`${req.params.project_id}-d1`, {
-                                    project: String(req.params.project_id),
+                                    deployment_project_id: String(req.params.project_id),
                                     is_current: true,
                                 }),
                             ],
@@ -46,7 +46,7 @@ describe('deploymentProjectLogic', () => {
                 '/api/projects/:team/deployment_projects/:project_id/deployments/:id/': (req) => [
                     200,
                     makeDeployment(String(req.params.id), {
-                        project: String(req.params.project_id),
+                        deployment_project_id: String(req.params.project_id),
                         is_current: true,
                     }),
                 ],
@@ -81,7 +81,7 @@ describe('deploymentProjectLogic', () => {
 
     it('loads deployments and current deployment for its project on mount', () => {
         expect(logic.values.deployments).toHaveLength(1)
-        expect(logic.values.deployments[0]?.project).toEqual(projectA.id)
+        expect(logic.values.deployments[0]?.deployment_project_id).toEqual(projectA.id)
         expect(logic.values.currentDeployment?.is_current).toBe(true)
     })
 

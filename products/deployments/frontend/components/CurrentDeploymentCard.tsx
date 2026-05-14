@@ -26,7 +26,7 @@ export function CurrentDeploymentCard({ deployment: d }: { deployment: Deploymen
                             <span className="font-mono text-sm">{d.id}</span>
                         </CopyToClipboardInline>
                         {d.is_current && <LemonTag type="success">Current</LemonTag>}
-                        <DeploymentStatusTag status={d.status} />
+                        <DeploymentStatusTag status={d.status} isCurrent={d.is_current} />
                     </div>
                     <div className="text-lg font-semibold">{d.commit_message || d.commit_sha || d.id}</div>
                     {d.status === 'error' && d.error_message && (
