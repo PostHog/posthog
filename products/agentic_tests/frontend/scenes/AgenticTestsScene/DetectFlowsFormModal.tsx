@@ -30,7 +30,7 @@ export function DetectFlowsFormModal(): JSX.Element {
         <LemonModal
             isOpen={formModalOpen}
             onClose={closeFormModal}
-            title="Auto-detect flows"
+            title="Auto-detect key flows"
             description="Analyze a GitHub repository and propose the most important user flows to test."
             footer={
                 <>

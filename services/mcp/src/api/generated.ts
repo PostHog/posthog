@@ -3683,6 +3683,42 @@ export namespace Schemas {
       readonly last_run: AgenticTestRun | null;
     }
 
+    export interface AgenticTest {
+      readonly id: string;
+      /** @maxLength 255 */
+      name: string;
+      description?: string;
+      /** @maxLength 2048 */
+      target_url: string;
+      /** Natural-language instructions for the browser agent. */
+      prompt: string;
+      status?: AgenticTestStatusEnum;
+      /** List of post-run checks the test must satisfy in addition to the agent's own self-evaluation. Each item: {type, ...config}. Supported types: url_contains, event_captured. */
+      assertions?: unknown;
+      /**
+         * Cron expression (5 fields, UTC) describing the run cadence. Empty means manual-only — no automatic runs.
+         * @maxLength 128
+         */
+      schedule_cron?: string;
+      /**
+         * When the next scheduled run is due. Null when the test is not on a schedule.
+         * @nullable
+         */
+      readonly next_run_at: string | null;
+      /**
+         * @maxLength 255
+         * @nullable
+         */
+      source_replay_id?: string | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** @nullable */
+      readonly last_run_at: string | null;
+      /** Most recent run for this test, or null if none have completed yet. */
+      readonly last_run: AgenticTestRun | null;
+    }
+
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;

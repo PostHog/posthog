@@ -54,10 +54,14 @@ def launch_detect_flows_task(
     domain: str,
 ) -> "Task":
     """Create and run a sandboxed agent task that proposes test flows."""
+    from products.agentic_tests.backend.models import AgenticTest
     from products.tasks.backend.models import Task
 
     prompt_text = _PROMPT_PATH.read_text()
-    description = f"{prompt_text}\n\nThe product is deployed at: {domain}"
+    existing_tests_xml = _format_existing_tests(
+        AgenticTest.objects.filter(team=team).values("name", "target_url", "prompt", "status")
+    )
+    description = f"{prompt_text}\n\nThe product is deployed at: {domain}\n\n{existing_tests_xml}"
 
     task = Task.create_and_run(
         team=team,
@@ -73,6 +77,23 @@ def launch_detect_flows_task(
     return task
 
 
+def _format_existing_tests(tests: list[dict[str, str]]) -> str:
+    """Format existing tests as XML for the agent prompt."""
+    items = list(tests)
+    if not items:
+        return "<existing_tests>None — this is the first detection run.</existing_tests>"
+
+    lines = ["<existing_tests>"]
+    for t in items:
+        lines.append(f'  <test status="{t["status"]}">')
+        lines.append(f"    <name>{t['name']}</name>")
+        lines.append(f"    <target_url>{t['target_url']}</target_url>")
+        lines.append(f"    <prompt>{t['prompt'][:200]}</prompt>")
+        lines.append("  </test>")
+    lines.append("</existing_tests>")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Completion handler — called from post_save signal on TaskRun
 # ---------------------------------------------------------------------------
@@ -82,7 +103,14 @@ def handle_detect_flows_completion(task_run: "TaskRun") -> list["AgenticTest"]:
     """Parse the agent's structured output and create proposed AgenticTest instances."""
     from products.agentic_tests.backend.models import AgenticTest
 
-    output = DetectFlowsOutput.model_validate(task_run.output)
+    raw = task_run.output
+    logger.info(
+        "detect_flows.parsing_output",
+        task_run_id=str(task_run.id),
+        output_type=type(raw).__name__,
+        output_keys=list(raw.keys()) if isinstance(raw, dict) else None,
+    )
+    output = DetectFlowsOutput.model_validate(raw)
 
     tests_to_create: list[AgenticTest] = []
     for flow in output.qa_spec:

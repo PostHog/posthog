@@ -64,7 +64,7 @@ const LOG_POLL_INTERVAL_MS = 2000
 export const detectFlowsLogic = kea<detectFlowsLogicType>([
     path(['products', 'agentic_tests', 'frontend', 'scenes', 'AgenticTestsScene', 'detectFlowsLogic']),
 
-    connect({ actions: [agenticTestsSceneLogic, ['loadTests', 'loadTestsSuccess']] }),
+    connect({ actions: [agenticTestsSceneLogic, ['loadTests']] }),
 
     actions({
         openFormModal: true,
@@ -234,17 +234,17 @@ export const detectFlowsLogic = kea<detectFlowsLogicType>([
                 dismissBanner: () => null,
             },
         ],
-        // Snapshot of proposed count before detection completes, used to compute delta
-        _previousProposedCount: [
-            0,
+        sessionInitialized: [
+            false,
             {
-                setRunStatus: (state, { status }) => {
-                    // Capture count right as we detect terminal status
-                    if (isTerminalStatus(status)) {
-                        return agenticTestsSceneLogic.findMounted()?.values.proposedCount ?? state
-                    }
-                    return state
-                },
+                appendStreamEntries: (state, { entries }) =>
+                    state ||
+                    entries.some(
+                        (e) => e.type === 'console' && e.message?.includes('Session initialized successfully')
+                    ),
+                submitDetectFlowsSuccess: () => false,
+                restoreActiveRun: () => false,
+                dismissBanner: () => false,
             },
         ],
     }),
@@ -252,12 +252,12 @@ export const detectFlowsLogic = kea<detectFlowsLogicType>([
     selectors({
         bannerVisible: [(s) => [s.taskId], (taskId): boolean => taskId !== null],
         step: [
-            (s) => [s.runStatus, s.isTerminal],
-            (runStatus, isTerminal): 1 | 2 | 3 => {
-                if (isTerminal) {
+            (s) => [s.runStatus, s.isTerminal, s.sessionInitialized],
+            (runStatus, isTerminal, sessionInitialized): 1 | 2 | 3 => {
+                if (isTerminal || runStatus === ('proposing_tests' as TaskRunStatus)) {
                     return 3
                 }
-                if (runStatus === TaskRunStatus.IN_PROGRESS) {
+                if (runStatus === TaskRunStatus.IN_PROGRESS && sessionInitialized) {
                     return 2
                 }
                 return 1
@@ -267,6 +267,29 @@ export const detectFlowsLogic = kea<detectFlowsLogicType>([
         isFailed: [
             (s) => [s.runStatus],
             (runStatus): boolean => runStatus === TaskRunStatus.FAILED || runStatus === TaskRunStatus.CANCELLED,
+        ],
+        hasLogs: [(s) => [s.streamEntries], (streamEntries): boolean => streamEntries.length > 0],
+        latestActivity: [
+            (s) => [s.streamEntries, s.isTerminal],
+            (streamEntries, isTerminal): { text: string; isTool: boolean } | null => {
+                if (isTerminal || streamEntries.length === 0) {
+                    return null
+                }
+                for (let i = streamEntries.length - 1; i >= 0; i--) {
+                    const entry = streamEntries[i]
+                    if (entry.type === 'tool' && entry.toolName) {
+                        const detail = entry.toolArgs ? ` ${JSON.stringify(entry.toolArgs).slice(0, 80)}` : ''
+                        return { text: `${entry.toolName}${detail}`, isTool: true }
+                    }
+                    if (entry.type === 'agent' && entry.message) {
+                        return { text: entry.message.slice(0, 80).trim(), isTool: false }
+                    }
+                    if (entry.type === 'thinking' && entry.message) {
+                        return { text: entry.message.slice(0, 80).trim(), isTool: false }
+                    }
+                }
+                return null
+            },
         ],
         canSubmit: [
             (s) => [s.repository, s.domain, s.submitting],
@@ -298,26 +321,22 @@ export const detectFlowsLogic = kea<detectFlowsLogicType>([
             actions.startStreaming()
         },
 
-        // When terminal status is detected (from stream or polling), reload tests
-        setRunStatus: ({ status }) => {
-            if (isTerminalStatus(status)) {
-                actions.stopPolling()
-                actions.loadTests()
-            }
-        },
-
-        // After tests reload, compute proposed count delta and show toast
-        loadTestsSuccess: () => {
-            if (!values.isTerminal || values.proposedCount !== null) {
+        // When terminal status is detected (from stream or polling), reload tests and show result
+        setRunStatus: async ({ status }) => {
+            if (!isTerminalStatus(status) || values.proposedCount !== null) {
                 return
             }
-            const newCount = agenticTestsSceneLogic.findMounted()?.values.proposedCount ?? 0
-            const delta = Math.max(0, newCount - values._previousProposedCount)
-            actions.detectionComplete(delta)
-            if (!values.isFailed) {
+            actions.stopPolling()
+            // Reload the test list and count proposed tests from the fresh data
+            agenticTestsSceneLogic.findMounted()?.actions.loadTests()
+            // Give the loader a moment to complete, then read the count
+            await new Promise((resolve) => setTimeout(resolve, 500))
+            const count = agenticTestsSceneLogic.findMounted()?.values.proposedCount ?? 0
+            actions.detectionComplete(count)
+            if (!isTerminalStatus(status) || status === TaskRunStatus.COMPLETED) {
                 lemonToast.success(
-                    delta > 0
-                        ? `Flow detection complete. ${delta} test${delta !== 1 ? 's' : ''} proposed.`
+                    count > 0
+                        ? `Flow detection complete. ${count} test${count !== 1 ? 's' : ''} proposed.`
                         : 'Flow detection complete.'
                 )
             } else {
@@ -403,8 +422,35 @@ export const detectFlowsLogic = kea<detectFlowsLogicType>([
                                         : `stream-${eventIndex++}`
                                     const entry = parseLogEvent(event, entryId, toolMap, (updatedEntry) => {
                                         updatedEntriesById.set(updatedEntry.id, updatedEntry)
+                                        // parseLogEvent returns null for tool updates (second
+                                        // tool_call event for the same toolCallId), so check
+                                        // StructuredOutput completion on updated entries too
+                                        if (
+                                            updatedEntry.type === 'tool' &&
+                                            updatedEntry.toolName === 'StructuredOutput'
+                                        ) {
+                                            if (updatedEntry.toolStatus === 'completed') {
+                                                actions.setRunStatus(TaskRunStatus.COMPLETED)
+                                            } else if (
+                                                updatedEntry.toolStatus === 'pending' ||
+                                                updatedEntry.toolStatus === 'running'
+                                            ) {
+                                                actions.setRunStatus('proposing_tests' as TaskRunStatus)
+                                            }
+                                        }
                                     })
                                     if (entry) {
+                                        if (entry.type === 'tool' && entry.toolName === 'StructuredOutput') {
+                                            if (entry.toolStatus === 'completed') {
+                                                actions.setRunStatus(TaskRunStatus.COMPLETED)
+                                            } else if (
+                                                entry.toolStatus === 'pending' ||
+                                                entry.toolStatus === 'running'
+                                            ) {
+                                                actions.setRunStatus('proposing_tests' as TaskRunStatus)
+                                            }
+                                        }
+
                                         const last = batch[batch.length - 1]
                                         if (
                                             last?.type === entry.type &&
