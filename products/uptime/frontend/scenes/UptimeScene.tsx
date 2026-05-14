@@ -76,24 +76,37 @@ export function UptimeScene(): JSX.Element {
         },
     ]
 
+    // Use size="small" so the actions slot's height matches the tabs without buttons —
+    // keeps the title section the same height when switching tabs.
     const headerActions =
         activeTab === 'monitors' ? (
             <div className="flex gap-2">
                 {hasSuggestions && (
                     <LemonButton
                         type="secondary"
+                        size="small"
                         data-attr="open-suggest-urls"
                         onClick={() => setSuggestModalOpen(true)}
                     >
                         Add from traffic ({suggestedUrls.length})
                     </LemonButton>
                 )}
-                <LemonButton type="primary" data-attr="create-monitor" onClick={() => setCreateModalOpen(true)}>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    data-attr="create-monitor"
+                    onClick={() => setCreateModalOpen(true)}
+                >
                     Create monitor
                 </LemonButton>
             </div>
         ) : activeTab === 'status_pages' ? (
-            <LemonButton type="primary" data-attr="create-status-page" onClick={() => createNewStatusPage()}>
+            <LemonButton
+                type="primary"
+                size="small"
+                data-attr="create-status-page"
+                onClick={() => createNewStatusPage()}
+            >
                 New status page
             </LemonButton>
         ) : null
