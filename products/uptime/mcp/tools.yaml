@@ -117,12 +117,14 @@ tools:
             Return declared incidents across the team, ongoing first, then most recently started.
             Each incident has a name, optional description, the monitor it relates to (monitor_id),
             started_at, resolved_at (null while ongoing), resolution_note (filled when resolved),
-            created_at, and updated_at.
+            an updates timeline (array of { id, keyword, message, posted_at, posted_by_id }
+            entries, newest first), created_at, and updated_at.
 
 
             Pass monitor_id to filter to incidents for a single monitor — useful when the user is
             looking at a specific tile. Use this for "any open incidents?", "what went wrong last
-            week?", or to surface the audit log for a postmortem.
+            week?", or to surface the audit log for a postmortem. Use incident-post-update to
+            append to the timeline as the situation evolves.
     incident-get:
         operation: uptime_incidents_retrieve
         enabled: true
@@ -135,12 +137,14 @@ tools:
         enrich_url: '{id}'
         title: Get one declared incident
         description: >
-            Return a single declared incident by id including its description and (if resolved)
-            resolution_note. Returns 404 if the incident has been deleted.
+            Return a single declared incident by id including its description, (if resolved)
+            resolution_note, and the full updates timeline (each entry a { id, keyword, message,
+            posted_at, posted_by_id } object, newest first). Returns 404 if the incident has been
+            deleted.
 
 
-            Use this after incident-list to fetch the full body / resolution note for a specific
-            incident.
+            Use this after incident-list to fetch the full body / resolution note / timeline for
+            a specific incident. Use incident-post-update to append a new entry to the timeline.
     status-page-list:
         operation: uptime_status_pages_list
         enabled: true
@@ -385,6 +389,34 @@ tools:
 
             For a separate new issue, prefer incident-create — reopening conflates two events
             in the audit trail.
+    incident-post-update:
+        operation: uptime_incidents_post_update_create
+        enabled: true
+        scopes:
+            - uptime:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Post a timeline update on an incident
+        description: >
+            Append a keyword-tagged entry to an incident's timeline. Each update has a keyword
+            (one of investigating, identified, fixing, monitoring, resolved, update) and a short
+            message that explains what's happening. Entries are stored newest-first and shown on
+            both the internal tile and the public status page.
+
+
+            When sync_status is true (default), the keyword also drives the incident's open /
+            closed state: posting with keyword "resolved" closes the incident (stamping
+            resolved_at, and promoting the message to the resolution note if one isn't set yet);
+            any other keyword reopens a previously-closed incident. Set sync_status to false to
+            post a freeform note without changing the incident's state.
+
+
+            Use the "update" keyword for notes that don't fit the lifecycle states (e.g. "Status
+            page subscribers have been notified"). Use this tool repeatedly across the lifetime
+            of an incident — that's what builds the timeline narrative.
 
     # ===== Status page writes =====
     status-page-create:
