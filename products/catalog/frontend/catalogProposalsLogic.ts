@@ -170,6 +170,7 @@ export const catalogProposalsLogic = kea<catalogProposalsLogicType>([
                 const counts: Record<CategoryKey, number> = {
                     all: 0,
                     node_proposed: 0,
+                    node_metric: 0,
                     node_drift: 0,
                     relationship_proposed: 0,
                     rejected_relationships: 0,
@@ -185,6 +186,9 @@ export const catalogProposalsLogic = kea<catalogProposalsLogicType>([
                     } else {
                         counts.all += 1
                         counts[p.kind] += 1
+                        if (p.kind === 'node_proposed' && p.node.kind === 'metric') {
+                            counts.node_metric += 1
+                        }
                     }
                 }
                 return counts
@@ -203,6 +207,9 @@ export const catalogProposalsLogic = kea<catalogProposalsLogicType>([
                 )
                 if (category === 'all') {
                     return open
+                }
+                if (category === 'node_metric') {
+                    return open.filter((p) => p.kind === 'node_proposed' && p.node.kind === 'metric')
                 }
                 return open.filter((p) => p.kind === category)
             },

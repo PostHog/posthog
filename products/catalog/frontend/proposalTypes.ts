@@ -35,7 +35,13 @@ export interface RelationshipProposal {
 
 export type Proposal = NodeProposal | RelationshipProposal
 
-export type CategoryKey = 'all' | 'node_proposed' | 'node_drift' | 'relationship_proposed' | 'rejected_relationships'
+export type CategoryKey =
+    | 'all'
+    | 'node_proposed'
+    | 'node_metric'
+    | 'node_drift'
+    | 'relationship_proposed'
+    | 'rejected_relationships'
 
 export interface ProposalCategory {
     key: CategoryKey
@@ -51,6 +57,12 @@ export const PROPOSAL_CATEGORIES: ProposalCategory[] = [
         label: 'New definitions',
         iconLabel: '⊕',
         description: 'Tables, saved queries, metrics, and event/property definitions the agent proposed',
+    },
+    {
+        key: 'node_metric',
+        label: 'Metrics',
+        iconLabel: '∑',
+        description: 'AARRR-level metrics the agent surfaced from dashboards, insights, and activity logs',
     },
     {
         key: 'node_drift',
