@@ -141,7 +141,7 @@ tools:
         feature_flag: deployments
     deployments-logs:
         operation: deployment_projects_deployments_logs_retrieve
-        enabled: true
+        enabled: false
         scopes:
             - deployment:read
         annotations:
