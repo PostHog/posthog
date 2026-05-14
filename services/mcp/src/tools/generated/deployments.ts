@@ -113,10 +113,12 @@ const deploymentsList = (): ToolBase<typeof DeploymentsListSchema, WithPostHogUr
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/deployment_projects/${encodeURIComponent(String(params.deployment_project_id))}/deployments/`,
                 query: {
+                    author: params.author,
                     limit: params.limit,
                     offset: params.offset,
                     ordering: params.ordering,
                     search: params.search,
+                    status: params.status,
                 },
             })
             return await withPostHogUrl(context, result, '/deployments')
