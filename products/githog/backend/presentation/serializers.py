@@ -18,14 +18,21 @@ class GitHogRepositoryListResponseSerializer(serializers.Serializer):
 
 
 class GitHogPullRequestSerializer(serializers.Serializer):
-    number = serializers.IntegerField()
-    title = serializers.CharField()
-    url = serializers.CharField()
-    state = serializers.CharField()
-    head_branch = serializers.CharField()
-    base_branch = serializers.CharField()
-    created_at = serializers.CharField()
-    updated_at = serializers.CharField()
+    number = serializers.IntegerField(help_text="Pull request number.")
+    title = serializers.CharField(help_text="Pull request title.")
+    url = serializers.CharField(help_text="GitHub HTML URL for the PR.")
+    state = serializers.CharField(help_text="PR state (open, closed).")
+    head_branch = serializers.CharField(help_text="Source branch.")
+    base_branch = serializers.CharField(help_text="Target branch.")
+    created_at = serializers.CharField(help_text="ISO 8601 creation timestamp.")
+    updated_at = serializers.CharField(help_text="ISO 8601 last-update timestamp.")
+    draft = serializers.BooleanField(required=False, default=False, help_text="True if the PR is a draft.")
+    author = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text="GitHub login of the PR author."
+    )
+    author_avatar_url = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text="Avatar URL of the PR author."
+    )
 
 
 class GitHogPullRequestListQuerySerializer(serializers.Serializer):
@@ -149,3 +156,47 @@ class GitHogDataFlowResponseSerializer(serializers.Serializer):
         help_text="True if the response was served from cache (no LLM call this request)."
     )
     computed_at = serializers.DateTimeField(help_text="When this data-flow row was last (re)computed.")
+
+
+class GitHogRiskScoreQuerySerializer(serializers.Serializer):
+    repository = serializers.CharField(help_text="Repository in owner/repo format.")
+    number = serializers.IntegerField(help_text="Pull request number.")
+    refresh = serializers.BooleanField(
+        default=False,
+        required=False,
+        help_text="If true, bypass cache and force a fresh computation.",
+    )
+
+
+class GitHogRiskScoreFactorSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Stable identifier for this factor (e.g. 'diff_size').")
+    label = serializers.CharField(help_text="Human-readable factor name.")
+    score = serializers.IntegerField(
+        min_value=0, max_value=100, help_text="Sub-score 0-100 contributed by this factor."
+    )
+    weight = serializers.FloatField(help_text="Relative weight of this factor in the composite score.")
+    detail = serializers.CharField(allow_blank=True, help_text="One-line explanation of this factor's value.")
+
+
+class GitHogRiskScoreResponseSerializer(serializers.Serializer):
+    repository = serializers.CharField(help_text="Repository in owner/repo format.")
+    pr_number = serializers.IntegerField(help_text="Pull request number.")
+    head_sha = serializers.CharField(help_text="Commit SHA at the PR head when the score was computed.")
+    base_sha = serializers.CharField(help_text="Commit SHA at the PR base when the score was computed.")
+    score = serializers.IntegerField(
+        min_value=0, max_value=100, help_text="Composite risk score 0-100, higher is riskier."
+    )
+    level = serializers.ChoiceField(
+        choices=["low", "moderate", "high", "critical"],
+        help_text="Discrete risk level derived from the composite score.",
+    )
+    headline = serializers.CharField(allow_blank=True, help_text="One-line summary of the dominant risk.")
+    rationale = serializers.CharField(allow_blank=True, help_text="2-3 sentence LLM rationale for the risk score.")
+    factors = GitHogRiskScoreFactorSerializer(many=True, help_text="Per-factor breakdown of the composite score.")
+    truncated = serializers.BooleanField(help_text="True if the diff was truncated when sent to the LLM.")
+    cached = serializers.BooleanField(
+        help_text="True if the response was served from cache (no LLM call this request)."
+    )
+    computed_at = serializers.CharField(
+        allow_blank=True, help_text="ISO 8601 timestamp of when this score was computed (empty if not tracked)."
+    )

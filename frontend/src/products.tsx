@@ -83,7 +83,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
     GitHog: () => import('../../products/githog/frontend/scenes/GitHogScene'),
     GitHogRepo: () => import('../../products/githog/frontend/scenes/GitHogRepoScene'),
-    GitHogPRReview: () => import('../../products/githog/frontend/scenes/GitHogPRReviewScene'),
     LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
     LegalDocumentNew: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentNewScene'),
     Links: () => import('../../products/links/frontend/LinksScene'),
@@ -184,7 +183,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/githog': ['GitHog', 'gitHog'],
     '/githog/repos/:owner/:name': ['GitHogRepo', 'gitHogRepo'],
-    '/githog/repos/:owner/:name/pulls/:number': ['GitHogPRReview', 'gitHogPullRequest'],
+    '/githog/repos/:owner/:name/pulls/:number': ['GitHogRepo', 'gitHogPullRequest'],
     '/legal': ['LegalDocuments', 'legalDocuments'],
     '/legal/new/:type': ['LegalDocumentNew', 'legalDocumentNew'],
     '/links': ['Links', 'links'],
@@ -396,7 +395,6 @@ export const productConfiguration: Record<string, any> = {
     FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
     GitHog: { name: 'GitHog', projectBased: true, iconType: 'default_icon_type' },
     GitHogRepo: { name: 'GitHog repo', projectBased: true, iconType: 'default_icon_type' },
-    GitHogPRReview: { name: 'PR review', projectBased: true, iconType: 'default_icon_type' },
     LegalDocuments: {
         name: 'Legal documents',
         organizationBased: true,
@@ -1516,7 +1514,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: '/githog',
         iconType: 'default_icon_type',
         sceneKey: 'GitHog',
-        sceneKeys: ['GitHog', 'GitHogRepo', 'GitHogPRReview'],
+        sceneKeys: ['GitHog', 'GitHogRepo'],
     },
     {
         path: 'Heatmaps',

@@ -2724,6 +2724,9 @@ class GitHubIntegration(GitHubIntegrationBase):
                         "base_branch": pr["base"]["ref"],
                         "created_at": pr["created_at"],
                         "updated_at": pr["updated_at"],
+                        "draft": bool(pr.get("draft", False)),
+                        "author": (pr.get("user") or {}).get("login") or "",
+                        "author_avatar_url": (pr.get("user") or {}).get("avatar_url") or "",
                     }
                     for pr in prs
                 ],

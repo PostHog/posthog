@@ -20,6 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.integration import GitHubIntegration, Integration
 
 from products.githog.backend.logic.data_flow import compute_data_flow
+from products.githog.backend.logic.risk_score import compute_risk_score
 
 from .serializers import (
     GitHogDataFlowQuerySerializer,
@@ -30,6 +31,8 @@ from .serializers import (
     GitHogPullRequestListQuerySerializer,
     GitHogPullRequestListResponseSerializer,
     GitHogRepositoryListResponseSerializer,
+    GitHogRiskScoreQuerySerializer,
+    GitHogRiskScoreResponseSerializer,
 )
 
 logger = structlog.get_logger(__name__)
@@ -227,3 +230,34 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "computed_at": row.updated_at,
             }
         )
+
+    @extend_schema(
+        parameters=[GitHogRiskScoreQuerySerializer],
+        responses={200: GitHogRiskScoreResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="pull_request_risk_score")
+    def pull_request_risk_score(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = GitHogRiskScoreQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        repository: str = query.validated_data["repository"]
+        pr_number: int = query.validated_data["number"]
+        refresh: bool = query.validated_data.get("refresh", False)
+
+        match = self._find_integration_for_repository(repository)
+        if match is None:
+            raise NotFound("No GitHub integration on this team has access to that repository")
+        integration, _owner, _name = match
+
+        try:
+            response, _is_cached = compute_risk_score(
+                team=self.team,
+                user=request.user,
+                integration=integration,
+                repository=repository,
+                pr_number=pr_number,
+                refresh=refresh,
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        return Response(response)
