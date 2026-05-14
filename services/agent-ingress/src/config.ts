@@ -14,11 +14,16 @@ const ConfigSchema = z.object({
     resolverTtlMs: z.coerce.number().int().min(0).default(5_000),
     /**
      * How tenant identification works on inbound requests:
-     *   - `domain` (default, production): pull the slug from the Host header
+     *   - `domain` (production default — anywhere `SITE_URL` points at a real
+     *     public hostname): pull the slug from the Host header
      *     (`<slug>.agents.<site_host>`) and resolve by domain.
-     *   - `path`: pull the slug from `/agents/<slug>/...` URL prefix and
-     *     resolve by slug. Useful when a wildcard subdomain isn't available
-     *     (Cloudflare Quick Tunnels, ngrok free, etc).
+     *   - `path` (local-dev default — `SITE_URL` unset or pointing at
+     *     localhost/IP): pull the slug from a `/agents/<slug>/...` URL prefix
+     *     and resolve by slug. Convenient when a wildcard subdomain isn't
+     *     available (Cloudflare Quick Tunnels, ngrok free, etc).
+     *
+     * Explicit `ROUTING_MODE` env always wins; the default is derived from
+     * `SITE_URL` in `loadConfig`.
      */
     routingMode: z.enum(['domain', 'path']).default('domain'),
     /**
@@ -40,9 +45,35 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): IngressConfig 
         posthogDbUrl: env.POSTHOG_DATABASE_URL,
         redisUrl: env.REDIS_URL,
         resolverTtlMs: env.RESOLVER_TTL_MS,
-        routingMode: env.ROUTING_MODE,
+        routingMode: env.ROUTING_MODE ?? deriveRoutingMode(env.SITE_URL),
         domainSuffix: env.DOMAIN_SUFFIX ?? deriveDomainSuffix(env.SITE_URL),
     })
+}
+
+/**
+ * Default routing mode based on `SITE_URL` shape. Dev stacks (no SITE_URL, or
+ * SITE_URL → localhost / IP) can't get a wildcard subdomain without extra
+ * config, so they default to path-mode. Production deployments always set
+ * `SITE_URL` to their canonical hostname → they default to domain-mode.
+ *
+ * Returning `undefined` lets the schema's `.default('domain')` kick in for the
+ * "we genuinely don't know" middle ground — safer to require an explicit
+ * `ROUTING_MODE=path` than to accidentally weaken prod routing.
+ */
+function deriveRoutingMode(siteUrl: string | undefined): 'domain' | 'path' | undefined {
+    if (!siteUrl) {
+        return 'path'
+    }
+    let host: string
+    try {
+        host = new URL(siteUrl).hostname.toLowerCase()
+    } catch {
+        return 'path'
+    }
+    if (!host || host === 'localhost' || /^[\d.]+$/.test(host) || /^[\da-f:]+$/i.test(host)) {
+        return 'path'
+    }
+    return 'domain'
 }
 
 /**
