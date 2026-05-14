@@ -1,12 +1,13 @@
 import { useValues } from 'kea'
 
-import { IconArchive, IconCode, IconGlobe, IconLaptop, IconPin, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconArchive, IconCode, IconGlobe, IconLaptop, IconPin } from '@posthog/icons'
 import { LemonDivider, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { ViewRecordingButtonVariant } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { countryCodeToFlag } from 'lib/utils/geography/country'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { getThumbIcon } from 'scenes/surveys/hooks/useSurveyResponseColumns'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyResponseValue, isScaleTwoRating } from 'scenes/surveys/utils'
 
@@ -53,11 +54,7 @@ function AnswerDisplay({ question, value }: { question: SurveyQuestion; value: u
     if (isScaleTwoRating(question) && (value == '1' || value == '2')) {
         return (
             <span className="text-sm flex items-center gap-1">
-                {value == '1' ? (
-                    <IconThumbsUp className="text-brand-blue" />
-                ) : (
-                    <IconThumbsDown className="text-warning" />
-                )}
+                {getThumbIcon(value)}
                 Thumbs {value == '1' ? 'up' : 'down'}
             </span>
         )
