@@ -1,8 +1,10 @@
-import { actions, events, kea, key, listeners, path, props, selectors } from 'kea'
+import { createParser } from 'eventsource-parser'
+import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
@@ -22,6 +24,13 @@ import type { agenticTestSceneLogicType } from './agenticTestSceneLogicType'
 
 export type AgenticTest = Omit<AgenticTestApi, 'assertions'> & { assertions: AgenticTestAssertion[] }
 export type AgenticTestRun = AgenticTestRunApi
+
+/** One event emitted by the backend SSE stream for an in-flight agentic test run. */
+export interface LiveRunEvent {
+    event: string
+    data: Record<string, any>
+    receivedAt: number
+}
 
 export interface AgenticTestDraft {
     name: string
@@ -64,6 +73,10 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
     key((p) => p.id ?? 'new'),
     actions({
         runNow: true,
+        streamRun: true,
+        appendLiveEvent: (event: LiveRunEvent) => ({ event }),
+        clearLiveEvents: true,
+        setStreaming: (streaming: boolean) => ({ streaming }),
         activate: true,
         pause: true,
         clearChanges: true,
@@ -71,6 +84,23 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
         addAssertion: (assertionType: AgenticTestAssertionType) => ({ assertionType }),
         updateAssertion: (index: number, patch: Partial<AgenticTestAssertion>) => ({ index, patch }),
         removeAssertion: (index: number) => ({ index }),
+    }),
+    reducers({
+        liveEvents: [
+            [] as LiveRunEvent[],
+            {
+                appendLiveEvent: (state, { event }) => [...state, event],
+                clearLiveEvents: () => [],
+                streamRun: () => [],
+            },
+        ],
+        streaming: [
+            false,
+            {
+                streamRun: () => true,
+                setStreaming: (_, { streaming }) => streaming,
+            },
+        ],
     }),
     loaders(({ props }) => ({
         test: [
@@ -183,6 +213,61 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
             lemonToast.success('Run queued — refreshing history')
             actions.loadRuns()
             actions.loadTest()
+        },
+        streamRun: async () => {
+            if (!props.id || props.id === 'new') {
+                lemonToast.warning('Save the test before running it')
+                return
+            }
+            const url = `/api/projects/${projectId()}/agentic_tests/${props.id}/stream/`
+            try {
+                const response = await api.createResponse(
+                    url,
+                    {},
+                    {
+                        headers: { Accept: 'text/event-stream' },
+                    }
+                )
+                if (!response.ok) {
+                    const body = await response.text().catch(() => '')
+                    throw new Error(`HTTP ${response.status} ${response.statusText}: ${body.slice(0, 200)}`)
+                }
+                const reader = response.body?.getReader()
+                if (!reader) {
+                    throw new Error('Response had no readable body')
+                }
+                const decoder = new TextDecoder()
+                const parser = createParser({
+                    onEvent: ({ event, data }) => {
+                        let parsed: Record<string, any> = {}
+                        try {
+                            parsed = data ? JSON.parse(data) : {}
+                        } catch {
+                            parsed = { _raw: data }
+                        }
+                        actions.appendLiveEvent({
+                            event: event || 'message',
+                            data: parsed,
+                            receivedAt: Date.now(),
+                        })
+                    },
+                })
+                while (true) {
+                    const { value, done } = await reader.read()
+                    if (value) {
+                        parser.feed(decoder.decode(value, { stream: true }))
+                    }
+                    if (done) {
+                        break
+                    }
+                }
+            } catch (err: any) {
+                lemonToast.error(`Stream failed: ${err?.message ?? err}`)
+            } finally {
+                actions.setStreaming(false)
+                actions.loadRuns()
+                actions.loadTest()
+            }
         },
         activate: async () => {
             if (!props.id || props.id === 'new') {

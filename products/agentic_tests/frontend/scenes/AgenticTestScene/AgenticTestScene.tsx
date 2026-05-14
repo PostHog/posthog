@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { useEffect, useRef } from 'react'
 
 import { IconBolt } from '@posthog/icons'
 import {
@@ -278,10 +279,65 @@ function ConfigurationTab({ id }: { id: string | 'new' }): JSX.Element {
 
 function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
     const logic = agenticTestSceneLogic({ id })
-    const { runs, runsLoading, logsUrl } = useValues(logic)
+    const { runs, runsLoading, logsUrl, liveEvents, streaming } = useValues(logic)
+    const { clearLiveEvents } = useActions(logic)
+    const liveLogRef = useRef<HTMLDivElement>(null)
+    useEffect(() => {
+        const el = liveLogRef.current
+        if (el) {
+            el.scrollTop = el.scrollHeight
+        }
+    }, [liveEvents])
 
     return (
         <section>
+            {(liveEvents.length > 0 || streaming) && (
+                <div className="mb-6">
+                    <div className="flex items-center justify-between mb-2">
+                        <h3 className="font-semibold">Live run {streaming ? '(streaming…)' : ''}</h3>
+                        <LemonButton type="tertiary" size="small" onClick={clearLiveEvents}>
+                            Clear
+                        </LemonButton>
+                    </div>
+                    <div
+                        ref={liveLogRef}
+                        className="border rounded p-2 max-h-96 overflow-auto bg-bg-light font-mono text-xs"
+                    >
+                        {liveEvents.map((ev, idx) => (
+                            <div key={idx} className="py-0.5">
+                                <span className="text-muted">[{ev.event}]</span>{' '}
+                                {ev.data?.step != null && <span className="text-muted">step {ev.data.step} </span>}
+                                {ev.event === 'tool_call' ? (
+                                    <span>
+                                        <strong>{ev.data.name}</strong>({JSON.stringify(ev.data.input ?? {})})
+                                    </span>
+                                ) : ev.event === 'tool_result' ? (
+                                    <span className="text-muted">→ {String(ev.data.result).slice(0, 200)}</span>
+                                ) : ev.event === 'model_text' ? (
+                                    <span className="text-muted italic">{ev.data.text}</span>
+                                ) : ev.event === 'status' ? (
+                                    <span>
+                                        {ev.data.message}{' '}
+                                        {ev.data.replay_url && (
+                                            <Link to={ev.data.replay_url} target="_blank">
+                                                (replay)
+                                            </Link>
+                                        )}
+                                    </span>
+                                ) : ev.event === 'final' ? (
+                                    <span>
+                                        verdict: {ev.data.passed ? '✓ passed' : '✗ failed'} —{' '}
+                                        {ev.data.output?.verdict?.reason ?? ev.data.error ?? ''}
+                                    </span>
+                                ) : (
+                                    <span>{JSON.stringify(ev.data)}</span>
+                                )}
+                            </div>
+                        ))}
+                        {liveEvents.length === 0 && <div className="text-muted">Waiting for events…</div>}
+                    </div>
+                </div>
+            )}
             <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold">Run history</h3>
                 {logsUrl && (
@@ -345,8 +401,9 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
 
 export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
     const logic = agenticTestSceneLogic({ id })
-    const { test, testForm, isNew, testFormChanged, isTestFormSubmitting, willChangeEnabledOnSave } = useValues(logic)
-    const { runNow, activate, reject, submitTestForm, setTestFormValue, clearChanges } = useActions(logic)
+    const { test, testForm, isNew, testFormChanged, isTestFormSubmitting, willChangeEnabledOnSave, streaming } =
+        useValues(logic)
+    const { streamRun, activate, reject, submitTestForm, setTestFormValue, clearChanges } = useActions(logic)
     const { searchParams } = useValues(router)
     const currentTab: AgenticTestTab = (searchParams.tab as AgenticTestTab) || 'configuration'
 
@@ -400,10 +457,12 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                onClick={runNow}
-                                data-attr="agentic-test-run-now-detail"
+                                onClick={streamRun}
+                                loading={streaming}
+                                disabledReason={streaming ? 'A run is already in progress' : undefined}
+                                data-attr="agentic-test-run-detail"
                             >
-                                Run now
+                                Run
                             </LemonButton>
                         )}
                         {!isNew && testFormChanged && test?.status !== 'proposed' && (
