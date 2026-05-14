@@ -82,6 +82,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
     FounderMode: () => import('../../products/founder_mode/frontend/FounderMode'),
     FounderModeLayout: () => import('../../products/founder_mode/frontend/FounderModeLayout'),
+    FounderModeWorkspace: () => import('../../products/founder_mode/frontend/workspace/FounderModeWorkspace'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
     LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
@@ -183,6 +184,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/init': ['FounderMode', 'founderMode'],
     '/founder': ['FounderModeLayout', 'founderModeLayout'],
+    '/founder/workspace': ['FounderModeWorkspace', 'founderModeWorkspace'],
+    '/founder/workspace/:path': ['FounderModeWorkspace', 'founderModeWorkspace'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/legal': ['LegalDocuments', 'legalDocuments'],
@@ -401,6 +404,7 @@ export const productConfiguration: Record<string, any> = {
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     FounderMode: { name: 'Founder mode', projectBased: true, layout: 'plain' },
     FounderModeLayout: { name: 'Founder mode', projectBased: true, layout: 'plain' },
+    FounderModeWorkspace: { name: 'Founder workspace', projectBased: true, layout: 'plain' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
     LegalDocuments: {
@@ -806,6 +810,8 @@ export const productUrls = {
     },
     founderMode: (): string => '/init',
     founderModeLayout: (): string => '/founder',
+    founderModeWorkspace: (path?: string): string =>
+        path ? `/founder/workspace/${encodeURIComponent(path)}` : '/founder/workspace',
     game368hedgehogs: (): string => `/games/368hedgehogs`,
     flappyHog: (): string => `/games/flappyhog`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
