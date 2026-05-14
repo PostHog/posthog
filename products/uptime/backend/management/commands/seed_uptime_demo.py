@@ -1,12 +1,12 @@
-"""One-shot demo seeder for the uptime product.
+"""One-shot seeder for the uptime product.
 
 Creates a realistic-looking set of monitors (mix of auto and manual), a published
 status page wiring them up, and a handful of declared incidents — enough that a
 fresh local stack has a non-empty Monitors tab, Incidents tab, and a working
 public status page to share.
 
-Idempotent: every entity is keyed off a "Demo: " name prefix and re-running the
-command skips anything already in place. Pass --purge to wipe the demo state
+Idempotent: every entity is keyed off the exact names below and re-running the
+command skips anything already in place. Pass --purge to wipe the seeded state
 first if you want a clean slate.
 
 Pair with --with-pings to also backfill historical ping data via
@@ -30,32 +30,38 @@ from products.uptime.backend.facade import (
 )
 from products.uptime.backend.models import Incident, Monitor, StatusPage
 
-DEMO_NAME_PREFIX = "Demo: "
-
-DEMO_MONITORS: list[dict[str, Any]] = [
+SEEDED_MONITORS: list[dict[str, Any]] = [
     {
-        "name": "Demo: Marketing site",
+        "name": "Marketing site",
         "url": "https://posthog.com",
         "mode": "auto",
     },
     {
-        "name": "Demo: App",
+        "name": "App",
         "url": "https://app.posthog.com",
         "mode": "auto",
     },
     {
-        "name": "Demo: Payments processor",
+        "name": "Payments processor",
         "url": None,
         "mode": "manual",
     },
 ]
 
-DEMO_STATUS_PAGE_TITLE = "Demo: PostHog public status"
-DEMO_STATUS_PAGE_SLUG = "demo-posthog-status"
+SEEDED_MONITOR_NAMES: list[str] = [m["name"] for m in SEEDED_MONITORS]
+
+SEEDED_INCIDENT_NAMES: list[str] = [
+    "Login latency spike",
+    "Stripe webhook delays",
+    "CDN cache misses in EU",
+]
+
+STATUS_PAGE_TITLE = "PostHog public status"
+STATUS_PAGE_SLUG = "posthog-status"
 
 
 class Command(BaseCommand):
-    help = "Seed the uptime product with demo monitors, incidents, and a status page."
+    help = "Seed the uptime product with sample monitors, incidents, and a status page."
 
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument(
@@ -67,7 +73,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--purge",
             action="store_true",
-            help="Delete existing demo monitors / incidents / status page before seeding.",
+            help="Delete previously seeded monitors / incidents / status page before seeding.",
         )
         parser.add_argument(
             "--with-pings",
@@ -82,7 +88,7 @@ class Command(BaseCommand):
 
         with team_scope(team_id):
             if purge:
-                self._purge_demo(team_id)
+                self._purge(team_id)
             monitor_ids = self._seed_monitors(team_id)
             self._seed_incidents(team_id, monitor_ids)
             self._seed_status_page(team_id, monitor_ids)
@@ -93,24 +99,24 @@ class Command(BaseCommand):
             # the team_scope block because seed_uptime_pings opens its own scope.
             call_command("seed_uptime_pings", team_id=team_id, days=90)
 
-        self.stdout.write(self.style.SUCCESS("Demo seeded. Open the Uptime tab to see it."))
+        self.stdout.write(self.style.SUCCESS("Seeded. Open the Uptime tab to see it."))
 
-    def _purge_demo(self, team_id: int) -> None:
-        page_count, _ = StatusPage.objects.filter(team_id=team_id, title=DEMO_STATUS_PAGE_TITLE).delete()
+    def _purge(self, team_id: int) -> None:
+        page_count, _ = StatusPage.objects.filter(team_id=team_id, title=STATUS_PAGE_TITLE).delete()
         # Incidents cascade off Monitor.on_delete, but we delete them explicitly first so
         # the count reported below is meaningful.
-        incident_qs = Incident.objects.filter(team_id=team_id, monitor__name__startswith=DEMO_NAME_PREFIX)
+        incident_qs = Incident.objects.filter(team_id=team_id, monitor__name__in=SEEDED_MONITOR_NAMES)
         incident_count, _ = incident_qs.delete()
-        monitor_count, _ = Monitor.objects.filter(team_id=team_id, name__startswith=DEMO_NAME_PREFIX).delete()
+        monitor_count, _ = Monitor.objects.filter(team_id=team_id, name__in=SEEDED_MONITOR_NAMES).delete()
         self.stdout.write(
             f"Purged {monitor_count} monitor(s), {incident_count} incident(s), {page_count} status page(s)."
         )
 
     def _seed_monitors(self, team_id: int) -> dict[str, UUID]:
-        """Create demo monitors keyed by name. Returns name → monitor_id."""
-        existing = {m.name: m.id for m in Monitor.objects.filter(team_id=team_id, name__startswith=DEMO_NAME_PREFIX)}
+        """Create monitors keyed by name. Returns name → monitor_id."""
+        existing = {m.name: m.id for m in Monitor.objects.filter(team_id=team_id, name__in=SEEDED_MONITOR_NAMES)}
         out: dict[str, UUID] = {}
-        for spec in DEMO_MONITORS:
+        for spec in SEEDED_MONITORS:
             name = spec["name"]
             if name in existing:
                 out[name] = existing[name]
@@ -132,16 +138,14 @@ class Command(BaseCommand):
         """Three incidents that show off different states the UI handles."""
         now = timezone.now()
         existing_incident_names = set(
-            Incident.objects.filter(team_id=team_id, monitor__name__startswith=DEMO_NAME_PREFIX).values_list(
-                "name", flat=True
-            )
+            Incident.objects.filter(team_id=team_id, name__in=SEEDED_INCIDENT_NAMES).values_list("name", flat=True)
         )
 
         incidents: list[contracts.CreateIncidentInput] = [
             # Resolved a few weeks back — gives the timeline a "down" day in the past.
             contracts.CreateIncidentInput(
                 team_id=team_id,
-                monitor_id=monitor_ids["Demo: App"],
+                monitor_id=monitor_ids["App"],
                 name="Login latency spike",
                 description="Investigating elevated latency on the login endpoint in us-east-1.",
                 started_at=now - timedelta(days=18, hours=4),
@@ -151,17 +155,17 @@ class Command(BaseCommand):
             # Recently resolved on the manual monitor — exercises the manual incident path.
             contracts.CreateIncidentInput(
                 team_id=team_id,
-                monitor_id=monitor_ids["Demo: Payments processor"],
+                monitor_id=monitor_ids["Payments processor"],
                 name="Stripe webhook delays",
                 description="Stripe acknowledged elevated webhook delivery delays affecting subscription updates.",
                 started_at=now - timedelta(days=2, hours=6),
                 resolved_at=now - timedelta(days=2, hours=1),
                 resolution_note="Stripe restored webhook delivery. No data loss; we caught up via reconciliation.",
             ),
-            # Ongoing so the Incidents tab has a non-zero badge for the demo.
+            # Ongoing so the Incidents tab has a non-zero badge.
             contracts.CreateIncidentInput(
                 team_id=team_id,
-                monitor_id=monitor_ids["Demo: Marketing site"],
+                monitor_id=monitor_ids["Marketing site"],
                 name="CDN cache misses in EU",
                 description="Some EU edge nodes are bypassing cache and going to origin. Investigating with Cloudflare.",
                 started_at=now - timedelta(hours=3),
@@ -177,31 +181,24 @@ class Command(BaseCommand):
             self.stdout.write(f"  Created incident: {incident_input.name} ({state})")
 
     def _seed_status_page(self, team_id: int, monitor_ids: dict[str, UUID]) -> None:
-        existing = StatusPage.objects.filter(team_id=team_id, title=DEMO_STATUS_PAGE_TITLE).first()
+        existing = StatusPage.objects.filter(team_id=team_id, title=STATUS_PAGE_TITLE).first()
         if existing:
-            self.stdout.write(f"  Status page exists: {DEMO_STATUS_PAGE_TITLE}")
+            self.stdout.write(f"  Status page exists: {STATUS_PAGE_TITLE}")
             return
         try:
             page = facade_api.create_status_page(team_id=team_id)
         except Exception as exc:
             raise CommandError(f"Failed to create status page: {exc}") from exc
 
-        ordered_ids = [
-            monitor_ids[name]
-            for name in (
-                "Demo: Marketing site",
-                "Demo: App",
-                "Demo: Payments processor",
-            )
-        ]
+        ordered_ids = [monitor_ids[name] for name in ("Marketing site", "App", "Payments processor")]
         facade_api.update_status_page(
             contracts.UpdateStatusPageInput(
                 team_id=team_id,
                 page_id=page.id,
-                title=DEMO_STATUS_PAGE_TITLE,
-                slug=DEMO_STATUS_PAGE_SLUG,
+                title=STATUS_PAGE_TITLE,
+                slug=STATUS_PAGE_SLUG,
                 monitor_ids=ordered_ids,
             )
         )
         facade_api.publish_status_page(team_id=team_id, page_id=page.id)
-        self.stdout.write(f"  Created and published status page at /status/{DEMO_STATUS_PAGE_SLUG}")
+        self.stdout.write(f"  Created and published status page at /status/{STATUS_PAGE_SLUG}")
