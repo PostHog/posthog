@@ -91,7 +91,7 @@ export function MCPSessionsTable(): JSX.Element {
                     <LemonTable
                         data-attr="mcp-sessions-table"
                         size="small"
-                        pagination={{ pageSize: 25 }}
+                        pagination={{ pageSize: 20 }}
                         dataSource={sessions}
                         rowKey="session_id"
                         columns={columns}
@@ -109,7 +109,7 @@ export function MCPSessionsTable(): JSX.Element {
                         }
                     />
                 </div>
-                <aside className="w-full lg:w-[480px] lg:sticky lg:top-2 lg:max-h-[calc(100vh-8rem)] lg:overflow-auto rounded border border-primary bg-surface-primary p-3">
+                <aside className="w-full lg:w-[480px] flex flex-col rounded border border-primary bg-surface-primary overflow-hidden">
                     <MCPSessionDetail />
                 </aside>
             </div>

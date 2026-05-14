@@ -90,6 +90,7 @@ def _to_session_contract(row: MCPSession, persons_by_distinct_id: dict[str, Pers
         distinct_id=row.distinct_id or "",
         person_email=person_display["email"],
         person_name=person_display["name"],
+        intent=row.intent or "",
     )
 
 

@@ -188,6 +188,10 @@ class MCPSessionSerializer(serializers.Serializer):
         read_only=True,
         help_text="name property of the Person resolved from distinct_id; empty when no Person is mapped.",
     )
+    intent = serializers.CharField(
+        read_only=True,
+        help_text="LLM-generated 2-3 sentence summary of the agent's overall goal for the session. Empty until the summary workflow runs.",
+    )
 
 
 class MCPMissingCapabilityCreateSerializer(MCPAnalyticsSubmissionContextSerializer):
