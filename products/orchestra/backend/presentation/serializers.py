@@ -34,6 +34,18 @@ class ExecutionFilterSerializer(serializers.Serializer):
         required=False,
         help_text="Filter by registered execution type name.",
     )
+    date_from = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Lower bound for `started_at`. Accepts PostHog relative dates (e.g. '-1h', 'dStart').",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Upper bound for `started_at`. Accepts PostHog relative dates.",
+    )
     limit = serializers.IntegerField(
         default=50,
         min_value=1,
@@ -52,21 +64,47 @@ class DeploymentSummarySerializer(DataclassSerializer):
         dataclass = DeploymentSummary
 
 
+class DeploymentFilterSerializer(serializers.Serializer):
+    date_from = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Lower bound for `started_at`. Accepts PostHog relative dates (e.g. '-7d', 'dStart').",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Upper bound for `started_at`. Accepts PostHog relative dates.",
+    )
+    limit = serializers.IntegerField(
+        default=50,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of deployments to return.",
+    )
+
+
 class DeploymentRegisterSerializer(serializers.Serializer):
     code_version = serializers.CharField(
         max_length=64,
-        help_text="Short identifier for the deployed code (e.g. 12-char git SHA or content hash).",
+        help_text="Short identifier for the deployed code (e.g. 12-char content hash).",
     )
     image_name = serializers.CharField(
         max_length=512,
-        help_text="Fully-qualified container image reference for this deployment.",
+        help_text=(
+            "Container image reference for this deployment. Built by `bin/deploy-orchestra <folder>` "
+            "locally and tagged like `orchestra-user:team-<id>-<sha>`. PostHog `docker run`s it."
+        ),
     )
-    container_id = serializers.CharField(
-        max_length=128,
+    registered_executions = serializers.ListField(
+        child=serializers.CharField(max_length=255),
         required=False,
-        allow_blank=True,
-        default="",
-        help_text="Identifier of the running container hosting the worker, if known.",
+        default=list,
+        help_text=(
+            "Names of `@execution` definitions registered by the image, discovered from the source. "
+            "Used to populate the trigger UI."
+        ),
     )
 
 

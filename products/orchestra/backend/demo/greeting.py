@@ -8,7 +8,7 @@ async def build_greeting(name: str) -> str:
 
 @step
 async def log_greeting(greeting: str) -> None:
-    print(f"[step log_greeting] {greeting}")
+    print(f"[step log_greeting] {greeting}")  # noqa: T201
 
 
 @execution

@@ -74,6 +74,13 @@ if [ -f .env ]; then
     set +o allexport
 fi
 
+# Build the posthog/orchestra-runtime base image used by user workflow deployments.
+# Idempotent — skips when the image is already present. Failures here should not
+# block the main dev environment, so we swallow non-zero exits with a warning.
+if ! "$REPOSITORY_ROOT/bin/build-orchestra-runtime"; then
+    echo "⚠️  Failed to build posthog/orchestra-runtime; orchestra deployments will be unavailable"
+fi
+
 # Ducklake
 export DUCKLAKE_RDS_HOST=${DUCKLAKE_RDS_HOST:-db}
 export DUCKLAKE_RDS_PORT=${DUCKLAKE_RDS_PORT:-5432}

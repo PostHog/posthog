@@ -5324,6 +5324,7 @@ export type APIScopeObject =
     | 'llm_skill'
     | 'logs'
     | 'notebook'
+    | 'orchestra'
     | 'organization'
     | 'organization_integration'
     | 'organization_member'

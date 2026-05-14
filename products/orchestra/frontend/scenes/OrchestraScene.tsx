@@ -1,13 +1,26 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { LemonButton, LemonSelect, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonModal,
+    LemonSelect,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { dayjs } from 'lib/dayjs'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { OrchestraDeployment, OrchestraExecution, orchestraLogic } from '../logics/orchestraLogic'
@@ -30,7 +43,7 @@ function DeploymentStatusTag({ status }: { status: string }): JSX.Element {
 
 function ActiveDeploymentCard(): JSX.Element {
     const { activeDeployment, deployments, activeDeploymentLoading } = useValues(orchestraLogic)
-    const { triggerGreeting } = useActions(orchestraLogic)
+    const { openTriggerModal } = useActions(orchestraLogic)
 
     return (
         <div className="border rounded p-4 mb-4 bg-bg-light">
@@ -44,19 +57,35 @@ function ActiveDeploymentCard(): JSX.Element {
                 <LemonButton
                     type="primary"
                     size="small"
-                    onClick={triggerGreeting}
+                    onClick={openTriggerModal}
                     disabledReason={activeDeployment ? undefined : 'No active deployment'}
                 >
-                    Trigger greeting
+                    Trigger execution
                 </LemonButton>
             </div>
             {activeDeployment ? (
-                <div className="grid grid-cols-4 gap-4">
-                    <Field label="Code version" value={<code>{activeDeployment.code_version}</code>} />
-                    <Field label="Image" value={<code className="break-all">{activeDeployment.image_name}</code>} />
-                    <Field label="Task queue" value={<code>{activeDeployment.task_queue}</code>} />
-                    <Field label="Active for" value={dayjs(activeDeployment.started_at).fromNow(true)} />
-                </div>
+                <>
+                    <div className="grid grid-cols-4 gap-4">
+                        <Field label="Code version" value={<code>{activeDeployment.code_version}</code>} />
+                        <Field label="Image" value={<code className="break-all">{activeDeployment.image_name}</code>} />
+                        <Field label="Task queue" value={<code>{activeDeployment.task_queue}</code>} />
+                        <Field label="Active for" value={dayjs(activeDeployment.started_at).fromNow(true)} />
+                    </div>
+                    <div className="mt-3">
+                        <div className="text-xs uppercase text-muted mb-1">Registered executions</div>
+                        {activeDeployment.registered_executions.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                                {activeDeployment.registered_executions.map((name) => (
+                                    <LemonTag key={name}>
+                                        <code>{name}</code>
+                                    </LemonTag>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-muted text-sm">None reported by the deploy.</div>
+                        )}
+                    </div>
+                </>
             ) : (
                 <div className="text-muted">
                     {activeDeploymentLoading
@@ -82,8 +111,80 @@ function Field({ label, value }: { label: string; value: React.ReactNode }): JSX
     )
 }
 
+function TriggerExecutionModal(): JSX.Element {
+    const { triggerModalOpen, executionsLoading, activeDeployment } = useValues(orchestraLogic)
+    const { closeTriggerModal, triggerExecution } = useActions(orchestraLogic)
+    const [executionType, setExecutionType] = useState('')
+    const [inputJson, setInputJson] = useState('')
+
+    const registered = activeDeployment?.registered_executions ?? []
+
+    const submit = (): void => {
+        if (!executionType.trim()) {
+            return
+        }
+        triggerExecution(executionType.trim(), inputJson)
+        setExecutionType('')
+        setInputJson('')
+    }
+
+    return (
+        <LemonModal
+            width={520}
+            title="Trigger execution"
+            description="Starts a new execution against the active deployment's task queue."
+            isOpen={triggerModalOpen}
+            onClose={closeTriggerModal}
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={closeTriggerModal}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={submit}
+                        loading={executionsLoading}
+                        disabledReason={!executionType.trim() ? 'Pick an execution type' : null}
+                    >
+                        Trigger
+                    </LemonButton>
+                </>
+            }
+        >
+            <div className="flex flex-col gap-y-3">
+                <LemonField.Pure label="Execution type">
+                    {registered.length > 0 ? (
+                        <LemonSelect
+                            value={executionType || null}
+                            onChange={(value) => setExecutionType(value ?? '')}
+                            placeholder="Pick a registered execution"
+                            options={registered.map((name) => ({ value: name, label: name }))}
+                            fullWidth
+                        />
+                    ) : (
+                        <LemonInput
+                            placeholder="greeting_execution"
+                            autoFocus
+                            value={executionType}
+                            onChange={setExecutionType}
+                        />
+                    )}
+                </LemonField.Pure>
+                <LemonField.Pure label="Input (JSON, optional)">
+                    <LemonTextArea
+                        placeholder='{"name": "World", "age": 30}'
+                        value={inputJson}
+                        onChange={setInputJson}
+                        minRows={4}
+                    />
+                </LemonField.Pure>
+            </div>
+        </LemonModal>
+    )
+}
+
 function DeploymentsTable(): JSX.Element {
-    const { deployments, deploymentsLoading } = useValues(orchestraLogic)
+    const { deployments, deploymentsLoading, deploymentsLoadedOnce } = useValues(orchestraLogic)
 
     const columns: LemonTableColumns<OrchestraDeployment> = [
         {
@@ -114,22 +215,22 @@ function DeploymentsTable(): JSX.Element {
     ]
 
     return (
-        <div className="mb-6">
-            <h3 className="mb-2">Recent deployments</h3>
+        <SceneSection title="Deployment history">
             <LemonTable
                 columns={columns}
                 dataSource={deployments}
-                loading={deploymentsLoading}
+                loading={!deploymentsLoadedOnce && deploymentsLoading}
                 emptyState="No deployments yet."
-                size="small"
+                pagination={{ pageSize: 10 }}
             />
-        </div>
+        </SceneSection>
     )
 }
 
 function OrchestraScene(): JSX.Element {
-    const { executions, executionsLoading, statusFilter } = useValues(orchestraLogic)
-    const { loadExecutions, setStatusFilter } = useActions(orchestraLogic)
+    const { executions, executionsLoading, executionsLoadedOnce, statusFilter, executionDateRange } =
+        useValues(orchestraLogic)
+    const { setStatusFilter, setExecutionDateRange } = useActions(orchestraLogic)
 
     const columns: LemonTableColumns<OrchestraExecution> = [
         {
@@ -164,42 +265,47 @@ function OrchestraScene(): JSX.Element {
     ]
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-8">
             <SceneTitleSection
                 name="Orchestra"
-                description="Workflow execution engine"
+                description="Durable, replayable code executions with versioned deployments"
                 resourceType={{ type: 'orchestra' }}
             />
             <ActiveDeploymentCard />
+            <TriggerExecutionModal />
             <DeploymentsTable />
-            <h3 className="mb-2">Executions</h3>
-            <div className="flex items-center gap-2 mb-4">
-                <LemonSelect
-                    value={statusFilter}
-                    onChange={setStatusFilter}
-                    options={[
-                        { value: null, label: 'All statuses' },
-                        { value: 'RUNNING', label: 'Running' },
-                        { value: 'COMPLETED', label: 'Completed' },
-                        { value: 'FAILED', label: 'Failed' },
-                    ]}
-                    size="small"
+            <SceneSection title="Executions">
+                <div className="flex items-center gap-2">
+                    <DateFilter
+                        size="small"
+                        dateFrom={executionDateRange.date_from}
+                        dateTo={executionDateRange.date_to}
+                        onChange={(date_from, date_to) => setExecutionDateRange(date_from ?? null, date_to ?? null)}
+                    />
+                    <LemonSelect
+                        value={statusFilter}
+                        onChange={setStatusFilter}
+                        options={[
+                            { value: null, label: 'All statuses' },
+                            { value: 'RUNNING', label: 'Running' },
+                            { value: 'COMPLETED', label: 'Completed' },
+                            { value: 'FAILED', label: 'Failed' },
+                        ]}
+                        size="small"
+                    />
+                </div>
+                <LemonTable
+                    columns={columns}
+                    dataSource={executions}
+                    loading={!executionsLoadedOnce && executionsLoading}
+                    emptyState="No executions yet"
+                    onRow={(record) => ({
+                        onClick: () => {
+                            window.location.href = urls.orchestraExecution(record.execution_id)
+                        },
+                    })}
                 />
-                <LemonButton type="secondary" size="small" onClick={loadExecutions}>
-                    Refresh
-                </LemonButton>
-            </div>
-            <LemonTable
-                columns={columns}
-                dataSource={executions}
-                loading={executionsLoading}
-                emptyState="No executions found"
-                onRow={(record) => ({
-                    onClick: () => {
-                        window.location.href = urls.orchestraExecution(record.execution_id)
-                    },
-                })}
-            />
+            </SceneSection>
         </SceneContent>
     )
 }

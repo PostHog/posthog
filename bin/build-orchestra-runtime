@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Build the posthog/orchestra-runtime base image used by user deployments.
+# Idempotent: skips when the image already exists locally unless ORCHESTRA_RUNTIME_REBUILD=1.
+#
+# Uses a temporary staging directory as the docker build context so the
+# repo-root .dockerignore (which excludes images/) doesn't bite us.
+
+set -euo pipefail
+
+IMAGE_TAG="${ORCHESTRA_RUNTIME_IMAGE:-posthog/orchestra-runtime:latest}"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+if ! command -v docker >/dev/null 2>&1; then
+    echo "ℹ️  docker not on PATH; skipping ${IMAGE_TAG} build"
+    exit 0
+fi
+
+if docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+    if [[ "${ORCHESTRA_RUNTIME_REBUILD:-0}" != "1" ]]; then
+        echo "✅ ${IMAGE_TAG} already present (set ORCHESTRA_RUNTIME_REBUILD=1 to force)"
+        exit 0
+    fi
+fi
+
+STAGE=$(mktemp -d -t orchestra-runtime-build.XXXXXX)
+trap 'rm -rf "$STAGE"' EXIT
+
+echo "📦 staging build context at ${STAGE}"
+cp -R "$REPO_ROOT/products/orchestra/backend/engine" "$STAGE/orchestra_engine"
+cp "$REPO_ROOT/images/orchestra-runtime/runtime_main.py" "$STAGE/orchestra_runtime.py"
+
+# Compatibility shim: user code written against the standalone `replace_temporal`
+# package continues to import the same names.
+cat > "$STAGE/replace_temporal.py" <<'PY'
+"""Backwards-compatibility shim — re-exports the in-posthog orchestra engine
+under its original `replace_temporal` package name."""
+from orchestra_engine import (
+    Client,
+    Database,
+    ExecutionContext,
+    EventType,
+    ExecutionStatus,
+    StepFailed,
+    TaskType,
+    Worker,
+    execution,
+    step,
+)
+
+__all__ = [
+    "Client",
+    "Database",
+    "ExecutionContext",
+    "EventType",
+    "ExecutionStatus",
+    "StepFailed",
+    "TaskType",
+    "Worker",
+    "execution",
+    "step",
+]
+PY
+
+cat > "$STAGE/Dockerfile" <<'EOF'
+FROM python:3.12-slim
+
+# Engine deps + common user-code helpers we want available out of the box.
+RUN pip install --no-cache-dir "psycopg[binary,pool]>=3.2" "attrs>=24"
+
+COPY orchestra_engine/ /app/orchestra_engine/
+COPY replace_temporal.py /app/replace_temporal.py
+COPY orchestra_runtime.py /app/orchestra_runtime.py
+
+WORKDIR /app
+ENV PYTHONPATH=/app:/user-code
+ENV PYTHONUNBUFFERED=1
+
+CMD ["python", "/app/orchestra_runtime.py"]
+EOF
+
+echo "🔨 building ${IMAGE_TAG}"
+docker build -t "$IMAGE_TAG" "$STAGE"

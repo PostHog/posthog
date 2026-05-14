@@ -239,7 +239,6 @@ class Worker:
                     conn,
                     task.execution_id,
                     task.run_id,
-                    task.team_id,
                     [(EventType.TIMER_FIRED, {"timer_id": timer_id})],
                     team_id=task.team_id,
                 )

@@ -46,5 +46,6 @@ class DeploymentSummary:
     container_id: str
     task_queue: str
     status: str
+    registered_executions: list[str]
     started_at: datetime
     finished_at: datetime | None

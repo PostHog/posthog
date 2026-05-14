@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# Build a per-deploy image from a folder of user workflow code and register
+# the deployment with PostHog. PostHog then `docker run`s the image.
+#
+# Usage:
+#   POSTHOG_API_KEY=phx_... bin/deploy-orchestra [FOLDER]
+#
+# Env:
+#   POSTHOG_URL       default http://localhost:8010
+#   POSTHOG_TEAM_ID   default 1
+#   POSTHOG_API_KEY   personal API key (required)
+#   FOLDER (arg)      default $HOME/repos/replace-temporal/demo
+
+set -euo pipefail
+
+FOLDER="${1:-${HOME}/repos/replace-temporal/demo}"
+POSTHOG_URL="${POSTHOG_URL:-http://localhost:8010}"
+POSTHOG_TEAM_ID="${POSTHOG_TEAM_ID:-1}"
+
+if [[ -z "${POSTHOG_API_KEY:-}" ]]; then
+    echo "❌ set POSTHOG_API_KEY (create a personal API key in PostHog Settings → Personal API keys)" >&2
+    exit 1
+fi
+
+if [[ ! -d "$FOLDER" ]]; then
+    echo "❌ folder not found: $FOLDER" >&2
+    exit 1
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+    echo "❌ docker not on PATH" >&2
+    exit 1
+fi
+
+# Hash folder contents (Python source only) → 12-char code_version.
+CODE_VERSION=$(cd "$FOLDER" && find . -type f -name '*.py' -not -path './__pycache__/*' -not -path './*/__pycache__/*' \
+    | LC_ALL=C sort \
+    | xargs shasum -a 1 \
+    | shasum -a 1 \
+    | awk '{print substr($1, 1, 12)}')
+
+IMAGE_NAME="orchestra-user:team-${POSTHOG_TEAM_ID}-${CODE_VERSION}"
+
+# Discover importable modules at the folder root: top-level *.py (skip dunders),
+# plus packages (dirs with __init__.py). Matches build.py:_discover_modules.
+MODULES=$(cd "$FOLDER" && {
+    find . -maxdepth 1 -type f -name '*.py' \
+        -not -name '__init__.py' -not -name '__main__.py' \
+        | sed 's|^\./||; s|\.py$||'
+    find . -maxdepth 2 -name '__init__.py' -not -path './__init__.py' \
+        | sed 's|^\./||; s|/__init__\.py$||'
+} | LC_ALL=C sort | paste -sd ',' -)
+
+if [[ -z "$MODULES" ]]; then
+    echo "❌ no importable Python modules found at $FOLDER root" >&2
+    exit 1
+fi
+
+DOCKERFILE=$(mktemp -t orchestra-deploy.XXXXXX.Dockerfile)
+trap 'rm -f "$DOCKERFILE"' EXIT
+
+# Discover @execution definitions by AST-parsing every .py at the folder root.
+# Honors `@execution(name="...")` overrides; otherwise uses the function name.
+REGISTERED_EXECUTIONS_JSON=$(cd "$FOLDER" && python3 - <<'PY'
+import ast, json, os, sys
+
+names = set()
+for entry in os.listdir('.'):
+    if not entry.endswith('.py'):
+        continue
+    try:
+        tree = ast.parse(open(entry).read())
+    except SyntaxError:
+        continue
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for dec in node.decorator_list:
+            target = dec.func if isinstance(dec, ast.Call) else dec
+            if not (isinstance(target, ast.Name) and target.id == 'execution'):
+                continue
+            custom = None
+            if isinstance(dec, ast.Call):
+                for kw in dec.keywords:
+                    if kw.arg == 'name' and isinstance(kw.value, ast.Constant):
+                        custom = kw.value.value
+            names.add(custom or node.name)
+
+print(json.dumps(sorted(names)))
+PY
+)
+
+cat > "$DOCKERFILE" <<EOF
+FROM posthog/orchestra-runtime:latest
+COPY . /user-code/
+ENV USER_CODE_MODULES=${MODULES}
+EOF
+
+echo "▶ folder       ${FOLDER}"
+echo "▶ code_version ${CODE_VERSION}"
+echo "▶ modules      ${MODULES}"
+echo "▶ executions   ${REGISTERED_EXECUTIONS_JSON}"
+echo "▶ image        ${IMAGE_NAME}"
+echo "▶ posthog      ${POSTHOG_URL} (team ${POSTHOG_TEAM_ID})"
+echo
+
+echo "🔨 docker build ..."
+docker build --quiet -t "${IMAGE_NAME}" -f "${DOCKERFILE}" "${FOLDER}" >/dev/null
+
+echo "📨 registering deployment with PostHog ..."
+RESPONSE_BODY=$(mktemp -t orchestra-deploy-resp.XXXXXX)
+trap 'rm -f "$DOCKERFILE" "$RESPONSE_BODY"' EXIT
+
+PAYLOAD=$(python3 -c "import json,sys; print(json.dumps({'code_version': sys.argv[1], 'image_name': sys.argv[2], 'registered_executions': json.loads(sys.argv[3])}))" \
+    "${CODE_VERSION}" "${IMAGE_NAME}" "${REGISTERED_EXECUTIONS_JSON}")
+
+HTTP_CODE=$(curl -sS -w "%{http_code}" -o "${RESPONSE_BODY}" \
+    -X POST \
+    -H "Authorization: Bearer ${POSTHOG_API_KEY}" \
+    -H "Content-Type: application/json" \
+    --data "${PAYLOAD}" \
+    "${POSTHOG_URL}/api/projects/${POSTHOG_TEAM_ID}/orchestra/deployments/")
+
+if [[ "$HTTP_CODE" != "201" ]]; then
+    echo "❌ deploy failed (HTTP ${HTTP_CODE}):" >&2
+    cat "${RESPONSE_BODY}" >&2
+    echo >&2
+    exit 1
+fi
+
+echo "✅ deployed"
+if command -v python3 >/dev/null 2>&1; then
+    python3 -m json.tool < "${RESPONSE_BODY}"
+else
+    cat "${RESPONSE_BODY}"
+fi

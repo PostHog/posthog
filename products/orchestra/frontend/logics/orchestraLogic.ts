@@ -21,18 +21,22 @@ export interface OrchestraDeployment {
     container_id: string
     task_queue: string
     status: string
+    registered_executions: string[]
     started_at: string
     finished_at: string | null
 }
 
-const POLL_INTERVAL_MS = 10000
+const POLL_INTERVAL_MS = 2000
 
 export const orchestraLogic = kea<orchestraLogicType>([
     path(['products', 'orchestra', 'frontend', 'logics', 'orchestraLogic']),
 
     actions({
         setStatusFilter: (status: string | null) => ({ status }),
-        triggerGreeting: true,
+        setExecutionDateRange: (date_from: string | null, date_to: string | null) => ({ date_from, date_to }),
+        openTriggerModal: true,
+        closeTriggerModal: true,
+        triggerExecution: (executionType: string, inputJson: string) => ({ executionType, inputJson }),
         refreshAll: true,
     }),
 
@@ -43,10 +47,38 @@ export const orchestraLogic = kea<orchestraLogicType>([
                 setStatusFilter: (_, { status }) => status,
             },
         ],
+        executionDateRange: [
+            { date_from: '-1h' as string | null, date_to: null as string | null },
+            {
+                setExecutionDateRange: (_, { date_from, date_to }) => ({ date_from, date_to }),
+            },
+        ],
+        triggerModalOpen: [
+            false,
+            {
+                openTriggerModal: () => true,
+                closeTriggerModal: () => false,
+            },
+        ],
         triggerError: [
             null as string | null,
             {
-                triggerGreeting: () => null,
+                triggerExecution: () => null,
+                openTriggerModal: () => null,
+            },
+        ],
+        executionsLoadedOnce: [
+            false,
+            {
+                loadExecutionsSuccess: () => true,
+                loadExecutionsFailure: () => true,
+            },
+        ],
+        deploymentsLoadedOnce: [
+            false,
+            {
+                loadDeploymentsSuccess: () => true,
+                loadDeploymentsFailure: () => true,
             },
         ],
     }),
@@ -59,6 +91,13 @@ export const orchestraLogic = kea<orchestraLogicType>([
                     const params: Record<string, string> = {}
                     if (values.statusFilter) {
                         params.status = values.statusFilter
+                    }
+                    const { date_from, date_to } = values.executionDateRange
+                    if (date_from) {
+                        params.date_from = date_from
+                    }
+                    if (date_to) {
+                        params.date_to = date_to
                     }
                     const response = await api.get('api/projects/@current/orchestra/executions/', params)
                     return response.results ?? response
@@ -92,21 +131,37 @@ export const orchestraLogic = kea<orchestraLogicType>([
         setStatusFilter: () => {
             actions.loadExecutions()
         },
-        refreshAll: () => {
-            actions.loadDeployments()
-            actions.loadActiveDeployment()
+        setExecutionDateRange: () => {
+            actions.loadExecutions()
         },
-        triggerGreeting: async () => {
+        refreshAll: () => {
+            actions.loadActiveDeployment()
+            actions.loadDeployments()
+            actions.loadExecutions()
+        },
+        triggerExecution: async ({ executionType, inputJson }) => {
+            let parsedInput: unknown = null
+            const trimmed = inputJson.trim()
+            if (trimmed) {
+                try {
+                    parsedInput = JSON.parse(trimmed)
+                } catch (e: any) {
+                    // eslint-disable-next-line no-console
+                    console.error('invalid JSON input', e)
+                    void values
+                    return
+                }
+            }
             try {
                 await api.create('api/projects/@current/orchestra/executions/', {
-                    execution_type: 'greeting_execution',
-                    input: { name: 'World', age: 30 },
+                    execution_type: executionType,
+                    input: parsedInput,
                 })
+                actions.closeTriggerModal()
                 actions.loadExecutions()
             } catch (e: any) {
                 // eslint-disable-next-line no-console
-                console.error('failed to trigger greeting', e)
-                // The reducer below would store this, but we keep it minimal for the demo.
+                console.error('failed to trigger execution', e)
                 void values
             }
         },

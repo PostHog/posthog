@@ -16,6 +16,7 @@ class Deployment(ProductTeamModel):
     container_id = models.CharField(max_length=128, blank=True, default="")
     task_queue = models.CharField(max_length=255)
     status = models.CharField(max_length=32, default=STATUS_ACTIVE)
+    registered_executions = models.JSONField(default=list, blank=True)
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     error = models.JSONField(null=True, blank=True)
