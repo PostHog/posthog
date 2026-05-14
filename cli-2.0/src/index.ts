@@ -35,12 +35,12 @@ async function main() {
         .strictCommands()
         .option('json', {
             type: 'boolean',
-            describe: 'Output raw JSON without terminal formatting',
+            describe: 'Output JSON (syntax-highlighted in a TTY, plain when piped)',
             default: false,
         })
         .option('jq', {
             type: 'string',
-            describe: 'Filter JSON output using a jq expression (requires --json)',
+            describe: 'Filter JSON output using a jq expression (requires --json; same TTY-aware highlighting)',
         })
         .option('project-id', {
             type: 'string',
