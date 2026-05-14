@@ -267,6 +267,37 @@ under `failed`, fall back to local paths and append `(upload failed)`:
 Local mode always uses local paths. Do not invent external URLs when no
 upload was performed.
 
+## Before / After Side-by-Side
+
+When the PR has a visually observable change - new UI element, layout
+shift, color/style update, dark/light theme tweak - or when an auto-fix
+cycle landed (buggy → fixed state), render the two screenshots in a
+side-by-side comparison so reviewers see the delta at a glance. GitHub
+renders this layout from a plain HTML table:
+
+```markdown
+<table>
+<tr>
+<td><strong>Before</strong><br/><img src="<cloudinary url buggy>" width="450"/></td>
+<td><strong>After</strong><br/><img src="<cloudinary url fixed>" width="450"/></td>
+</tr>
+</table>
+```
+
+Capture discipline so the comparison is honest:
+
+- Same viewport size, same scene, same scroll position. Different
+  viewports look like a regression even when the change is intentional.
+- Same data shape. If you seeded data between captures, re-seed identical
+  rows.
+- Crop the screenshot to the changed surface where possible; full-page
+  comparisons hide the diff in noise.
+
+Skip the side-by-side when one screenshot tells the whole story
+(button click → toast appears) or when the change has no visual signal
+(API-only fix). Don't pad the comment with side-by-sides for their own
+sake.
+
 ## Severity Rubric
 
 - **High**: blocks a core flow, corrupts or hides customer data, or
