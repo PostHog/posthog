@@ -87,9 +87,10 @@ const projectDetailUrl = (projectId: string): string => `${FOUNDER_PROJECTS_URL}
 // The idea topic's goal — tells the backend agent what to extract and which keys the
 // crystallized value must carry. Topic-scoped: later steps would pass their own goal.
 const IDEA_GOAL =
-    "Get a crisp articulation of the founder's idea: what they are building, how it works, who it is for, " +
-    'and the problem it solves — concrete enough to feed a competitor-research validation pass. ' +
-    'crystallized_value keys: what, how, who, problem (each a synthesized prose string).'
+    "Get a workable articulation of the founder's idea: what they are building, how it works, who it is for, " +
+    'and the problem it solves — good enough to ground a competitor-research validation pass. It does not ' +
+    'need to be airtight; the founder refines it downstream. crystallized_value keys: what, how, who, problem ' +
+    '(each a synthesized prose string).'
 
 interface FounderProjectCreateResponse {
     id: string
