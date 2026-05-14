@@ -32,9 +32,9 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconAdsClick } from 'lib/lemon-ui/icons'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
@@ -257,7 +257,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 description: 'Trigger your workflow to run for each person in an audience you define.',
                 value: 'batch',
                 icon: <IconPeople />,
-                tag: <LabsTag stage="beta" className="ml-1" />,
+                tag: <PreviewTag stage="beta" className="ml-1" />,
             },
             ...getRegisteredTriggerTypes()
                 .filter((t) => !t.featureFlag || featureFlags[t.featureFlag])

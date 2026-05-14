@@ -18,7 +18,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -27,6 +26,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, clamp, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { FeatureFlagConditionWarning } from 'scenes/feature-flags/FeatureFlagConditionWarning'
@@ -727,7 +727,7 @@ export function FeatureFlagReleaseConditions({
                                 value: 'device',
                                 label: (
                                     <span>
-                                        Device <LabsTag stage="beta" size="small" />
+                                        Device <PreviewTag stage="beta" size="small" />
                                     </span>
                                 ),
                                 description: (

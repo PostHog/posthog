@@ -45,7 +45,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -54,6 +53,7 @@ import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNonEmptyObject } from 'lib/utils'
@@ -990,7 +990,7 @@ export function SavedInsights(): JSX.Element {
                                   label: (
                                       <div className="flex items-center gap-2">
                                           Home
-                                          <LabsTag stage="beta" size="small" />
+                                          <PreviewTag stage="beta" size="small" />
                                       </div>
                                   ),
                               },

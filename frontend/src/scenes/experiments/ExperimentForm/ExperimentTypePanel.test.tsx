@@ -38,7 +38,7 @@ describe('ExperimentTypePanel', () => {
             expect(cards).toHaveLength(2)
         })
 
-        it('shows Labs tag on no-code experiment option', () => {
+        it('shows Preview tag on no-code experiment option', () => {
             render(
                 <ExperimentTypePanel
                     experiment={{ ...NEW_EXPERIMENT, type: 'product' }}
@@ -46,7 +46,7 @@ describe('ExperimentTypePanel', () => {
                 />
             )
 
-            expect(screen.getByText('LABS')).toBeInTheDocument()
+            expect(screen.getByText('PREVIEW')).toBeInTheDocument()
         })
 
         it('highlights selected option with check icon', () => {

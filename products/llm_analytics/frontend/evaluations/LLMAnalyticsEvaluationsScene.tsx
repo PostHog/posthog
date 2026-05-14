@@ -18,8 +18,8 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -400,7 +400,7 @@ export function LLMAnalyticsEvaluationsScene({ tabId }: { tabId?: string }): JSX
                       label: (
                           <span className="inline-flex items-center gap-1">
                               <span>Offline evals</span>
-                              <LabsTag stage="alpha" size="small" />
+                              <PreviewTag stage="alpha" size="small" />
                           </span>
                       ),
                       content: <OfflineEvaluationsTab tabId={tabId} />,

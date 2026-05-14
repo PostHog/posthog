@@ -7,8 +7,8 @@ import { IconInfo } from '@posthog/icons'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonTab } from 'lib/lemon-ui/LemonTabs'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -142,7 +142,7 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         url: urls.revenueSettings(),
         label: (
             <>
-                Revenue <LabsTag stage="beta" size="small" className="ml-2" />
+                Revenue <PreviewTag stage="beta" size="small" className="ml-2" />
             </>
         ),
         content: <RevenueAnalyticsSettings />,

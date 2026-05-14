@@ -6,10 +6,10 @@ import { IconBolt } from '@posthog/icons'
 import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLink } from 'lib/lemon-ui/icons'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
@@ -69,7 +69,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                             <div className="flex items-center gap-2 mb-2">
                                 <h3 className="font-semibold flex items-center gap-2">
                                     About the New Query Engine
-                                    <LabsTag stage="beta" />
+                                    <PreviewTag stage="beta" />
                                 </h3>
                             </div>
                             <p className="mb-3">

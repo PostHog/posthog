@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -44,7 +44,7 @@ function NewQueryEngineTooltipBody(): JSX.Element {
         <div className="max-w-100 p-1 text-xs">
             <div className="mb-2 flex items-center gap-2">
                 <strong>About the new query engine</strong>
-                <LabsTag stage="beta" size="small" />
+                <PreviewTag stage="beta" size="small" />
             </div>
             <p className="mb-2">
                 Our new web analytics query engine powers faster queries using pre-aggregated data, giving you quicker
@@ -123,7 +123,7 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                                 >
                                     <IconBolt />
                                     New query engine
-                                    <LabsTag stage="beta" size="small" className="ml-1" />
+                                    <PreviewTag stage="beta" size="small" className="ml-1" />
                                 </SceneMenuBarCheckboxItem>
                             }
                         />

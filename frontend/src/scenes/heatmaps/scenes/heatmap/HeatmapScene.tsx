@@ -7,10 +7,10 @@ import { LemonTag, Spinner } from '@posthog/lemon-ui'
 import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { FilmCameraHog } from 'lib/components/hedgehogs'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { FilterPanel } from 'scenes/heatmaps/components/FilterPanel'
 import { HeatmapHeader } from 'scenes/heatmaps/components/HeatmapHeader'
 import { urls } from 'scenes/urls'
@@ -109,7 +109,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                     type === 'screenshot' && !screenshotUrl ? 'Screenshot is not ready' : undefined
                                 }
                             >
-                                Export <LabsTag stage="beta" className="ml-2" />
+                                Export <PreviewTag stage="beta" className="ml-2" />
                             </LemonButton>
                         </>
                     }

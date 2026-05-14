@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -502,7 +502,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     tabs.push({
                         label: (
                             <>
-                                Web Analytics <LabsTag stage="beta" className="ml-2" />
+                                Web Analytics <PreviewTag stage="beta" className="ml-2" />
                             </>
                         ),
                         type: InsightType.WEB_ANALYTICS,
@@ -522,7 +522,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     tabs.push({
                         label: (
                             <>
-                                {humanFriendlyQueryKind ?? 'Custom'} <LabsTag stage="beta" className="ml-2" />
+                                {humanFriendlyQueryKind ?? 'Custom'} <PreviewTag stage="beta" className="ml-2" />
                             </>
                         ),
                         type: InsightType.JSON,

@@ -7,7 +7,7 @@ import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
@@ -41,9 +41,11 @@ function buildModeTooltip(description: string, tools: ToolDefinition[]): JSX.Ele
                                 <span>
                                     <strong className="italic">
                                         {tool.name}
-                                        {tool.beta && <LabsTag stage="beta" size="small" className="ml-1 not-italic" />}
+                                        {tool.beta && (
+                                            <PreviewTag stage="beta" size="small" className="ml-1 not-italic" />
+                                        )}
                                         {tool.alpha && (
-                                            <LabsTag stage="alpha" size="small" className="ml-1 not-italic" />
+                                            <PreviewTag stage="alpha" size="small" className="ml-1 not-italic" />
                                         )}
                                     </strong>
                                     {tool.description?.replace(tool.name, '')}
@@ -135,7 +137,7 @@ function getModeOptions({
             label: (
                 <span className="flex items-center gap-1">
                     {SPECIAL_MODES.plan.name}
-                    {SPECIAL_MODES.plan.beta && <LabsTag stage="beta" size="small" />}
+                    {SPECIAL_MODES.plan.beta && <PreviewTag stage="beta" size="small" />}
                 </span>
             ),
             icon: SPECIAL_MODES.plan.icon,
@@ -149,7 +151,7 @@ function getModeOptions({
             label: (
                 <span className="flex items-center gap-1">
                     {SPECIAL_MODES.research.name}
-                    {SPECIAL_MODES.research.beta && <LabsTag stage="beta" size="small" />}
+                    {SPECIAL_MODES.research.beta && <PreviewTag stage="beta" size="small" />}
                 </span>
             ),
             icon: SPECIAL_MODES.research.icon,
@@ -163,7 +165,7 @@ function getModeOptions({
             label: (
                 <span className="flex items-center gap-1">
                     {SPECIAL_MODES.sandbox.name}
-                    {SPECIAL_MODES.sandbox.alpha && <LabsTag stage="alpha" size="small" />}
+                    {SPECIAL_MODES.sandbox.alpha && <PreviewTag stage="alpha" size="small" />}
                 </span>
             ),
             icon: SPECIAL_MODES.sandbox.icon,
@@ -187,8 +189,8 @@ function getModeOptions({
                     def.beta || def.alpha ? (
                         <span className="flex items-center gap-1">
                             {def.name}
-                            {def.beta && <LabsTag stage="beta" size="small" />}
-                            {def.alpha && <LabsTag stage="alpha" size="small" />}
+                            {def.beta && <PreviewTag stage="beta" size="small" />}
+                            {def.alpha && <PreviewTag stage="alpha" size="small" />}
                         </span>
                     ) : (
                         def.name

@@ -12,13 +12,13 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
@@ -507,7 +507,7 @@ const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: strin
             label: (
                 <div className="flex items-center gap-1">
                     Live
-                    <LabsTag stage="alpha" />
+                    <PreviewTag stage="alpha" />
                 </div>
             ),
             link: '/web/live',
@@ -528,7 +528,7 @@ const botAnalyticsTab = (
             label: (
                 <div className="flex items-center gap-1">
                     Bots
-                    <LabsTag stage="alpha" />
+                    <PreviewTag stage="alpha" />
                 </div>
             ),
             link: urls.webAnalyticsBotAnalytics(),
@@ -643,7 +643,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                     label: (
                         <div className="flex items-center gap-1">
                             Page reports
-                            <LabsTag stage="beta" />
+                            <PreviewTag stage="beta" />
                         </div>
                     ),
                     link: '/web/page-reports',

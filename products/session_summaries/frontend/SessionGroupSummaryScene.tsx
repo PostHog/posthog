@@ -13,8 +13,8 @@ import {
 } from '@posthog/lemon-ui'
 
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { debounce } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -467,7 +467,7 @@ export function SessionGroupSummary(): JSX.Element {
             />
             <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
                 <div className="flex items-center gap-3">
-                    <LabsTag stage="beta" />
+                    <PreviewTag stage="beta" />
                     <span>{totalSessions} sessions analyzed</span>
                     <span className="hidden sm:inline">·</span>
                     <span>{new Date(sessionGroupSummary.created_at).toLocaleString()}</span>

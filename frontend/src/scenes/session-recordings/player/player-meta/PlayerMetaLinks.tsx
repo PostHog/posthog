@@ -14,7 +14,7 @@ import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems }
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { IconBlank } from 'lib/lemon-ui/icons'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -198,7 +198,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
             isStandardMode && {
                 label: (
                     <div className="flex w-full gap-x-2 justify-between items-center">
-                        Export to MP4 <LabsTag stage="beta" size="small" />
+                        Export to MP4 <PreviewTag stage="beta" size="small" />
                     </div>
                 ),
                 status: hasReachedExportFullVideoLimit ? 'danger' : 'default',

@@ -30,9 +30,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconCancel } from 'lib/lemon-ui/icons'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { formatDate } from 'lib/utils'
@@ -654,7 +654,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                 description="Collect responses via an external link, hosted on PostHog. If you are already using surveys, make sure to upgrade posthog-js to at least v1.258.1."
                                                                 value={SurveyType.ExternalSurvey}
                                                             >
-                                                                <LabsTag stage="beta" />
+                                                                <PreviewTag stage="beta" />
                                                             </PresentationTypeCard>
                                                         </div>
                                                         {survey.type === SurveyType.Widget && (

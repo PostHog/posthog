@@ -23,8 +23,8 @@ import {
 } from '@posthog/quill'
 
 import { IconBlank } from 'lib/lemon-ui/icons'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { cn } from 'lib/utils/css-classes'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -74,7 +74,7 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
 
             <span className="flex items-center gap-1">
                 OS-like menu
-                <LabsTag stage="alpha" size="small" />
+                <PreviewTag stage="alpha" size="small" />
             </span>
             <SceneMenuBarRightLinks />
         </div>

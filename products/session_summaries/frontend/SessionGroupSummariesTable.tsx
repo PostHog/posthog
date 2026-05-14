@@ -5,11 +5,11 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -105,7 +105,7 @@ export function SessionGroupSummariesTable(): JSX.Element {
                 resourceType={{
                     type: config.iconType || 'notebook',
                 }}
-                actions={<LabsTag stage="beta" />}
+                actions={<PreviewTag stage="beta" />}
             />
             <div className="deprecated-space-y-4">
                 <div className="flex justify-between gap-2 flex-wrap">

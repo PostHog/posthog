@@ -25,9 +25,9 @@ import { LemonBanner, LemonDivider, LemonTag, LemonTextArea, Link, Tooltip } fro
 import { SESSION_SUMMARY_FEEDBACK_SURVEY_ID } from 'lib/constants'
 import { useAnimatedPresence } from 'lib/hooks/useAnimatedPresence'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
@@ -653,7 +653,7 @@ function SessionSummaryTitle(): JSX.Element {
         <h3 className="text-lg font-semibold mt-2 flex items-center gap-2">
             <IconAIText />
             AI summary
-            <LabsTag stage="beta" />
+            <PreviewTag stage="beta" />
         </h3>
     )
 }

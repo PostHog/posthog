@@ -4,10 +4,10 @@ import { IconTarget } from '@posthog/icons'
 import { LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils'
@@ -55,7 +55,7 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                     <div>
                         <div className="flex flex-row items-center gap-2">
                             <h3 className="mb-0">Materialization</h3>
-                            <LabsTag stage="beta" />
+                            <PreviewTag stage="beta" />
                         </div>
                         <p className="text-xs">
                             Materialized views are a way to pre-compute data in your data warehouse. This allows you to

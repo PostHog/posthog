@@ -4,8 +4,8 @@ import { useMemo, useState } from 'react'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { IconRecordingClip } from 'lib/lemon-ui/icons'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { colonDelimitedDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -146,7 +146,7 @@ function ClipRecording_({ current, className }: { current: string; className?: s
                 <span>
                     Create clip around {current} <KeyboardShortcut x />
                 </span>
-                <LabsTag stage="beta" size="small" />
+                <PreviewTag stage="beta" size="small" />
             </div>
         ),
         [current]

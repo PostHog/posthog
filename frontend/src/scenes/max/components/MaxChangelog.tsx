@@ -5,8 +5,8 @@ import { IconSparkles, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/settings/sidePanelSettingsLogic'
 
@@ -97,7 +97,7 @@ export function MaxChangelog(): JSX.Element | null {
                                     <li key={index} className="flex gap-2 text-sm">
                                         <div className="w-16 shrink-0 pt-0.5">
                                             {entry.tag === 'beta' ? (
-                                                <LabsTag stage="beta" size="small" />
+                                                <PreviewTag stage="beta" size="small" />
                                             ) : (
                                                 entry.tag && <LemonTag size="small" {...getTagProps(entry.tag)} />
                                             )}

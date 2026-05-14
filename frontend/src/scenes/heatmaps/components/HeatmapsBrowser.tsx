@@ -12,7 +12,7 @@ import { DetectiveHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/components/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -66,7 +66,7 @@ function ExportButton({
                 disabledReason={!dataUrl ? 'We can export only the URL with heatmaps' : undefined}
             >
                 <div className="flex w-full gap-x-2 justify-between items-center">
-                    Export <LabsTag stage="beta" size="small" />
+                    Export <PreviewTag stage="beta" size="small" />
                 </div>
             </LemonButton>
         </div>

@@ -1,4 +1,4 @@
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 
 import { SourceConfig } from '~/queries/schema/schema-general'
 
@@ -8,7 +8,7 @@ export interface SourceReleaseTagProps {
 
 export function SourceReleaseTag({ releaseStatus }: SourceReleaseTagProps): JSX.Element | null {
     if (releaseStatus === 'alpha' || releaseStatus === 'beta') {
-        return <LabsTag stage={releaseStatus} />
+        return <PreviewTag stage={releaseStatus} />
     }
     return null
 }

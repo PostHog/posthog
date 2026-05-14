@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { LabsTag } from 'lib/lemon-ui/LabsTag'
+import { PreviewTag } from 'lib/lemon-ui/PreviewTag'
 import { getTagProps } from 'scenes/max/components/MaxChangelog'
 import { ChangelogEntry, maxChangelogLogic } from 'scenes/max/maxChangelogLogic'
 
@@ -42,7 +42,7 @@ export function MaxChangelogSettings(): JSX.Element {
                         <div key={index} className="flex gap-3 p-3 rounded-lg border bg-bg-light">
                             <div className="w-16 shrink-0 pt-0.5">
                                 {entry.tag === 'beta' ? (
-                                    <LabsTag stage="beta" size="small" />
+                                    <PreviewTag stage="beta" size="small" />
                                 ) : (
                                     entry.tag && <LemonTag size="small" {...getTagProps(entry.tag)} />
                                 )}
