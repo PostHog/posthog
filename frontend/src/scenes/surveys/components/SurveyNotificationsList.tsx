@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
@@ -76,8 +76,9 @@ function NewNotificationPicker(): JSX.Element {
 }
 
 export function SurveyNotificationsList(): JSX.Element {
-    const { notifications, notificationsLoading } = useValues(surveyNotificationsListLogic)
-    const { toggleNotificationEnabled } = useActions(surveyNotificationsListLogic)
+    const { notifications, notificationsLoading, notificationsFailed, knownSurveysFailed } =
+        useValues(surveyNotificationsListLogic)
+    const { toggleNotificationEnabled, loadNotifications, loadKnownSurveys } = useActions(surveyNotificationsListLogic)
     const { push } = useActions(router)
 
     if (notificationsLoading) {
@@ -87,6 +88,18 @@ export function SurveyNotificationsList(): JSX.Element {
                 <LemonSkeleton className="h-12" />
                 <LemonSkeleton className="h-12" />
             </div>
+        )
+    }
+
+    if (notificationsFailed) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{ children: 'Try again', onClick: () => loadNotifications() }}
+                data-attr="survey-notifications-load-error"
+            >
+                We couldn't load your survey notifications. Please try again in a moment.
+            </LemonBanner>
         )
     }
 
@@ -106,6 +119,15 @@ export function SurveyNotificationsList(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-3">
+            {knownSurveysFailed ? (
+                <LemonBanner
+                    type="warning"
+                    action={{ children: 'Retry', onClick: () => loadKnownSurveys() }}
+                    data-attr="survey-notifications-known-surveys-error"
+                >
+                    We couldn't verify which surveys still exist, so notifications for deleted surveys may appear here.
+                </LemonBanner>
+            ) : null}
             <div className="flex flex-col gap-1.5">
                 {notifications.map((fn) => {
                     const description = getNotificationDescription(fn)

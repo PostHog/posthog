@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -77,6 +77,24 @@ export const surveyNotificationsListLogic = kea<surveyNotificationsListLogicType
             },
         ],
     })),
+    reducers({
+        notificationsFailed: [
+            false,
+            {
+                loadNotifications: () => false,
+                loadNotificationsSuccess: () => false,
+                loadNotificationsFailure: () => true,
+            },
+        ],
+        knownSurveysFailed: [
+            false,
+            {
+                loadKnownSurveys: () => false,
+                loadKnownSurveysSuccess: () => false,
+                loadKnownSurveysFailure: () => true,
+            },
+        ],
+    }),
     selectors({
         knownSurveyIds: [
             (s) => [s.knownSurveys],
@@ -89,8 +107,18 @@ export const surveyNotificationsListLogic = kea<surveyNotificationsListLogicType
                 knownSurveys.filter((survey) => !survey.archived),
         ],
         notifications: [
-            (s) => [s.allNotifications, s.knownSurveyIds],
-            (allNotifications: HogFunctionType[], knownSurveyIds: Set<string>): HogFunctionType[] => {
+            (s) => [s.allNotifications, s.knownSurveyIds, s.knownSurveysFailed],
+            (
+                allNotifications: HogFunctionType[],
+                knownSurveyIds: Set<string>,
+                knownSurveysFailed: boolean
+            ): HogFunctionType[] => {
+                // If we couldn't load the survey index, skip the existence filter and show every
+                // notification we did load. The filter is just orphan cleanup — a transient
+                // surveys-API failure shouldn't hide live notifications from the user.
+                if (knownSurveysFailed) {
+                    return allNotifications
+                }
                 return allNotifications.filter((notification) => {
                     const linkedIds = getSurveyIdsFromNotificationFilters(notification.filters)
                     if (linkedIds.length === 0) {
