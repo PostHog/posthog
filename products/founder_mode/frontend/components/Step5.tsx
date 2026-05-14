@@ -9,6 +9,8 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import type { PracticalStepApi, PracticalStepsResultApi, SocialPostApi } from '../generated/api.schemas'
 import { founderLogic } from '../scenes/founderLogic'
+import { landingLivePreviewLogic } from './landingLivePreviewLogic'
+import { LandingPageMockup } from './LandingPageMockup'
 
 const PLATFORM_LABELS: Record<string, string> = {
     product_hunt: 'Product Hunt',
@@ -74,6 +76,8 @@ export function Step5(): JSX.Element {
                 </LemonButton>
             </header>
 
+            <LivePagePreview projectId={currentProjectId} />
+
             {marketingIsRunning && (
                 <div className="flex items-center gap-3 p-4 rounded-lg border border-border bg-bg-light">
                     <Spinner className="text-primary" />
@@ -107,6 +111,38 @@ export function Step5(): JSX.Element {
                 </div>
             )}
         </div>
+    )
+}
+
+const PHASE_HINT: Record<string, string> = {
+    loading: 'Loading',
+    'no-ideation': 'No ideation',
+    'generating-spec': 'Writing your landing-page spec',
+    'generating-scaffold': 'Rendering the page into HTML',
+    publishing: 'Publishing to GitHub Pages',
+    live: 'Live',
+    error: 'Error',
+}
+
+function LivePagePreview({ projectId }: { projectId: string }): JSX.Element {
+    // Mounts `landingLivePreviewLogic`, which auto-orchestrates run_landing_page →
+    // run_scaffold → publish_scaffold. The mockup component renders three modes:
+    // local React mock, a spinner with cycling phrases, and an iframe of the live URL.
+    const logic = landingLivePreviewLogic({ projectId })
+    const { phase, liveUrl, isWaiting, errorMessage } = useValues(logic)
+
+    return (
+        <section>
+            <h3 className="font-semibold text-base mb-2">Live landing page</h3>
+            <LandingPageMockup
+                liveUrl={liveUrl}
+                loading={isWaiting && !liveUrl}
+                loadingLabel={PHASE_HINT[phase]}
+                footerLabel={
+                    phase === 'error' ? `Error: ${errorMessage}` : liveUrl ? `Live at ${liveUrl}` : PHASE_HINT[phase]
+                }
+            />
+        </section>
     )
 }
 
