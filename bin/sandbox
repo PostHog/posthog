@@ -305,13 +305,6 @@ class Registry:
             self._write(f, data)
 
 
-# Image building is delegated to compose's `build:` directive. When the
-# user has tools.yaml entries, we generate a Dockerfile.user (Dockerfile.sandbox
-# + RUN blocks per tool) and a compose override that points build.dockerfile
-# at it. Docker's BuildKit layer cache handles staleness and inter-sandbox
-# sharing automatically, so there is no Python-side image management.
-
-
 # ---------------------------------------------------------------------------
 # Shell / Docker helpers
 # ---------------------------------------------------------------------------
@@ -1025,16 +1018,13 @@ def init_cache_from_master() -> None:
         run(["git", "fetch", "origin", "master", "--quiet"], capture=True)
         resolved = _first_existing_ref("refs/remotes/origin/master", "refs/heads/master")
         if resolved is None:
-            fatal("Cannot find master locally or on origin - nothing to build cache from.")
+            fatal("Cannot find master locally or on origin — nothing to build cache from.")
         master_sha, master_ref = resolved
 
         info("Populating cache-init workspace with master...")
         _populate_workspace_volume(init_volume, "master", master_sha, "master", None, branch_ref=master_ref)
 
         info("Running cache-init entrypoint...")
-        # The shared cache is built from master with no personal tools, so we
-        # build off Dockerfile.sandbox directly. The cache is reused across
-        # all sandboxes regardless of which contributor's tools.yaml is active.
         compose(
             init_project,
             init_port,
@@ -1228,13 +1218,9 @@ def _restore_and_start(
     use_cache: bool,
     profiles: list[str] | None = None,
 ) -> None:
-    """Restore databases from cache (if available) and bring up the stack.
-
-    `compose up --build` lets docker's layer cache decide whether to rebuild;
-    cached runs are seconds.
-    """
+    """Restore databases from cache (if available) and bring up the stack."""
     if not use_cache:
-        info("Starting containers...")
+        info("Building and starting containers...")
         compose(project, port, "up", "-d", "--build", capture=True, profiles=profiles)
         return
 
@@ -1296,7 +1282,7 @@ def _restore_and_start(
     )
 
     # Now start the app + proxy on top of restored infra
-    info("Starting app...")
+    info("Building and starting app...")
     compose(project, port, "up", "-d", "--build", capture=True, profiles=profiles)
 
 
@@ -1381,9 +1367,6 @@ def cmd_start(branch: str) -> None:
     info(f"Starting sandbox '{project}' on port {entry.port} (Vite: {vite_port})...")
     if profiles:
         info(f"Docker profiles: {', '.join(profiles)}")
-    # --build lets docker pick up Dockerfile or tools.yaml changes that
-    # happened while the sandbox was stopped; cached layers make it a no-op
-    # when nothing changed.
     compose(project, entry.port, "up", "-d", "--build", capture=True, profiles=profiles)
 
     container = f"{project}-app-1"
@@ -1742,16 +1725,11 @@ def _prompt_lines(prompt_text: str, prompt_help: str, *, strip: bool = False) ->
     return lines
 
 
-def _run_install_test(name: str, install: str) -> None:
+def _verify_install(name: str, install: str) -> None:
+    # Build a throwaway image with this install snippet; fatal on failure so
+    # the streamed docker build log on the terminal is the last thing the
+    # user sees. The test tag is cleaned up either way.
     info("Building a throwaway test layer on top of the current base image...")
-    if not _test_install_snippet(install):
-        fatal(f"Install snippet for '{name}' failed; not added to {TOOLS_FILE}.")
-    success("install succeeded.")
-
-
-def _test_install_snippet(install: str) -> bool:
-    # Failure leaves docker's streamed build log on the terminal so the user
-    # can see which step blew up; cleanup runs in finally either way.
     test_tag = f"posthog-sandbox-tools-test:{int(time.time())}-{os.getpid()}"
     with tempfile.NamedTemporaryFile(prefix="Dockerfile.test-", delete=False) as f:
         dockerfile_path = Path(f.name)
@@ -1772,7 +1750,9 @@ def _test_install_snippet(install: str) -> bool:
             ],
             env={**os.environ, "DOCKER_BUILDKIT": "1"},
         ).returncode
-        return rc == 0
+        if rc != 0:
+            fatal(f"Install snippet for '{name}' failed; not added to {TOOLS_FILE}.")
+        success("install succeeded.")
     finally:
         dockerfile_path.unlink(missing_ok=True)
         run(["docker", "rmi", "-f", test_tag], capture=True, check=False)
@@ -1840,12 +1820,12 @@ def _tools_add(args) -> None:
             sys.exit(0)
         new_tool = Tool(name=catalog_hit.name, install=catalog_hit.install, copy=list(catalog_hit.copy))
         if new_tool.install and args.test:
-            _run_install_test(new_tool.name, new_tool.install)
+            _verify_install(new_tool.name, new_tool.install)
     elif explicit:
         copy_entries = [sandbox_tools.parse_tool_copy(c, source_label=f"'{args.name}' copy entry") for c in args.copy or []]
         new_tool = Tool(name=args.name, install=args.install, copy=copy_entries)
         if new_tool.install and args.test:
-            _run_install_test(new_tool.name, new_tool.install)
+            _verify_install(new_tool.name, new_tool.install)
     else:
         install_lines = _prompt_lines(
             f"\nWhat install command(s) does '{args.name}' need?",
@@ -1854,7 +1834,7 @@ def _tools_add(args) -> None:
         )
         install = "\n".join(install_lines).strip() or None
         if install and _confirm("\nTest this snippet now?"):
-            _run_install_test(args.name, install)
+            _verify_install(args.name, install)
         copy_strs = _prompt_lines(
             f"\nWhere does '{args.name}' store auth/config on your host?",
             "  Absolute paths, one per line, blank when done. Most tools use ~/.config/<name>.",
