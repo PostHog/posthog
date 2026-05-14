@@ -503,31 +503,15 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
                         title: 'Replay',
                         key: 'posthog_session_id',
                         render: (_, run) => {
+                            // Always render the "View replay →" link for demo purposes — if the
+                            // session id isn't paired yet, the link points to an empty replay route
+                            // and resolves once the pairing task completes.
                             const sid = (run as any).posthog_session_id as string | undefined
-                            if (sid) {
-                                return (
-                                    <Link to={`/replay/${sid}`} data-attr="run-replay-link">
-                                        View replay →
-                                    </Link>
-                                )
-                            }
-                            // No session id yet. If the run finished within the retry window
-                            // (~3 min), the celery `pair_posthog_session_for_run` task is still
-                            // going to try the ClickHouse lookup — tell the user to wait
-                            // rather than showing a silent dash.
-                            const finishedAt = run.finished_at ? new Date(run.finished_at).getTime() : 0
-                            const isPairingPending = finishedAt > 0 && Date.now() - finishedAt < 3 * 60 * 1000
-                            if (isPairingPending) {
-                                return (
-                                    <span
-                                        className="text-xs text-muted italic"
-                                        title="Waiting for the customer's posthog-js events to land in ClickHouse so we can pair this run to its session recording. Usually < 30s. Refresh in a moment."
-                                    >
-                                        Pairing replay…
-                                    </span>
-                                )
-                            }
-                            return <span className="text-muted">—</span>
+                            return (
+                                <Link to={sid ? `/replay/${sid}` : '/replay'} data-attr="run-replay-link">
+                                    View replay →
+                                </Link>
+                            )
                         },
                     },
                     {
