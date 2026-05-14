@@ -27,7 +27,7 @@ import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } fr
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
-import { isThumbQuestion } from './utils'
+import { isThumbQuestion, splitChoicesOnPaste } from './utils'
 
 type SurveyQuestionHeaderProps = {
     index: number
@@ -685,7 +685,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     <div className="flex flex-col gap-2">
                         <LemonField name="hasOpenChoice">
                             {({ value: hasOpenChoice, onChange: toggleHasOpenChoice }) => (
-                                <LemonField name={getFieldName('choices')} label="Choices">
+                                <LemonField
+                                    name={getFieldName('choices')}
+                                    label="Choices"
+                                    info="Tip: paste a list of options separated by new lines (or from a spreadsheet column) to add them all at once."
+                                >
                                     {({ value, onChange }) => {
                                         const handleChoicesChange = (newChoices: string[]): void => {
                                             onChange(newChoices)
@@ -699,6 +703,26 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                             if (!editingLanguage) {
                                                 syncChoicesInTranslations(newChoices)
                                             }
+                                        }
+
+                                        const handlePasteIntoChoice = (
+                                            event: React.ClipboardEvent<HTMLInputElement>,
+                                            choiceIndex: number
+                                        ): void => {
+                                            if (editingLanguage) {
+                                                return
+                                            }
+                                            const merged = splitChoicesOnPaste(
+                                                event.clipboardData.getData('text'),
+                                                value || [],
+                                                choiceIndex,
+                                                hasOpenChoice
+                                            )
+                                            if (!merged) {
+                                                return
+                                            }
+                                            event.preventDefault()
+                                            handleChoicesChange(merged)
                                         }
 
                                         return (
@@ -718,6 +742,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                         newChoices[index] = val
                                                                         handleChoicesChange(newChoices)
                                                                     }}
+                                                                    onPaste={(event) =>
+                                                                        handlePasteIntoChoice(event, index)
+                                                                    }
                                                                     placeholder={
                                                                         editingLanguage
                                                                             ? originalChoices[index]
