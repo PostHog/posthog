@@ -3,6 +3,7 @@ import math
 import hashlib
 from typing import Any
 
+from django.conf import settings
 from django.core.cache import cache
 
 import structlog
@@ -154,6 +155,10 @@ def enqueue_csp_violation_signals(team_id: int, properties_list: list[dict]) -> 
     emit twice. Signal emission itself is best-effort: if it fails, the violation event has
     already been captured through the normal ingestion path.
     """
+    if not settings.CSP_SIGNAL_EMISSION_ENABLED:
+        CSP_SIGNAL_DROPPED_COUNTER.labels(reason="ops_kill_switch").inc()
+        return 0
+
     if not _is_csp_signal_enabled(team_id):
         CSP_SIGNAL_DROPPED_COUNTER.labels(reason="source_disabled").inc()
         return 0

@@ -113,6 +113,11 @@ MULTI_ORG_ENABLED: bool = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str
 
 AUTO_LOGIN: bool = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 
+# Ops kill switch for CSP violation signal emission. When False, /report/ stops fanning
+# out to the signals pipeline regardless of per-team SignalSourceConfig opt-in. Use this
+# if the embedding service downstream is overloaded.
+CSP_SIGNAL_EMISSION_ENABLED: bool = get_from_env("CSP_SIGNAL_EMISSION_ENABLED", True, type_cast=str_to_bool)
+
 CONTAINER_HOSTNAME: str = os.getenv("HOSTNAME", "unknown")
 
 OTEL_SERVICE_NAME: str | None = os.getenv("OTEL_SERVICE_NAME", None)

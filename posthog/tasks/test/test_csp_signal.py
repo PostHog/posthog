@@ -241,6 +241,15 @@ class TestCSPSignalThrottle(BaseTest):
         assert get_client().get(key) is None
 
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
+    def test_ops_kill_switch_short_circuits_emission(self, mock_delay: MagicMock) -> None:
+        from django.test import override_settings
+
+        with override_settings(CSP_SIGNAL_EMISSION_ENABLED=False):
+            result = enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
+        assert result == 0
+        mock_delay.assert_not_called()
+
+    @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
     def test_disabled_team_skips_throttle_and_enqueue(self, mock_delay: MagicMock) -> None:
         _disable_csp_signals(self.team.id)
         result = enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
