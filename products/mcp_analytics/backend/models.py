@@ -1,29 +1,9 @@
 """Django models for mcp_analytics."""
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from posthog.models.utils import UUIDModel
-
-
-# TODO(mcp-sessions): this MCPSession model is a SCAFFOLD. The real
-# posthog_mcp_session table is being built in parallel and will replace
-# this one. When that lands, delete this class and its migration, and
-# update products/mcp_analytics/backend/intent_clustering.py:fetch_intent_corpus
-# to read from the real table instead.
-class MCPSession(models.Model):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    session_id = models.CharField(max_length=200, db_index=True)
-    conversation_id = models.CharField(max_length=200, blank=True, default="", db_index=True)
-    intent = models.TextField()
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "posthog_mcp_session"
-        ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["team", "session_id"]),
-            models.Index(fields=["team", "conversation_id"]),
-        ]
 
 
 class MCPIntentClusterSnapshot(models.Model):
@@ -93,4 +73,31 @@ class MCPAnalyticsSubmission(UUIDModel):
             models.Index(fields=["team", "attempted_tool"]),
             models.Index(fields=["team", "mcp_session_id"]),
             models.Index(fields=["team", "mcp_trace_id"]),
+        ]
+
+
+class MCPSession(UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    session_id = models.CharField(max_length=64)
+
+    session_start = models.DateTimeField()
+    session_end = models.DateTimeField()
+    duration_seconds = models.IntegerField()
+
+    tools_used = ArrayField(models.CharField(max_length=200), default=list, blank=True)
+    distinct_id = models.CharField(max_length=400, blank=True, default="")
+    mcp_client_name = models.CharField(max_length=200, blank=True, default="")
+    intent = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_mcp_session"
+        ordering = ["-session_end"]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "session_id"], name="unique_mcp_session"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "-session_end"]),
         ]

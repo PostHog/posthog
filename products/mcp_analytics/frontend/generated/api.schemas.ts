@@ -287,14 +287,12 @@ export interface MCPSessionApi {
     readonly tools_used: readonly string[]
     /** Most recent $mcp_client_name observed in the session. */
     readonly mcp_client_name: string
-    /** PostHog person UUID for the session, empty when the session is anonymous. */
-    readonly person_id: string
-    /** email property of the resolved person, empty when anonymous or not set. */
-    readonly person_email: string
-    /** name property of the resolved person, empty when anonymous or not set. */
-    readonly person_name: string
-    /** Most recent distinct_id seen on the session, useful as a fallback display when no person is resolved. */
+    /** Most recent distinct_id observed for the session. Stable identifier the SDK tagged the events with. */
     readonly distinct_id: string
+    /** email property of the Person resolved from distinct_id; empty when no Person is mapped. */
+    readonly person_email: string
+    /** name property of the Person resolved from distinct_id; empty when no Person is mapped. */
+    readonly person_name: string
 }
 
 export interface PaginatedMCPSessionListApi {

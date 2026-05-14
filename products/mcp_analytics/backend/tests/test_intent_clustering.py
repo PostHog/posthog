@@ -229,10 +229,13 @@ class TestFetchIntentCorpus(ClickhouseTestMixin, BaseTest):
     """End-to-end: posthog_mcp_session in Postgres + mcp_tool_call in ClickHouse."""
 
     def _seed_session(self, session_id: str, intent: str) -> None:
+        start = datetime.now(tz=UTC) - timedelta(hours=1)
         MCPSession.objects.create(
             team=self.team,
             session_id=session_id,
-            conversation_id="",
+            session_start=start,
+            session_end=start + timedelta(minutes=5),
+            duration_seconds=300,
             intent=intent,
         )
 

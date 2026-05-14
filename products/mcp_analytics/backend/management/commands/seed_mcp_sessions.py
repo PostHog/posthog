@@ -6,6 +6,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandParser
 
 from posthog.models.event.util import create_event
+from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
@@ -101,9 +102,6 @@ SESSION_INTENTS: list[str] = [
     "Replay the signup session where the user got stuck so we can file a precise bug report.",
     "Pull the latest exception issue tied to the deploy so on-call can triage the regression.",
 ]
-CONVERSATION_CONTINUE_PROBABILITY = 0.4
-
-
 class Command(BaseCommand):
     help = "Seed mcp_tool_call events into ClickHouse for local testing of MCP analytics."
 
@@ -135,57 +133,58 @@ class Command(BaseCommand):
         now = datetime.now(tz=UTC)
         total_events = 0
 
-        # Create the identified personas and remember each one's person_id so
-        # we can stamp it on every event tied to that persona.
-        persona_person_ids: dict[str, str] = {}
+        # Create the identified personas. We write each one to BOTH Postgres
+        # (Person + PersonDistinctId) and ClickHouse (via create_person) so the
+        # distinct_id -> Person lookup in list_mcp_sessions can resolve name/email.
         for persona in IDENTIFIED_PERSONAS:
-            person_uuid = create_person(
+            properties = {
+                "email": persona["email"],
+                "name": persona["name"],
+                "role": persona["role"],
+            }
+            existing_distinct = PersonDistinctId.objects.filter(team=team, distinct_id=persona["distinct_id"]).first()
+            if existing_distinct:
+                person = existing_distinct.person
+                person.properties = properties
+                person.is_identified = True
+                person.save(update_fields=["properties", "is_identified"])
+            else:
+                person = Person.objects.create(team=team, properties=properties, is_identified=True)
+                PersonDistinctId.objects.create(team=team, distinct_id=persona["distinct_id"], person=person)
+            person_uuid = str(person.uuid)
+            create_person(
                 team_id=team.id,
+                uuid=person_uuid,
                 version=0,
                 is_identified=True,
-                properties={
-                    "email": persona["email"],
-                    "name": persona["name"],
-                    "role": persona["role"],
-                },
+                properties=properties,
             )
             create_person_distinct_id(
                 team_id=team.id,
                 distinct_id=persona["distinct_id"],
                 person_id=person_uuid,
             )
-            persona_person_ids[persona["distinct_id"]] = person_uuid
 
-        active_conversation_id: str | None = None
         for session_idx in range(session_count):
             session_id = str(uuid7())
-            if active_conversation_id and rng.random() < CONVERSATION_CONTINUE_PROBABILITY:
-                conversation_id = active_conversation_id
-            else:
-                conversation_id = str(uuid7())
-                active_conversation_id = conversation_id
             if rng.random() < IDENTIFIED_PROBABILITY:
                 persona = rng.choice(IDENTIFIED_PERSONAS)
                 distinct_id = persona["distinct_id"]
-                person_id: uuid.UUID | None = uuid.UUID(persona_person_ids[distinct_id])
             else:
                 distinct_id = f"anon_{uuid.uuid4().hex[:8]}"
-                person_id = None
             client_name = rng.choice(CLIENT_NAMES)
             calls = rng.randint(min_calls, max_calls)
             # Spread the session across a 5-minute window, anchored a random number of hours in the past.
             session_start = now - timedelta(hours=rng.randint(0, 48), minutes=rng.randint(0, 59))
             session_intent = rng.choice(SESSION_INTENTS)
-            MCPSession.objects.create(
-                team=team,
-                session_id=session_id,
-                conversation_id=conversation_id,
-                intent=session_intent,
-            )
+            last_timestamp = session_start
+            tools_used: set[str] = set()
 
             for call_idx in range(calls):
                 timestamp = session_start + timedelta(seconds=call_idx * rng.randint(15, 90))
+                last_timestamp = timestamp
                 tool_name = rng.choice(TOOL_NAMES)
+                tools_used.add(tool_name)
                 # Skew error rate and latency per tool so the Tool quality tab has variation.
                 tool_error_rate = (hash(tool_name) % 30) / 100.0
                 is_error = rng.random() < tool_error_rate
@@ -199,7 +198,6 @@ class Command(BaseCommand):
                     event="mcp_tool_call",
                     team=team,
                     distinct_id=distinct_id,
-                    person_id=person_id,
                     timestamp=timestamp,
                     properties={
                         "$session_id": session_id,
@@ -215,6 +213,19 @@ class Command(BaseCommand):
                     },
                 )
                 total_events += 1
+
+            session_end = last_timestamp
+            MCPSession.objects.create(
+                team=team,
+                session_id=session_id,
+                session_start=session_start,
+                session_end=session_end,
+                duration_seconds=max(1, int((session_end - session_start).total_seconds())),
+                tools_used=sorted(tools_used),
+                distinct_id=distinct_id,
+                mcp_client_name=client_name,
+                intent=session_intent,
+            )
 
             self.stdout.write(f"  session {session_idx + 1}/{session_count}: {calls} tool calls ({session_id})")
 
