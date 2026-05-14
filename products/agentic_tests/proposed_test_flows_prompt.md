@@ -24,4 +24,4 @@ Flows that are the most obvious to test should be first in the list.
 
 For each flow, you must determine the specific starting URL on the product's domain (provided below).
 
-Use the `set_output` tool to provide your findings as structured JSON matching the output schema. Do not output YAML or plain text - use `set_output` only.
+Use the `StructuredOutput` tool to provide your findings as structured JSON matching the output schema. Do not output YAML or plain text - use `StructuredOutput` only.
