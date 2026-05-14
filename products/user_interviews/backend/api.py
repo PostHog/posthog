@@ -12,6 +12,7 @@ from django.utils import timezone
 
 import posthoganalytics
 import posthoganalytics.ai.openai
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from elevenlabs import ElevenLabs
 from posthoganalytics.ai.openai import OpenAI
@@ -239,6 +240,8 @@ class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     parser_classes = [MultiPartParser, JSONParser]
     posthog_feature_flag = "user-interviews"
     permission_classes = [PostHogFeatureFlagPermission]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["topic"]
 
 
 class UserInterviewTopicSerializer(serializers.ModelSerializer):

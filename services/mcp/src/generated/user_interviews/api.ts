@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -159,5 +159,28 @@ export const UserInterviewTopicsIntervieweesCreateBody = /* @__PURE__ */ zod.obj
         .max(userInterviewTopicsIntervieweesCreateBodyAgentContextMax)
         .describe(
             "Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'."
+        ),
+})
+
+export const UserInterviewsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const UserInterviewsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    topic: zod.string().optional(),
+})
+
+export const UserInterviewsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this user interview.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
