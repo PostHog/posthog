@@ -296,6 +296,8 @@ async def _stream_run(*, run: AgenticTestRun, test: AgenticTest) -> AsyncIterato
 
     final: dict[str, Any] | None = None
     captured_events: list[dict[str, Any]] = []
+    last_flush_at: float = 0.0
+    eager_session_persisted: bool = False
     try:
         while True:
             try:
@@ -312,6 +314,23 @@ async def _stream_run(*, run: AgenticTestRun, test: AgenticTest) -> AsyncIterato
             yield _sse(item.type, {"step": item.step, **item.data})
             if item.type == "final":
                 final = item.data
+            # Persist the eagerly-paired session id the moment the runner publishes it,
+            # so the UI shows "View replay →" within ~1s of run start (not at end).
+            if not eager_session_persisted and item.type == "status":
+                sid = item.data.get("posthog_session_id", "")
+                if sid:
+                    await sync_to_async(_flush_run_session_id, thread_sensitive=True)(
+                        run_id=str(run.id), posthog_session_id=sid
+                    )
+                    eager_session_persisted = True
+            # Periodically persist captured events to the run row so polling clients see
+            # live progress and a page refresh doesn't lose the in-flight log stream.
+            now = asyncio.get_event_loop().time()
+            if now - last_flush_at > 1.5:
+                await sync_to_async(_flush_run_log_entries, thread_sensitive=True)(
+                    run_id=str(run.id), log_entries=list(captured_events)
+                )
+                last_flush_at = now
     finally:
         await sync_to_async(_persist_run_terminal, thread_sensitive=True)(
             run=run,
@@ -321,6 +340,16 @@ async def _stream_run(*, run: AgenticTestRun, test: AgenticTest) -> AsyncIterato
         )
 
     yield _sse("run_finished", {"run_id": str(run.id), "status": run.status})
+
+
+def _flush_run_log_entries(*, run_id: str, log_entries: list[dict[str, Any]]) -> None:
+    """Cheap incremental write — used during the run so the UI's polling loop sees progress."""
+    AgenticTestRun.objects.filter(id=run_id).update(log_entries=log_entries)
+
+
+def _flush_run_session_id(*, run_id: str, posthog_session_id: str) -> None:
+    """Persist the eagerly-paired posthog session id as soon as the runner has it."""
+    AgenticTestRun.objects.filter(id=run_id).update(posthog_session_id=posthog_session_id)
 
 
 def _persist_run_terminal(
@@ -343,11 +372,16 @@ def _persist_run_terminal(
     run.screenshot_url = result.get("screenshot_url", "") or ""
     run.region = result.get("region", "") or ""
     run.log_entries = log_entries
-    run.posthog_session_id = _lookup_posthog_session_id(team_id=test.team_id, run=run)
+    # Eager pairing first (runner.page.evaluate). Fall back to CH lookup only if missing.
+    eager_session_id = result.get("posthog_session_id", "") or ""
+    if eager_session_id:
+        run.posthog_session_id = eager_session_id
+    else:
+        run.posthog_session_id = _lookup_posthog_session_id(team_id=test.team_id, run=run)
     if not run.posthog_session_id:
         from products.agentic_tests.backend.tasks.tasks import pair_posthog_session_for_run
 
-        pair_posthog_session_for_run.apply_async(args=[str(run.id)], countdown=20)
+        pair_posthog_session_for_run.apply_async(args=[str(run.id)], countdown=15)
     run.status = AgenticTestRun.Status.PASSED if passed else AgenticTestRun.Status.FAILED
     if not passed:
         run.error_message = (result.get("error") or "")[:5000]

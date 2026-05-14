@@ -18,7 +18,7 @@ export function initPostHog(): void {
         posthog.init(demoApiToken, {
             api_host: localApiHost,
             disable_compression: true,
-            capture_pageview: false,
+            capture_pageview: 'history_change', // auto-fire $pageview on initial load AND on every Next.js client-side route change
             autocapture: true,
             persistence: 'memory', // Use memory persistence for replay mode to avoid conflicts
             opt_out_useragent_filter: true, // We do want capture to work in a bot environment (Playwright)

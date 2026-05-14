@@ -42,6 +42,11 @@ MODEL = "claude-sonnet-4-6"
 LLM_PRODUCT = "agentic_tests"
 MAX_OUTPUT_TOKENS = 1024
 PAGE_SETTLE_MS = 800
+# Wait this long after we eagerly pair with posthog-js so rrweb has time to take its
+# first full DOM snapshot of the current page. Without this, the recording can start
+# from the *next* page the agent navigates to (the recorder is torn down on the hard
+# nav before it ever flushes the previous page's snapshot).
+POSTHOG_RECORDER_WARMUP_MS = 1500
 ACTION_TIMEOUT_MS = 5000
 MAX_REFS_PER_SNAPSHOT = 60  # keep token usage bounded; rare to need more
 _SNAPSHOT_MARKER = "\n\nUpdated page state:\n"
@@ -278,6 +283,21 @@ def run_agent(
             tagged_url = _append_run_tracking_params(target_url, run_id=run_id, test_id=test_id)
             page.goto(tagged_url, wait_until="domcontentloaded")
             page.wait_for_timeout(PAGE_SETTLE_MS)
+            # First read attempt right after landing. May return empty if the page is an
+            # interstitial (ngrok warning, consent banner) that doesn't have posthog-js.
+            # We retry after each tool execution below until we get one.
+            posthog_session_id = _read_posthog_session_id(page, timeout_ms=1500)
+            if posthog_session_id:
+                yield AgentEvent(
+                    "status",
+                    {
+                        "message": f"Paired with PostHog session replay {posthog_session_id}",
+                        "posthog_session_id": posthog_session_id,
+                    },
+                )
+                # Let rrweb capture its first full snapshot of the landing page before
+                # the agent can navigate away.
+                page.wait_for_timeout(POSTHOG_RECORDER_WARMUP_MS)
             refs, snapshot = _enumerate(page)
 
             messages: list[dict[str, Any]] = [
@@ -314,6 +334,7 @@ def run_agent(
                         passed=False,
                         reason="Agent stopped without calling `done`.",
                         duration_ms=int((time.monotonic() - start) * 1000),
+                        posthog_session_id=posthog_session_id,
                     )
                     return
 
@@ -333,6 +354,7 @@ def run_agent(
                         passed=bool(args.get("passed", False)),
                         reason=str(args.get("reason", "")),
                         duration_ms=int((time.monotonic() - start) * 1000),
+                        posthog_session_id=posthog_session_id,
                     )
                     return
 
@@ -352,6 +374,24 @@ def run_agent(
                 yield AgentEvent("tool_result", {"name": tool_name, "result": result_text[:500]}, step=state.step)
 
                 page.wait_for_timeout(PAGE_SETTLE_MS)
+                # Re-check for posthog-js if we haven't paired yet — the agent may have
+                # just clicked through an interstitial (ngrok warning, cookie banner) onto
+                # the actual customer site where posthog-js is loaded.
+                if not posthog_session_id:
+                    posthog_session_id = _read_posthog_session_id(page, timeout_ms=500)
+                    if posthog_session_id:
+                        yield AgentEvent(
+                            "status",
+                            {
+                                "message": f"Paired with PostHog session replay {posthog_session_id}",
+                                "posthog_session_id": posthog_session_id,
+                            },
+                            step=state.step,
+                        )
+                        # Give posthog-js's rrweb recorder time to take its first full
+                        # DOM snapshot on this page. Without this delay the recording can
+                        # start from the *next* page the agent navigates to.
+                        page.wait_for_timeout(POSTHOG_RECORDER_WARMUP_MS)
                 refs, snapshot = _enumerate(page)
                 _strip_stale_snapshots(messages)
 
@@ -382,6 +422,7 @@ def run_agent(
                 passed=False,
                 reason=f"Exceeded max_steps={max_steps} without a verdict.",
                 duration_ms=int((time.monotonic() - start) * 1000),
+                posthog_session_id=posthog_session_id,
             )
     except Exception as exc:  # noqa: BLE001
         logger.exception("agentic_test_runner_error", error=str(exc))
@@ -524,6 +565,31 @@ def _append_run_tracking_params(url: str, *, run_id: str, test_id: str) -> str:
     extra = urlencode({"_phag": f"run-{run_id}"})
     new_query = f"{parsed.query}&{extra}" if parsed.query else extra
     return urlunparse(parsed._replace(query=new_query))
+
+
+def _read_posthog_session_id(page: Page, *, timeout_ms: int = 4000) -> str:
+    """If the customer's posthog-js is loaded on this page, return its current session id.
+
+    Best-effort: returns empty string if posthog-js isn't present or doesn't initialize
+    within the deadline (the caller falls back to the post-run CH lookup in that case).
+    """
+    script = """
+async () => {
+    const deadline = Date.now() + 4000
+    while (Date.now() < deadline) {
+        const sid = window.posthog && window.posthog.get_session_id && window.posthog.get_session_id()
+        if (sid) return sid
+        await new Promise((r) => setTimeout(r, 100))
+    }
+    return ''
+}
+"""
+    try:
+        sid = page.evaluate(script)
+    except Exception as exc:  # noqa: BLE001 — non-fatal, lookup fallback covers us
+        logger.warning("agentic_test_posthog_eager_pair_failed", error=str(exc))
+        return ""
+    return str(sid) if sid else ""
 
 
 def _override_user_agent_for_page(page: Page, *, test_id: str, run_id: str, region: str) -> None:

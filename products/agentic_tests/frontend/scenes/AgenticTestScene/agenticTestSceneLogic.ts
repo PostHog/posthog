@@ -60,7 +60,7 @@ const emptyDraft: AgenticTestDraft = {
     status: 'active',
     assertions: [],
     schedule_cron: '',
-    regions: [],
+    regions: ['us-west-2'],
 }
 
 export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
@@ -144,6 +144,10 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                 }
                 if (!draft.prompt?.trim()) {
                     lemonToast.error('Prompt is required')
+                    return
+                }
+                if (!draft.regions || draft.regions.length === 0) {
+                    lemonToast.error('Pick at least one region for this test to run from')
                     return
                 }
                 draft = { ...draft, name }

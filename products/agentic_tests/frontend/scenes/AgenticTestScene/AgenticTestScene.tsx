@@ -7,7 +7,6 @@ import { IconBolt } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
-    LemonCheckbox,
     LemonInput,
     LemonLabel,
     LemonSelect,
@@ -45,10 +44,10 @@ const SCHEDULE_PRESETS: { value: string; label: string }[] = [
 ]
 
 const REGION_OPTIONS: { value: string; label: string }[] = [
-    { value: 'us-west-2', label: 'US West (Oregon)' },
-    { value: 'us-east-1', label: 'US East (Virginia)' },
-    { value: 'eu-central-1', label: 'EU Central (Frankfurt)' },
-    { value: 'ap-southeast-1', label: 'Asia Pacific (Singapore)' },
+    { value: 'us-west-2', label: '🇺🇸 US West (Oregon)' },
+    { value: 'us-east-1', label: '🇺🇸 US East (Virginia)' },
+    { value: 'eu-central-1', label: '🇪🇺 EU Central (Frankfurt)' },
+    { value: 'ap-southeast-1', label: '🇸🇬 Asia Pacific (Singapore)' },
 ]
 
 const STATUS_BADGE: Record<string, { type: LemonTagType; label: string }> = {
@@ -285,31 +284,48 @@ function ConfigurationTab({ id }: { id: string | 'new' }): JSX.Element {
 
                     <CardSection title="Regions">
                         <p className="text-xs text-muted mb-0">
-                            Browser regions this test may run from. If multiple are selected, each run picks one at
-                            random. Leave empty to use the Browserbase default (US West).
+                            Where this test runs from. Each trigger creates one run per selected region, so 3 regions =
+                            3 parallel runs every time.
                         </p>
-                        <div className="flex flex-col gap-1">
+                        <div className="flex flex-wrap gap-1.5">
                             {REGION_OPTIONS.map((opt) => {
                                 const selected = (testForm.regions ?? []).includes(opt.value)
                                 return (
-                                    <LemonCheckbox
+                                    <LemonButton
                                         key={opt.value}
-                                        checked={selected}
-                                        label={opt.label}
-                                        onChange={(checked) => {
+                                        size="small"
+                                        type={selected ? 'primary' : 'secondary'}
+                                        onClick={() => {
                                             const current = new Set(testForm.regions ?? [])
-                                            if (checked) {
-                                                current.add(opt.value)
-                                            } else {
+                                            if (selected) {
                                                 current.delete(opt.value)
+                                            } else {
+                                                current.add(opt.value)
                                             }
                                             setTestFormValue('regions', Array.from(current))
                                         }}
                                         data-attr={`agentic-test-region-${opt.value}`}
-                                    />
+                                    >
+                                        {opt.label}
+                                    </LemonButton>
                                 )
                             })}
                         </div>
+                        {(() => {
+                            const count = (testForm.regions ?? []).length
+                            if (count === 0) {
+                                return (
+                                    <p className="text-xs text-danger mb-0">
+                                        Pick at least one region — the test needs somewhere to run from.
+                                    </p>
+                                )
+                            }
+                            return (
+                                <p className="text-xs text-muted mb-0">
+                                    {count === 1 ? '1 run per trigger.' : `${count} parallel runs per trigger.`}
+                                </p>
+                            )
+                        })()}
                     </CardSection>
 
                     <CardSection title="Assertions">

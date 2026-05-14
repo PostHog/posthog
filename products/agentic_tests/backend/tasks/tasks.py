@@ -80,5 +80,8 @@ def pair_posthog_session_for_run(run_id: str, attempt: int = 1) -> None:
         return
     # One more retry with a longer wait, in case the customer's posthog-js batched and
     # flushed slowly. Two attempts is enough — anything beyond that is a config issue.
-    if attempt < 2:
-        pair_posthog_session_for_run.apply_async(args=[run_id, attempt + 1], countdown=60)
+    if attempt < 3:
+        # Recording metadata can take 30-60s to appear in session_replay_events on a
+        # busy ingestion pipeline. Three attempts at 15s / 60s / 120s covers ~3min total.
+        delay = {1: 60, 2: 120}[attempt]
+        pair_posthog_session_for_run.apply_async(args=[run_id, attempt + 1], countdown=delay)
