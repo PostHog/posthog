@@ -71,14 +71,15 @@ function translateTrigger(entry: unknown): TriggerDefinition | null {
     }
     if (obj.type === 'slack_event') {
         const events = Array.isArray(obj.events) ? obj.events.filter((e): e is string => typeof e === 'string') : []
-        // Accept both snake_case (canonical, how it's written in agent.ts and the
-        // bundler-produced manifest) and the legacy camelCase form for
-        // forward-compat with any older revision rows.
-        const signingSecretName = obj.signing_secret_name ?? obj.signingSecretName
-        if (events.length === 0 || typeof signingSecretName !== 'string') {
+        if (events.length === 0) {
             return null
         }
-        return { id: obj.id, type: 'slack_event', events, signing_secret_name: signingSecretName }
+        // The trigger handler sources `SLACK_SIGNING_SECRET` / `SLACK_BOT_TOKEN`
+        // from well-known env-var names (see packages/ass-server/src/triggers/slack.ts) —
+        // no per-instance config. Older revisions whose manifest still carries
+        // `signing_secret_name` are forward-compatible because the handler
+        // ignores it.
+        return { id: obj.id, type: 'slack_event', events }
     }
     return null
 }
