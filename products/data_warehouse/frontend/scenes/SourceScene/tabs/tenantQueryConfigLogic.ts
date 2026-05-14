@@ -68,7 +68,7 @@ const DEFAULT_TENANT_QUERY_PLAYGROUND_FORM: TenantQueryPlaygroundFormValues = {
 
 const DEFAULT_TENANT_QUERY_TABLE_VISIBILITY: TenantQueryTableVisibility = {
     queryable: true,
-    non_queryable: false,
+    non_queryable: true,
 }
 
 function configToForm(config: TenantQueryConfigResponseApi | null): TenantQueryConfigFormValues {
