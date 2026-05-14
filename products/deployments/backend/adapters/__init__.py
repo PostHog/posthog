@@ -12,7 +12,13 @@ GitHub integration by default, while deployment commit resolution remains
 stubbed until the build stream owns that contract.
 """
 
-from .cloudflare import CloudflareAdapter, CloudflareError, NullCloudflareAdapter, get_cloudflare_adapter
+from .cloudflare import (
+    CloudflareAdapter,
+    CloudflareError,
+    CloudflarePagesAdapter,
+    NullCloudflareAdapter,
+    get_cloudflare_adapter,
+)
 from .github import GitHubAdapter, GitHubBranch, GitHubError, GitHubRepository, NullGitHubAdapter, get_github_adapter
 from .microlink import NullScreenshotAdapter, ScreenshotAdapter, get_screenshot_adapter
 from .temporal import NullWorkflowAdapter, WorkflowAdapter, WorkflowError, get_workflow_adapter
@@ -20,6 +26,7 @@ from .temporal import NullWorkflowAdapter, WorkflowAdapter, WorkflowError, get_w
 __all__ = [
     "CloudflareAdapter",
     "CloudflareError",
+    "CloudflarePagesAdapter",
     "GitHubAdapter",
     "GitHubBranch",
     "GitHubError",

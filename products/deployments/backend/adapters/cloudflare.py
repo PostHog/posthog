@@ -1,17 +1,29 @@
 """Cloudflare Pages adapter boundary.
 
-The Build/Infra stream owns the real implementation (a thin wrapper around
-the Cloudflare Pages REST API). We declare the Protocol they implement
-against and a Null stub for tests.
+Declares the Protocol the rest of the product depends on, a Null stub
+for tests and dev, and `CloudflarePagesAdapter` — the real implementation
+that calls the Cloudflare Pages REST API. The resolver
+`get_cloudflare_adapter()` returns the Null stub unless
+`DEPLOYMENTS_CLOUDFLARE_ADAPTER` is wired to point at the real class,
+which happens via chart values once the API token is in place.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import import_module
-from typing import Protocol
+from typing import Any, Protocol
 
 from django.conf import settings
+
+import requests
+
+# Tight timeout — `create_project` runs synchronously on the public POST
+# /deployment_projects/ request path. Anything longer hurts user-visible
+# latency more than it helps a flaky CF response.
+CLOUDFLARE_API_TIMEOUT_SECONDS = 10
+CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
+HOG_DEV_ZONE = "hog.dev"
 
 
 @dataclass(frozen=True)
@@ -66,12 +78,106 @@ class NullCloudflareAdapter:
         return CFDeployment(id=deployment_id, url=f"https://{project_name}.pages.dev")
 
 
+class CloudflarePagesAdapter:
+    """Cloudflare Pages adapter backed by the real REST API.
+
+    Resolves settings lazily (at call time, not import time) so missing
+    env vars only blow up when the adapter is actually exercised. This
+    keeps test environments and the Null path unaffected by the real
+    adapter's deployment-dependent config.
+
+    `create_project` creates the Pages project and attaches a custom
+    domain under `hog.dev` in a single call sequence. The custom domain
+    attachment relies on the `hog.dev` zone living in the same CF
+    account as the project — Cloudflare then auto-creates the CNAME
+    record in the zone, so DNS records aren't managed from this side.
+    """
+
+    def _config(self) -> tuple[str, str, str]:
+        account_id = getattr(settings, "DEPLOYMENTS_CLOUDFLARE_ACCOUNT_ID", "")
+        api_token = getattr(settings, "DEPLOYMENTS_CLOUDFLARE_API_TOKEN", "")
+        project_prefix = getattr(settings, "DEPLOYMENTS_CLOUDFLARE_PROJECT_PREFIX", "")
+        if not account_id or not api_token:
+            raise CloudflareError(
+                "CloudflarePagesAdapter is missing required settings: "
+                "DEPLOYMENTS_CLOUDFLARE_ACCOUNT_ID and DEPLOYMENTS_CLOUDFLARE_API_TOKEN."
+            )
+        return account_id, api_token, project_prefix
+
+    def _request(self, method: str, path: str, *, json: dict[str, Any] | None = None) -> dict[str, Any]:
+        _, api_token, _ = self._config()
+        url = f"{CLOUDFLARE_API_BASE}{path}"
+        headers = {"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
+        try:
+            response = requests.request(method, url, headers=headers, json=json, timeout=CLOUDFLARE_API_TIMEOUT_SECONDS)
+        except requests.RequestException as err:
+            raise CloudflareError(f"Cloudflare {method} {path} failed: {err}") from err
+
+        try:
+            body = response.json()
+        except ValueError as err:
+            raise CloudflareError(
+                f"Cloudflare {method} {path} returned non-JSON response (status {response.status_code})."
+            ) from err
+
+        if not response.ok or not body.get("success", False):
+            errors = body.get("errors") or []
+            message = errors[0].get("message") if errors and isinstance(errors[0], dict) else response.reason
+            raise CloudflareError(f"Cloudflare {method} {path} failed: {message} (status {response.status_code})")
+
+        result = body.get("result")
+        if not isinstance(result, dict):
+            raise CloudflareError(f"Cloudflare {method} {path} returned an unexpected result shape.")
+        return result
+
+    def create_project(self, *, name: str, production_branch: str) -> CFProject:
+        account_id, _, project_prefix = self._config()
+        cf_project_name = f"{project_prefix}{name}"
+
+        self._request(
+            "POST",
+            f"/accounts/{account_id}/pages/projects",
+            json={"name": cf_project_name, "production_branch": production_branch},
+        )
+
+        # Attach the customer-facing `<name>.hog.dev` custom domain. CF
+        # creates the CNAME in the hog.dev zone automatically because the
+        # zone and the project live in the same account. The CF Pages
+        # project's own `*.pages.dev` URL still works, but `subdomain`
+        # below is what the product surfaces to the user.
+        custom_domain = f"{name}.{HOG_DEV_ZONE}"
+        self._request(
+            "POST",
+            f"/accounts/{account_id}/pages/projects/{cf_project_name}/domains",
+            json={"name": custom_domain},
+        )
+
+        return CFProject(name=cf_project_name, subdomain=custom_domain)
+
+    def rollback(self, *, project_name: str, deployment_id: str) -> CFDeployment:
+        account_id, _, _ = self._config()
+        result = self._request(
+            "POST",
+            f"/accounts/{account_id}/pages/projects/{project_name}/deployments/{deployment_id}/rollback",
+        )
+        # The rollback endpoint returns a deployment object. `url` is the
+        # public URL of the deployment that's now serving production.
+        url = result.get("url")
+        if not isinstance(url, str) or not url:
+            raise CloudflareError("Cloudflare rollback succeeded but returned no deployment URL.")
+        new_deployment_id = result.get("id")
+        if not isinstance(new_deployment_id, str) or not new_deployment_id:
+            raise CloudflareError("Cloudflare rollback succeeded but returned no deployment id.")
+        return CFDeployment(id=new_deployment_id, url=url)
+
+
 def get_cloudflare_adapter() -> CloudflareAdapter:
     """Resolve the adapter implementation from settings.
 
     Reads `settings.DEPLOYMENTS_CLOUDFLARE_ADAPTER` as a `"module.path:ClassName"`
-    string; if unset, returns `NullCloudflareAdapter`. Build/Infra wires the
-    real implementation by setting this env var.
+    string; if unset, returns `NullCloudflareAdapter`. Wire the real
+    implementation in by setting this env var to
+    `products.deployments.backend.adapters.cloudflare:CloudflarePagesAdapter`.
     """
     path = getattr(settings, "DEPLOYMENTS_CLOUDFLARE_ADAPTER", None)
     if not path:
