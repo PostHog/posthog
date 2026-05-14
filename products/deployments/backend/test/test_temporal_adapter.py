@@ -35,9 +35,8 @@ BUILD_INPUT = BuildInput(
 
 
 def _make_rpc_error(message: str, status: RPCStatusCode = RPCStatusCode.UNKNOWN) -> RPCError:
-    # RPCError's constructor signature varies between temporalio versions;
-    # this works against the version pinned in the repo.
-    return RPCError(message, status, "")
+    # RPCError's third positional arg (raw_proto) is bytes, not str.
+    return RPCError(message, status, b"")
 
 
 @override_settings(DEPLOYMENTS_TASK_QUEUE="deployments-task-queue", TEMPORAL_WORKFLOW_MAX_ATTEMPTS="5")
