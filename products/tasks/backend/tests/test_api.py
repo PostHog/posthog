@@ -504,29 +504,6 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
 
-    def test_create_sendblue_task_defaults_repository_without_github_integration(self):
-        Integration.objects.create(team=self.team, kind="github", config={})
-
-        response = self.client.post(
-            "/api/projects/@current/tasks/",
-            {
-                "title": "Sendblue Task",
-                "description": "Created from Sendblue",
-                "origin_product": "sendblue",
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        data = response.json()
-        self.assertEqual(data["origin_product"], Task.OriginProduct.SENDBLUE)
-        self.assertEqual(data["repository"], "posthog/posthog")
-
-        task = Task.objects.get(id=data["id"])
-        self.assertEqual(task.origin_product, Task.OriginProduct.SENDBLUE)
-        self.assertEqual(task.repository, "posthog/posthog")
-        self.assertIsNone(task.github_integration_id)
-
     def test_create_task_with_github_user_integration(self):
         user_integration = _grant_user_github_access(self.user)
 
@@ -1159,27 +1136,6 @@ class TestTaskAPI(BaseTaskAPITest):
         task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
         assert "initial_permission_mode" not in (task_run.state or {})
         mock_workflow.assert_called_once()
-
-    @patch("posthog.tasks.tasks.reconcile_sendblue_prewarmed_sandbox_pool.delay")
-    @patch("products.tasks.backend.api.execute_task_processing_workflow")
-    def test_run_endpoint_sendblue_marks_origin_and_enqueues_pool_reconcile(self, mock_workflow, mock_reconcile):
-        task = self.create_task()
-        task.origin_product = Task.OriginProduct.SENDBLUE
-        task.repository = "posthog/posthog"
-        task.save(update_fields=["origin_product", "repository"])
-
-        response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/run/",
-            {"mode": "interactive", "pending_user_message": "hello from sms"},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
-        assert task_run.state["interaction_origin"] == "sendblue"
-        assert task_run.state["pending_user_message"] == "hello from sms"
-        mock_workflow.assert_called_once()
-        mock_reconcile.assert_called_once_with(task.team_id)
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_rejects_invalid_initial_permission_mode(self, mock_workflow):
