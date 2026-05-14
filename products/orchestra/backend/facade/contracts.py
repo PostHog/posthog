@@ -36,3 +36,15 @@ class ExecutionDetail:
     started_at: datetime
     finished_at: datetime | None
     events: list[EventRecord]
+
+
+@dataclass(frozen=True)
+class DeploymentSummary:
+    id: int
+    code_version: str
+    image_name: str
+    container_id: str
+    task_queue: str
+    status: str
+    started_at: datetime
+    finished_at: datetime | None

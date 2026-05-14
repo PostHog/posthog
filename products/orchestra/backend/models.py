@@ -5,6 +5,30 @@ from django.db import models
 from posthog.models.scoping.product_mixin import ProductTeamModel
 
 
+class Deployment(ProductTeamModel):
+    STATUS_ACTIVE = "active"
+    STATUS_DRAINING = "draining"
+    STATUS_STOPPED = "stopped"
+    STATUS_FAILED = "failed"
+
+    code_version = models.CharField(max_length=64)
+    image_name = models.CharField(max_length=512)
+    container_id = models.CharField(max_length=128, blank=True, default="")
+    task_queue = models.CharField(max_length=255)
+    status = models.CharField(max_length=32, default=STATUS_ACTIVE)
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    error = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        app_label = "orchestra"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team_id", "status"], name="orch_dep_team_status_idx"),
+            models.Index(fields=["team_id", "-started_at"], name="orch_dep_team_started_idx"),
+        ]
+
+
 class Execution(ProductTeamModel):
     execution_id = models.TextField(db_index=True)
     run_id = models.UUIDField(default=uuid.uuid4)

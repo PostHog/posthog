@@ -17,6 +17,7 @@ class Client:
         input: Any = None,
         *,
         execution_id: str,
+        team_id: int,
         step_queue: str = "default",
         run_id: UUID | None = None,
     ) -> UUID:
@@ -30,12 +31,14 @@ class Client:
                     execution_type=execution_type,
                     step_queue=step_queue,
                     input=input,
+                    team_id=team_id,
                 )
                 await self.db.lock_execution(conn, execution_id, run_id)
                 await self.db.append_events(
                     conn,
                     execution_id,
                     run_id,
+                    team_id,
                     [(EventType.EXECUTION_STARTED, {"execution_type": execution_type, "input": input})],
                 )
                 await self.db.enqueue_task(
@@ -44,5 +47,6 @@ class Client:
                     task_type=TaskType.EXECUTION_TASK,
                     execution_id=execution_id,
                     run_id=run_id,
+                    team_id=team_id,
                 )
         return run_id

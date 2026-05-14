@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -43,6 +43,7 @@ def _row_to_task(row: dict[str, Any]) -> Task:
         locked_by=row["locked_by"],
         locked_until=row["locked_until"],
         attempt=row["attempt"],
+        team_id=row["team_id"],
     )
 
 
@@ -80,6 +81,7 @@ class Database:
         conn: AsyncConnection[Any],
         execution_id: str,
         run_id: UUID,
+        team_id: int,
         events: list[tuple[str, dict[str, Any]]],
     ) -> list[int]:
         if not events:
@@ -90,9 +92,9 @@ class Database:
             eid = next_id + offset
             assigned.append(eid)
             await conn.execute(
-                "INSERT INTO orchestra_event (execution_id, run_id, event_id, event_type, attributes) "
-                "VALUES (%s, %s, %s, %s, %s::jsonb)",
-                (execution_id, run_id, eid, event_type, json.dumps(attrs)),
+                "INSERT INTO orchestra_event (execution_id, run_id, event_id, event_type, team_id, attributes) "
+                "VALUES (%s, %s, %s, %s, %s, %s::jsonb)",
+                (execution_id, run_id, eid, event_type, team_id, json.dumps(attrs)),
             )
         return assigned
 
@@ -105,11 +107,13 @@ class Database:
         execution_type: str,
         step_queue: str,
         input: Any,
+        team_id: int,
     ) -> None:
         await conn.execute(
-            "INSERT INTO orchestra_execution (execution_id, run_id, execution_type, step_queue, input, status) "
-            "VALUES (%s, %s, %s, %s, %s::jsonb, %s)",
-            (execution_id, run_id, execution_type, step_queue, json.dumps(input), ExecutionStatus.RUNNING),
+            "INSERT INTO orchestra_execution "
+            "(execution_id, run_id, execution_type, step_queue, input, status, team_id) "
+            "VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s)",
+            (execution_id, run_id, execution_type, step_queue, json.dumps(input), ExecutionStatus.RUNNING, team_id),
         )
 
     async def finish_execution(
@@ -152,6 +156,7 @@ class Database:
         task_type: str,
         execution_id: str,
         run_id: UUID,
+        team_id: int,
         scheduled_event_id: int | None = None,
         step_type: str | None = None,
         input: Any = None,
@@ -159,8 +164,8 @@ class Database:
     ) -> None:
         await conn.execute(
             "INSERT INTO orchestra_task "
-            "(task_queue, task_type, execution_id, run_id, scheduled_event_id, step_type, input, visible_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, COALESCE(%s, now()))",
+            "(task_queue, task_type, execution_id, run_id, scheduled_event_id, step_type, input, visible_at, team_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, COALESCE(%s, now()), %s)",
             (
                 task_queue,
                 task_type,
@@ -170,6 +175,7 @@ class Database:
                 step_type,
                 json.dumps(input) if input is not None else None,
                 visible_at,
+                team_id,
             ),
         )
 
@@ -185,7 +191,7 @@ class Database:
             ") RETURNING *"
         )
         async with self.pool.connection() as conn:
-            conn.row_factory = dict_row
+            conn.row_factory = dict_row  # ty: ignore[invalid-assignment]
             cur = await conn.execute(sql, (worker_id, str(lease_seconds), task_queue))
             row = await cur.fetchone()
         return _row_to_task(row) if row else None
@@ -204,7 +210,7 @@ class Database:
 
     async def load_history(self, execution_id: str, run_id: UUID) -> list[Event]:
         async with self.pool.connection() as conn:
-            conn.row_factory = dict_row
+            conn.row_factory = dict_row  # ty: ignore[invalid-assignment]
             cur = await conn.execute(
                 "SELECT execution_id, run_id, event_id, event_type, timestamp, attributes "
                 "FROM orchestra_event WHERE execution_id=%s AND run_id=%s ORDER BY event_id",
@@ -215,4 +221,4 @@ class Database:
 
 
 def utcnow() -> datetime:
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)

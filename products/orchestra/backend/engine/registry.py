@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable, overload
+from collections.abc import Awaitable, Callable
+from typing import Any, overload
 
 ExecutionFn = Callable[..., Awaitable[Any]]
 StepFn = Callable[..., Awaitable[Any]]
@@ -19,6 +20,7 @@ def execution(fn: ExecutionFn | None = None, *, name: str | None = None):  # typ
         _EXECUTIONS[key] = f
         f.__execution_name__ = key  # type: ignore[attr-defined]
         return f
+
     if fn is not None:
         return register(fn)
     return register
@@ -34,6 +36,7 @@ def step(fn: StepFn | None = None, *, name: str | None = None):  # type: ignore[
         _STEPS[key] = f
         f.__step_name__ = key  # type: ignore[attr-defined]
         return f
+
     if fn is not None:
         return register(fn)
     return register

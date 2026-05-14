@@ -107,6 +107,7 @@ from products.messaging.backend.api.message_preferences import MessagePreference
 from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
 from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.notifications.backend.presentation.views import NotificationsViewSet
+from products.orchestra.backend.presentation.views import DeploymentViewSet, ExecutionViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
@@ -1328,12 +1329,16 @@ projects_router.register(
     ["project_id"],
 )
 
-from products.orchestra.backend.presentation.views import ExecutionViewSet
-
 projects_router.register(
     r"orchestra/executions",
     ExecutionViewSet,
     "project_orchestra_executions",
+    ["project_id"],
+)
+projects_router.register(
+    r"orchestra/deployments",
+    DeploymentViewSet,
+    "project_orchestra_deployments",
     ["project_id"],
 )
 

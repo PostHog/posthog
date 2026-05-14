@@ -1,4 +1,5 @@
 """Django app configuration for orchestra."""
+
 from django.apps import AppConfig
 
 
