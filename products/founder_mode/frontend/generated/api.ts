@@ -13,6 +13,7 @@ import type {
     FounderProjectsListParams,
     PaginatedFounderProjectListApi,
     PatchedFounderProjectApi,
+    PublishScaffoldRequestApi,
     TurnRequestApi,
     TurnResponseApi,
 } from './api.schemas'
@@ -51,7 +52,7 @@ export const getFounderProjectsListUrl = (projectId: string, params?: FounderPro
 }
 
 /**
- * List all founder projects for the current team. Used by the frontend to find an existing project on session restore (the FE doesn't persist the project id across reloads). One row per startup idea.
+ * List the founder project for the current team (at most one row). Used by the frontend to find the existing project on session restore.
  */
 export const founderProjectsList = async (
     projectId: string,
@@ -69,7 +70,7 @@ export const getFounderProjectsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Stage 1 (Ideation) commit. Called by the FE when the cofounder chat reaches `should_end_chat=true`. Body carries `{name, ideation: {what, how, who, problem}}`. **Side effect:** if `ideation` is non-empty, validation (stage 2) is auto-fired on commit — saves a round-trip vs creating then POSTing `run_validation/`.
+ * Stage 1 (Ideation) commit. Called by the FE when the cofounder chat reaches `should_end_chat=true`. Body carries `{name, ideation: {what, how, who, problem}}`. **Side effect:** if `ideation` is non-empty, validation (stage 2) is auto-fired on commit — saves a round-trip vs creating then POSTing `run_validation/`. **Idempotent:** if a project already exists for this team, the existing row is updated and returned instead of creating a duplicate.
  */
 export const founderProjectsCreate = async (
     projectId: string,
@@ -158,6 +159,27 @@ export const founderProjectsDestroy = async (projectId: string, id: string, opti
     })
 }
 
+export const getFounderProjectsPublishScaffoldCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/founder_projects/${id}/publish_scaffold/`
+}
+
+/**
+ * **Stage 6b (Scaffold — publish).** Push the previously-generated file tree to a fresh GitHub repository on the authenticated user's account. Body carries the `github_token` (PAT with `repo` scope — used once, never persisted), `repo_name`, `visibility` (public/private), and optional `description`. Returns 202 + the project; poll `scaffold.status` and read `scaffold.repo` once it's `completed`. Requires `scaffold.files` to be populated by a prior `run_scaffold` call.
+ */
+export const founderProjectsPublishScaffoldCreate = async (
+    projectId: string,
+    id: string,
+    publishScaffoldRequestApi: PublishScaffoldRequestApi,
+    options?: RequestInit
+): Promise<FounderProjectApi> => {
+    return apiMutator<FounderProjectApi>(getFounderProjectsPublishScaffoldCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(publishScaffoldRequestApi),
+    })
+}
+
 export const getFounderProjectsRunGtmCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/founder_projects/${id}/run_gtm/`
 }
@@ -242,6 +264,27 @@ export const founderProjectsRunPracticalStepsCreate = async (
     })
 }
 
+export const getFounderProjectsRunScaffoldCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/founder_projects/${id}/run_scaffold/`
+}
+
+/**
+ * **Stage 6a (Scaffold — generate).** Render the landing page build spec into a Next.js + Tailwind + react-markdown file tree, stored as `{path: contents}` on the `scaffold.files` column. Requires `marketing_page.status='completed'` (i.e. the spec exists). Pure Python — no LLM call, no network — should complete in well under a second. Poll until `scaffold.status` is `completed` or `failed`.
+ */
+export const founderProjectsRunScaffoldCreate = async (
+    projectId: string,
+    id: string,
+    founderProjectApi: NonReadonly<FounderProjectApi>,
+    options?: RequestInit
+): Promise<FounderProjectApi> => {
+    return apiMutator<FounderProjectApi>(getFounderProjectsRunScaffoldCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(founderProjectApi),
+    })
+}
+
 export const getFounderProjectsRunValidationCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/founder_projects/${id}/run_validation/`
 }
@@ -268,7 +311,7 @@ export const getFounderProjectsCofounderTurnCreateUrl = (projectId: string) => {
 }
 
 /**
- * **Stage 1 (Ideation).** One turn of the cofounder chat. Synchronous Gemini call. The request carries the full conversation state (chat is ephemeral on the FE until the founder commits at end-of-chat); the response carries the agent's next message plus an optional canvas-slot decision and an end-of-chat signal. When `should_end_chat=true`, the response also includes a synthesized `ideation_payload` that the FE then POSTs to `founder_projects/` to commit the ideation and auto-fire validation (stage 2).
+ * **Stage 1 (Ideation).** One turn of a topic-scoped cofounder mini-chat. Synchronous Gemini call. The request carries `{topic, goal, user_answer, messages, founder_mode}` — the topic's whole thread so far (chat is ephemeral on the FE). The response carries the agent's next `agent_message`, a `satisfied` flag, and — when satisfied — a `crystallized_value` dict whose keys are defined by the request `goal` (for the `idea` topic: `{what, how, who, problem}`). On `satisfied=true` the FE POSTs the crystallized value to `founder_projects/` to commit the ideation and auto-fire validation (stage 2).
  */
 export const founderProjectsCofounderTurnCreate = async (
     projectId: string,

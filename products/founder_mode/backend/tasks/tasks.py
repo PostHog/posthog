@@ -27,6 +27,7 @@ from products.founder_mode.backend.logic.hashing import ideation_hash
 from products.founder_mode.backend.logic.landing_page.service import generate_landing_page
 from products.founder_mode.backend.logic.mvp.service import generate_mvp_happy_path
 from products.founder_mode.backend.logic.practical_steps.service import generate_practical_steps
+from products.founder_mode.backend.logic.scaffold.service import generate_scaffold, publish_scaffold
 from products.founder_mode.backend.logic.validation.service import run_validation
 from products.founder_mode.backend.models import FounderProject
 
@@ -354,3 +355,165 @@ def run_practical_steps_task(founder_project_id: str, user_id: int | None = None
         "error": "",
     }
     project.save(update_fields=["marketing_steps", "updated_at"])
+
+
+# --- Scaffold: spec → file tree (stage 6a) ---
+
+
+@shared_task(ignore_result=True)
+def run_scaffold_task(founder_project_id: str, user_id: int | None = None) -> None:
+    """Render the landing page spec into a Next.js file tree → `scaffold.files`.
+
+    Requires `marketing_page.status == 'completed'` (i.e. the spec exists). Pure Python
+    string-building — no LLM call, no network. Should complete in well under a second.
+    """
+    project = FounderProject.objects.select_related("team").get(id=founder_project_id)
+
+    spec = None
+    if isinstance(project.marketing_page, dict):
+        spec = project.marketing_page.get("page")
+    if not spec:
+        logger.warning("Skipping scaffold, no landing page spec set", project_id=founder_project_id)
+        project.scaffold = {
+            "status": "failed",
+            "started_at": _now_iso(),
+            "failed_at": _now_iso(),
+            "files": None,
+            "file_count": None,
+            "total_bytes": None,
+            "repo": None,
+            "trace_id": None,
+            "error": "marketing_page.page is not set — run run_landing_page first.",
+        }
+        project.save(update_fields=["scaffold", "updated_at"])
+        return
+
+    started_at = _now_iso()
+    # Preserve existing `repo` and `pages` entries across re-generations so the founder
+    # doesn't lose track of a previously-published repo / live URL just because they
+    # regenerated the file tree.
+    previous = project.scaffold if isinstance(project.scaffold, dict) else {}
+    previous_repo = previous.get("repo")
+    previous_pages = previous.get("pages")
+    project.scaffold = {
+        "status": "running",
+        "started_at": started_at,
+        "files": None,
+        "file_count": None,
+        "total_bytes": None,
+        "repo": previous_repo,
+        "pages": previous_pages,
+        "trace_id": None,
+        "error": "",
+    }
+    project.save(update_fields=["scaffold", "updated_at"])
+
+    try:
+        files, trace_id = generate_scaffold(spec=spec, project_name=project.name)
+    except Exception as exc:
+        logger.exception("Scaffold generation failed", project_id=founder_project_id)
+        project.scaffold = {
+            "status": "failed",
+            "started_at": started_at,
+            "failed_at": _now_iso(),
+            "files": None,
+            "file_count": None,
+            "total_bytes": None,
+            "repo": previous_repo,
+            "pages": previous_pages,
+            "trace_id": None,
+            "error": str(exc),
+        }
+        project.save(update_fields=["scaffold", "updated_at"])
+        return
+
+    total_bytes = sum(len(v.encode("utf-8")) for v in files.values())
+    project.scaffold = {
+        "status": "completed",
+        "started_at": started_at,
+        "completed_at": _now_iso(),
+        "files": files,
+        "file_count": len(files),
+        "total_bytes": total_bytes,
+        "repo": previous_repo,
+        "pages": previous_pages,
+        "trace_id": trace_id,
+        "error": "",
+    }
+    project.save(update_fields=["scaffold", "updated_at"])
+
+
+# --- Scaffold: file tree → GitHub repo (stage 6b) ---
+
+
+@shared_task(ignore_result=True)
+def publish_scaffold_task(
+    founder_project_id: str,
+    *,
+    github_token: str,
+    repo_name: str,
+    visibility: str,
+    description: str,
+    user_id: int | None = None,
+) -> None:
+    """Push the previously-generated file tree to a new GitHub repository.
+
+    Requires `scaffold.files` to be present (i.e. `run_scaffold_task` ran successfully).
+    `github_token` is never persisted — used once for the API calls and discarded.
+    """
+    project = FounderProject.objects.select_related("team").get(id=founder_project_id)
+    envelope = project.scaffold if isinstance(project.scaffold, dict) else {}
+    files = envelope.get("files")
+    if not isinstance(files, dict) or not files:
+        logger.warning("Skipping publish, no generated file tree", project_id=founder_project_id)
+        project.scaffold = {
+            **envelope,
+            "status": "failed",
+            "failed_at": _now_iso(),
+            "error": "scaffold.files is empty — run run_scaffold first.",
+        }
+        project.save(update_fields=["scaffold", "updated_at"])
+        return
+
+    started_at = _now_iso()
+    project.scaffold = {
+        **envelope,
+        "status": "running",
+        "started_at": started_at,
+        "completed_at": None,
+        "failed_at": None,
+        "error": "",
+    }
+    project.save(update_fields=["scaffold", "updated_at"])
+
+    try:
+        repo, pages, trace_id = publish_scaffold(
+            files=files,
+            github_token=github_token,
+            repo_name=repo_name,
+            visibility=visibility,
+            description=description,
+        )
+    except Exception as exc:
+        logger.exception("Scaffold publish failed", project_id=founder_project_id)
+        project.scaffold = {
+            **envelope,
+            "status": "failed",
+            "started_at": started_at,
+            "failed_at": _now_iso(),
+            "error": str(exc),
+        }
+        project.save(update_fields=["scaffold", "updated_at"])
+        return
+
+    project.scaffold = {
+        **envelope,
+        "status": "completed",
+        "started_at": started_at,
+        "completed_at": _now_iso(),
+        "repo": repo.model_dump(),
+        "pages": pages.model_dump(),
+        "trace_id": trace_id,
+        "error": "",
+    }
+    project.save(update_fields=["scaffold", "updated_at"])

@@ -20,12 +20,18 @@ The frontend renders the product as 5 founder-facing stages. They map onto the A
     5. Marketing      POST {id}/run_landing_page/                marketing_page
                       POST {id}/run_practical_steps/             marketing_steps
                       (the UI fires both when the founder enters this stage)
+    6. Scaffold       POST {id}/run_scaffold/                    scaffold.files
+                      POST {id}/publish_scaffold/                scaffold.{repo,pages}
+                      (Single-page static site — HTML + CSS + tiny JS. `publish_scaffold`
+                       pushes to a new GitHub repo AND enables GitHub Pages on it, so the
+                       founder gets a live URL the moment publish completes.)
 
 Real route registration lives in `posthog/api/__init__.py` — see the `founder_projects`
 register call there. presentation/urls.py is a stub kept for documentation symmetry with
 other isolated products.
 """
 
+import os
 from typing import Any
 
 from django.db import transaction
@@ -41,12 +47,15 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.founder_mode.backend.logic.cofounder_chat.schemas import TurnRequest, TurnResponse
 from products.founder_mode.backend.logic.cofounder_chat.service import run_chat_turn
+from products.founder_mode.backend.logic.scaffold.schemas import PublishScaffoldRequest
 from products.founder_mode.backend.models import FounderProject, FounderStepChoices
 from products.founder_mode.backend.tasks.tasks import (
+    publish_scaffold_task,
     run_gtm_task,
     run_landing_page_task,
     run_mvp_task,
     run_practical_steps_task,
+    run_scaffold_task,
     run_validation_task,
 )
 
@@ -282,6 +291,88 @@ class FounderProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             task=run_practical_steps_task,
             not_ready_detail="Cannot run practical steps: ideation is empty.",
         )
+
+    @extend_schema(
+        responses={202: FounderProjectSerializer},
+        description=(
+            "**Stage 6a (Scaffold — generate).** Render the landing page build spec into a "
+            "Next.js + Tailwind + react-markdown file tree, stored as `{path: contents}` on "
+            "the `scaffold.files` column. Requires `marketing_page.status='completed'` (i.e. "
+            "the spec exists). Pure Python — no LLM call, no network — should complete in "
+            "well under a second. Poll until `scaffold.status` is `completed` or `failed`."
+        ),
+    )
+    @action(detail=True, methods=["POST"], url_path="run_scaffold")
+    def run_scaffold(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: FounderProject = self.get_object()
+        spec = (instance.marketing_page or {}).get("page") if isinstance(instance.marketing_page, dict) else None
+        if not spec:
+            return Response(
+                {"detail": "Cannot scaffold: marketing_page.page is empty. Run run_landing_page first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user_id = request.user.id
+        transaction.on_commit(lambda: run_scaffold_task.delay(str(instance.id), user_id))
+        current = instance.scaffold or {}
+        instance.scaffold = {**current, "status": "pending"}
+        instance.save(update_fields=["scaffold", "updated_at"])
+        return Response(self.get_serializer(instance).data, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        request=PublishScaffoldRequest,
+        responses={202: FounderProjectSerializer},
+        description=(
+            "**Stage 6b (Scaffold — publish).** Push the previously-generated file tree to a "
+            "fresh GitHub repository on the authenticated user's account. Body carries the "
+            "`github_token` (PAT with `repo` scope — used once, never persisted), `repo_name`, "
+            "`visibility` (public/private), and optional `description`. Returns 202 + the "
+            "project; poll `scaffold.status` and read `scaffold.repo` once it's `completed`. "
+            "Requires `scaffold.files` to be populated by a prior `run_scaffold` call."
+        ),
+    )
+    @action(detail=True, methods=["POST"], url_path="publish_scaffold")
+    def publish_scaffold(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: FounderProject = self.get_object()
+        try:
+            body = PublishScaffoldRequest.model_validate(request.data)
+        except Exception as exc:
+            return Response({"detail": f"Invalid request body: {exc}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        envelope = instance.scaffold if isinstance(instance.scaffold, dict) else {}
+        files = envelope.get("files")
+        if not isinstance(files, dict) or not files:
+            return Response(
+                {"detail": "Cannot publish: scaffold.files is empty. Run run_scaffold first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user_id = request.user.id
+        project_id = str(instance.id)
+        # Token: prefer the body PAT (production path), fall back to FOUNDER_MODE_GITHUB_PAT
+        # for local-dev / auto-orchestrated FE flows that don't want to round-trip a token.
+        token = (body.github_token or os.environ.get("FOUNDER_MODE_GITHUB_PAT") or "").strip()
+        if not token or len(token) < 10:
+            return Response(
+                {"detail": "No GitHub token: pass `github_token` in body or set FOUNDER_MODE_GITHUB_PAT."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        repo_name = body.repo_name
+        visibility = body.visibility
+        description = body.description
+
+        transaction.on_commit(
+            lambda: publish_scaffold_task.delay(
+                project_id,
+                github_token=token,
+                repo_name=repo_name,
+                visibility=visibility,
+                description=description,
+                user_id=user_id,
+            )
+        )
+        instance.scaffold = {**envelope, "status": "pending"}
+        instance.save(update_fields=["scaffold", "updated_at"])
+        return Response(self.get_serializer(instance).data, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
         request=TurnRequest,

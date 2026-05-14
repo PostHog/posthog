@@ -51,6 +51,7 @@ class FounderProject(UUIDModel):
     mvp = models.JSONField(default=dict, blank=True)
     marketing_page = models.JSONField(default=dict, blank=True)
     marketing_steps = models.JSONField(default=dict, blank=True)
+    scaffold = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

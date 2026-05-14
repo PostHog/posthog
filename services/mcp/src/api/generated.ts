@@ -6592,39 +6592,6 @@ export namespace Schemas {
       issues: UtmIssue[];
     }
 
-    export type KeyEnum = typeof KeyEnum[keyof typeof KeyEnum];
-
-
-    export const KeyEnum = {
-      Idea: 'idea',
-      Pain: 'pain',
-      Audience: 'audience',
-      CurrentSolution: 'currentSolution',
-      WorstCase: 'worstCase',
-      Success: 'success',
-      KillerFeature: 'killerFeature',
-    } as const;
-
-    /**
-     * A canvas slot that's already been filled. Used so the agent knows what's left to ask.
-     */
-    export interface CanvasNoteInput {
-      key: KeyEnum;
-      label: string;
-      value: string;
-    }
-
-    /**
-     * The agent's decision about which canvas slot the latest answer should fill.
-     */
-    export interface CanvasSlotChoice {
-      key: KeyEnum;
-      /** Display label for this slot, lifted from the frontend vocabulary. */
-      label: string;
-      /** The crystallized value to write into this slot, extracted from the founder's answer. Should be a tightened version of what they said, not a verbatim quote. */
-      value: string;
-    }
-
     /**
      * Supporting evidence
      */
@@ -6989,7 +6956,7 @@ export namespace Schemas {
     }
 
     /**
-     * A prior message in the conversation. Used to give the agent context.
+     * A prior message in this topic's mini-chat thread.
      */
     export interface ChatMessageInput {
       author: AuthorEnum;
@@ -8435,6 +8402,24 @@ export namespace Schemas {
       /** @maxLength 500 */
       access_secret: string;
     }
+
+    /**
+     * * `ideation` - Ideation
+    * `validation` - Validation
+    * `gtm` - Gtm
+    * `mvp` - Mvp
+    * `marketing` - Marketing
+     */
+    export type CurrentStepEnum = typeof CurrentStepEnum[keyof typeof CurrentStepEnum];
+
+
+    export const CurrentStepEnum = {
+      Ideation: 'ideation',
+      Validation: 'validation',
+      Gtm: 'gtm',
+      Mvp: 'mvp',
+      Marketing: 'marketing',
+    } as const;
 
     export interface CustomerJourney {
       readonly id: string;
@@ -16388,6 +16373,14 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    export type FounderModeEnum = typeof FounderModeEnum[keyof typeof FounderModeEnum];
+
+
+    export const FounderModeEnum = {
+      TechnicalCofounder: 'technical_cofounder',
+      CommercialCofounder: 'commercial_cofounder',
+    } as const;
+
     /**
      * The shape of stage 1 output that validation consumes. Mirrors the JSON column on CofounderProject.
      */
@@ -16855,6 +16848,66 @@ export namespace Schemas {
       error?: string;
     }
 
+    export interface RepoLink {
+      /** API URL of the repository (`https://api.github.com/repos/<owner>/<name>`). */
+      repo_url: string;
+      /** Browseable URL of the repository the founder can open in their browser. */
+      html_url: string;
+      /** The default branch the initial commit landed on (typically `main`). */
+      default_branch: string;
+      /** SHA of the initial commit containing every generated file. */
+      commit_sha: string;
+      /** How many files were pushed in the initial commit. */
+      file_count: number;
+    }
+
+    /**
+     * GitHub Pages site metadata returned after enablement + provisioning.
+     */
+    export interface PagesLink {
+      /** Live URL the static page is served at, e.g. https://owner.github.io/repo/ */
+      html_url: string;
+      /** GitHub Pages build state at the time of polling: `built`, `building`, `queued`, `errored`, or `not_provisioned` if we gave up polling before it went live. */
+      pages_status: string;
+      /** Branch GitHub Pages serves from (e.g. `main`). */
+      source_branch: string;
+      /** Path within the branch the site is served from (e.g. `/`). */
+      source_path: string;
+    }
+
+    /**
+     * Generated file tree as `{path: contents}`. Populated by `run_scaffold`. Paths are POSIX-style relative paths (no leading slash). Null while pending or before the first generation run.
+     */
+    export type ScaffoldEnvelopeFiles = {[key: string]: string} | null;
+
+    /**
+     * API-facing envelope for the `scaffold` JSON column.
+     */
+    export interface ScaffoldEnvelope {
+      /** Lifecycle state of the most recent scaffold action. */
+      status?: 'pending' | 'running' | 'completed' | 'failed' | null;
+      /** Generated file tree as `{path: contents}`. Populated by `run_scaffold`. Paths are POSIX-style relative paths (no leading slash). Null while pending or before the first generation run. */
+      files?: ScaffoldEnvelopeFiles;
+      /** Number of files in `files`. */
+      file_count?: number | null;
+      /** Total size of all file contents combined. */
+      total_bytes?: number | null;
+      /** Populated by `publish_scaffold` once the file tree has been pushed to GitHub. */
+      repo?: RepoLink | null;
+      /** Populated by `publish_scaffold` after enabling GitHub Pages on the new repo. `pages.html_url` is the live URL the founder can share. */
+      pages?: PagesLink | null;
+      /** ISO timestamp when the most recent action kicked off. */
+      started_at?: string | null;
+      /** ISO timestamp when the most recent action succeeded. */
+      completed_at?: string | null;
+      /** ISO timestamp when the most recent action failed. */
+      failed_at?: string | null;
+      /** Trace id linking to the underlying operation. */
+      trace_id?: string | null;
+      /** Human-readable error message when `status='failed'`. Empty otherwise. */
+      error?: string;
+    }
+
     export interface FounderProject {
       readonly id: string;
       /**
@@ -16862,6 +16915,14 @@ export namespace Schemas {
          * @maxLength 200
          */
       name: string;
+      /** Which stage the founder is currently on. One of: ideation, validation, gtm, mvp, marketing. Updated server-side when stages are kicked off, and can be PATCHed by the frontend.
+
+      * `ideation` - Ideation
+      * `validation` - Validation
+      * `gtm` - Gtm
+      * `mvp` - Mvp
+      * `marketing` - Marketing */
+      current_step?: CurrentStepEnum;
       /** Stage 1 output. Shape: {what, how, who, problem}. Writing here triggers the validation Celery task asynchronously. */
       ideation?: IdeationInput;
       /** Stable SHA-256 of the current ideation payload. Clients compare this to `validation.ideation_hash` to detect a stale report (founder edited ideation since the last validation run). */
@@ -16876,6 +16937,8 @@ export namespace Schemas {
       readonly marketing_page: MarketingPageEnvelope;
       /** Stage 5b envelope, server-managed. Practical launch playbook with ready-to-publish posts for Product Hunt, LinkedIn, Twitter, Reddit, HN, etc. Triggered via the `run_practical_steps` action. */
       readonly marketing_steps: MarketingStepsEnvelope;
+      /** Stage 6 envelope, server-managed. Two-step pipeline: `run_scaffold` renders the landing page spec into a single-page static site (`scaffold.files`), then `publish_scaffold` pushes it to a new GitHub repo AND enables GitHub Pages on the repo (`scaffold.repo` + `scaffold.pages` with the live URL). */
+      readonly scaffold: ScaffoldEnvelope;
       /** The user who created this founder project. Set automatically on create. */
       readonly created_by: number;
       readonly created_at: string;
@@ -18885,25 +18948,6 @@ export namespace Schemas {
       source: string;
       /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
       tags?: TagDefinition[];
-    }
-
-    /**
-     * Prose-form synthesis of the chat, ready to feed into the validation stage.
-
-    This is NOT a copy of the canvas slot values. It's the agent's coherent retelling of
-    the idea — written so the validation prompt has rich, narrative context instead of
-    seven disconnected one-liners. Each field should be 1-3 sentences weaving in detail
-    from the relevant slots.
-     */
-    export interface IdeationPayload {
-      /** What the founder is building, in 1-3 sentences. Synthesizes from idea + killerFeature, with concrete texture about the mechanism. */
-      what: string;
-      /** How it works, in 1-2 sentences. The mechanism, channel, and delivery model — derived from idea + killerFeature. */
-      how: string;
-      /** Who it's for, in 1-2 sentences. Concrete demographic + behavioral signals — derived from audience. Use the founder's words where vivid. */
-      who: string;
-      /** The problem this solves, in 2-4 sentences. Pull from pain + currentSolution + worstCase + success to capture not just the surface pain but the stakes and what success looks like. This is the richest field — validation reads it most carefully. */
-      problem: string;
     }
 
     /**
@@ -26890,6 +26934,14 @@ export namespace Schemas {
          * @maxLength 200
          */
       name?: string;
+      /** Which stage the founder is currently on. One of: ideation, validation, gtm, mvp, marketing. Updated server-side when stages are kicked off, and can be PATCHed by the frontend.
+
+      * `ideation` - Ideation
+      * `validation` - Validation
+      * `gtm` - Gtm
+      * `mvp` - Mvp
+      * `marketing` - Marketing */
+      current_step?: CurrentStepEnum;
       /** Stage 1 output. Shape: {what, how, who, problem}. Writing here triggers the validation Celery task asynchronously. */
       ideation?: IdeationInput;
       /** Stable SHA-256 of the current ideation payload. Clients compare this to `validation.ideation_hash` to detect a stale report (founder edited ideation since the last validation run). */
@@ -26904,6 +26956,8 @@ export namespace Schemas {
       readonly marketing_page?: MarketingPageEnvelope;
       /** Stage 5b envelope, server-managed. Practical launch playbook with ready-to-publish posts for Product Hunt, LinkedIn, Twitter, Reddit, HN, etc. Triggered via the `run_practical_steps` action. */
       readonly marketing_steps?: MarketingStepsEnvelope;
+      /** Stage 6 envelope, server-managed. Two-step pipeline: `run_scaffold` renders the landing page spec into a single-page static site (`scaffold.files`), then `publish_scaffold` pushes it to a new GitHub repo AND enables GitHub Pages on the repo (`scaffold.repo` + `scaffold.pages` with the live URL). */
+      readonly scaffold?: ScaffoldEnvelope;
       /** The user who created this founder project. Set automatically on create. */
       readonly created_by?: number;
       readonly created_at?: string;
@@ -31839,6 +31893,31 @@ export namespace Schemas {
       max_proxy_records: number;
     }
 
+    /**
+     * Body for the `publish_scaffold` action.
+     */
+    export interface PublishScaffoldRequest {
+      /** GitHub personal access token with `repo` scope. Used once to create the repo and push the initial commit, then discarded — not persisted. If omitted, the server falls back to the `FOUNDER_MODE_GITHUB_PAT` env var (local-dev convenience). */
+      github_token?: string | null;
+      /**
+         * Name for the new repository on the authenticated user's account.
+         * @minLength 1
+         * @maxLength 100
+         * @pattern ^[A-Za-z0-9_.-]+$
+         */
+      repo_name: string;
+      /**
+         * Repository visibility. `public` or `private`. Defaults to private.
+         * @pattern ^(public|private)$
+         */
+      visibility?: string;
+      /**
+         * Optional one-line repo description.
+         * @maxLength 350
+         */
+      description?: string;
+    }
+
     export interface QuarantineInput {
       /** @maxLength 512 */
       identifier: string;
@@ -35643,37 +35722,40 @@ export namespace Schemas {
     }
 
     /**
-     * What the frontend POSTs each turn.
+     * What the frontend POSTs each turn of a topic's mini-chat.
      */
     export interface TurnRequest {
-      /** The founder's latest reply. */
+      /** Which topic this mini-chat is about. Currently always "idea" (the ideation step). */
+      topic: string;
+      /** What the cofounder must extract from this topic before it can be satisfied. Topic-specific — the frontend defines it. For the idea topic this describes the {what, how, who, problem} the validation pass needs, and tells the cofounder which keys `crystallized_value` must carry. */
+      goal: string;
+      /** The founder's latest reply in this thread. */
       user_answer: string;
-      /** The agent's previous question this answer is responding to. */
-      last_question?: string | null;
-      /** Full conversation history so the agent can reference prior context. */
+      /** This topic's prior thread (everything before `user_answer`). Empty on the first turn. */
       messages?: ChatMessageInput[];
-      /** Slots already filled. The agent should not ask questions for these. */
-      canvas_notes?: CanvasNoteInput[];
+      /** Which half of the founding team the cofounder plays. Selects the mode block injected into the system prompt. Defaults to commercial so older clients still get a coherent persona. */
+      founder_mode?: FounderModeEnum;
     }
+
+    /**
+     * REQUIRED when `satisfied` is true; null otherwise. The distilled output of this topic's conversation. Shape is topic-defined by the request `goal`: for the idea topic the keys are `what`, `how`, `who`, `problem` — each a synthesized prose string (a tightened coherent retelling, not a verbatim quote). The frontend writes this straight into FounderProject.ideation.
+     */
+    export type TurnResponseCrystallizedValue = { [key: string]: unknown } | null;
 
     /**
      * What the backend returns each turn.
      */
     export interface TurnResponse {
       /**
-         * The cofounder's next message — usually a question, sometimes a declarative claim. ≤30 words for the question proper; ≤2 short sentences if there's a preamble.
+         * The cofounder's next message — a sharp follow-up question or a declarative claim. ≤30 words for the question proper; ≤2 short sentences if there's a preamble. When `satisfied` is true this is a brief 'got it, moving on' beat.
          * @maxLength 400
          */
       agent_message: string;
-      /** If the user's preceding answer filled a slot, this is what to write. Null when the turn was conversational repair (clarifying question, banter) and didn't produce a slot value. */
-      canvas_slot?: CanvasSlotChoice | null;
-      /** True when at least the core slots (idea + pain + audience + one of currentSolution/worstCase/killerFeature) are filled AND the most recent answer was substantive enough to wrap. The frontend transitions to the review phase on true. */
-      should_end_chat?: boolean;
-      /** Which slot the user's NEXT answer will most likely fill, given the question being asked in `agent_message`. UI hint only — used to label the input box. The actual slot extraction happens on the next turn via `canvas_slot`. Null when the agent is just doing conversational repair / banter and the next answer isn't tied to a slot. */
-      next_slot_hint?: 'idea' | 'pain' | 'audience' | 'currentSolution' | 'worstCase' | 'success' | 'killerFeature' | null;
-      /** REQUIRED when `should_end_chat` is true; null otherwise. A prose-form synthesis of everything learned in the chat, shaped for the validation stage's {what, how, who, problem} contract. This is what gets written to FounderProject.ideation. Do not copy slot values verbatim — synthesize coherently across slots. */
-      ideation_payload?: IdeationPayload | null;
-      /** Internal — what the agent noticed and what it most needs to know next, 1-2 sentences. Not shown to the founder, but logged for prompt tuning. */
+      /** True when the cofounder has genuinely extracted enough on this topic to move on. False means the thread continues and `agent_message` is a follow-up. Do not set this true on a thin or one-word answer just to advance. */
+      satisfied?: boolean;
+      /** REQUIRED when `satisfied` is true; null otherwise. The distilled output of this topic's conversation. Shape is topic-defined by the request `goal`: for the idea topic the keys are `what`, `how`, `who`, `problem` — each a synthesized prose string (a tightened coherent retelling, not a verbatim quote). The frontend writes this straight into FounderProject.ideation. */
+      crystallized_value?: TurnResponseCrystallizedValue;
+      /** Internal — what the cofounder noticed and what it still needs (or why it's now satisfied), 1-2 sentences. Not shown to the founder; logged for prompt tuning. */
       reasoning: string;
     }
 

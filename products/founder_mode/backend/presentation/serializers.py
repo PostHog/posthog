@@ -16,6 +16,7 @@ from products.founder_mode.backend.logic.hashing import ideation_hash
 from products.founder_mode.backend.logic.landing_page.schemas import MarketingPageEnvelope
 from products.founder_mode.backend.logic.mvp.schemas import MVPEnvelope
 from products.founder_mode.backend.logic.practical_steps.schemas import MarketingStepsEnvelope
+from products.founder_mode.backend.logic.scaffold.schemas import ScaffoldEnvelope
 from products.founder_mode.backend.logic.validation.schemas import IdeationInput, ValidationEnvelope
 from products.founder_mode.backend.models import FounderProject, FounderStepChoices
 
@@ -47,6 +48,11 @@ class MarketingPageField(serializers.JSONField):
 
 @extend_schema_field(MarketingStepsEnvelope)  # type: ignore[arg-type]
 class MarketingStepsField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(ScaffoldEnvelope)  # type: ignore[arg-type]
+class ScaffoldField(serializers.JSONField):
     pass
 
 
@@ -108,6 +114,15 @@ class FounderProjectSerializer(serializers.ModelSerializer):
             "Triggered via the `run_practical_steps` action."
         ),
     )
+    scaffold = ScaffoldField(
+        read_only=True,
+        help_text=(
+            "Stage 6 envelope, server-managed. Two-step pipeline: `run_scaffold` renders "
+            "the landing page spec into a single-page static site (`scaffold.files`), then "
+            "`publish_scaffold` pushes it to a new GitHub repo AND enables GitHub Pages on "
+            "the repo (`scaffold.repo` + `scaffold.pages` with the live URL)."
+        ),
+    )
     created_by = serializers.PrimaryKeyRelatedField(
         read_only=True,
         help_text="The user who created this founder project. Set automatically on create.",
@@ -133,6 +148,7 @@ class FounderProjectSerializer(serializers.ModelSerializer):
             "mvp",
             "marketing_page",
             "marketing_steps",
+            "scaffold",
             "created_by",
             "created_at",
             "updated_at",
@@ -145,6 +161,7 @@ class FounderProjectSerializer(serializers.ModelSerializer):
             "mvp",
             "marketing_page",
             "marketing_steps",
+            "scaffold",
             "created_by",
             "created_at",
             "updated_at",

@@ -3,17 +3,44 @@ import { useMemo } from 'react'
 import { IconExternal } from '@posthog/icons'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import type { LandingPageBuildSpec } from './founderLandingPageLogic'
+import { useShuffledPhrase } from './spinnerPhrases'
 
 interface Props {
-    spec: LandingPageBuildSpec
+    /** Local mock spec for the inline preview. Used when `liveUrl` isn't ready yet. */
+    spec?: LandingPageBuildSpec
+    /** Live URL to iframe in the preview body. When set, replaces the local mock entirely. */
+    liveUrl?: string | null
+    /** When true, suppress the local mock and show a loading body. */
+    loading?: boolean
+    /** Loading copy shown under the spinner. */
+    loadingLabel?: string
+    /** Footer copy. Defaults to a "mockup vs final" disclaimer. */
+    footerLabel?: string
 }
 
-export function LandingPageMockup({ spec }: Props): JSX.Element {
-    const url = useMemo(() => `${slugify(spec.project_name)}.com`, [spec.project_name])
+export function LandingPageMockup({ spec, liveUrl, loading, loadingLabel, footerLabel }: Props): JSX.Element {
+    // URL bar contents: prefer the live URL, otherwise show a fake `.com` derived from the spec.
+    const url = useMemo(() => {
+        if (liveUrl) {
+            return liveUrl
+        }
+        if (spec) {
+            return `https://${slugify(spec.project_name)}.com`
+        }
+        return 'about:blank'
+    }, [liveUrl, spec])
 
     const handleOpenInTab = (): void => {
+        if (liveUrl) {
+            window.open(liveUrl, '_blank', 'noopener')
+            return
+        }
+        if (!spec) {
+            return
+        }
         const html = renderLandingPageHtml(spec)
         const blob = new Blob([html], { type: 'text/html' })
         const objectUrl = URL.createObjectURL(blob)
@@ -22,21 +49,51 @@ export function LandingPageMockup({ spec }: Props): JSX.Element {
         // here would break the navigation before the page loads.
     }
 
+    const canOpen = !!liveUrl || !!spec
+    const renderMode: 'live' | 'loading' | 'mock' | 'empty' = liveUrl ? 'live' : loading || !spec ? 'loading' : 'mock'
+
     return (
         <LemonCard className="p-0 overflow-hidden">
-            <BrowserChrome url={url} onOpen={handleOpenInTab} />
-            <div className="relative bg-white">
-                <PreviewBody spec={spec} />
+            <BrowserChrome url={url} onOpen={canOpen ? handleOpenInTab : null} />
+            <div className="relative bg-white min-h-[480px]">
+                {renderMode === 'live' && (
+                    <iframe src={liveUrl ?? ''} title="Live landing page" className="w-full h-[640px] border-0" />
+                )}
+                {renderMode === 'loading' && <LoadingBody label={loadingLabel} />}
+                {renderMode === 'mock' && spec && <PreviewBody spec={spec} />}
                 <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-black/5" />
             </div>
             <p className="px-4 py-2 text-[11px] text-text-tertiary border-t border-border bg-bg-3000">
-                Mockup preview — not the final page. Use the build spec below to ship the real thing.
+                {footerLabel ??
+                    (renderMode === 'live'
+                        ? 'Live preview — your page is published.'
+                        : 'Mockup preview — not the final page. Use the build spec below to ship the real thing.')}
             </p>
         </LemonCard>
     )
 }
 
-function BrowserChrome({ url, onOpen }: { url: string; onOpen: () => void }): JSX.Element {
+function LoadingBody({ label }: { label?: string }): JSX.Element {
+    // Cycle a fresh shuffle of ~100 PostHog-style phrases under the spinner so the
+    // founder isn't watching a static "loading…" screen for two minutes. The optional
+    // `label` (phase name like "Publishing to GitHub Pages") sits subtly above the
+    // phrase as real context — the phrase is purely entertainment.
+    const phrase = useShuffledPhrase()
+    return (
+        <div className="flex flex-col items-center justify-center gap-3 px-6 py-24 text-center min-h-[480px]">
+            <Spinner className="text-primary" />
+            {label && <p className="text-[11px] uppercase tracking-widest text-text-tertiary">{label}</p>}
+            <p key={phrase} className="text-sm text-text-secondary max-w-md transition-opacity">
+                {phrase}
+            </p>
+        </div>
+    )
+}
+
+function BrowserChrome({ url, onOpen }: { url: string; onOpen: (() => void) | null }): JSX.Element {
+    // URL bar: callers may already pass a full https:// URL (live mode) or just a host
+    // (mock mode). Don't double-prefix.
+    const displayUrl = url.startsWith('http') ? url : `https://${url}`
     return (
         <div className="flex items-center gap-3 px-3 py-2 border-b border-border bg-bg-3000">
             <div className="flex items-center gap-1.5 shrink-0">
@@ -46,18 +103,20 @@ function BrowserChrome({ url, onOpen }: { url: string; onOpen: () => void }): JS
             </div>
             <div className="flex-1 min-w-0">
                 <div className="px-3 py-1 rounded-full bg-white border border-border text-xs text-text-secondary truncate text-center">
-                    https://{url}
+                    {displayUrl}
                 </div>
             </div>
-            <button
-                type="button"
-                onClick={onOpen}
-                className="text-xs px-2 py-1 rounded border border-border hover:bg-fill-highlight-100 cursor-pointer flex items-center gap-1 shrink-0"
-                title="Open in new tab"
-            >
-                <IconExternal className="w-3.5 h-3.5" />
-                Open in new tab
-            </button>
+            {onOpen && (
+                <button
+                    type="button"
+                    onClick={onOpen}
+                    className="text-xs px-2 py-1 rounded border border-border hover:bg-fill-highlight-100 cursor-pointer flex items-center gap-1 shrink-0"
+                    title="Open in new tab"
+                >
+                    <IconExternal className="w-3.5 h-3.5" />
+                    Open in new tab
+                </button>
+            )}
         </div>
     )
 }
