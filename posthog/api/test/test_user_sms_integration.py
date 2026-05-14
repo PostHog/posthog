@@ -1,7 +1,11 @@
+from typing import Any, cast
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.test.client import Client as DjangoClient
+from django.urls import reverse
 
 from rest_framework import status
 
@@ -160,3 +164,52 @@ class TestUserSMSIntegrationEndpoints(APIBaseTest):
         self.assertFalse(
             UserIntegration.objects.filter(user=self.user, kind=UserIntegration.IntegrationKind.SMS).exists()
         )
+
+
+class TestUserSMSIntegrationBlocksImpersonation(APIBaseTest):
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="other-user@posthog.com", password="123456"
+        )
+        self.user.is_staff = True
+        self.user.save()
+        # The loginas admin view expects form-encoded POST data, which is Django Client's default
+        # (APIClient defaults to JSON), so use the standard Django client here.
+        self.client = cast(Any, DjangoClient())
+        self.client.force_login(self.user)
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false", "reason": "Test impersonation"},
+            follow=True,
+        )
+
+    def _assert_blocked(self, response) -> None:
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "impersonation_path_blocked")
+
+    def test_start_verification_blocked_during_impersonation(self):
+        self._assert_blocked(
+            self.client.post(START_URL, data={"phone_number": "+14155552671"}, content_type="application/json")
+        )
+
+    def test_verify_blocked_during_impersonation(self):
+        self._assert_blocked(
+            self.client.post(
+                VERIFY_URL,
+                data={"phone_number": "+14155552671", "code": "123456"},
+                content_type="application/json",
+            )
+        )
+
+    def test_destroy_phone_blocked_during_impersonation(self):
+        UserIntegration.objects.create(
+            user=self.other_user,
+            kind=UserIntegration.IntegrationKind.SMS,
+            integration_id="+14155552671",
+            config={},
+            sensitive_config={},
+        )
+        self._assert_blocked(self.client.delete(f"{LIST_URL}+14155552671/"))
