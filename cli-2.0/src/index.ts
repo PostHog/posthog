@@ -42,13 +42,14 @@ async function main() {
             process.exit(1)
         })
         .middleware(async (argv: any & { mcpContext?: Context }) => {
-            // Skip setup for help/version/auth commands and bare command groups that show help.
+            // Skip setup for help/version/auth/livestream commands and bare command groups that show help.
             const isHelpCommand = argv.help || argv.h || argv._.includes('help')
             const isVersionCommand = argv.version || argv.v
             const isAuthCommand = argv._[0] === 'auth'
+            const isLivestreamCommand = argv._[0] === 'livestream'
             const isCommandGroupHelpRequest = isTopLevelCommandGroupHelpRequest(argv)
 
-            if (isHelpCommand || isVersionCommand || isAuthCommand || isCommandGroupHelpRequest) {
+            if (isHelpCommand || isVersionCommand || isAuthCommand || isLivestreamCommand || isCommandGroupHelpRequest) {
                 return
             }
 
@@ -90,6 +91,33 @@ async function main() {
             },
             () => {
                 authCommandHelp?.() ?? cli.showHelp()
+            }
+        )
+
+        // Livestream command (uses separate auth flow)
+        .command(
+            'livestream',
+            'Stream live events (interactive TUI or JSON)',
+            (yargs) => {
+                return yargs
+                    .option('token', { type: 'string', describe: 'JWT token (for scripting)' })
+                    .option('host', { type: 'string', describe: 'PostHog host (default: https://app.posthog.com)' })
+                    .option('livestream-host', { type: 'string', describe: 'Livestream service host (for self-hosted)' })
+                    .option('event-type', { type: 'string', describe: 'Filter by event type(s), comma-separated' })
+                    .option('distinct-id', { type: 'string', describe: 'Filter by distinct ID' })
+                    .option('geo', { type: 'boolean', describe: 'Stream geo events instead' })
+                    .option('json', { type: 'boolean', describe: 'Output JSON lines instead of interactive TUI' })
+            },
+            async (argv) => {
+                const { runLivestream } = await import('./livestream/index.js')
+                await runLivestream({
+                    token: argv.token,
+                    host: argv.host,
+                    livestreamHost: argv.livestreamHost,
+                    eventType: argv.eventType,
+                    distinctId: argv.distinctId,
+                    geo: argv.geo,
+                })
             }
         )
 
