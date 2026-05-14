@@ -175,15 +175,15 @@ async function main() {
             'Watch hedgehogs walk around your terminal 🦔',
             (yargs) => {
                 return yargs
-                    .option('speed', { 
-                        type: 'number', 
+                    .option('speed', {
+                        type: 'number',
                         describe: 'Animation speed in milliseconds (default: 200)',
-                        default: 200 
+                        default: 200,
                     })
                     .option('count', {
                         type: 'number',
                         describe: 'Number of hedgehogs (default: 6, max: 6)',
-                        default: 6
+                        default: 6,
                     })
             },
             async (argv) => {
