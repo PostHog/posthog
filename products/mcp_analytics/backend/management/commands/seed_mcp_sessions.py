@@ -11,8 +11,6 @@ from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 
-from products.mcp_analytics.backend.models import MCPSession
-
 TOOL_NAMES = [
     "query_run",
     "insight_get",
@@ -168,6 +166,12 @@ class Command(BaseCommand):
             )
 
         for session_idx in range(session_count):
+            # $mcp_conversation_id is the canonical session grouping key emitted by the MCP
+            # service. Use uuid4 because that's the format the real service emits (e.g.
+            # ba10420e-7ff2-4253-a6ac-3e404f14f8be).
+            conversation_id = str(uuid.uuid4())
+            # $session_id keeps the PostHog uuid7 convention so session-replay-style
+            # consumers don't choke on it.
             session_id = str(uuid7())
             if rng.random() < IDENTIFIED_PROBABILITY:
                 persona = rng.choice(IDENTIFIED_PERSONAS)
@@ -176,17 +180,24 @@ class Command(BaseCommand):
                 distinct_id = f"anon_{uuid.uuid4().hex[:8]}"
             client_name = rng.choice(CLIENT_NAMES)
             calls = rng.randint(min_calls, max_calls)
-            # Spread the session across a 5-minute window, anchored a random number of hours in the past.
-            session_start = now - timedelta(hours=rng.randint(0, 48), minutes=rng.randint(0, 59))
-            session_intent = rng.choice(SESSION_INTENTS)
-            last_timestamp = session_start
-            tools_used: set[str] = set()
+            # Anchor each session so it is in the sweet spot for BOTH workflows on the
+            # next scheduled tick:
+            #   * Backfill discover window = last 1 hour  →  session must have at
+            #     least one event in the last hour, so session_end >= now - 1h.
+            #   * Summariser idle filter   = >= 30 min   →  session_end <= now - 30 min.
+            # Picking session_end uniformly in 31-59 minutes ago places every seeded
+            # session in that overlap, so a single seed run yields an immediately
+            # backfill-able and immediately summarise-able fixture.
+            call_intervals = [rng.randint(15, 90) for _ in range(calls)]
+            total_call_duration = timedelta(seconds=sum(call_intervals))
+            session_end_offset_min = rng.randint(31, 59)
+            session_start = now - timedelta(minutes=session_end_offset_min) - total_call_duration
 
+            cumulative_offset_s = 0
             for call_idx in range(calls):
-                timestamp = session_start + timedelta(seconds=call_idx * rng.randint(15, 90))
-                last_timestamp = timestamp
+                cumulative_offset_s += call_intervals[call_idx]
+                timestamp = session_start + timedelta(seconds=cumulative_offset_s)
                 tool_name = rng.choice(TOOL_NAMES)
-                tools_used.add(tool_name)
                 # Skew error rate and latency per tool so the Tool quality tab has variation.
                 tool_error_rate = (hash(tool_name) % 30) / 100.0
                 is_error = rng.random() < tool_error_rate
@@ -203,6 +214,7 @@ class Command(BaseCommand):
                     timestamp=timestamp,
                     properties={
                         "$session_id": session_id,
+                        "$mcp_conversation_id": conversation_id,
                         "$mcp_tool_name": tool_name,
                         "$mcp_intent": intent,
                         "$mcp_error_message": "Upstream returned 500" if is_error else "",
@@ -216,20 +228,13 @@ class Command(BaseCommand):
                 )
                 total_events += 1
 
-            session_end = last_timestamp
-            MCPSession.objects.create(
-                team=team,
-                session_id=session_id,
-                session_start=session_start,
-                session_end=session_end,
-                duration_seconds=max(1, int((session_end - session_start).total_seconds())),
-                tools_used=sorted(tools_used),
-                distinct_id=distinct_id,
-                mcp_client_name=client_name,
-                intent=session_intent,
+            # Don't write to MCPSession directly — the backfill Temporal activity is
+            # the source of truth and will derive the row from the events we just
+            # captured. Pre-populating here would produce duplicates keyed on the
+            # uuid7 $session_id instead of the uuid4 $mcp_conversation_id.
+            self.stdout.write(
+                f"  session {session_idx + 1}/{session_count}: {calls} tool calls (conversation_id={conversation_id})"
             )
-
-            self.stdout.write(f"  session {session_idx + 1}/{session_count}: {calls} tool calls ({session_id})")
 
         self.stdout.write(
             self.style.SUCCESS(f"Seeded {session_count} sessions ({total_events} events) for team {team_id}.")

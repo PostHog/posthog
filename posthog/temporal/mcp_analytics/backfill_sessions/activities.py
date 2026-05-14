@@ -15,16 +15,20 @@ LOGGER = get_write_only_logger()
 
 
 # Two-pass aggregate:
-#   1. Inner subquery (cheap) — list session_ids that received any mcp_tool_call event in the
-#      last lookback_hours. These are the only sessions whose Postgres row could be stale.
-#   2. Outer query — re-aggregate the FULL history of each active session_id (bounded only by
-#      the retention window) so the upsert reflects the complete picture, not just what landed
-#      in the lookback. Avoids the corruption that a naive lookback-window aggregate would
-#      cause when a long-lived session gets a fresh event late.
+#   1. Inner subquery (cheap) — list conversation ids that received any mcp_tool_call event
+#      in the last lookback_hours. These are the only sessions whose Postgres row could be
+#      stale.
+#   2. Outer query — re-aggregate the FULL history of each active conversation id (bounded
+#      only by the retention window) so the upsert reflects the complete picture, not just
+#      what landed in the lookback. Avoids the corruption that a naive lookback-window
+#      aggregate would cause when a long-lived session gets a fresh event late.
+# The grouping key is $mcp_conversation_id, which the MCP service stamps onto every event in
+# the same conversation. We persist it as MCPSession.session_id since that is the
+# product-facing identifier of an MCP session.
 _AGGREGATE_QUERY = """
 SELECT
     team_id,
-    JSONExtractString(properties, '$session_id') AS session_id,
+    JSONExtractString(properties, '$mcp_conversation_id') AS session_id,
     toString(min(timestamp)) AS session_start,
     toString(max(timestamp)) AS session_end,
     count() AS tool_call_count,
@@ -33,11 +37,11 @@ SELECT
     argMax(JSONExtractString(properties, '$mcp_client_name'), timestamp) AS mcp_client_name
 FROM events
 WHERE event = 'mcp_tool_call'
-    AND JSONExtractString(properties, '$session_id') IN (
-        SELECT DISTINCT JSONExtractString(properties, '$session_id')
+    AND JSONExtractString(properties, '$mcp_conversation_id') IN (
+        SELECT DISTINCT JSONExtractString(properties, '$mcp_conversation_id')
         FROM events
         WHERE event = 'mcp_tool_call'
-            AND JSONExtractString(properties, '$session_id') != ''
+            AND JSONExtractString(properties, '$mcp_conversation_id') != ''
             AND timestamp >= now() - INTERVAL %(lookback_hours)s HOUR
     )
     AND timestamp >= now() - INTERVAL %(retention_days)s DAY
