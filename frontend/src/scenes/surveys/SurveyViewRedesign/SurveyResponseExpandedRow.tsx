@@ -53,19 +53,23 @@ function formatAnswer(value: unknown): string {
 function AnswerDisplay({ question, value }: { question: SurveyQuestion; value: unknown }): JSX.Element {
     if (isScaleTwoRating(question) && (value == '1' || value == '2')) {
         return (
-            <span className="text-sm flex items-center gap-1">
+            <span className="text-sm font-medium flex items-center gap-1.5">
                 {getThumbIcon(value)}
                 Thumbs {value == '1' ? 'up' : 'down'}
             </span>
         )
     }
-    return <p className="text-sm whitespace-pre-wrap m-0">{formatAnswer(value)}</p>
+    return (
+        <p className="text-sm font-medium text-default whitespace-pre-wrap leading-relaxed m-0 break-words">
+            {formatAnswer(value)}
+        </p>
+    )
 }
 
 function MetaItem({ icon, children }: { icon?: JSX.Element; children: React.ReactNode }): JSX.Element {
     return (
         <span className="flex items-center gap-1 min-w-0">
-            {icon && <span className="shrink-0 flex items-center">{icon}</span>}
+            {icon && <span className="shrink-0 flex items-center text-muted">{icon}</span>}
             <span className="truncate">{children}</span>
         </span>
     )
@@ -110,8 +114,8 @@ export function SurveyResponseExpandedRow({ result }: { result: unknown }): JSX.
     }
 
     return (
-        <div className="sticky left-0 w-full max-w-[min(56rem,calc(100vw-2rem))] px-4 py-3 flex flex-col gap-4">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-secondary">
+        <div className="mx-auto w-full max-w-[min(56rem,calc(100vw-2rem))] min-w-0 px-4 py-4 flex flex-col gap-5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-secondary min-w-0">
                 <PersonDisplay
                     person={{ distinct_id: event.distinct_id, properties: event.person?.properties }}
                     withIcon="xs"
@@ -144,10 +148,10 @@ export function SurveyResponseExpandedRow({ result }: { result: unknown }): JSX.
             </div>
 
             {responses.length > 0 && (
-                <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-4">
                     {responses.map(({ questionIndex, question, value }) => (
-                        <div key={questionIndex} className="flex flex-col gap-1">
-                            <span className="text-xs text-secondary font-semibold">{question.question}</span>
+                        <div key={questionIndex} className="flex flex-col gap-1 min-w-0">
+                            <span className="text-xs text-secondary">{question.question}</span>
                             <AnswerDisplay question={question} value={value} />
                         </div>
                     ))}
@@ -156,7 +160,7 @@ export function SurveyResponseExpandedRow({ result }: { result: unknown }): JSX.
 
             <LemonDivider className="my-0" />
 
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-secondary">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-secondary min-w-0">
                 {currentUrl && (
                     <Link
                         to={currentUrl}
@@ -164,7 +168,7 @@ export function SurveyResponseExpandedRow({ result }: { result: unknown }): JSX.
                         title={currentUrl}
                         className="flex items-center gap-1 max-w-xs min-w-0"
                     >
-                        <IconGlobe className="shrink-0" />
+                        <IconGlobe className="shrink-0 text-muted" />
                         <span className="truncate">{prettyUrl(currentUrl)}</span>
                     </Link>
                 )}
