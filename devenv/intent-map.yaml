@@ -195,6 +195,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: [duckgres]
 
+    uptime_monitoring:
+        description: 'Rust uptime pinger: claims monitors from Postgres, HTTP-pings them, produces results to Kafka.'
+        requires: [event_ingestion]
+        docker_profiles: []
+
 # Intents map to products/features developers work on
 intents:
     product_analytics:
@@ -325,6 +330,10 @@ intents:
     revenue_analytics:
         description: 'Mock Stripe API with seed billing data for revenue analytics testing'
         capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, stripe_mock]
+
+    uptime:
+        description: 'Synthetic uptime monitoring (Rust pinger + Kafka pings -> ClickHouse)'
+        capabilities: [event_ingestion, uptime_monitoring]
 
     dagster:
         description: 'Dagster for clickhouse maintenance, system workflows'

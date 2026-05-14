@@ -81,3 +81,7 @@ KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ = f"{KAFKA_PREFIX}data_warehouse_sources_jobs_d
 KAFKA_NOTIFICATION_EVENTS = f"{KAFKA_PREFIX}notification_events{SUFFIX}"
 
 KAFKA_SIGNALS_REPORT_COMPLETED = f"{KAFKA_PREFIX}signals_report_completed{SUFFIX}"
+
+# Uptime ping results produced by rust/uptime-pinger, consumed by the
+# `kafka_uptime_pings` ClickHouse Kafka-engine table.
+KAFKA_CLICKHOUSE_UPTIME_PINGS = f"{KAFKA_PREFIX}clickhouse_uptime_pings{SUFFIX}"

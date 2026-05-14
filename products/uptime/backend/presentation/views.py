@@ -1,5 +1,7 @@
 from uuid import UUID
 
+from django.utils import timezone
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -13,7 +15,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..facade import api, contracts
 from ..logic import SlugAlreadyTakenError
-from ..tasks import ping_monitor
+from ..models import Monitor
 from .serializers import (
     BulkCreateMonitorSerializer,
     CreateIncidentSerializer,
@@ -118,11 +120,13 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         request=None,
-        responses={202: OpenApiResponse(description="Ping task enqueued.")},
+        responses={202: OpenApiResponse(description="Monitor scheduled for an immediate ping.")},
     )
     @action(detail=True, methods=["post"], url_path="ping_now", required_scopes=["uptime:write"])
     def ping_now(self, request: Request, pk: str | None = None, **kwargs) -> Response:
-        ping_monitor.delay(str(pk))
+        # Advance next_check_at so the rust pinger claims this monitor on its next sweep
+        # (typically within a couple seconds).
+        Monitor.objects.filter(id=UUID(str(pk))).update(next_check_at=timezone.now())
         return Response(status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(

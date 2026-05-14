@@ -80,7 +80,6 @@ from products.conversations.backend.tasks import wake_snoozed_tickets
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
 from products.endpoints.backend.tasks import deactivate_stale_materializations
 from products.logs.backend.tasks import logs_alert_events_cleanup_task
-from products.uptime.backend.tasks import ping_all_monitors
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -635,12 +634,4 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         wake_snoozed_tickets.s(),
         name="wake snoozed conversation tickets",
-    )
-
-    # Ping all uptime monitors every 5 minutes
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/5"),
-        ping_all_monitors.s(),
-        name="ping all uptime monitors",
     )
