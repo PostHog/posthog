@@ -435,7 +435,7 @@ function FloatingComposer({ onSubmit, canSubmit }: { onSubmit: () => void; canSu
                                 onSubmit()
                             }
                         }}
-                        className="bg-white"
+                        className="bg-white text-sm"
                         autoFocus
                     />
                     <InputGroupAddon align="block-end" className="bg-white">
