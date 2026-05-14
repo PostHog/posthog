@@ -121,9 +121,9 @@ function MonitorsTab(): JSX.Element {
     const hasMonitors = monitorSummaries.length > 0
     const topSuggestion = suggestedUrls[0] ?? null
 
-    // 6px activation distance so a quick click on the tile still navigates — only a real
-    // drag gesture engages dnd-kit.
-    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+    // 4px activation distance — snappier engagement, while a true click (zero movement)
+    // still navigates to the detail page.
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
     const onDragEnd = (event: DragEndEvent): void => {
         const { active, over } = event
@@ -245,7 +245,9 @@ function MonitorTile({
 
     return (
         <LemonCard
-            hoverEffect
+            // Hover effect plays a CSS transition that fights with dnd-kit's transform
+            // during a drag, making the motion feel sluggish.
+            hoverEffect={!isDragging}
             onClick={() => router.actions.push(urls.uptimeMonitor(monitor.id))}
             className="flex flex-col gap-3 p-4"
             ref={setNodeRef}
@@ -254,8 +256,9 @@ function MonitorTile({
             style={{
                 transform: CSS.Transform.toString(transform),
                 transition,
-                opacity: isDragging ? 0.5 : undefined,
+                opacity: isDragging ? 0.6 : undefined,
                 zIndex: isDragging ? 10 : undefined,
+                cursor: isDragging ? 'grabbing' : undefined,
             }}
         >
             <div className="flex items-start justify-between gap-2">
@@ -297,7 +300,9 @@ function MonitorTile({
                         // they intentionally bypass the parent card click handler.
                         {...attributes}
                         {...listeners}
-                        className="cursor-grab active:cursor-grabbing"
+                        // touch-none prevents the browser from scrolling on touch-and-drag,
+                        // which would otherwise cancel the dnd-kit gesture mid-motion.
+                        className="cursor-grab active:cursor-grabbing touch-none"
                     />
                 </div>
             </div>

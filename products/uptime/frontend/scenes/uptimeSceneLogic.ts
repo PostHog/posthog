@@ -142,24 +142,6 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
                         `api/projects/${values.currentProjectId}/uptime/monitors/summary/`
                     )
                 },
-                // Optimistic update — reorder locally so the drag-drop feels instant.
-                // The backend POST runs in a listener and is the source of truth on next load.
-                reorderMonitors: (state: MonitorSummary[], { orderedIds }: { orderedIds: string[] }) => {
-                    const byId = new Map(state.map((m) => [m.id, m]))
-                    const reordered: MonitorSummary[] = []
-                    for (const id of orderedIds) {
-                        const found = byId.get(id)
-                        if (found) {
-                            reordered.push(found)
-                            byId.delete(id)
-                        }
-                    }
-                    // Append anything the caller didn't include (shouldn't happen, but defensive).
-                    for (const remaining of byId.values()) {
-                        reordered.push(remaining)
-                    }
-                    return reordered
-                },
             },
         ],
         suggestedUrls: [
@@ -173,6 +155,30 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
             },
         ],
     })),
+
+    // Optimistic reorder lives in a separate reducers() block — kea-loaders only treats
+    // async functions inside the loaders inner object as cases. Putting a sync reducer
+    // case there silently no-ops, which is what made the dragged tile snap back.
+    reducers({
+        monitorSummaries: {
+            reorderMonitors: (state: MonitorSummary[], { orderedIds }: { orderedIds: string[] }) => {
+                const byId = new Map(state.map((m) => [m.id, m]))
+                const reordered: MonitorSummary[] = []
+                for (const id of orderedIds) {
+                    const found = byId.get(id)
+                    if (found) {
+                        reordered.push(found)
+                        byId.delete(id)
+                    }
+                }
+                // Anything the caller didn't include keeps its position at the end.
+                for (const remaining of byId.values()) {
+                    reordered.push(remaining)
+                }
+                return reordered
+            },
+        },
+    }),
 
     forms(({ values, actions }) => ({
         createMonitor: {
