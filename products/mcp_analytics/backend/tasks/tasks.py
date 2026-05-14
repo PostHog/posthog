@@ -14,6 +14,8 @@ from django.utils import timezone
 import structlog
 from celery import shared_task
 
+from posthog.models.scoping import with_team_scope
+
 logger = structlog.get_logger(__name__)
 
 
@@ -24,6 +26,7 @@ logger = structlog.get_logger(__name__)
     acks_late=True,
     max_retries=2,
 )
+@with_team_scope()
 def compute_intent_clusters(self: Any, team_id: int, user_id: int | None = None) -> None:
     """Recompute the intent cluster snapshot for a team.
 
