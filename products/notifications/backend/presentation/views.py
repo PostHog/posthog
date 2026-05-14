@@ -28,7 +28,7 @@ class NotificationPagination(LimitOffsetPagination):
 class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     queryset = NotificationEvent.objects.all()
     serializer_class = NotificationEventSerializer
-    scope_object = "INTERNAL"
+    scope_object = "notification"
     pagination_class = NotificationPagination
 
     def _get_user(self) -> User:
@@ -101,6 +101,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         return queryset
 
+    @extend_schema(responses=NotificationEventSerializer(many=True))
     def list(self, request: Request, *args, **kwargs) -> Response:
         if not self._is_feature_enabled():
             return Response({"results": [], "next": None, "previous": None, "count": 0})

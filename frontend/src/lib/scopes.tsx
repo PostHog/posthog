@@ -68,6 +68,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
     { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
+    { key: 'notification', objectName: 'Notification', objectPlural: 'notifications' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
     {
         key: 'organization_integration',
