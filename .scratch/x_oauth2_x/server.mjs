@@ -8,7 +8,9 @@
  * 3. Run:  bun server.mjs   or   node server.mjs
  * 4. Open http://127.0.0.1:8787
  *
- * Env vars: X_CLIENT_ID, X_CLIENT_SECRET (required). X_ACCESS_TOKEN, X_DM_* optional for DM routes.
+ * Env vars: X_CLIENT_ID, X_CLIENT_SECRET (required). X_ACCESS_TOKEN, X_REFRESH_TOKEN,
+ * X_DM_* optional. Use GET /refresh-token to mint a new access_token from X_REFRESH_TOKEN
+ * (needs offline.access scope on initial authorize).
  */
 
 import * as crypto from "node:crypto";
@@ -53,6 +55,8 @@ loadEnvFile();
 const CLIENT_ID = process.env.X_CLIENT_ID ?? "";
 const CLIENT_SECRET = process.env.X_CLIENT_SECRET ?? "";
 const ACCESS_TOKEN = process.env.X_ACCESS_TOKEN ?? "";
+/** From initial token response; used by GET /refresh-token */
+const REFRESH_TOKEN = process.env.X_REFRESH_TOKEN ?? "";
 const DM_RECIPIENT_USER_ID = process.env.X_DM_RECIPIENT_USER_ID ?? "";
 const DM_MESSAGE_TEXT = process.env.X_DM_MESSAGE_TEXT ?? "";
 
@@ -133,6 +137,34 @@ function basicAuthHeader() {
 	return `Basic ${token}`;
 }
 
+/**
+ * Exchange refresh_token for a new access_token (and possibly rotated refresh_token).
+ * @see https://docs.x.com/x-api/authentication/oauth-2-0/user-access-token
+ */
+async function refreshAccessToken() {
+	const body = new URLSearchParams({
+		grant_type: "refresh_token",
+		refresh_token: REFRESH_TOKEN,
+	});
+	const res = await fetch(TOKEN_URL, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/x-www-form-urlencoded",
+			Authorization: basicAuthHeader(),
+		},
+		body: body.toString(),
+	});
+	const raw = await res.text();
+	/** @type {unknown} */
+	let parsed;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		parsed = { raw };
+	}
+	return { ok: res.ok, status: res.status, statusText: res.statusText, body: parsed };
+}
+
 function htmlPage(bodyInner) {
 	return `<!DOCTYPE html>
 <html lang="en">
@@ -170,6 +202,7 @@ async function handle(req, res) {
       <p><a class="button" href="/start">Sign in with X</a></p>
       <p><a class="button" href="/send-dm">Send 1:1 DM</a> <span class="muted">→ user <code>${DM_RECIPIENT_USER_ID || "(set X_DM_RECIPIENT_USER_ID)"}</code></span></p>
       <p><a class="button" href="/verify-token">Verify Bearer token</a> <span class="muted">→ <code>GET /2/users/me</code> (confirms token matches portal / not expired)</span></p>
+      <p><a class="button" href="/refresh-token">Refresh access token</a> <span class="muted">→ uses <code>X_REFRESH_TOKEN</code> ${REFRESH_TOKEN ? "(set)" : "(missing — paste from authorize callback JSON)"}</span></p>
       <p class="muted">Scopes: <code>${SCOPES.replace(/ /g, ", ")}</code></p>
     `),
 		);
@@ -217,7 +250,7 @@ async function handle(req, res) {
 		res.end(
 			JSON.stringify(
 				{
-					hint: "If this fails, update X_ACCESS_TOKEN in .env (portal Regenerate revokes the old one).",
+					hint: "If expired, try GET /refresh-token with X_REFRESH_TOKEN (offline.access), or Sign in again.",
 					dm_host: DM_HOST,
 					...result,
 				},
@@ -248,6 +281,39 @@ async function handle(req, res) {
 				{
 					endpoint: "POST /2/dm_conversations/with/:participant_id/messages",
 					recipient_user_id: DM_RECIPIENT_USER_ID,
+					...result,
+				},
+				null,
+				2,
+			),
+		);
+		return;
+	}
+
+	if (u.pathname === "/refresh-token" && req.method === "GET") {
+		if (!REFRESH_TOKEN) {
+			res.statusCode = 400;
+			res.setHeader("Content-Type", "application/json; charset=utf-8");
+			res.end(
+				JSON.stringify({
+					error:
+						"Set X_REFRESH_TOKEN in .env (from token JSON after authorize; requires offline.access).",
+				}),
+			);
+			return;
+		}
+		const result = await refreshAccessToken();
+		res.setHeader("Content-Type", "application/json; charset=utf-8");
+		res.statusCode = result.ok
+			? 200
+			: result.status >= 400 && result.status < 600
+				? result.status
+				: 502;
+		res.end(
+			JSON.stringify(
+				{
+					endpoint: "POST /2/oauth2/token (grant_type=refresh_token)",
+					hint: "Copy access_token → X_ACCESS_TOKEN; if body includes refresh_token, replace X_REFRESH_TOKEN too (rotation).",
 					...result,
 				},
 				null,
