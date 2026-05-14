@@ -266,6 +266,56 @@ describe('initPostHogMcpAnalytics', () => {
         expect(properties).not.toHaveProperty('$mcp_exec_tool_call_description')
     })
 
+    it('eventProperties attaches $mcp_exec_inner_tool_names on tools/list when execInnerToolNames is configured', async () => {
+        const server = new McpServer({ name: 'test', version: '1.0.0' })
+        const identity = createMockIdentity()
+        const execInnerToolNames = ['execute-sql', 'feature-flag-get-all', 'insight-get']
+
+        await initPostHogMcpAnalytics(server, identity, {
+            contextEnabled: false,
+            reportMissingEnabled: false,
+            execInnerToolNames,
+        })
+
+        const listRequest = { method: 'tools/list', params: {} }
+        const properties = await getTrackOptions().eventProperties(listRequest)
+
+        expect(properties.$mcp_exec_inner_tool_names).toEqual(execInnerToolNames)
+        // Other inner-call properties should be absent since this isn't a `call` request.
+        expect(properties).not.toHaveProperty('$mcp_exec_tool_call_name')
+    })
+
+    it('eventProperties does not attach $mcp_exec_inner_tool_names on non-list methods', async () => {
+        const server = new McpServer({ name: 'test', version: '1.0.0' })
+        const identity = createMockIdentity()
+
+        await initPostHogMcpAnalytics(server, identity, {
+            contextEnabled: false,
+            reportMissingEnabled: false,
+            execInnerToolNames: ['execute-sql'],
+        })
+
+        const callRequest = { method: 'tools/call', params: { name: 'exec', arguments: { command: 'call execute-sql {}' } } }
+        const properties = await getTrackOptions().eventProperties(callRequest)
+
+        expect(properties).not.toHaveProperty('$mcp_exec_inner_tool_names')
+    })
+
+    it('eventProperties does not attach $mcp_exec_inner_tool_names when execInnerToolNames is empty', async () => {
+        const server = new McpServer({ name: 'test', version: '1.0.0' })
+        const identity = createMockIdentity()
+
+        await initPostHogMcpAnalytics(server, identity, {
+            contextEnabled: false,
+            reportMissingEnabled: false,
+            execInnerToolNames: [],
+        })
+
+        const properties = await getTrackOptions().eventProperties({ method: 'tools/list', params: {} })
+
+        expect(properties).not.toHaveProperty('$mcp_exec_inner_tool_names')
+    })
+
     it('eventProperties callback omits $groups when analytics context is unavailable', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity({

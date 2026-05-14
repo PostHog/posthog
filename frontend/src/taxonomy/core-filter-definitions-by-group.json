@@ -1840,6 +1840,17 @@
             "label": "MCP duration (ms)",
             "type": "Numeric"
         },
+        "$mcp_exec_inner_tool_names": {
+            "description": "Array of every inner tool name available to the agent at the time of a tools/list request. Only stamped on mcp_tools_list events when running in single-exec mode (in multi-tool mode the SDK's $mcp_listed_tool_names already carries the catalog). Lets you compute zombie tools by diffing against $mcp_exec_tool_call_name from mcp_tool_call events.",
+            "examples": [
+                [
+                    "execute-sql",
+                    "feature-flag-get-all",
+                    "insight-get"
+                ]
+            ],
+            "label": "MCP exec inner tool catalog"
+        },
         "$mcp_exec_tool_call_description": {
             "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so the SDK's $mcp_tool_description is the dispatcher's static text on every call. This property carries the description of the inner tool the agent was actually invoking via 'call <tool> ...' \u2014 derived server-side by parsing the exec command and looking the inner tool up in our catalog. Only present when an exec call targets a recognized inner tool.",
             "examples": [
@@ -5663,6 +5674,17 @@
             ],
             "label": "MCP duration (ms)",
             "type": "Numeric"
+        },
+        "$mcp_exec_inner_tool_names": {
+            "description": "Array of every inner tool name available to the agent at the time of a tools/list request. Only stamped on mcp_tools_list events when running in single-exec mode (in multi-tool mode the SDK's $mcp_listed_tool_names already carries the catalog). Lets you compute zombie tools by diffing against $mcp_exec_tool_call_name from mcp_tool_call events.",
+            "examples": [
+                [
+                    "execute-sql",
+                    "feature-flag-get-all",
+                    "insight-get"
+                ]
+            ],
+            "label": "MCP exec inner tool catalog"
         },
         "$mcp_exec_tool_call_description": {
             "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so the SDK's $mcp_tool_description is the dispatcher's static text on every call. This property carries the description of the inner tool the agent was actually invoking via 'call <tool> ...' \u2014 derived server-side by parsing the exec command and looking the inner tool up in our catalog. Only present when an exec call targets a recognized inner tool.",

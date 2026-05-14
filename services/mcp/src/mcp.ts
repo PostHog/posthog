@@ -809,10 +809,19 @@ export class MCP extends McpAgent<Env> {
                   }
                 : undefined
 
+            // In single-exec mode the SDK's $mcp_listed_tool_names collapses to
+            // just `exec`, so we can't compute "advertised but never called"
+            // (zombie tools) from SDK data alone. Pass the inner-tool catalog
+            // here so analytics can attach it as $mcp_exec_inner_tool_names on
+            // mcp_tools_list events. Dashboards can then diff it against
+            // $mcp_exec_tool_call_name from mcp_tool_call.
+            const execInnerToolNames = useSingleExec ? allTools.map((t) => t.name) : undefined
+
             const initResult = await initPostHogMcpAnalytics(this.server, mcpAnalyticsIdentity, {
                 contextEnabled: true,
                 reportMissingEnabled: !useSingleExec,
                 resolveExecInnerToolCall,
+                execInnerToolNames,
             })
             Object.assign(this.requestProperties, {
                 posthogMcpAnalyticsInitAction: initResult.action,

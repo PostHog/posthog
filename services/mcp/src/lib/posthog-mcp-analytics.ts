@@ -23,6 +23,14 @@ export type PostHogMcpAnalyticsOptions = {
     resolveExecInnerToolCall?:
         | ((request: unknown) => { name: string; description: string } | undefined)
         | undefined
+    // In single-exec mode the SDK's $mcp_listed_tool_names on mcp_tools_list
+    // collapses to just the dispatcher's name (`exec`) because that's the
+    // only tool the server actually advertises over MCP. Passing the full
+    // inner-tool catalog here lets us attach the inner names on tools/list
+    // events as $mcp_exec_inner_tool_names so dashboards can compute the
+    // "advertised but never called" diff against $mcp_exec_tool_call_name
+    // from mcp_tool_call events.
+    execInnerToolNames?: readonly string[] | undefined
 }
 
 export type PostHogMcpAnalyticsInitResult =
@@ -157,13 +165,22 @@ export async function initPostHogMcpAnalytics(
             eventProperties: async (request) => {
                 const base = await buildEventProperties(identity)
                 const innerToolCall = options.resolveExecInnerToolCall?.(request)
-                return innerToolCall
-                    ? {
-                          ...base,
-                          $mcp_exec_tool_call_name: innerToolCall.name,
-                          $mcp_exec_tool_call_description: innerToolCall.description,
-                      }
-                    : base
+                const isListToolsRequest =
+                    (request as { method?: unknown })?.method === 'tools/list' &&
+                    !!options.execInnerToolNames &&
+                    options.execInnerToolNames.length > 0
+                return {
+                    ...base,
+                    ...(innerToolCall
+                        ? {
+                              $mcp_exec_tool_call_name: innerToolCall.name,
+                              $mcp_exec_tool_call_description: innerToolCall.description,
+                          }
+                        : {}),
+                    ...(isListToolsRequest
+                        ? { $mcp_exec_inner_tool_names: [...(options.execInnerToolNames ?? [])] }
+                        : {}),
+                }
             },
             redactSensitiveInformation: (text) => Promise.resolve(redactSensitiveInformation(text)),
         })
