@@ -71,6 +71,22 @@ class TestCloudflarePagesAdapter(SimpleTestCase):
         self.assertIn("Project name already taken", str(cm.exception))
 
     @responses.activate
+    def test_create_project_error_does_not_leak_account_id(self) -> None:
+        # CloudflareError is rendered into a public 502 response body by
+        # the viewset, so the account ID (which appears in the API path)
+        # must never end up in the exception message.
+        responses.add(
+            responses.POST,
+            f"{CLOUDFLARE_API_BASE}/accounts/{ACCOUNT_ID}/pages/projects",
+            json={"success": False, "errors": [{"message": "boom"}], "result": None},
+            status=500,
+        )
+
+        with self.assertRaises(CloudflareError) as cm:
+            CloudflarePagesAdapter().create_project(name="1-myapp", production_branch="main")
+        self.assertNotIn(ACCOUNT_ID, str(cm.exception))
+
+    @responses.activate
     def test_create_project_raises_on_http_error(self) -> None:
         responses.add(
             responses.POST,
@@ -125,6 +141,69 @@ class TestCloudflarePagesAdapter(SimpleTestCase):
             CloudflarePagesAdapter().create_project(name="1-myapp", production_branch="main")
         # Only the create call should have been attempted.
         self.assertEqual(len(responses.calls), 1)
+
+    @responses.activate
+    def test_create_project_deletes_orphan_when_domain_attach_fails(self) -> None:
+        # Create succeeds.
+        create_url = f"{CLOUDFLARE_API_BASE}/accounts/{ACCOUNT_ID}/pages/projects"
+        project_url = f"{create_url}/{PROJECT_PREFIX}1-myapp"
+        responses.add(
+            responses.POST,
+            create_url,
+            json={"success": True, "errors": [], "messages": [], "result": {"name": f"{PROJECT_PREFIX}1-myapp"}},
+            status=200,
+        )
+        # Domain attach fails.
+        responses.add(
+            responses.POST,
+            f"{project_url}/domains",
+            json={"success": False, "errors": [{"message": "domain conflict"}], "result": None},
+            status=409,
+        )
+        # Cleanup DELETE succeeds.
+        responses.add(
+            responses.DELETE,
+            project_url,
+            json={"success": True, "errors": [], "messages": [], "result": {"id": f"{PROJECT_PREFIX}1-myapp"}},
+            status=200,
+        )
+
+        with self.assertRaises(CloudflareError) as cm:
+            CloudflarePagesAdapter().create_project(name="1-myapp", production_branch="main")
+        # The error surfaced is the domain-attach failure, not a delete-cleanup error.
+        self.assertIn("domain conflict", str(cm.exception))
+        # All three calls happened: create, attach, delete (cleanup).
+        self.assertEqual(len(responses.calls), 3)
+        self.assertEqual(responses.calls[2].request.method, "DELETE")
+
+    @responses.activate
+    def test_create_project_still_raises_original_error_if_cleanup_also_fails(self) -> None:
+        create_url = f"{CLOUDFLARE_API_BASE}/accounts/{ACCOUNT_ID}/pages/projects"
+        project_url = f"{create_url}/{PROJECT_PREFIX}1-myapp"
+        responses.add(
+            responses.POST,
+            create_url,
+            json={"success": True, "errors": [], "messages": [], "result": {"name": f"{PROJECT_PREFIX}1-myapp"}},
+            status=200,
+        )
+        responses.add(
+            responses.POST,
+            f"{project_url}/domains",
+            json={"success": False, "errors": [{"message": "domain attach failed"}], "result": None},
+            status=500,
+        )
+        responses.add(
+            responses.DELETE,
+            project_url,
+            json={"success": False, "errors": [{"message": "cleanup also failed"}], "result": None},
+            status=500,
+        )
+
+        with self.assertRaises(CloudflareError) as cm:
+            CloudflarePagesAdapter().create_project(name="1-myapp", production_branch="main")
+        # User-facing error is still the attach failure — cleanup error is logged, not raised.
+        self.assertIn("domain attach failed", str(cm.exception))
+        self.assertNotIn("cleanup also failed", str(cm.exception))
 
     @responses.activate
     def test_rollback_returns_deployment_from_response(self) -> None:

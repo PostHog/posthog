@@ -17,6 +17,7 @@ from typing import Any, Protocol
 from django.conf import settings
 
 import requests
+import structlog
 
 # Tight timeout — `create_project` runs synchronously on the public POST
 # /deployment_projects/ request path. Anything longer hurts user-visible
@@ -24,6 +25,8 @@ import requests
 CLOUDFLARE_API_TIMEOUT_SECONDS = 10
 CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 HOG_DEV_ZONE = "hog.dev"
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -104,39 +107,55 @@ class CloudflarePagesAdapter:
             )
         return account_id, api_token, project_prefix
 
-    def _request(self, method: str, path: str, *, json: dict[str, Any] | None = None) -> dict[str, Any]:
-        _, api_token, _ = self._config()
+    def _request(self, method: str, path: str, *, api_token: str, json: dict[str, Any] | None = None) -> dict[str, Any]:
         url = f"{CLOUDFLARE_API_BASE}{path}"
         headers = {"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
         try:
             response = requests.request(method, url, headers=headers, json=json, timeout=CLOUDFLARE_API_TIMEOUT_SECONDS)
         except requests.RequestException as err:
-            raise CloudflareError(f"Cloudflare {method} {path} failed: {err}") from err
+            # Path contains the CF account ID and is logged internally
+            # for ops, but is intentionally kept out of the exception
+            # message — `CloudflareError` is rendered into the public
+            # 502 response body by the viewset.
+            logger.warning("cloudflare_api_network_error", method=method, path=path, error=str(err))
+            raise CloudflareError(f"Cloudflare API request failed: {err}") from err
 
         try:
             body = response.json()
         except ValueError as err:
+            logger.warning("cloudflare_api_non_json_response", method=method, path=path, status=response.status_code)
             raise CloudflareError(
-                f"Cloudflare {method} {path} returned non-JSON response (status {response.status_code})."
+                f"Cloudflare API returned non-JSON response (status {response.status_code})."
             ) from err
 
         if not response.ok or not body.get("success", False):
             errors = body.get("errors") or []
             message = errors[0].get("message") if errors and isinstance(errors[0], dict) else response.reason
-            raise CloudflareError(f"Cloudflare {method} {path} failed: {message} (status {response.status_code})")
+            logger.warning(
+                "cloudflare_api_call_failed",
+                method=method,
+                path=path,
+                status=response.status_code,
+                message=message,
+            )
+            raise CloudflareError(f"Cloudflare API call failed: {message} (status {response.status_code})")
 
         result = body.get("result")
         if not isinstance(result, dict):
-            raise CloudflareError(f"Cloudflare {method} {path} returned an unexpected result shape.")
+            logger.warning("cloudflare_api_unexpected_result_shape", method=method, path=path)
+            raise CloudflareError("Cloudflare API returned an unexpected result shape.")
         return result
 
     def create_project(self, *, name: str, production_branch: str) -> CFProject:
-        account_id, _, project_prefix = self._config()
+        account_id, api_token, project_prefix = self._config()
         cf_project_name = f"{project_prefix}{name}"
+        create_path = f"/accounts/{account_id}/pages/projects"
+        project_path = f"{create_path}/{cf_project_name}"
 
         self._request(
             "POST",
-            f"/accounts/{account_id}/pages/projects",
+            create_path,
+            api_token=api_token,
             json={"name": cf_project_name, "production_branch": production_branch},
         )
 
@@ -146,19 +165,32 @@ class CloudflarePagesAdapter:
         # project's own `*.pages.dev` URL still works, but `subdomain`
         # below is what the product surfaces to the user.
         custom_domain = f"{name}.{HOG_DEV_ZONE}"
-        self._request(
-            "POST",
-            f"/accounts/{account_id}/pages/projects/{cf_project_name}/domains",
-            json={"name": custom_domain},
-        )
+        try:
+            self._request("POST", f"{project_path}/domains", api_token=api_token, json={"name": custom_domain})
+        except CloudflareError:
+            # The project create succeeded but the domain attach failed.
+            # The CF project name is deterministic (`{prefix}{team_id}-{slug}`),
+            # so leaving the orphan would block the user's next retry with
+            # "Project name already taken". Best-effort cleanup; if the
+            # delete itself fails we still surface the original error.
+            try:
+                self._request("DELETE", project_path, api_token=api_token)
+            except CloudflareError as cleanup_err:
+                logger.warning(
+                    "cloudflare_orphan_cleanup_failed",
+                    project=cf_project_name,
+                    error=str(cleanup_err),
+                )
+            raise
 
         return CFProject(name=cf_project_name, subdomain=custom_domain)
 
     def rollback(self, *, project_name: str, deployment_id: str) -> CFDeployment:
-        account_id, _, _ = self._config()
+        account_id, api_token, _ = self._config()
         result = self._request(
             "POST",
             f"/accounts/{account_id}/pages/projects/{project_name}/deployments/{deployment_id}/rollback",
+            api_token=api_token,
         )
         # The rollback endpoint returns a deployment object. `url` is the
         # public URL of the deployment that's now serving production.
