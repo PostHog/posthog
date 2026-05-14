@@ -8,9 +8,22 @@ from posthog.models.scoping.product_mixin import ProductTeamModel
 
 
 class Monitor(ProductTeamModel):
+    class Mode(models.TextChoices):
+        # PostHog pings the URL on a recurring schedule (~every 5 minutes) and computes
+        # uptime / latency from the recorded ping outcomes. This is the default.
+        AUTO = "auto", "Auto"
+        # No background pinging. The monitor is assumed 100% up unless the user declares
+        # an incident on it. Uptime % and daily buckets are computed from incident
+        # windows; latency is null. URL is optional in this mode — useful for tracking
+        # internal services or third-party dependencies without a public health endpoint.
+        MANUAL = "manual", "Manual"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
-    url = models.URLField(max_length=2048)
+    # URL is nullable to support mode=manual monitors that track a service without a
+    # pingable endpoint. For mode=auto we enforce non-null at the serializer layer.
+    url = models.URLField(max_length=2048, null=True, blank=True)
+    mode = models.CharField(max_length=16, choices=Mode.choices, default=Mode.AUTO)
     created_at = models.DateTimeField(auto_now_add=True)
     # User-controlled display order in the list view. Backfilled per-team from
     # creation order; smaller values render first.

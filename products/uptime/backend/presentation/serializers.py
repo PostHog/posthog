@@ -29,14 +29,58 @@ class MonitorSummarySerializer(DataclassSerializer):
         dataclass = MonitorSummaryDTO
 
 
+MONITOR_MODE_HELP = (
+    "Monitor tracking mode. 'auto' (default) means PostHog pings the URL on a recurring "
+    "schedule and computes uptime / latency from the pings. 'manual' means uptime is "
+    "assumed 100% until you declare an incident on the monitor — useful for tracking "
+    "internal services or third-party dependencies without a public health endpoint."
+)
+
+
 class CreateMonitorSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255, help_text="Human-readable name of the monitor.")
-    url = serializers.URLField(max_length=2048, help_text="HTTP(S) URL to ping every minute.")
+    url = serializers.URLField(
+        max_length=2048,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="HTTP(S) URL to ping (every minute in auto mode). Required when mode='auto', optional when mode='manual'.",
+    )
+    mode = serializers.ChoiceField(
+        choices=[("auto", "auto"), ("manual", "manual")],
+        default="auto",
+        help_text=MONITOR_MODE_HELP,
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        mode = attrs.get("mode", "auto")
+        url = attrs.get("url")
+        if mode == "auto" and not url:
+            raise serializers.ValidationError({"url": "URL is required when mode is 'auto'."})
+        if mode == "manual" and not url:
+            attrs["url"] = None
+        return attrs
 
 
 class UpdateMonitorSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255, required=False, help_text="New human-readable name of the monitor.")
-    url = serializers.URLField(max_length=2048, required=False, help_text="New HTTP(S) URL to ping every minute.")
+    url = serializers.URLField(
+        max_length=2048,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="New HTTP(S) URL. Required when the resulting mode is 'auto'.",
+    )
+    mode = serializers.ChoiceField(
+        choices=[("auto", "auto"), ("manual", "manual")],
+        required=False,
+        help_text=MONITOR_MODE_HELP,
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if "url" in attrs and not attrs["url"]:
+            attrs["url"] = None
+        return attrs
 
 
 class ReorderMonitorsSerializer(serializers.Serializer):

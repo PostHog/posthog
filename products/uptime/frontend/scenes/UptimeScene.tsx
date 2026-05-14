@@ -14,6 +14,7 @@ import {
     LemonInput,
     LemonMenu,
     LemonModal,
+    LemonSegmentedButton,
     LemonTab,
     LemonTable,
     LemonTabs,
@@ -412,18 +413,27 @@ function MonitorTile({
                 <div className="flex items-center gap-2 min-w-0">
                     <StatusDot status={monitor.status} />
                     <div className="min-w-0 flex flex-col">
-                        <div className="font-semibold truncate" title={monitor.name}>
-                            {monitor.name}
+                        <div className="font-semibold truncate flex items-center gap-2" title={monitor.name}>
+                            <span className="truncate">{monitor.name}</span>
+                            {monitor.mode === 'manual' && (
+                                <LemonTag type="muted" size="small">
+                                    Manual
+                                </LemonTag>
+                            )}
                         </div>
-                        <Link
-                            to={monitor.url}
-                            target="_blank"
-                            onClick={stop}
-                            className="text-xs text-secondary truncate"
-                            title={monitor.url}
-                        >
-                            {monitor.url}
-                        </Link>
+                        {monitor.url ? (
+                            <Link
+                                to={monitor.url}
+                                target="_blank"
+                                onClick={stop}
+                                className="text-xs text-secondary truncate"
+                                title={monitor.url}
+                            >
+                                {monitor.url}
+                            </Link>
+                        ) : (
+                            <span className="text-xs text-secondary italic">No URL — tracked manually</span>
+                        )}
                     </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0" onClick={stop}>
@@ -458,30 +468,40 @@ function MonitorTile({
                     </span>
                     <span className="text-xs text-secondary">90d uptime</span>
                 </div>
-                <div className="flex flex-col items-end">
-                    <span className="text-sm font-medium">
-                        {monitor.avg_latency_24h_ms !== null ? `${monitor.avg_latency_24h_ms} ms` : '—'}
-                    </span>
-                    <span className="text-xs text-secondary">avg 24h</span>
-                </div>
+                {/* Latency only makes sense for auto monitors — manual mode has no pings. */}
+                {monitor.mode === 'auto' && (
+                    <div className="flex flex-col items-end">
+                        <span className="text-sm font-medium">
+                            {monitor.avg_latency_24h_ms !== null ? `${monitor.avg_latency_24h_ms} ms` : '—'}
+                        </span>
+                        <span className="text-xs text-secondary">avg 24h</span>
+                    </div>
+                )}
             </div>
 
             <StatusTimeline buckets={monitor.daily_buckets} />
 
             <div className="flex items-center justify-between text-xs text-secondary">
                 <span>
-                    {monitor.last_ping_at ? `Last checked ${dayjs(monitor.last_ping_at).fromNow()}` : 'No checks yet'}
+                    {monitor.mode === 'manual'
+                        ? 'Status reflects open incidents'
+                        : monitor.last_ping_at
+                          ? `Last checked ${dayjs(monitor.last_ping_at).fromNow()}`
+                          : 'No checks yet'}
                 </span>
-                <LemonButton
-                    size="xsmall"
-                    icon={<IconPlay />}
-                    onClick={(e) => {
-                        stop(e)
-                        onPingNow()
-                    }}
-                >
-                    Ping now
-                </LemonButton>
+                {/* Ping-now is meaningless for manual monitors — the backend rejects it. */}
+                {monitor.mode === 'auto' && (
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconPlay />}
+                        onClick={(e) => {
+                            stop(e)
+                            onPingNow()
+                        }}
+                    >
+                        Ping now
+                    </LemonButton>
+                )}
             </div>
         </LemonCard>
     )
@@ -603,60 +623,155 @@ function GhostTile({ suggestion, onAdd }: { suggestion: SuggestedUrl; onAdd: () 
 }
 
 function CreateMonitorModal(): JSX.Element {
-    const { createModalOpen, isCreateMonitorFormSubmitting, topSuggestedUrls } = useValues(uptimeSceneLogic)
-    const { setCreateMonitorValue, submitCreateMonitor, setCreateModalOpen } = useActions(uptimeSceneLogic)
+    const { createModalOpen, isCreateMonitorFormSubmitting, topSuggestedUrls, createWizardStep, createMonitor } =
+        useValues(uptimeSceneLogic)
+    const { setCreateMonitorValue, submitCreateMonitor, setCreateModalOpen, setCreateWizardStep } =
+        useActions(uptimeSceneLogic)
+
+    const isManual = createMonitor.mode === 'manual'
+    const onStepOne = createWizardStep === 'mode'
 
     return (
         <LemonModal
             isOpen={createModalOpen}
             onClose={() => setCreateModalOpen(false)}
             title="Create monitor"
+            description={
+                onStepOne
+                    ? 'Step 1 of 2 — choose how this monitor tracks uptime.'
+                    : 'Step 2 of 2 — name and (optionally) URL.'
+            }
+            width={560}
             footer={
-                <LemonButton
-                    type="primary"
-                    loading={isCreateMonitorFormSubmitting}
-                    onClick={() => submitCreateMonitor()}
-                >
-                    Create
-                </LemonButton>
+                <div className="flex w-full justify-between">
+                    {onStepOne ? (
+                        <LemonButton type="secondary" onClick={() => setCreateModalOpen(false)}>
+                            Cancel
+                        </LemonButton>
+                    ) : (
+                        <LemonButton type="secondary" onClick={() => setCreateWizardStep('mode')}>
+                            Back
+                        </LemonButton>
+                    )}
+                    {onStepOne ? (
+                        <LemonButton type="primary" onClick={() => setCreateWizardStep('details')}>
+                            Continue
+                        </LemonButton>
+                    ) : (
+                        <LemonButton
+                            type="primary"
+                            loading={isCreateMonitorFormSubmitting}
+                            onClick={() => submitCreateMonitor()}
+                        >
+                            Create monitor
+                        </LemonButton>
+                    )}
+                </div>
             }
         >
             <Form logic={uptimeSceneLogic} formKey="createMonitor" className="deprecated-space-y-4">
-                {topSuggestedUrls.length > 0 && (
-                    <div className="flex flex-col gap-2">
-                        <div className="text-sm text-secondary">Suggested from your traffic</div>
-                        <div className="flex flex-wrap gap-2">
-                            {topSuggestedUrls.map((s: SuggestedUrl) => (
-                                <LemonButton
-                                    key={s.url}
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => {
-                                        setCreateMonitorValue('url', s.url)
-                                        setCreateMonitorValue('name', s.host)
-                                    }}
-                                    tooltip={`${humanFriendlyNumber(s.event_count)} pageviews, ${s.unique_paths} paths`}
-                                >
-                                    {s.host}
-                                </LemonButton>
-                            ))}
-                        </div>
+                {onStepOne ? (
+                    <div className="flex flex-col gap-3">
+                        <ModeCard
+                            mode="auto"
+                            selected={createMonitor.mode === 'auto'}
+                            title="Auto"
+                            tagline="PostHog pings the URL every 5 minutes"
+                            description="Uptime % and latency are computed from real HTTP checks. Pick this when you have a public URL you want continuously monitored."
+                            onSelect={() => setCreateMonitorValue('mode', 'auto')}
+                        />
+                        <ModeCard
+                            mode="manual"
+                            selected={createMonitor.mode === 'manual'}
+                            title="Manual"
+                            tagline="Assume 100% up until you declare an incident"
+                            description="No background pinging. Useful for tracking internal services or third-party dependencies without a public health endpoint. Status flips to 'down' when you declare an incident on it."
+                            onSelect={() => setCreateMonitorValue('mode', 'manual')}
+                        />
                     </div>
+                ) : (
+                    <>
+                        {!isManual && topSuggestedUrls.length > 0 && (
+                            <div className="flex flex-col gap-2">
+                                <div className="text-sm text-secondary">Suggested from your traffic</div>
+                                <div className="flex flex-wrap gap-2">
+                                    {topSuggestedUrls.map((s: SuggestedUrl) => (
+                                        <LemonButton
+                                            key={s.url}
+                                            type="secondary"
+                                            size="small"
+                                            onClick={() => {
+                                                setCreateMonitorValue('url', s.url)
+                                                setCreateMonitorValue('name', s.host)
+                                            }}
+                                            tooltip={`${humanFriendlyNumber(s.event_count)} pageviews, ${s.unique_paths} paths`}
+                                        >
+                                            {s.host}
+                                        </LemonButton>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        <LemonField name="name" label="Name">
+                            <LemonInput
+                                placeholder={isManual ? 'Payments API' : 'My website'}
+                                onChange={(v) => setCreateMonitorValue('name', v)}
+                            />
+                        </LemonField>
+                        <LemonField name="url" label={isManual ? 'URL (optional)' : 'URL'}>
+                            <LemonInput
+                                placeholder={isManual ? 'https://stripe.com (optional)' : 'https://example.com'}
+                                onChange={(v) => setCreateMonitorValue('url', v)}
+                            />
+                        </LemonField>
+                    </>
                 )}
-                <LemonField name="name" label="Name">
-                    <LemonInput placeholder="My website" onChange={(v) => setCreateMonitorValue('name', v)} />
-                </LemonField>
-                <LemonField name="url" label="URL">
-                    <LemonInput placeholder="https://example.com" onChange={(v) => setCreateMonitorValue('url', v)} />
-                </LemonField>
             </Form>
         </LemonModal>
     )
 }
 
+function ModeCard({
+    mode,
+    selected,
+    title,
+    tagline,
+    description,
+    onSelect,
+}: {
+    mode: 'auto' | 'manual'
+    selected: boolean
+    title: string
+    tagline: string
+    description: string
+    onSelect: () => void
+}): JSX.Element {
+    return (
+        <LemonCard
+            hoverEffect
+            focused={selected}
+            onClick={onSelect}
+            className="flex flex-col gap-1 p-4"
+            data-attr={`create-monitor-mode-${mode}`}
+        >
+            <div className="flex items-center justify-between">
+                <div className="font-semibold">{title}</div>
+                {selected && (
+                    <LemonTag type="primary" size="small">
+                        Selected
+                    </LemonTag>
+                )}
+            </div>
+            <div className="text-sm text-secondary">{tagline}</div>
+            <div className="text-xs text-secondary mt-1">{description}</div>
+        </LemonCard>
+    )
+}
+
 function EditMonitorModal(): JSX.Element {
-    const { editingMonitorId, isEditMonitorFormSubmitting } = useValues(uptimeSceneLogic)
+    const { editingMonitorId, isEditMonitorFormSubmitting, editMonitor } = useValues(uptimeSceneLogic)
     const { setEditMonitorValue, submitEditMonitor, stopEditing } = useActions(uptimeSceneLogic)
+    const isManual = editMonitor.mode === 'manual'
 
     return (
         <LemonModal
@@ -673,8 +788,22 @@ function EditMonitorModal(): JSX.Element {
                 <LemonField name="name" label="Name">
                     <LemonInput placeholder="My website" onChange={(v) => setEditMonitorValue('name', v)} />
                 </LemonField>
-                <LemonField name="url" label="URL">
-                    <LemonInput placeholder="https://example.com" onChange={(v) => setEditMonitorValue('url', v)} />
+                <LemonField name="url" label={isManual ? 'URL (optional)' : 'URL'}>
+                    <LemonInput
+                        placeholder={isManual ? 'https://stripe.com (optional)' : 'https://example.com'}
+                        onChange={(v) => setEditMonitorValue('url', v)}
+                    />
+                </LemonField>
+                <LemonField name="mode" label="Tracking mode">
+                    <LemonSegmentedButton
+                        value={editMonitor.mode}
+                        onChange={(v) => setEditMonitorValue('mode', v)}
+                        options={[
+                            { value: 'auto', label: 'Auto (PostHog pings)' },
+                            { value: 'manual', label: 'Manual (declare incidents)' },
+                        ]}
+                        fullWidth
+                    />
                 </LemonField>
             </Form>
         </LemonModal>

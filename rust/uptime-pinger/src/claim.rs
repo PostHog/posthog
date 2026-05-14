@@ -34,6 +34,8 @@ WITH due AS (
     SELECT id
     FROM uptime_monitor
     WHERE next_check_at <= NOW()
+      AND mode = 'auto'
+      AND url IS NOT NULL
     ORDER BY next_check_at ASC
     LIMIT $1
     FOR UPDATE SKIP LOCKED

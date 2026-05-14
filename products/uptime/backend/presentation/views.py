@@ -120,13 +120,23 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         request=None,
-        responses={202: OpenApiResponse(description="Monitor scheduled for an immediate ping.")},
+        responses={
+            202: OpenApiResponse(description="Monitor scheduled for an immediate ping."),
+            400: OpenApiResponse(description="Monitor is in manual mode and cannot be pinged."),
+            404: OpenApiResponse(description="Monitor not found."),
+        },
     )
     @action(detail=True, methods=["post"], url_path="ping_now", required_scopes=["uptime:write"])
     def ping_now(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        try:
+            monitor = Monitor.objects.get(id=UUID(str(pk)))
+        except Monitor.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if monitor.mode != "auto":
+            raise ValidationError({"mode": "Cannot ping a manual monitor. Declare an incident instead."})
         # Advance next_check_at so the rust pinger claims this monitor on its next sweep
         # (typically within a couple seconds).
-        Monitor.objects.filter(id=UUID(str(pk))).update(next_check_at=timezone.now())
+        Monitor.objects.filter(id=monitor.id).update(next_check_at=timezone.now())
         return Response(status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(

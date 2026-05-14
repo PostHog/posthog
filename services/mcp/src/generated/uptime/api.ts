@@ -43,6 +43,11 @@ export const UptimeIncidentsCreateBody = /* @__PURE__ */ zod.object({
         .datetime({ offset: true })
         .optional()
         .describe('When the incident started. Defaults to the time the incident was created.'),
+    resolved_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('When the incident was resolved. Omit or null for an ongoing incident.'),
+    resolution_note: zod.string().optional().describe('Resolution note. Required when resolved_at is set.'),
 })
 
 export const UptimeIncidentsRetrieveParams = /* @__PURE__ */ zod.object({
@@ -140,9 +145,24 @@ export const uptimeMonitorsCreateBodyNameMax = 255
 
 export const uptimeMonitorsCreateBodyUrlMax = 2048
 
+export const uptimeMonitorsCreateBodyModeDefault = `auto`
+
 export const UptimeMonitorsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(uptimeMonitorsCreateBodyNameMax).describe('Human-readable name of the monitor.'),
-    url: zod.url().max(uptimeMonitorsCreateBodyUrlMax).describe('HTTP(S) URL to ping every 5 minutes.'),
+    url: zod
+        .url()
+        .max(uptimeMonitorsCreateBodyUrlMax)
+        .nullish()
+        .describe(
+            "HTTP(S) URL to ping (every minute in auto mode). Required when mode='auto', optional when mode='manual'."
+        ),
+    mode: zod
+        .enum(['auto', 'manual'])
+        .describe('* `auto` - auto\n* `manual` - manual')
+        .default(uptimeMonitorsCreateBodyModeDefault)
+        .describe(
+            "Monitor tracking mode. 'auto' (default) means PostHog pings the URL on a recurring schedule and computes uptime / latency from the pings. 'manual' means uptime is assumed 100% until you declare an incident on the monitor — useful for tracking internal services or third-party dependencies without a public health endpoint.\n\n* `auto` - auto\n* `manual` - manual"
+        ),
 })
 
 /**
@@ -179,8 +199,15 @@ export const UptimeMonitorsPartialUpdateBody = /* @__PURE__ */ zod.object({
     url: zod
         .url()
         .max(uptimeMonitorsPartialUpdateBodyUrlMax)
+        .nullish()
+        .describe("New HTTP(S) URL. Required when the resulting mode is 'auto'."),
+    mode: zod
+        .enum(['auto', 'manual'])
+        .describe('* `auto` - auto\n* `manual` - manual')
         .optional()
-        .describe('New HTTP(S) URL to ping every 5 minutes.'),
+        .describe(
+            "Monitor tracking mode. 'auto' (default) means PostHog pings the URL on a recurring schedule and computes uptime / latency from the pings. 'manual' means uptime is assumed 100% until you declare an incident on the monitor — useful for tracking internal services or third-party dependencies without a public health endpoint.\n\n* `auto` - auto\n* `manual` - manual"
+        ),
 })
 
 export const UptimeMonitorsDestroyParams = /* @__PURE__ */ zod.object({
@@ -246,7 +273,7 @@ export const UptimeMonitorsBulkCreateCreateBody = /* @__PURE__ */ zod.object({
                 url: zod
                     .url()
                     .max(uptimeMonitorsBulkCreateCreateBodyMonitorsItemUrlMax)
-                    .describe('HTTP(S) URL to ping every 5 minutes.'),
+                    .describe('HTTP(S) URL to ping every minute.'),
             })
         )
         .describe('List of monitors to create. All-or-nothing: created atomically.'),

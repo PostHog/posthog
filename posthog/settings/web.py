@@ -431,6 +431,7 @@ SPECTACULAR_SETTINGS = {
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
         "PingOutcome": "products.uptime.backend.facade.enums.PingOutcome",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
+        "MonitorMode": ["auto", "manual"],
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [
             "event",

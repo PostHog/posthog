@@ -247,6 +247,9 @@ const monitorCreate = (): ToolBase<typeof MonitorCreateSchema, WithPostHogUrl<Sc
         if (params.url !== undefined) {
             body['url'] = params.url
         }
+        if (params.mode !== undefined) {
+            body['mode'] = params.mode
+        }
         const result = await context.api.request<Schemas.MonitorDTO>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/uptime/monitors/`,
@@ -271,6 +274,9 @@ const monitorUpdate = (): ToolBase<typeof MonitorUpdateSchema, WithPostHogUrl<Sc
         }
         if (params.url !== undefined) {
             body['url'] = params.url
+        }
+        if (params.mode !== undefined) {
+            body['mode'] = params.mode
         }
         const result = await context.api.request<Schemas.MonitorDTO>({
             method: 'PATCH',
@@ -376,6 +382,12 @@ const incidentCreate = (): ToolBase<typeof IncidentCreateSchema, WithPostHogUrl<
         }
         if (params.started_at !== undefined) {
             body['started_at'] = params.started_at
+        }
+        if (params.resolved_at !== undefined) {
+            body['resolved_at'] = params.resolved_at
+        }
+        if (params.resolution_note !== undefined) {
+            body['resolution_note'] = params.resolution_note
         }
         const result = await context.api.request<Schemas.IncidentDTO>({
             method: 'POST',

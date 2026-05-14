@@ -123,3 +123,49 @@ class TestBulkCreateEndpoint(UptimeTeamScopedTestMixin, APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert Monitor.objects.filter(team_id=self.team.id).count() == 0
+
+
+class TestMonitorModeEndpoints(UptimeTeamScopedTestMixin, APIBaseTest):
+    def _list_url(self) -> str:
+        return f"/api/environments/{self.team.id}/uptime/monitors/"
+
+    def _ping_now_url(self, monitor_id) -> str:
+        return f"/api/environments/{self.team.id}/uptime/monitors/{monitor_id}/ping_now/"
+
+    def test_create_auto_requires_url(self) -> None:
+        response = self.client.post(
+            self._list_url(),
+            data={"name": "no-url", "mode": "auto"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_manual_url_is_optional(self) -> None:
+        response = self.client.post(
+            self._list_url(),
+            data={"name": "Payments", "mode": "manual"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        body = response.json()
+        assert body["mode"] == "manual"
+        assert body["url"] is None
+
+    def test_create_manual_with_url_still_works(self) -> None:
+        response = self.client.post(
+            self._list_url(),
+            data={"name": "Payments", "url": "https://stripe.com", "mode": "manual"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["url"] == "https://stripe.com"
+
+    def test_ping_now_rejects_manual_monitor(self) -> None:
+        monitor = Monitor.objects.create(team_id=self.team.id, name="manual-only", url=None, mode="manual")
+
+        response = self.client.post(self._ping_now_url(monitor.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        # DRF ValidationError on a dict comes back as { attr: "mode", code: "invalid_input", ... }
+        assert body.get("attr") == "mode"

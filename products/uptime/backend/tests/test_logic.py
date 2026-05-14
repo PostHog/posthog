@@ -353,6 +353,103 @@ class TestReorderMonitors(UptimeTeamScopedTestMixin, BaseTest):
         assert a.display_order == 1
 
 
+class TestManualMonitorSummary(UptimeTeamScopedTestMixin, ClickhouseTestMixin, BaseTest):
+    """Manual monitors derive their summary from incidents rather than pings."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_manual_with_no_incidents_is_up_at_100_percent(self) -> None:
+        monitor = Monitor.objects.create(team_id=self.team.id, name="payments", url=None, mode="manual")
+
+        results = list_monitor_summaries(team_id=self.team.id)
+
+        row = next(r for r in results if r["id"] == monitor.id)
+        assert row["mode"] == "manual"
+        assert row["status"] == "up"
+        assert row["uptime_90d"] == 1.0
+        assert row["last_ping_at"] is None
+        assert row["last_ping_outcome"] is None
+        assert row["avg_latency_24h_ms"] is None
+        # Every daily bucket should be marked up.
+        assert all(b["status"] == "up" for b in row["daily_buckets"])
+
+    def test_manual_with_ongoing_incident_is_down(self) -> None:
+        monitor = Monitor.objects.create(team_id=self.team.id, name="payments", url=None, mode="manual")
+        from products.uptime.backend.models import Incident
+
+        Incident.objects.create(
+            team_id=self.team.id,
+            monitor=monitor,
+            name="Investigating",
+            started_at=timezone.now() - timedelta(hours=1),
+            resolved_at=None,
+        )
+
+        results = list_monitor_summaries(team_id=self.team.id)
+
+        row = next(r for r in results if r["id"] == monitor.id)
+        assert row["status"] == "down"
+        # Today's bucket should be 'down', earlier days still 'up'.
+        assert row["daily_buckets"][-1]["status"] == "down"
+        # uptime_90d shaved by the incident's hour out of 90 days — should be < 1.0 but very close.
+        assert row["uptime_90d"] is not None and 0.999 < row["uptime_90d"] < 1.0
+
+    def test_manual_with_resolved_incident_marks_overlapped_days_down(self) -> None:
+        monitor = Monitor.objects.create(team_id=self.team.id, name="payments", url=None, mode="manual")
+        from products.uptime.backend.models import Incident
+
+        # Incident spanning yesterday from 10:00 → 14:00 UTC. Pure-day in the window so we
+        # don't have to worry about boundary effects.
+        now = timezone.now()
+        Incident.objects.create(
+            team_id=self.team.id,
+            monitor=monitor,
+            name="DB outage",
+            started_at=now - timedelta(days=1, hours=14),
+            resolved_at=now - timedelta(days=1, hours=10),
+            resolution_note="rolled back",
+        )
+
+        results = list_monitor_summaries(team_id=self.team.id)
+
+        row = next(r for r in results if r["id"] == monitor.id)
+        assert row["status"] == "up"  # resolved, so currently up
+        # The day before today should be 'down'; today should be 'up'.
+        assert row["daily_buckets"][-1]["status"] == "up"
+        assert row["daily_buckets"][-2]["status"] == "down"
+
+    def test_overlapping_incidents_do_not_double_count_downtime(self) -> None:
+        """Two ongoing incidents that overlap in time should count only the union."""
+        monitor = Monitor.objects.create(team_id=self.team.id, name="x", url=None, mode="manual")
+        from products.uptime.backend.models import Incident
+
+        now = timezone.now()
+        # Both incidents start 2h ago; one resolved 1h ago, the other still ongoing.
+        Incident.objects.create(
+            team_id=self.team.id,
+            monitor=monitor,
+            name="A",
+            started_at=now - timedelta(hours=2),
+            resolved_at=now - timedelta(hours=1),
+            resolution_note="fixed A",
+        )
+        Incident.objects.create(
+            team_id=self.team.id,
+            monitor=monitor,
+            name="B",
+            started_at=now - timedelta(hours=2),
+            resolved_at=None,
+        )
+
+        results = list_monitor_summaries(team_id=self.team.id)
+        row = next(r for r in results if r["id"] == monitor.id)
+        # Down time should be ~2 hours of union, not 3 hours of sum.
+        # uptime_90d ≈ 1 - (2 / (90 * 24)) ≈ 0.99907
+        assert row["uptime_90d"] is not None
+        expected = 1 - (2 * 3600) / (90 * 24 * 3600)
+        assert abs(row["uptime_90d"] - expected) < 0.001
+
+
 @pytest.mark.django_db
 class TestStatusChangeEmission:
     def _make_monitor(self, team):

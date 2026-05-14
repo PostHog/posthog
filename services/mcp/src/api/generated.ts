@@ -6335,7 +6335,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * HTTP(S) URL to ping every 5 minutes.
+         * HTTP(S) URL to ping every minute.
          * @maxLength 2048
          */
       url: string;
@@ -8022,6 +8022,13 @@ export namespace Schemas {
       description?: string;
       /** When the incident started. Defaults to the time the incident was created. */
       started_at?: string;
+      /**
+         * When the incident was resolved. Omit or null for an ongoing incident.
+         * @nullable
+         */
+      resolved_at?: string | null;
+      /** Resolution note. Required when resolved_at is set. */
+      resolution_note?: string;
     }
 
     /**
@@ -8061,6 +8068,18 @@ export namespace Schemas {
       representative_email: string;
     }
 
+    /**
+     * * `auto` - auto
+    * `manual` - manual
+     */
+    export type MonitorMode = typeof MonitorMode[keyof typeof MonitorMode];
+
+
+    export const MonitorMode = {
+      Auto: 'auto',
+      Manual: 'manual',
+    } as const;
+
     export interface CreateMonitor {
       /**
          * Human-readable name of the monitor.
@@ -8068,10 +8087,16 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * HTTP(S) URL to ping every 5 minutes.
+         * HTTP(S) URL to ping (every minute in auto mode). Required when mode='auto', optional when mode='manual'.
          * @maxLength 2048
+         * @nullable
          */
-      url: string;
+      url?: string | null;
+      /** Monitor tracking mode. 'auto' (default) means PostHog pings the URL on a recurring schedule and computes uptime / latency from the pings. 'manual' means uptime is assumed 100% until you declare an incident on the monitor — useful for tracking internal services or third-party dependencies without a public health endpoint.
+
+      * `auto` - auto
+      * `manual` - manual */
+      mode?: MonitorMode;
     }
 
     /**
@@ -20164,7 +20189,9 @@ export namespace Schemas {
     export interface MonitorDTO {
       id: string;
       name: string;
-      url: string;
+      /** @nullable */
+      url: string | null;
+      mode: MonitorMode;
       created_at: string;
     }
 
@@ -20197,11 +20224,13 @@ export namespace Schemas {
     export interface MonitorSummaryDTO {
       id: string;
       name: string;
-      url: string;
+      /** @nullable */
+      url: string | null;
+      mode: MonitorMode;
       created_at: string;
       status: MonitorSummaryDTOStatusEnum;
       /** @nullable */
-      uptime_30d: number | null;
+      uptime_90d: number | null;
       /** @nullable */
       avg_latency_24h_ms: number | null;
       /** @nullable */
@@ -20830,6 +20859,16 @@ export namespace Schemas {
       SessionSummaries: 'session_summaries',
       SignalReport: 'signal_report',
     } as const;
+
+    export interface OutageDTO {
+      monitor_id: string;
+      started_at: string;
+      /** @nullable */
+      resolved_at: string | null;
+      fail_count: number;
+      /** @nullable */
+      last_status_code: number | null;
+    }
 
     /**
      * Initial goal and session outcome coming from LLM.
@@ -21809,6 +21848,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: OrganizationOAuthApplication[];
+    }
+
+    export interface PaginatedOutageDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: OutageDTO[];
     }
 
     export interface PauseStateResponse {
@@ -29896,10 +29944,16 @@ export namespace Schemas {
          */
       name?: string;
       /**
-         * New HTTP(S) URL to ping every 5 minutes.
+         * New HTTP(S) URL. Required when the resulting mode is 'auto'.
          * @maxLength 2048
+         * @nullable
          */
-      url?: string;
+      url?: string | null;
+      /** Monitor tracking mode. 'auto' (default) means PostHog pings the URL on a recurring schedule and computes uptime / latency from the pings. 'manual' means uptime is assumed 100% until you declare an incident on the monitor — useful for tracking internal services or third-party dependencies without a public health endpoint.
+
+      * `auto` - auto
+      * `manual` - manual */
+      mode?: MonitorMode;
     }
 
     /**
@@ -38232,6 +38286,21 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsUptimeMonitorsOutagesListParams = {
+    /**
+     * Look-back window in days. Defaults to 7.
+     */
+    days?: number;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsUptimeMonitorsPingsListParams = {
     /**
      * Number of results to return per page.
@@ -43826,6 +43895,21 @@ export namespace Schemas {
     };
 
     export type UptimeMonitorsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type UptimeMonitorsOutagesListParams = {
+    /**
+     * Look-back window in days. Defaults to 7.
+     */
+    days?: number;
     /**
      * Number of results to return per page.
      */

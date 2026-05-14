@@ -7,13 +7,17 @@ from .enums import PingOutcome
 
 MonitorOverallStatus = Literal["up", "down", "no_data"]
 MonitorDailyStatus = Literal["up", "degraded", "down", "no_data"]
+MonitorMode = Literal["auto", "manual"]
 
 
 @dataclass(frozen=True)
 class MonitorDTO:
     id: UUID
     name: str
-    url: str
+    # URL is optional — manual-mode monitors can track a service without a public
+    # health endpoint (e.g. "Stripe", "internal dashboard").
+    url: str | None
+    mode: MonitorMode
     created_at: datetime
 
 
@@ -21,7 +25,8 @@ class MonitorDTO:
 class CreateMonitorInput:
     team_id: int
     name: str
-    url: str
+    url: str | None = None
+    mode: MonitorMode = "auto"
 
 
 @dataclass(frozen=True)
@@ -30,6 +35,7 @@ class UpdateMonitorInput:
     monitor_id: UUID
     name: str | None = None
     url: str | None = None
+    mode: MonitorMode | None = None
 
 
 @dataclass(frozen=True)
@@ -71,7 +77,8 @@ class DailyBucketDTO:
 class MonitorSummaryDTO:
     id: UUID
     name: str
-    url: str
+    url: str | None
+    mode: MonitorMode
     created_at: datetime
     status: MonitorOverallStatus
     uptime_90d: float | None

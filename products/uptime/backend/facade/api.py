@@ -12,6 +12,7 @@ def _to_dto(obj: Monitor) -> contracts.MonitorDTO:
         id=obj.id,
         name=obj.name,
         url=obj.url,
+        mode=obj.mode,
         created_at=obj.created_at,
     )
 
@@ -48,6 +49,7 @@ def _summary_dict_to_dto(row: dict) -> contracts.MonitorSummaryDTO:
         id=row["id"],
         name=row["name"],
         url=row["url"],
+        mode=row["mode"],
         created_at=row["created_at"],
         status=row["status"],
         uptime_90d=row["uptime_90d"],
@@ -67,12 +69,14 @@ def _summary_dict_to_dto(row: dict) -> contracts.MonitorSummaryDTO:
 
 
 def create(input: contracts.CreateMonitorInput) -> contracts.MonitorDTO:
-    obj = logic.create_monitor(team_id=input.team_id, name=input.name, url=input.url)
+    obj = logic.create_monitor(team_id=input.team_id, name=input.name, url=input.url, mode=input.mode)
     return _to_dto(obj)
 
 
 def update(input: contracts.UpdateMonitorInput) -> contracts.MonitorDTO:
-    obj = logic.update_monitor(team_id=input.team_id, monitor_id=input.monitor_id, name=input.name, url=input.url)
+    obj = logic.update_monitor(
+        team_id=input.team_id, monitor_id=input.monitor_id, name=input.name, url=input.url, mode=input.mode
+    )
     return _to_dto(obj)
 
 
@@ -88,26 +92,7 @@ def retrieve_monitor_summary(*, team_id: int, monitor_id: UUID) -> contracts.Mon
     row = logic.retrieve_monitor_summary(team_id=team_id, monitor_id=monitor_id)
     if row is None:
         return None
-    return contracts.MonitorSummaryDTO(
-        id=row["id"],
-        name=row["name"],
-        url=row["url"],
-        created_at=row["created_at"],
-        status=row["status"],
-        uptime_90d=row["uptime_90d"],
-        avg_latency_24h_ms=row["avg_latency_24h_ms"],
-        last_ping_at=row["last_ping_at"],
-        last_ping_outcome=row["last_ping_outcome"],
-        daily_buckets=[
-            contracts.DailyBucketDTO(
-                date=bucket["date"],
-                total=bucket["total"],
-                failed=bucket["failed"],
-                status=bucket["status"],
-            )
-            for bucket in row["daily_buckets"]
-        ],
-    )
+    return _summary_dict_to_dto(row)
 
 
 def bulk_create(input: contracts.BulkCreateMonitorInput) -> list[contracts.MonitorDTO]:

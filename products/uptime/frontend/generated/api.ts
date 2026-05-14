@@ -18,6 +18,7 @@ import type {
     PaginatedIncidentDTOListApi,
     PaginatedMonitorDTOListApi,
     PaginatedMonitorSummaryDTOListApi,
+    PaginatedOutageDTOListApi,
     PaginatedPingDTOListApi,
     PaginatedStatusPageDTOListApi,
     PaginatedSuggestedUrlDTOListApi,
@@ -30,6 +31,7 @@ import type {
     UptimeIncidentsListParams,
     UptimeMonitorsBulkCreateCreateParams,
     UptimeMonitorsListParams,
+    UptimeMonitorsOutagesListParams,
     UptimeMonitorsPingsListParams,
     UptimeMonitorsSuggestedUrlsListParams,
     UptimeMonitorsSummaryListParams,
@@ -254,6 +256,41 @@ export const uptimeMonitorsDestroy = async (projectId: string, id: string, optio
     return apiMutator<void>(getUptimeMonitorsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getUptimeMonitorsOutagesListUrl = (
+    projectId: string,
+    id: string,
+    params?: UptimeMonitorsOutagesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/uptime/monitors/${id}/outages/?${stringifiedParams}`
+        : `/api/projects/${projectId}/uptime/monitors/${id}/outages/`
+}
+
+/**
+ * Outages computed from raw pings: ongoing first, then most recently started resolved outages.
+ */
+export const uptimeMonitorsOutagesList = async (
+    projectId: string,
+    id: string,
+    params?: UptimeMonitorsOutagesListParams,
+    options?: RequestInit
+): Promise<PaginatedOutageDTOListApi> => {
+    return apiMutator<PaginatedOutageDTOListApi>(getUptimeMonitorsOutagesListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

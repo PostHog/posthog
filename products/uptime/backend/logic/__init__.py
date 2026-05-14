@@ -3,13 +3,14 @@ from __future__ import annotations
 import re
 import math
 import secrets
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Literal
 from urllib.parse import urlparse
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.db import models, transaction
+from django.db.models import Q
 from django.db.utils import IntegrityError
 from django.utils import timezone
 
@@ -49,18 +50,29 @@ def _outcome_to_status(outcome: PingOutcome) -> str:
     return STATUS_UP if outcome == PingOutcome.SUCCESS else STATUS_DOWN
 
 
-def create_monitor(*, team_id: int, name: str, url: str) -> Monitor:
-    return Monitor.objects.create(team_id=team_id, name=name, url=url)
+def create_monitor(*, team_id: int, name: str, url: str | None = None, mode: str = "auto") -> Monitor:
+    return Monitor.objects.create(team_id=team_id, name=name, url=url, mode=mode)
 
 
 def bulk_create_monitors(*, team_id: int, items: list[dict[str, str]]) -> list[Monitor]:
-    """Create monitors for several URLs atomically. Used by the URL-suggester bulk-add flow."""
+    """Create monitors for several URLs atomically. Used by the URL-suggester bulk-add flow,
+    which always produces auto-mode monitors (suggestions come from $pageview URLs we can ping)."""
     with transaction.atomic():
-        return [Monitor.objects.create(team_id=team_id, name=item["name"], url=item["url"]) for item in items]
+        return [
+            Monitor.objects.create(team_id=team_id, name=item["name"], url=item["url"], mode="auto") for item in items
+        ]
 
 
-def update_monitor(*, team_id: int, monitor_id: UUID, name: str | None = None, url: str | None = None) -> Monitor:
-    """Update a monitor's display name and/or URL. Pings are not rewritten — the monitor_id is stable.
+def update_monitor(
+    *,
+    team_id: int,
+    monitor_id: UUID,
+    name: str | None = None,
+    url: str | None = None,
+    mode: str | None = None,
+) -> Monitor:
+    """Update a monitor's display name, URL, and/or mode. Pings are not rewritten — the
+    monitor_id is stable, so prior ping history carries over even when switching modes.
 
     The team_id param is unused at the query level — the manager auto-scopes by the canonical
     team in the request scope. Pinning to a raw team_id can miss rows when the URL's project_id
@@ -71,6 +83,8 @@ def update_monitor(*, team_id: int, monitor_id: UUID, name: str | None = None, u
         monitor.name = name
     if url is not None:
         monitor.url = url
+    if mode is not None:
+        monitor.mode = mode
     monitor.save()
     return monitor
 
@@ -300,8 +314,13 @@ def _maybe_emit_status_change(
 def list_monitor_summaries(*, team_id: int) -> list[dict]:
     """One row per monitor with current status, uptime %, latency, last ping, and 90 daily buckets.
 
-    Pings are aggregated server-side in ClickHouse for the last 90 days. Monitors with no pings
-    show status='no_data' and uptime/latency=None — the UI renders them as "no data yet" tiles.
+    For mode='auto' monitors: pings are aggregated in ClickHouse and status / uptime / latency
+    are derived from them. Monitors with no pings show status='no_data'.
+
+    For mode='manual' monitors: uptime is assumed 100% unless a user-declared incident
+    overlaps the window. Status is 'down' iff there's an ongoing incident, else 'up'.
+    Daily buckets and uptime_90d are derived from incident windows; latency and last-ping
+    fields are always null in manual mode.
     """
     tag_queries(product=Product.UPTIME, team_id=team_id, feature=Feature.UPTIME_PINGS, name="list_monitor_summaries")
 
@@ -309,60 +328,90 @@ def list_monitor_summaries(*, team_id: int) -> list[dict]:
     if not monitors:
         return []
 
-    daily_rows = sync_execute(
-        """
-        SELECT
-            monitor_id,
-            toDate(timestamp) AS day,
-            count() AS total,
-            countIf(outcome = 'failure') AS failed,
-            avgIf(latency_ms, outcome = 'success') AS avg_latency
-        FROM uptime_pings
-        WHERE team_id = %(team_id)s
-          AND timestamp > now() - INTERVAL 90 DAY
-        GROUP BY monitor_id, day
-        """,
-        {"team_id": team_id},
-    )
-
-    latest_rows = sync_execute(
-        """
-        SELECT
-            monitor_id,
-            argMax(timestamp, timestamp) AS last_ping_at,
-            argMax(outcome, timestamp) AS last_outcome,
-            avgIf(latency_ms, outcome = 'success' AND timestamp > now() - INTERVAL 1 DAY) AS avg_latency_24h
-        FROM uptime_pings
-        WHERE team_id = %(team_id)s
-        GROUP BY monitor_id
-        """,
-        {"team_id": team_id},
-    )
-
-    per_monitor_days: dict[UUID, dict[date, dict]] = {}
-    for row in daily_rows:
-        monitor_id = UUID(str(row[0]))
-        day_value = row[1] if isinstance(row[1], date) else _to_date(row[1])
-        per_monitor_days.setdefault(monitor_id, {})[day_value] = {
-            "total": int(row[2]),
-            "failed": int(row[3]),
-            "avg_latency": _safe_float(row[4]),
-        }
-
-    per_monitor_latest: dict[UUID, dict] = {}
-    for row in latest_rows:
-        monitor_id = UUID(str(row[0]))
-        per_monitor_latest[monitor_id] = {
-            "last_ping_at": row[1],
-            "last_outcome": row[2],
-            "avg_latency_24h": _safe_float(row[3]),
-        }
-
-    today = timezone.now().astimezone(ZoneInfo("UTC")).date()
+    now_utc = timezone.now().astimezone(ZoneInfo("UTC"))
+    today = now_utc.date()
     day_window = [today - timedelta(days=i) for i in reversed(range(DAILY_BUCKETS))]
+    window_start = datetime.combine(day_window[0], time.min, tzinfo=ZoneInfo("UTC"))
+
+    # Pre-fetch all incidents that could overlap the window, grouped by monitor. We
+    # need both ongoing (resolved_at is null) and resolved incidents whose window
+    # touches the last 90 days.
+    incidents_by_monitor: dict[UUID, list[Incident]] = {}
+    incident_qs = Incident.objects.filter(
+        Q(resolved_at__isnull=True) | Q(resolved_at__gte=window_start),
+        started_at__lte=now_utc,
+    ).only("monitor_id", "started_at", "resolved_at")
+    for incident in incident_qs:
+        incidents_by_monitor.setdefault(incident.monitor_id, []).append(incident)
+
+    # Only auto monitors need the ping aggregation; if every monitor is manual we can
+    # skip the ClickHouse round-trips entirely.
+    auto_monitor_ids = [m.id for m in monitors if m.mode == "auto"]
+    per_monitor_days: dict[UUID, dict[date, dict]] = {}
+    per_monitor_latest: dict[UUID, dict] = {}
+
+    if auto_monitor_ids:
+        daily_rows = sync_execute(
+            """
+            SELECT
+                monitor_id,
+                toDate(timestamp) AS day,
+                count() AS total,
+                countIf(outcome = 'failure') AS failed,
+                avgIf(latency_ms, outcome = 'success') AS avg_latency
+            FROM uptime_pings
+            WHERE team_id = %(team_id)s
+              AND timestamp > now() - INTERVAL 90 DAY
+            GROUP BY monitor_id, day
+            """,
+            {"team_id": team_id},
+        )
+
+        latest_rows = sync_execute(
+            """
+            SELECT
+                monitor_id,
+                argMax(timestamp, timestamp) AS last_ping_at,
+                argMax(outcome, timestamp) AS last_outcome,
+                avgIf(latency_ms, outcome = 'success' AND timestamp > now() - INTERVAL 1 DAY) AS avg_latency_24h
+            FROM uptime_pings
+            WHERE team_id = %(team_id)s
+            GROUP BY monitor_id
+            """,
+            {"team_id": team_id},
+        )
+
+        for row in daily_rows:
+            monitor_id = UUID(str(row[0]))
+            day_value = row[1] if isinstance(row[1], date) else _to_date(row[1])
+            per_monitor_days.setdefault(monitor_id, {})[day_value] = {
+                "total": int(row[2]),
+                "failed": int(row[3]),
+                "avg_latency": _safe_float(row[4]),
+            }
+
+        for row in latest_rows:
+            monitor_id = UUID(str(row[0]))
+            per_monitor_latest[monitor_id] = {
+                "last_ping_at": row[1],
+                "last_outcome": row[2],
+                "avg_latency_24h": _safe_float(row[3]),
+            }
 
     summaries: list[dict] = []
     for monitor in monitors:
+        if monitor.mode == "manual":
+            summaries.append(
+                _build_manual_summary(
+                    monitor=monitor,
+                    day_window=day_window,
+                    window_start=window_start,
+                    now_utc=now_utc,
+                    incidents=incidents_by_monitor.get(monitor.id, []),
+                )
+            )
+            continue
+
         days_for_monitor = per_monitor_days.get(monitor.id, {})
         latest = per_monitor_latest.get(monitor.id)
 
@@ -403,6 +452,7 @@ def list_monitor_summaries(*, team_id: int) -> list[dict]:
                 "id": monitor.id,
                 "name": monitor.name,
                 "url": monitor.url,
+                "mode": monitor.mode,
                 "created_at": monitor.created_at,
                 "status": overall_status,
                 "uptime_90d": uptime_90d,
@@ -413,6 +463,75 @@ def list_monitor_summaries(*, team_id: int) -> list[dict]:
             }
         )
     return summaries
+
+
+def _build_manual_summary(
+    *,
+    monitor: Monitor,
+    day_window: list[date],
+    window_start: datetime,
+    now_utc: datetime,
+    incidents: list[Incident],
+) -> dict:
+    """Compute a MonitorSummary-shaped dict for a manual monitor from its incidents.
+
+    Manual monitors are assumed up at all times unless an incident overlaps. The day's
+    status is 'down' if any incident overlaps it; uptime_90d uses minute-precision
+    interval union over the 90-day window so two overlapping incidents don't double-count.
+    """
+    # Clip each incident to the window for interval math. Sort by start so we can merge.
+    clipped: list[tuple[datetime, datetime]] = []
+    for incident in incidents:
+        start = max(incident.started_at, window_start)
+        end = incident.resolved_at if incident.resolved_at is not None else now_utc
+        if end <= start:
+            continue
+        clipped.append((start, end))
+    clipped.sort()
+
+    # Union overlapping intervals.
+    merged: list[tuple[datetime, datetime]] = []
+    for start, end in clipped:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+
+    incident_seconds = sum((end - start).total_seconds() for start, end in merged)
+    window_seconds = (now_utc - window_start).total_seconds()
+    uptime_90d = max(0.0, 1.0 - (incident_seconds / window_seconds)) if window_seconds > 0 else None
+
+    has_ongoing = any(i.resolved_at is None for i in incidents)
+    overall_status: OverallStatus = "down" if has_ongoing else "up"
+
+    # Daily buckets: per-day status is 'down' if any merged interval overlaps the day.
+    daily_buckets: list[dict] = []
+    for day_value in day_window:
+        day_start = datetime.combine(day_value, time.min, tzinfo=ZoneInfo("UTC"))
+        day_end = day_start + timedelta(days=1)
+        overlaps = any(start < day_end and end > day_start for start, end in merged)
+        daily_buckets.append(
+            {
+                "date": day_value,
+                "total": 0,
+                "failed": 0,
+                "status": "down" if overlaps else "up",
+            }
+        )
+
+    return {
+        "id": monitor.id,
+        "name": monitor.name,
+        "url": monitor.url,
+        "mode": monitor.mode,
+        "created_at": monitor.created_at,
+        "status": overall_status,
+        "uptime_90d": uptime_90d,
+        "avg_latency_24h_ms": None,
+        "last_ping_at": None,
+        "last_ping_outcome": None,
+        "daily_buckets": daily_buckets,
+    }
 
 
 def _day_status(total: int, failed: int) -> DailyStatus:

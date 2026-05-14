@@ -41,6 +41,13 @@ export interface CreateIncidentApi {
     description?: string
     /** When the incident started. Defaults to the time the incident was created. */
     started_at?: string
+    /**
+     * When the incident was resolved. Omit or null for an ongoing incident.
+     * @nullable
+     */
+    resolved_at?: string | null
+    /** Resolution note. Required when resolved_at is set. */
+    resolution_note?: string
 }
 
 export interface PatchedUpdateIncidentApi {
@@ -67,10 +74,23 @@ export interface ResolveIncidentApi {
     resolution_note: string
 }
 
+/**
+ * * `auto` - auto
+ * `manual` - manual
+ */
+export type MonitorModeApi = (typeof MonitorModeApi)[keyof typeof MonitorModeApi]
+
+export const MonitorModeApi = {
+    Auto: 'auto',
+    Manual: 'manual',
+} as const
+
 export interface MonitorDTOApi {
     id: string
     name: string
-    url: string
+    /** @nullable */
+    url: string | null
+    mode: MonitorModeApi
     created_at: string
 }
 
@@ -90,10 +110,16 @@ export interface CreateMonitorApi {
      */
     name: string
     /**
-     * HTTP(S) URL to ping every 5 minutes.
+     * HTTP(S) URL to ping (every minute in auto mode). Required when mode='auto', optional when mode='manual'.
      * @maxLength 2048
+     * @nullable
      */
-    url: string
+    url?: string | null
+    /** Monitor tracking mode. 'auto' (default) means PostHog pings the URL on a recurring schedule and computes uptime / latency from the pings. 'manual' means uptime is assumed 100% until you declare an incident on the monitor — useful for tracking internal services or third-party dependencies without a public health endpoint.
+
+  * `auto` - auto
+  * `manual` - manual */
+    mode?: MonitorModeApi
 }
 
 /**
@@ -146,7 +172,9 @@ export interface DailyBucketDTOApi {
 export interface MonitorSummaryDTOApi {
     id: string
     name: string
-    url: string
+    /** @nullable */
+    url: string | null
+    mode: MonitorModeApi
     created_at: string
     status: MonitorSummaryDTOStatusEnumApi
     /** @nullable */
@@ -166,10 +194,35 @@ export interface PatchedUpdateMonitorApi {
      */
     name?: string
     /**
-     * New HTTP(S) URL to ping every 5 minutes.
+     * New HTTP(S) URL. Required when the resulting mode is 'auto'.
      * @maxLength 2048
+     * @nullable
      */
-    url?: string
+    url?: string | null
+    /** Monitor tracking mode. 'auto' (default) means PostHog pings the URL on a recurring schedule and computes uptime / latency from the pings. 'manual' means uptime is assumed 100% until you declare an incident on the monitor — useful for tracking internal services or third-party dependencies without a public health endpoint.
+
+  * `auto` - auto
+  * `manual` - manual */
+    mode?: MonitorModeApi
+}
+
+export interface OutageDTOApi {
+    monitor_id: string
+    started_at: string
+    /** @nullable */
+    resolved_at: string | null
+    fail_count: number
+    /** @nullable */
+    last_status_code: number | null
+}
+
+export interface PaginatedOutageDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OutageDTOApi[]
 }
 
 export interface PingDTOApi {
@@ -197,7 +250,7 @@ export interface BulkCreateMonitorItemApi {
      */
     name: string
     /**
-     * HTTP(S) URL to ping every 5 minutes.
+     * HTTP(S) URL to ping every minute.
      * @maxLength 2048
      */
     url: string
@@ -291,6 +344,21 @@ export type UptimeIncidentsListParams = {
 }
 
 export type UptimeMonitorsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type UptimeMonitorsOutagesListParams = {
+    /**
+     * Look-back window in days. Defaults to 7.
+     */
+    days?: number
     /**
      * Number of results to return per page.
      */

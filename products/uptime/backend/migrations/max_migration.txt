@@ -1,1 +1,1 @@
-0006_monitor_pinger_scheduling
+0007_monitor_mode_alter_monitor_url

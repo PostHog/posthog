@@ -112,34 +112,45 @@ export function UptimeMonitorScene(): JSX.Element {
             <EditMonitorModal />
 
             <div className="flex flex-col gap-2 p-4 border rounded bg-surface-primary">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                     <StatusDot status={summary.status} size="lg" />
                     <span className={cn('font-semibold text-base', toneToTextClass(tone))}>
                         {summary.status === 'up' ? 'Operational' : summary.status === 'down' ? 'Down' : 'Awaiting data'}
                     </span>
-                    <LemonTag type={tone} size="small">
-                        {summary.last_ping_at
-                            ? `Last checked ${dayjs(summary.last_ping_at).fromNow()}`
-                            : 'No checks yet'}
-                    </LemonTag>
+                    {summary.mode === 'manual' ? (
+                        <LemonTag type="muted" size="small">
+                            Manually tracked
+                        </LemonTag>
+                    ) : (
+                        <LemonTag type={tone} size="small">
+                            {summary.last_ping_at
+                                ? `Last checked ${dayjs(summary.last_ping_at).fromNow()}`
+                                : 'No checks yet'}
+                        </LemonTag>
+                    )}
                 </div>
                 <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 mt-2">
                     <Metric
                         label="90d uptime"
                         value={summary.uptime_90d !== null ? formatPercent(summary.uptime_90d) : '—'}
                     />
-                    <Metric
-                        label="Avg latency (24h)"
-                        value={summary.avg_latency_24h_ms !== null ? `${summary.avg_latency_24h_ms} ms` : '—'}
-                    />
-                    <Metric
-                        label="URL"
-                        value={
-                            <Link to={summary.url} target="_blank" className="text-base font-medium">
-                                {summary.url}
-                            </Link>
-                        }
-                    />
+                    {/* Latency only meaningful for auto monitors — manual has no pings. */}
+                    {summary.mode === 'auto' && (
+                        <Metric
+                            label="Avg latency (24h)"
+                            value={summary.avg_latency_24h_ms !== null ? `${summary.avg_latency_24h_ms} ms` : '—'}
+                        />
+                    )}
+                    {summary.url && (
+                        <Metric
+                            label="URL"
+                            value={
+                                <Link to={summary.url} target="_blank" className="text-base font-medium">
+                                    {summary.url}
+                                </Link>
+                            }
+                        />
+                    )}
                 </div>
             </div>
 
@@ -165,53 +176,59 @@ export function UptimeMonitorScene(): JSX.Element {
                 <StatusTimeline buckets={summary.daily_buckets} />
             </LemonCard>
 
-            <div className="grid gap-4 lg:grid-cols-3">
-                <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
-                    <div className="font-semibold">Recent pings</div>
-                    <LemonTable
-                        loading={pingsLoading}
-                        dataSource={pings}
-                        columns={[
-                            {
-                                title: 'When',
-                                dataIndex: 'timestamp',
-                                render: (_, row: Ping) => dayjs(row.timestamp).fromNow(),
-                            },
-                            {
-                                title: 'Outcome',
-                                dataIndex: 'outcome',
-                                render: (_, row: Ping) => (
-                                    <LemonTag type={row.outcome === 'success' ? 'success' : 'danger'}>
-                                        {row.outcome}
-                                    </LemonTag>
-                                ),
-                            },
-                            {
-                                title: 'Status',
-                                dataIndex: 'status_code',
-                                render: (_, row: Ping) => (row.status_code ? String(row.status_code) : '—'),
-                            },
-                            {
-                                title: 'Latency',
-                                dataIndex: 'latency_ms',
-                                render: (_, row: Ping) => `${row.latency_ms} ms`,
-                            },
-                        ]}
-                        emptyState="No pings recorded yet."
-                    />
-                </LemonCard>
-                <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
-                    <div className="flex items-center justify-between">
-                        <div className="font-semibold">Outages</div>
-                        <span className="text-xs text-secondary">Last 7 days</span>
-                    </div>
-                    <OutagesList
-                        outages={outages}
-                        loading={outagesLoading}
-                        monitorUrl={summary.url}
-                        onDeclare={declareIncidentFromOutage}
-                    />
-                </LemonCard>
+            <div className={cn('grid gap-4', summary.mode === 'auto' ? 'lg:grid-cols-3' : 'lg:grid-cols-1')}>
+                {/* Pings + outages only exist for auto monitors. Manual mode is incident-driven,
+                    so we collapse the layout to just the declared-incidents card. */}
+                {summary.mode === 'auto' && (
+                    <>
+                        <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
+                            <div className="font-semibold">Recent pings</div>
+                            <LemonTable
+                                loading={pingsLoading}
+                                dataSource={pings}
+                                columns={[
+                                    {
+                                        title: 'When',
+                                        dataIndex: 'timestamp',
+                                        render: (_, row: Ping) => dayjs(row.timestamp).fromNow(),
+                                    },
+                                    {
+                                        title: 'Outcome',
+                                        dataIndex: 'outcome',
+                                        render: (_, row: Ping) => (
+                                            <LemonTag type={row.outcome === 'success' ? 'success' : 'danger'}>
+                                                {row.outcome}
+                                            </LemonTag>
+                                        ),
+                                    },
+                                    {
+                                        title: 'Status',
+                                        dataIndex: 'status_code',
+                                        render: (_, row: Ping) => (row.status_code ? String(row.status_code) : '—'),
+                                    },
+                                    {
+                                        title: 'Latency',
+                                        dataIndex: 'latency_ms',
+                                        render: (_, row: Ping) => `${row.latency_ms} ms`,
+                                    },
+                                ]}
+                                emptyState="No pings recorded yet."
+                            />
+                        </LemonCard>
+                        <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
+                            <div className="flex items-center justify-between">
+                                <div className="font-semibold">Outages</div>
+                                <span className="text-xs text-secondary">Last 7 days</span>
+                            </div>
+                            <OutagesList
+                                outages={outages}
+                                loading={outagesLoading}
+                                monitorUrl={summary.url ?? ''}
+                                onDeclare={declareIncidentFromOutage}
+                            />
+                        </LemonCard>
+                    </>
+                )}
                 <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
                     <div className="flex items-center justify-between">
                         <div className="font-semibold">Declared incidents</div>

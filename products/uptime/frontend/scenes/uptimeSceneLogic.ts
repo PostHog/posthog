@@ -15,10 +15,13 @@ import { Breadcrumb } from '~/types'
 import { openResolveIncidentDialog } from './incidentActions'
 import type { uptimeSceneLogicType } from './uptimeSceneLogicType'
 
+export type MonitorMode = 'auto' | 'manual'
+
 export interface Monitor {
     id: string
     name: string
-    url: string
+    url: string | null
+    mode: MonitorMode
     created_at: string
 }
 
@@ -51,7 +54,8 @@ export interface DailyBucket {
 export interface MonitorSummary {
     id: string
     name: string
-    url: string
+    url: string | null
+    mode: MonitorMode
     created_at: string
     status: MonitorStatus
     uptime_90d: number | null
@@ -105,6 +109,7 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
         setActiveTab: (activeTab: UptimeSceneActiveTab) => ({ activeTab }),
         pingNow: (monitorId: string) => ({ monitorId }),
         setCreateModalOpen: (open: boolean) => ({ open }),
+        setCreateWizardStep: (step: 'mode' | 'details') => ({ step }),
         setSuggestModalOpen: (open: boolean) => ({ open }),
         toggleSuggestion: (url: string) => ({ url }),
         clearSelectedSuggestions: true,
@@ -134,6 +139,15 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
             false,
             {
                 setCreateModalOpen: (_, { open }) => open,
+            },
+        ],
+        // Two-step wizard: 'mode' (pick auto vs manual) then 'details' (name + url).
+        // Resets to 'mode' every time the modal opens so the user always starts at step 1.
+        createWizardStep: [
+            'mode' as 'mode' | 'details',
+            {
+                setCreateWizardStep: (_, { step }) => step,
+                setCreateModalOpen: (state, { open }) => (open ? 'mode' : state),
             },
         ],
         suggestModalOpen: [
@@ -225,15 +239,19 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
 
     forms(({ values, actions }) => ({
         createMonitor: {
-            defaults: { name: '', url: '' } as { name: string; url: string },
-            errors: ({ name, url }) => ({
+            defaults: { name: '', url: '', mode: 'auto' } as { name: string; url: string; mode: MonitorMode },
+            errors: ({ name, url, mode }) => ({
                 name: !name ? 'Name is required' : null,
-                url: !url ? 'URL is required' : null,
+                // URL is only required in auto mode — manual monitors can track services
+                // without a public health endpoint.
+                url: mode === 'auto' && !url ? 'URL is required for auto mode' : null,
             }),
-            submit: async ({ name, url }) => {
+            submit: async ({ name, url, mode }) => {
                 const created = await api.create<Monitor>(`api/projects/${values.currentProjectId}/uptime/monitors/`, {
                     name,
-                    url,
+                    // Empty string would 400 on URLField — send null for manual mode without a URL.
+                    url: url || null,
+                    mode,
                 })
                 lemonToast.success(`Monitor "${created.name}" created`)
                 actions.resetCreateMonitor()
@@ -243,19 +261,20 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
             },
         },
         editMonitor: {
-            defaults: { name: '', url: '' } as { name: string; url: string },
-            errors: ({ name, url }) => ({
+            defaults: { name: '', url: '', mode: 'auto' } as { name: string; url: string; mode: MonitorMode },
+            errors: ({ name, url, mode }) => ({
                 name: !name ? 'Name is required' : null,
-                url: !url ? 'URL is required' : null,
+                // URL only required for auto-mode monitors.
+                url: mode === 'auto' && !url ? 'URL is required for auto mode' : null,
             }),
-            submit: async ({ name, url }) => {
+            submit: async ({ name, url, mode }) => {
                 const id = values.editingMonitorId
                 if (!id) {
                     return
                 }
                 const updated = await api.update<Monitor>(
                     `api/projects/${values.currentProjectId}/uptime/monitors/${id}/`,
-                    { name, url }
+                    { name, url: url || null, mode }
                 )
                 lemonToast.success(`Monitor "${updated.name}" updated`)
                 actions.stopEditing()
@@ -298,7 +317,7 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
             lemonToast.info('Ping enqueued — refresh in a few seconds')
         },
         startEditing: ({ monitor }) => {
-            actions.setEditMonitorValues({ name: monitor.name, url: monitor.url })
+            actions.setEditMonitorValues({ name: monitor.name, url: monitor.url ?? '', mode: monitor.mode })
         },
         confirmDeleteMonitor: ({ monitor }) => {
             LemonDialog.open({
