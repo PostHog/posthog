@@ -249,6 +249,16 @@ const CLI_VERB: Record<string, string> = {
 }
 
 /** Hand-picked subcommand names that the algorithm can't reasonably derive. */
+const CLI_DENYLIST = new Set([
+    // The scheduled changes API is scope_object=INTERNAL, so API/OAuth tokens
+    // used by the CLI cannot call it. Do not expose commands that always fail.
+    'scheduled-changes-create',
+    'scheduled-changes-delete',
+    'scheduled-changes-get',
+    'scheduled-changes-list',
+    'scheduled-changes-update',
+])
+
 const EXPLICIT_NAMES: Record<string, string> = {
     'agent-feedback': 'submit',
     'cohorts-add-persons-to-static-cohort-partial-update': 'add-persons',
@@ -448,6 +458,10 @@ async function generateEnhancedMapping(): Promise<void> {
     const ungrouped: string[] = []
 
     for (const [toolName, toolDef] of Object.entries(toolDefinitions)) {
+        if (CLI_DENYLIST.has(toolName)) {
+            continue
+        }
+
         const parsed = parsedTools[toolName]
         const group = resolveGroup(toolName, parsed)
         if (!group) {
@@ -515,9 +529,13 @@ async function generateEnhancedMapping(): Promise<void> {
         throw new Error('Name collisions — refusing to emit ambiguous mappings.')
     }
 
+    const existingGeneratedAt = fs.existsSync(OUTPUT_FILE)
+        ? (JSON.parse(fs.readFileSync(OUTPUT_FILE, 'utf8')).generated_at as string | undefined)
+        : undefined
+
     const enhancedMapping = {
         version: '2.0',
-        generated_at: new Date().toISOString(),
+        generated_at: existingGeneratedAt ?? new Date().toISOString(),
         commands,
         stats: {
             total_tools: Object.keys(toolDefinitions).length,
@@ -526,7 +544,7 @@ async function generateEnhancedMapping(): Promise<void> {
         },
     }
 
-    fs.writeFileSync(OUTPUT_FILE, JSON.stringify(enhancedMapping, null, 2))
+    fs.writeFileSync(OUTPUT_FILE, JSON.stringify(enhancedMapping, null, 4))
 
     console.log(`✅ Generated enhanced command mappings`)
     console.log(`📊 Processed: ${pending.length}/${Object.keys(toolDefinitions).length} tools`)

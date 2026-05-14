@@ -753,56 +753,6 @@
                     "inputs": {},
                     "mcp_tool": "feature-flags-user-blast-radius-create"
                 },
-                "scheduled-changes-create": {
-                    "name": "scheduled-changes-create",
-                    "humanName": "scheduled-changes-create",
-                    "description": "Create a scheduled change",
-                    "category": "Feature flags",
-                    "endpoint": "/api/projects/{project_id}/scheduled_changes/",
-                    "method": "POST",
-                    "inputs": {},
-                    "mcp_tool": "scheduled-changes-create"
-                },
-                "scheduled-changes-delete": {
-                    "name": "scheduled-changes-delete",
-                    "humanName": "scheduled-changes-delete",
-                    "description": "Delete a scheduled change",
-                    "category": "Feature flags",
-                    "endpoint": "/api/projects/{project_id}/scheduled_changes/{id}/",
-                    "method": "DELETE",
-                    "inputs": {},
-                    "mcp_tool": "scheduled-changes-delete"
-                },
-                "scheduled-changes-view": {
-                    "name": "scheduled-changes-view",
-                    "humanName": "scheduled-changes-view",
-                    "description": "Get a scheduled change",
-                    "category": "Feature flags",
-                    "endpoint": "/api/projects/{project_id}/scheduled_changes/{id}/",
-                    "method": "GET",
-                    "inputs": {},
-                    "mcp_tool": "scheduled-changes-get"
-                },
-                "scheduled-changes-list": {
-                    "name": "scheduled-changes-list",
-                    "humanName": "scheduled-changes-list",
-                    "description": "List scheduled changes for feature flags",
-                    "category": "Feature flags",
-                    "endpoint": "/api/projects/{project_id}/scheduled_changes/",
-                    "method": "GET",
-                    "inputs": {},
-                    "mcp_tool": "scheduled-changes-list"
-                },
-                "scheduled-changes-update": {
-                    "name": "scheduled-changes-update",
-                    "humanName": "scheduled-changes-update",
-                    "description": "Update a scheduled change",
-                    "category": "Feature flags",
-                    "endpoint": "/api/projects/{project_id}/scheduled_changes/{id}/",
-                    "method": "PATCH",
-                    "inputs": {},
-                    "mcp_tool": "scheduled-changes-update"
-                },
                 "update": {
                     "name": "update",
                     "humanName": "update",
@@ -1169,7 +1119,9 @@
                                                 "maximum": 9007199254740991
                                             }
                                         },
-                                        "required": ["kind"]
+                                        "required": [
+                                            "kind"
+                                        ]
                                     },
                                     {
                                         "type": "object",
@@ -1183,7 +1135,10 @@
                                                 "description": "The name of the event that you want to retrieve properties for."
                                             }
                                         },
-                                        "required": ["kind", "event_name"]
+                                        "required": [
+                                            "kind",
+                                            "event_name"
+                                        ]
                                     },
                                     {
                                         "type": "object",
@@ -1197,7 +1152,10 @@
                                                 "description": "The type of the entity that you want to retrieve properties for."
                                             }
                                         },
-                                        "required": ["kind", "entity"]
+                                        "required": [
+                                            "kind",
+                                            "entity"
+                                        ]
                                     },
                                     {
                                         "type": "object",
@@ -1213,7 +1171,10 @@
                                                 "description": "The ID of the action that you want to retrieve properties for."
                                             }
                                         },
-                                        "required": ["kind", "action_id"]
+                                        "required": [
+                                            "kind",
+                                            "action_id"
+                                        ]
                                     },
                                     {
                                         "type": "object",
@@ -1231,7 +1192,11 @@
                                                 "description": "Verified property name of an entity."
                                             }
                                         },
-                                        "required": ["kind", "entity", "property_name"]
+                                        "required": [
+                                            "kind",
+                                            "entity",
+                                            "property_name"
+                                        ]
                                     },
                                     {
                                         "type": "object",
@@ -1249,7 +1214,11 @@
                                                 "description": "Verified property name of an event."
                                             }
                                         },
-                                        "required": ["kind", "event_name", "property_name"]
+                                        "required": [
+                                            "kind",
+                                            "event_name",
+                                            "property_name"
+                                        ]
                                     },
                                     {
                                         "type": "object",
@@ -1269,13 +1238,19 @@
                                                 "description": "Verified property name of an action."
                                             }
                                         },
-                                        "required": ["kind", "action_id", "property_name"]
+                                        "required": [
+                                            "kind",
+                                            "action_id",
+                                            "property_name"
+                                        ]
                                     }
                                 ],
                                 "description": "The data schema query to execute."
                             }
                         },
-                        "required": ["query"]
+                        "required": [
+                            "query"
+                        ]
                     },
                     "mcp_tool": "read-data-schema"
                 },
@@ -1464,7 +1439,9 @@
                                 }
                             }
                         },
-                        "required": ["query"]
+                        "required": [
+                            "query"
+                        ]
                     },
                     "mcp_tool": "entity-search"
                 },
@@ -2526,7 +2503,10 @@
                                 "description": "The event definition data to update"
                             }
                         },
-                        "required": ["eventName", "data"]
+                        "required": [
+                            "eventName",
+                            "data"
+                        ]
                     },
                     "mcp_tool": "event-definition-update"
                 },
@@ -2633,7 +2613,11 @@
                                         },
                                         "metric_type": {
                                             "type": "string",
-                                            "enum": ["mean", "funnel", "ratio"],
+                                            "enum": [
+                                                "mean",
+                                                "funnel",
+                                                "ratio"
+                                            ],
                                             "description": "Metric type: 'mean' for average values (revenue, time spent), 'funnel' for conversion flows, 'ratio' for comparing two metrics"
                                         },
                                         "event_name": {
@@ -2692,7 +2676,9 @@
                                                         "type": "string"
                                                     }
                                                 },
-                                                "required": ["key"]
+                                                "required": [
+                                                    "key"
+                                                ]
                                             }
                                         },
                                         "description": {
@@ -2700,7 +2686,10 @@
                                             "type": "string"
                                         }
                                     },
-                                    "required": ["metric_type", "event_name"]
+                                    "required": [
+                                        "metric_type",
+                                        "event_name"
+                                    ]
                                 }
                             },
                             "secondary_metrics": {
@@ -2715,7 +2704,11 @@
                                         },
                                         "metric_type": {
                                             "type": "string",
-                                            "enum": ["mean", "funnel", "ratio"],
+                                            "enum": [
+                                                "mean",
+                                                "funnel",
+                                                "ratio"
+                                            ],
                                             "description": "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
                                         },
                                         "event_name": {
@@ -2774,7 +2767,9 @@
                                                         "type": "string"
                                                     }
                                                 },
-                                                "required": ["key"]
+                                                "required": [
+                                                    "key"
+                                                ]
                                             }
                                         },
                                         "description": {
@@ -2782,7 +2777,10 @@
                                             "type": "string"
                                         }
                                     },
-                                    "required": ["metric_type", "event_name"]
+                                    "required": [
+                                        "metric_type",
+                                        "event_name"
+                                    ]
                                 }
                             },
                             "variants": {
@@ -2812,7 +2810,9 @@
                                             "maximum": 100
                                         }
                                     },
-                                    "required": ["key"]
+                                    "required": [
+                                        "key"
+                                    ]
                                 }
                             },
                             "minimum_detectable_effect": {
@@ -2847,7 +2847,10 @@
                                 "type": "boolean"
                             }
                         },
-                        "required": ["name", "feature_flag_key"]
+                        "required": [
+                            "name",
+                            "feature_flag_key"
+                        ]
                     },
                     "mcp_tool": "experiment-create"
                 },
@@ -2957,7 +2960,9 @@
                                 "type": "boolean"
                             }
                         },
-                        "required": ["id"]
+                        "required": [
+                            "id"
+                        ]
                     },
                     "mcp_tool": "experiment-results-get"
                 },
@@ -3048,7 +3053,11 @@
                                                 },
                                                 "metric_type": {
                                                     "type": "string",
-                                                    "enum": ["mean", "funnel", "ratio"],
+                                                    "enum": [
+                                                        "mean",
+                                                        "funnel",
+                                                        "ratio"
+                                                    ],
                                                     "description": "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
                                                 },
                                                 "event_name": {
@@ -3107,7 +3116,9 @@
                                                                 "type": "string"
                                                             }
                                                         },
-                                                        "required": ["key"]
+                                                        "required": [
+                                                            "key"
+                                                        ]
                                                     }
                                                 },
                                                 "description": {
@@ -3115,7 +3126,10 @@
                                                     "type": "string"
                                                 }
                                             },
-                                            "required": ["metric_type", "event_name"]
+                                            "required": [
+                                                "metric_type",
+                                                "event_name"
+                                            ]
                                         }
                                     },
                                     "secondary_metrics": {
@@ -3130,7 +3144,11 @@
                                                 },
                                                 "metric_type": {
                                                     "type": "string",
-                                                    "enum": ["mean", "funnel", "ratio"],
+                                                    "enum": [
+                                                        "mean",
+                                                        "funnel",
+                                                        "ratio"
+                                                    ],
                                                     "description": "Metric type"
                                                 },
                                                 "event_name": {
@@ -3189,7 +3207,9 @@
                                                                 "type": "string"
                                                             }
                                                         },
-                                                        "required": ["key"]
+                                                        "required": [
+                                                            "key"
+                                                        ]
                                                     }
                                                 },
                                                 "description": {
@@ -3197,7 +3217,10 @@
                                                     "type": "string"
                                                 }
                                             },
-                                            "required": ["metric_type", "event_name"]
+                                            "required": [
+                                                "metric_type",
+                                                "event_name"
+                                            ]
                                         }
                                     },
                                     "minimum_detectable_effect": {
@@ -3211,7 +3234,13 @@
                                     "conclude": {
                                         "description": "Conclude experiment with result",
                                         "type": "string",
-                                        "enum": ["won", "lost", "inconclusive", "stopped_early", "invalid"]
+                                        "enum": [
+                                            "won",
+                                            "lost",
+                                            "inconclusive",
+                                            "stopped_early",
+                                            "invalid"
+                                        ]
                                     },
                                     "conclusion_comment": {
                                         "description": "Comment about experiment conclusion",
@@ -3229,7 +3258,10 @@
                                 "description": "The experiment data to update using user-friendly format"
                             }
                         },
-                        "required": ["experimentId", "data"]
+                        "required": [
+                            "experimentId",
+                            "data"
+                        ]
                     },
                     "mcp_tool": "experiment-update"
                 }
@@ -4466,7 +4498,7 @@
     },
     "stats": {
         "total_tools": 365,
-        "mapped_tools": 365,
+        "mapped_tools": 360,
         "commands_created": 44
     }
 }
