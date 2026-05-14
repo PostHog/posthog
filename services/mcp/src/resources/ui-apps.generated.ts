@@ -5,6 +5,8 @@ export const ACTION_LIST_RESOURCE_URI = 'ui://posthog/action-list.html'
 export const COHORT_RESOURCE_URI = 'ui://posthog/cohort.html'
 export const COHORT_LIST_RESOURCE_URI = 'ui://posthog/cohort-list.html'
 export const DEBUG_RESOURCE_URI = 'ui://posthog/debug.html'
+export const DEPLOYMENT_RESOURCE_URI = 'ui://posthog/deployment.html'
+export const DEPLOYMENT_LIST_RESOURCE_URI = 'ui://posthog/deployment-list.html'
 export const ERROR_DETAILS_RESOURCE_URI = 'ui://posthog/error-details.html'
 export const ERROR_ISSUE_RESOURCE_URI = 'ui://posthog/error-issue.html'
 export const ERROR_ISSUE_LIST_RESOURCE_URI = 'ui://posthog/error-issue-list.html'
@@ -34,6 +36,8 @@ export type UiAppKey =
     | 'cohort'
     | 'cohort-list'
     | 'debug'
+    | 'deployment'
+    | 'deployment-list'
     | 'error-details'
     | 'error-issue'
     | 'error-issue-list'
@@ -63,6 +67,8 @@ export const URI_MAP: Record<UiAppKey, string> = {
     cohort: COHORT_RESOURCE_URI,
     'cohort-list': COHORT_LIST_RESOURCE_URI,
     debug: DEBUG_RESOURCE_URI,
+    deployment: DEPLOYMENT_RESOURCE_URI,
+    'deployment-list': DEPLOYMENT_LIST_RESOURCE_URI,
     'error-details': ERROR_DETAILS_RESOURCE_URI,
     'error-issue': ERROR_ISSUE_RESOURCE_URI,
     'error-issue-list': ERROR_ISSUE_LIST_RESOURCE_URI,
@@ -122,6 +128,18 @@ export const UI_APPS: Array<{
         uri: DEBUG_RESOURCE_URI,
         description: 'Debug app for testing MCP Apps SDK integration',
         appDir: 'debug',
+    },
+    {
+        name: 'PostHog Deployment',
+        uri: DEPLOYMENT_RESOURCE_URI,
+        description: 'Deployment detail view',
+        appDir: 'generated/deployment',
+    },
+    {
+        name: 'PostHog Deployment List',
+        uri: DEPLOYMENT_LIST_RESOURCE_URI,
+        description: 'Deployment List view',
+        appDir: 'generated/deployment-list',
     },
     {
         name: 'PostHog Error Details',
