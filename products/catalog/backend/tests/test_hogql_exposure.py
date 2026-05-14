@@ -65,6 +65,21 @@ class TestCatalogHogQLExposure(BaseTest):
         assert node_id in sql, "synthesized node_id should reference the parent table's deterministic id"
         assert col_id in sql, "synthesized column_id should appear in the UNION"
 
+    def test_system_columns_excludes_hidden_underscore_fields(self) -> None:
+        """`_paused`, `_deleted`, and similar hidden raw fields back ExpressionField
+        aliases — they're not what users SELECT. They should not appear in
+        `system.columns`.
+        """
+        db = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        sql, _ = prepare_and_print_ast(parse_select("SELECT * FROM system.columns"), context, dialect="clickhouse")
+        # `_paused` is hidden on `batch_exports`. Its deterministic id should not appear.
+        hidden_col_id = str(deterministic_column_id("batch_exports", "_paused"))
+        assert hidden_col_id not in sql, "hidden `_paused` column must not be synthesized"
+        # The visible non-underscore columns from the same table should still appear.
+        visible_col_id = str(deterministic_column_id("batch_exports", "name"))
+        assert visible_col_id in sql, "visible `name` column must still be synthesized"
+
     def test_system_relationships_includes_declared_edges(self) -> None:
         """`alerts.insight_id → insights.id` was declared inline in system.py;
         it must show up in the synthesized `system.relationships` rows.
