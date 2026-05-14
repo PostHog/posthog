@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconArchive, IconExternal, IconGithub, IconPlay } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -39,14 +40,33 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, runs, selectedRunId, selectedRun, runsLoading, logs, shouldPoll, streamEntries, isStreaming } =
-        useValues(sceneLogic)
+    const {
+        task,
+        taskLoading,
+        runs,
+        selectedRunId,
+        selectedRun,
+        runsLoading,
+        logs,
+        logsLoading,
+        shouldPoll,
+        streamEntries,
+        isStreaming,
+    } = useValues(sceneLogic)
     const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
+    if (taskLoading && !task) {
+        return (
+            <div className="flex items-center justify-center h-32">
+                <Spinner />
+            </div>
+        )
+    }
+
     if (!task) {
-        return <div className="text-center py-8 text-muted">Task not found</div>
+        return <NotFound object="task" />
     }
 
     const hasBeenRun = runs.length > 0
@@ -207,6 +227,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 <div className="flex-1 overflow-hidden">
                     <TaskSessionView
                         logs={logs}
+                        logsLoading={logsLoading}
                         streamEntries={streamEntries}
                         isPolling={shouldPoll}
                         isStreaming={isStreaming}
