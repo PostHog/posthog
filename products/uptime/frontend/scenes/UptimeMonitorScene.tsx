@@ -87,23 +87,14 @@ export function UptimeMonitorScene(): JSX.Element {
 
     return (
         <SceneContent>
+            {/* No description prop — kills both the URL subtitle and the collapse toggle
+                that auto-renders next to descriptions. The URL is still visible inside the
+                status banner below. */}
             <SceneTitleSection
                 name={summary.name}
-                description={summary.url}
                 resourceType={{ type: 'default_icon_type' }}
                 actions={
                     <div className="flex gap-2">
-                        <LemonButton type="secondary" to={urls.uptime()} icon={<IconArrowLeft />}>
-                            All monitors
-                        </LemonButton>
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconGraph />}
-                            to={buildUptimeInsightUrl(summary.id)}
-                            tooltip="Open daily uptime % as an editable SQL insight"
-                        >
-                            Open as insight
-                        </LemonButton>
                         <LemonButton type="secondary" icon={<IconPencil />} onClick={() => setEditModalOpen(true)}>
                             Edit
                         </LemonButton>
@@ -152,12 +143,23 @@ export function UptimeMonitorScene(): JSX.Element {
             </div>
 
             <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
-                <div className="flex items-center justify-between">
-                    <div className="font-semibold">30-day uptime history</div>
-                    <div className="text-xs text-secondary">
-                        {summary.daily_buckets.filter((b) => b.status === 'up').length} of{' '}
-                        {summary.daily_buckets.length} days clean
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-baseline gap-3">
+                        <div className="font-semibold">30-day uptime history</div>
+                        <div className="text-xs text-secondary">
+                            {summary.daily_buckets.filter((b) => b.status === 'up').length} of{' '}
+                            {summary.daily_buckets.length} days clean
+                        </div>
                     </div>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconGraph />}
+                        to={buildUptimeInsightUrl(summary.id)}
+                        tooltip="Open daily uptime % as an editable SQL insight"
+                    >
+                        Open as insight
+                    </LemonButton>
                 </div>
                 <StatusTimeline buckets={summary.daily_buckets} />
             </LemonCard>
