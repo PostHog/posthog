@@ -26,6 +26,7 @@ from django.conf import settings
 import structlog
 from temporalio.client import WorkflowHandle as TemporalWorkflowHandle
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.client import sync_connect
@@ -118,6 +119,14 @@ class TemporalWorkflowAdapter:
                     retry_policy=RetryPolicy(maximum_attempts=max_attempts),
                 )
             )
+        except WorkflowAlreadyStartedError as err:
+            # WorkflowAlreadyStartedError doesn't inherit from RPCError —
+            # they share TemporalError as the common ancestor but sit on
+            # different branches. Caught separately so a deterministic
+            # workflow-id collision (HTTP retry, mid-transaction retry)
+            # surfaces with a clear error rather than a 500.
+            logger.info("temporal_start_workflow_already_started", workflow_id=workflow_id)
+            raise WorkflowError(f"Deployment workflow already running: {err}") from err
         except RPCError as err:
             logger.warning("temporal_start_workflow_failed", workflow_id=workflow_id, error=str(err))
             raise WorkflowError(f"Failed to start deployment workflow: {err}") from err

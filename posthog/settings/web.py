@@ -599,6 +599,12 @@ DEPLOYMENTS_CLOUDFLARE_API_TOKEN = get_from_env("DEPLOYMENTS_CLOUDFLARE_API_TOKE
 DEPLOYMENTS_HOG_DEV_ZONE_ID = get_from_env("DEPLOYMENTS_HOG_DEV_ZONE_ID", "")
 DEPLOYMENTS_CLOUDFLARE_PROJECT_PREFIX = get_from_env("DEPLOYMENTS_CLOUDFLARE_PROJECT_PREFIX", "hogdev-")
 
+# Base URL the deployments Temporal worker uses when calling back into
+# the internal API. Worker pods in the same cluster set this to the
+# cluster-internal Service URL (e.g. http://posthog-web-django.posthog
+# .svc.cluster.local:8000). Empty value falls back to SITE_URL.
+DEPLOYMENTS_INTERNAL_API_BASE_URL = get_from_env("DEPLOYMENTS_INTERNAL_API_BASE_URL", "")
+
 # Domain Connect (automated DNS configuration)
 DOMAIN_CONNECT_PRIVATE_KEY: str | None = os.getenv("DOMAIN_CONNECT_PRIVATE_KEY", "").replace("\\n", "\n") or None
 DOMAIN_CONNECT_KEY_ID: str = os.getenv("DOMAIN_CONNECT_KEY_ID", "_dcpubkeyv1")
