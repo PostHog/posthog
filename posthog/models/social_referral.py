@@ -9,6 +9,11 @@ from posthog.models.utils import UUIDModel
 USER_DISTINCT_ID_MAX_LEN = 200  # Must match `User.distinct_id` max_length
 DEFAULT_REFEREE_STATE_ENTRY = {"first_event_sent": False}
 
+# Top-level `referee_state["errors"]` — not an invited org. Nested keys may include `ingestion_sync`
+# (written when the Temporal ingestion activity fails for this row).
+REFEREE_STATE_ERRORS_KEY = "errors"
+REFEREE_STATE_ERRORS_INGESTION_SYNC_KEY = "ingestion_sync"
+
 
 class SocialReferral(UUIDModel):
     """
@@ -19,7 +24,8 @@ class SocialReferral(UUIDModel):
     referee_state = models.JSONField(
         default=dict,
         blank=True,
-        help_text='Per-invited-org map: `{ "<organization_uuid>": { "first_event_sent": boolean } }`.',
+        help_text='Per-invited-org map: `{ "<organization_uuid>": { "first_event_sent": boolean } }`. '
+        "Optional `errors` object may hold sync job messages (e.g. `ingestion_sync` after a failed row check).",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     organization = models.ForeignKey(

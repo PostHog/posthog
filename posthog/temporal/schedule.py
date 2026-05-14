@@ -69,6 +69,7 @@ from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCou
 from posthog.temporal.session_replay.summarization_sweep.reconciler import (
     create_summarization_sweep_reconciler_schedule,
 )
+from posthog.temporal.social_referral_status.schedule import create_social_referral_status_schedule
 from posthog.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.usage_report.types import RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
@@ -599,6 +600,7 @@ schedules = [
     create_all_realtime_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
     create_warehouse_sources_queue_partition_management_schedule,
+    create_social_referral_status_schedule,
     create_health_check_schedules,
     create_conversations_signals_coordinator_schedule,
     create_wa_weekly_digest_schedule,
