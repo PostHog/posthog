@@ -26,6 +26,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.models.integration import Integration
 from posthog.permissions import APIScopePermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 
 from ..access import has_deployments_access
 from ..adapters import CloudflareError, get_cloudflare_adapter, get_github_adapter
@@ -60,18 +61,33 @@ class RefreshedRepositoryState:
     commit_sha: str
 
 
-def _get_team_github_integration(*, team_id: int, integration_id: int) -> Integration:
+def _can_view_integration(integration: Integration, *, user_access_control: UserAccessControl) -> bool:
+    if user_access_control.check_access_level_for_resource("integration", required_level="viewer"):
+        return user_access_control.check_access_level_for_object(integration, required_level="viewer")
+
+    specific_access_level = user_access_control.specific_access_level_for_object(integration)
+    return bool(
+        specific_access_level
+        and access_level_satisfied_for_resource("integration", specific_access_level, required_level="viewer")
+    )
+
+
+def _get_team_github_integration(
+    *, team_id: int, integration_id: int, user_access_control: UserAccessControl
+) -> Integration:
     integration = Integration.objects.filter(
         id=integration_id,
         team_id=team_id,
         kind=Integration.IntegrationKind.GITHUB.value,
     ).first()
-    if integration is None:
+    if integration is None or not _can_view_integration(integration, user_access_control=user_access_control):
         raise NotFound("GitHub integration not found for this project.")
     return integration
 
 
-def _resolve_repository_config(data: dict[str, Any], *, team_id: int) -> ResolvedRepositoryConfig:
+def _resolve_repository_config(
+    data: dict[str, Any], *, team_id: int, user_access_control: UserAccessControl
+) -> ResolvedRepositoryConfig:
     github_integration_id = data.get("github_integration_id")
 
     if github_integration_id is None:
@@ -89,7 +105,11 @@ def _resolve_repository_config(data: dict[str, Any], *, team_id: int) -> Resolve
     if github_repo_id is None:
         raise ValidationError({"github_repo_id": "This field is required when github_integration_id is set."})
 
-    integration = _get_team_github_integration(team_id=team_id, integration_id=int(github_integration_id))
+    integration = _get_team_github_integration(
+        team_id=team_id,
+        integration_id=int(github_integration_id),
+        user_access_control=user_access_control,
+    )
     adapter = get_github_adapter()
     try:
         repository = adapter.get_repository_by_id(integration=integration, github_repo_id=int(github_repo_id))
@@ -115,11 +135,17 @@ class DeploymentProjectRefreshResponseSerializer(serializers.Serializer):
     commit_sha = serializers.CharField(help_text="Current GitHub HEAD SHA for default_branch.")
 
 
-def _refresh_project_repository_state(project: DeploymentProject) -> RefreshedRepositoryState:
+def _refresh_project_repository_state(
+    project: DeploymentProject, *, user_access_control: UserAccessControl
+) -> RefreshedRepositoryState:
     if project.github_integration_id is None or project.github_repo_id is None:
         raise ValidationError("Deployment project is not connected to a GitHub repository.")
 
-    integration = _get_team_github_integration(team_id=project.team_id, integration_id=project.github_integration_id)
+    integration = _get_team_github_integration(
+        team_id=project.team_id,
+        integration_id=project.github_integration_id,
+        user_access_control=user_access_control,
+    )
     adapter = get_github_adapter()
     try:
         repository = adapter.get_repository_by_id(integration=integration, github_repo_id=project.github_repo_id)
@@ -192,7 +218,11 @@ class DeploymentProjectViewSet(
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = DeploymentProjectCreateSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
-        repository_config = _resolve_repository_config(serializer.validated_data, team_id=self.team_id)
+        repository_config = _resolve_repository_config(
+            serializer.validated_data,
+            team_id=self.team_id,
+            user_access_control=self.user_access_control,
+        )
         try:
             project = provision_project.execute(
                 provision_project.ProvisionInput(
@@ -230,7 +260,11 @@ class DeploymentProjectViewSet(
                 "github_repo_id": instance.github_repo_id,
             }
             merged_data.update(serializer.validated_data)
-            repository_config = _resolve_repository_config(merged_data, team_id=self.team_id)
+            repository_config = _resolve_repository_config(
+                merged_data,
+                team_id=self.team_id,
+                user_access_control=self.user_access_control,
+            )
             save_kwargs = {
                 "repo_url": repository_config.repo_url,
                 "default_branch": repository_config.default_branch,
@@ -263,7 +297,7 @@ class DeploymentProjectViewSet(
     @action(detail=True, methods=["post"])
     def refresh(self, request: Request, **kwargs: Any) -> Response:
         project = self.get_object()
-        refreshed = _refresh_project_repository_state(project)
+        refreshed = _refresh_project_repository_state(project, user_access_control=self.user_access_control)
         return Response(
             DeploymentProjectRefreshResponseSerializer(
                 {
