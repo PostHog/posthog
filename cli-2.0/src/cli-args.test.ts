@@ -4,17 +4,23 @@ import { describe, it } from 'node:test'
 import { buildCommandParams, getProjectIdOverride } from './cli-args.js'
 
 describe('getProjectIdOverride', () => {
-    it('uses camel-cased yargs projectId values', () => {
-        assert.equal(getProjectIdOverride({ projectId: '123' }), '123')
-    })
+    const cases: Array<{ name: string; argv: Record<string, unknown>; expected: string | undefined }> = [
+        { name: 'uses camel-cased yargs projectId values', argv: { projectId: '123' }, expected: '123' },
+        { name: 'uses dashed yargs project-id values', argv: { 'project-id': '456' }, expected: '456' },
+        { name: 'trims empty project IDs away', argv: { projectId: '   ' }, expected: undefined },
+        { name: 'trims dashed empty project IDs away', argv: { 'project-id': '   ' }, expected: undefined },
+        {
+            name: 'prefers camel-cased values when both keys are set',
+            argv: { projectId: '123', 'project-id': '456' },
+            expected: '123',
+        },
+    ]
 
-    it('uses dashed yargs project-id values', () => {
-        assert.equal(getProjectIdOverride({ 'project-id': '456' }), '456')
-    })
-
-    it('trims empty project IDs away', () => {
-        assert.equal(getProjectIdOverride({ projectId: '   ' }), undefined)
-    })
+    for (const { name, argv, expected } of cases) {
+        it(name, () => {
+            assert.equal(getProjectIdOverride(argv), expected)
+        })
+    }
 })
 
 describe('buildCommandParams', () => {

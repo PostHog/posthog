@@ -244,7 +244,7 @@ export class ConfigManager {
     }
 
     async ensureAuth(options: EnsureAuthOptions = {}): Promise<CLIConfig> {
-        const projectIdOverride = this.normalizeProjectIdOverride(options.projectId)
+        const projectIdOverride = options.projectId
         const currentConfig = this.getAll()
 
         const refreshedConfig = await this.refreshIfNeeded(currentConfig)
@@ -271,9 +271,8 @@ export class ConfigManager {
         this.conf.delete('projectId')
 
         const oauthConfig = await this.loginWithOAuth()
-        const normalizedProjectIdOverride = this.normalizeProjectIdOverride(projectIdOverride)
-        if (normalizedProjectIdOverride) {
-            return { ...oauthConfig, projectId: normalizedProjectIdOverride }
+        if (projectIdOverride) {
+            return { ...oauthConfig, projectId: projectIdOverride }
         }
 
         return this.ensureProject(oauthConfig)
@@ -283,11 +282,6 @@ export class ConfigManager {
         this.conf.clear()
         this.secrets.clear()
         console.log(chalk.green('✅ Configuration cleared!'))
-    }
-
-    private normalizeProjectIdOverride(projectId: string | undefined): string | undefined {
-        const normalizedProjectId = projectId?.trim()
-        return normalizedProjectId && normalizedProjectId.length > 0 ? normalizedProjectId : undefined
     }
 
     private async refreshIfNeeded(config: CLIConfig): Promise<CLIConfig> {
