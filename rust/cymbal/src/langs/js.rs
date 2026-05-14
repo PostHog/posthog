@@ -118,10 +118,12 @@ impl RawJSFrame {
             return Err(JsResolveErr::NoSourceUrl);
         };
 
-        // Accept http(s) for browser-fetched bundles, plus turbopack:// and webpack://
+        // Accept http(s) for browser-fetched bundles, plus turbopack:/// and webpack:///
         // for bundler-emitted frames (Turbopack is the default in Next.js 16+; webpack
-        // is used in earlier or opt-out builds). Relative URLs and other schemes are
-        // rejected because we cannot dedupe or look up sourcemaps for them reliably.
+        // is used in earlier or opt-out builds). The triple slash is intentional: bundler
+        // frames have no authority, so the canonical form has an empty host between `//`
+        // and the path's leading `/`. Relative URLs and other schemes are rejected
+        // because we cannot dedupe or look up sourcemaps for them reliably.
         const ACCEPTED_SCHEMES: &[&str] = &["http://", "https://", "turbopack:///", "webpack:///"];
         if !ACCEPTED_SCHEMES.iter().any(|s| source_url.starts_with(s)) {
             return Err(JsResolveErr::InvalidSourceUrl(source_url.clone()));
