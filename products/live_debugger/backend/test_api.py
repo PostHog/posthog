@@ -1582,3 +1582,26 @@ class TestLiveDebuggerSessionAPI(APIBaseTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_program_events_returns_empty_for_fresh_program(self):
+        sid = self._start_session()
+        install = self.client.post(
+            self._url(f"{sid}/install_program/"),
+            data={"code": "probe foo {}", "description": ""},
+            content_type="application/json",
+        )
+        program_id = install.json()["id"]
+        response = self.client.get(self._url(f"{sid}/program_events/?program_id={program_id}"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_program_events_404_for_program_not_in_session(self):
+        sid = self._start_session()
+        response = self.client.get(self._url(f"{sid}/program_events/?program_id=00000000-0000-0000-0000-000000000001"))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_program_events_missing_program_id_400(self):
+        sid = self._start_session()
+        response = self.client.get(self._url(f"{sid}/program_events/"))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

@@ -826,7 +826,7 @@ class LiveDebuggerSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     scope_object = "live_debugger"
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "program_events"]
     scope_object_write_actions = ["create", "close", "add_entry", "install_program", "uninstall_program"]
     queryset = LiveDebuggerSession.objects.all()
     serializer_class = LiveDebuggerSessionSerializer
@@ -1032,3 +1032,66 @@ class LiveDebuggerSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             session.save(update_fields=["status", "closed_at"])
         session.refresh_from_db()
         return Response(LiveDebuggerSessionSerializer(session).data)
+
+    @extend_schema(
+        summary="Get probe events for a program in a session",
+        description=(
+            "Retrieves probe-hit events emitted by the given program. The program must "
+            "belong to this session; otherwise 404 is returned. Returns events newest first."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "program_id",
+                OpenApiTypes.UUID,
+                description="ID of the program (must belong to this session).",
+                required=True,
+            ),
+            OpenApiParameter(
+                "limit",
+                OpenApiTypes.INT,
+                description="Maximum number of events to return (default 100, max 1000).",
+                required=False,
+            ),
+            OpenApiParameter(
+                "offset",
+                OpenApiTypes.INT,
+                description="Pagination offset.",
+                required=False,
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(response=ProgramEventsResponseSerializer),
+            400: OpenApiResponse(description="Missing program_id or invalid parameters."),
+            404: OpenApiResponse(description="Program not found in session."),
+        },
+    )
+    @action(methods=["GET"], detail=True, url_path="program_events")
+    def program_events(self, request: Request, *args, **kwargs) -> Response:
+        session = self.get_object()
+        program_id = request.query_params.get("program_id")
+        if not program_id:
+            return Response({"detail": "program_id query param is required."}, status=status.HTTP_400_BAD_REQUEST)
+        program = LiveDebuggerProgram.objects.filter(
+            id=program_id,
+            session=session,
+            team=self.team,
+        ).first()
+        if program is None:
+            return Response({"detail": "Program not found in session."}, status=status.HTTP_404_NOT_FOUND)
+        param_serializer = ProgramEventsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+        tag_queries(product=Product.LIVE_DEBUGGER, feature=Feature.QUERY)
+        events = LiveDebuggerProgram.get_program_events(
+            team=self.team,
+            program_id=str(program.id),
+            limit=params["limit"],
+            offset=params["offset"],
+        )
+        return Response(
+            {
+                "results": [event.to_json() for event in events],
+                "count": len(events),
+                "has_more": len(events) == params["limit"],
+            }
+        )
