@@ -556,22 +556,13 @@ class GitHogPullRequestLayoutItemSerializer(serializers.Serializer):
     h = serializers.IntegerField(min_value=1, help_text="Height in grid rows.")
 
 
-class GitHogPullRequestLayoutQuerySerializer(serializers.Serializer):
-    repository = serializers.CharField(help_text="Repository in owner/repo format.")
-    number = serializers.IntegerField(help_text="Pull request number.")
-
-
 class GitHogPullRequestLayoutRequestSerializer(serializers.Serializer):
-    repository = serializers.CharField(help_text="Repository in owner/repo format.")
-    number = serializers.IntegerField(help_text="Pull request number.")
     items = GitHogPullRequestLayoutItemSerializer(
         many=True, help_text="Ordered list of widgets with their grid positions and sizes."
     )
 
 
 class GitHogPullRequestLayoutResponseSerializer(serializers.Serializer):
-    repository = serializers.CharField()
-    pr_number = serializers.IntegerField()
     items = GitHogPullRequestLayoutItemSerializer(many=True)
     exists = serializers.BooleanField(help_text="True if a saved layout was found; otherwise the default is returned.")
 

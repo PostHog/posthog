@@ -47,7 +47,6 @@ from .serializers import (
     GitHogPullRequestDetailQuerySerializer,
     GitHogPullRequestDetailResponseSerializer,
     GitHogPullRequestDiffResponseSerializer,
-    GitHogPullRequestLayoutQuerySerializer,
     GitHogPullRequestLayoutRequestSerializer,
     GitHogPullRequestLayoutResponseSerializer,
     GitHogPullRequestListQuerySerializer,
@@ -304,7 +303,6 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(
         methods=["GET"],
-        parameters=[GitHogPullRequestLayoutQuerySerializer],
         responses={200: GitHogPullRequestLayoutResponseSerializer},
     )
     @extend_schema(
@@ -314,43 +312,27 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(methods=["GET", "PUT"], detail=False, url_path="pull_request_layout")
     def pull_request_layout(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Layouts are stored per-user only — the same arrangement applies to every
+        # PR across every repository and team the user has access to.
         if request.method == "PUT":
             payload = GitHogPullRequestLayoutRequestSerializer(data=request.data)
             payload.is_valid(raise_exception=True)
-            repository = payload.validated_data["repository"]
-            pr_number = payload.validated_data["number"]
             items = payload.validated_data["items"]
             row, _ = GitHogPullRequestLayout.objects.update_or_create(
-                team_id=self.team_id,
                 user=request.user,
-                repository=repository,
-                pr_number=pr_number,
                 defaults={"layout": {"items": items}},
             )
             return Response(
                 {
-                    "repository": row.repository,
-                    "pr_number": row.pr_number,
                     "items": (row.layout or {}).get("items", []),
                     "exists": True,
                 }
             )
 
-        query = GitHogPullRequestLayoutQuerySerializer(data=request.query_params)
-        query.is_valid(raise_exception=True)
-        repository = query.validated_data["repository"]
-        pr_number = query.validated_data["number"]
-        row = GitHogPullRequestLayout.objects.filter(
-            team_id=self.team_id,
-            user=request.user,
-            repository=repository,
-            pr_number=pr_number,
-        ).first()
+        row = GitHogPullRequestLayout.objects.filter(user=request.user).first()
         items = (row.layout or {}).get("items", []) if row else []
         return Response(
             {
-                "repository": repository,
-                "pr_number": pr_number,
                 "items": items,
                 "exists": row is not None,
             }
