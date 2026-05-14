@@ -14,6 +14,13 @@ from products.mcp_analytics.backend.models import MCPSession
 LOGGER = get_write_only_logger()
 
 
+# Two-pass aggregate:
+#   1. Inner subquery (cheap) — list session_ids that received any mcp_tool_call event in the
+#      last lookback_hours. These are the only sessions whose Postgres row could be stale.
+#   2. Outer query — re-aggregate the FULL history of each active session_id (bounded only by
+#      the retention window) so the upsert reflects the complete picture, not just what landed
+#      in the lookback. Avoids the corruption that a naive lookback-window aggregate would
+#      cause when a long-lived session gets a fresh event late.
 _AGGREGATE_QUERY = """
 SELECT
     team_id,
@@ -26,12 +33,22 @@ SELECT
     argMax(JSONExtractString(properties, '$mcp_client_name'), timestamp) AS mcp_client_name
 FROM events
 WHERE event = 'mcp_tool_call'
-    AND JSONExtractString(properties, '$session_id') != ''
-    AND timestamp >= now() - INTERVAL %(lookback_hours)s HOUR
+    AND JSONExtractString(properties, '$session_id') IN (
+        SELECT DISTINCT JSONExtractString(properties, '$session_id')
+        FROM events
+        WHERE event = 'mcp_tool_call'
+            AND JSONExtractString(properties, '$session_id') != ''
+            AND timestamp >= now() - INTERVAL %(lookback_hours)s HOUR
+    )
+    AND timestamp >= now() - INTERVAL %(retention_days)s DAY
 GROUP BY team_id, session_id
 LIMIT 100000
 FORMAT JSONEachRow
 """
+
+# How far back we'll look when re-aggregating an active session. Bounded so the outer query
+# can prune events partitions; anything older than this is effectively frozen anyway.
+_RETENTION_DAYS = 7
 
 
 def _parse_clickhouse_ts(value: str) -> datetime:
@@ -71,7 +88,10 @@ async def aggregate_and_upsert_mcp_sessions(input: BackfillMCPSessionsInput) -> 
     async with get_client() as client:
         rows = await client.read_query_as_jsonl(
             _AGGREGATE_QUERY,
-            query_parameters={"lookback_hours": int(input.lookback_hours)},
+            query_parameters={
+                "lookback_hours": int(input.lookback_hours),
+                "retention_days": _RETENTION_DAYS,
+            },
         )
 
     upserted = 0
