@@ -106,6 +106,7 @@ function HealthSummary({
 
 function EmptyState(): JSX.Element {
     const { openFormModal } = useActions(detectFlowsLogic)
+    const { bannerVisible } = useValues(detectFlowsLogic)
 
     return (
         <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
@@ -115,7 +116,12 @@ function EmptyState(): JSX.Element {
                 auto-detecting what matters most.
             </p>
             <div className="flex gap-2">
-                <LemonButton type="primary" icon={<IconSparkles />} onClick={openFormModal}>
+                <LemonButton
+                    type="primary"
+                    icon={<IconSparkles />}
+                    onClick={openFormModal}
+                    disabledReason={bannerVisible ? 'Detection already in progress' : undefined}
+                >
                     Auto-detect key flows
                 </LemonButton>
                 <LemonButton type="tertiary" to="/agentic_tests/new">
