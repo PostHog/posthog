@@ -32921,6 +32921,11 @@ export namespace Schemas {
       ci_rerun_error?: string | null;
     }
 
+    export interface ReorderMonitors {
+      /** Monitor IDs in their desired display order. Position 0 renders first. */
+      ordered_ids: string[];
+    }
+
     export interface ReorderTilesRequest {
       /**
          * Array of tile IDs in the desired display order (top to bottom, left to right).

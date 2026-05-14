@@ -11,6 +11,14 @@ class Monitor(ProductTeamModel):
     name = models.CharField(max_length=255)
     url = models.URLField(max_length=2048)
     created_at = models.DateTimeField(auto_now_add=True)
+    # User-controlled display order in the list view. Backfilled per-team from
+    # creation order; smaller values render first.
+    display_order = models.BigIntegerField(default=0, db_index=True)
+
+    class Meta:
+        # ordering propagates to default querysets — newest-on-top tie-breaks
+        # ties in display_order (e.g. all-zero for a team that's never reordered).
+        ordering = ["display_order", "-created_at"]
 
     def __str__(self) -> str:
         return self.name

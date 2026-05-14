@@ -81,6 +81,24 @@ def delete_monitor(*, team_id: int, monitor_id: UUID) -> None:
     Monitor.objects.filter(id=monitor_id).delete()
 
 
+def reorder_monitors(*, team_id: int, ordered_ids: list[UUID]) -> None:
+    """Persist the user-controlled display order. The caller passes the new order as a list
+    of monitor ids; each monitor's display_order is set to its position in that list.
+
+    Unknown ids in the input are silently ignored (the auto-scope makes them invisible) so a
+    concurrent delete doesn't crash the reorder. Monitors not present in `ordered_ids` keep
+    their existing display_order.
+    """
+    with transaction.atomic():
+        existing = {m.id: m for m in Monitor.objects.filter(id__in=ordered_ids)}
+        for position, monitor_id in enumerate(ordered_ids):
+            monitor = existing.get(monitor_id)
+            if monitor is None:
+                continue
+            monitor.display_order = position
+            monitor.save(update_fields=["display_order"])
+
+
 def retrieve_monitor_summary(*, team_id: int, monitor_id: UUID) -> dict | None:
     """Single-monitor variant of list_monitor_summaries. Used by the detail page so it can fetch
     one row directly instead of pulling the whole list and filtering client-side."""
@@ -89,7 +107,7 @@ def retrieve_monitor_summary(*, team_id: int, monitor_id: UUID) -> dict | None:
 
 
 def list_monitors() -> list[Monitor]:
-    return list(Monitor.objects.order_by("-created_at"))
+    return list(Monitor.objects.order_by("display_order", "-created_at"))
 
 
 def list_suggested_urls(*, team_id: int, days: int = 30, limit: int = 20) -> list[dict]:
@@ -287,7 +305,7 @@ def list_monitor_summaries(*, team_id: int) -> list[dict]:
     """
     tag_queries(product=Product.UPTIME, team_id=team_id, feature=Feature.UPTIME_PINGS, name="list_monitor_summaries")
 
-    monitors = list(Monitor.objects.order_by("-created_at"))
+    monitors = list(Monitor.objects.order_by("display_order", "-created_at"))
     if not monitors:
         return []
 

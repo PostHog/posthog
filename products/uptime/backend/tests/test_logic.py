@@ -17,6 +17,7 @@ from products.uptime.backend.logic import (
     list_monitor_summaries,
     list_suggested_urls,
     record_ping,
+    reorder_monitors,
     update_monitor,
 )
 from products.uptime.backend.models import Monitor
@@ -239,6 +240,17 @@ class TestListMonitorSummaries(UptimeTeamScopedTestMixin, ClickhouseTestMixin, B
         assert row["avg_latency_24h_ms"] is None
         assert row["uptime_30d"] == 0.0
 
+    def test_orders_by_display_order_then_recency(self) -> None:
+        # Created oldest first; without reordering, "newest" (z) would come first.
+        a = Monitor.objects.create(team_id=self.team.id, name="a", url="https://a.io")
+        z = Monitor.objects.create(team_id=self.team.id, name="z", url="https://z.io")
+
+        reorder_monitors(team_id=self.team.id, ordered_ids=[a.id, z.id])
+
+        results = list_monitor_summaries(team_id=self.team.id)
+
+        assert [r["name"] for r in results] == ["a", "z"]
+
     def test_ignores_other_team_pings(self) -> None:
         monitor = Monitor.objects.create(team_id=self.team.id, name="mine", url="https://mine.io")
         self._ping(monitor, outcome=PingOutcome.SUCCESS)
@@ -313,6 +325,32 @@ class TestDeleteMonitor(UptimeTeamScopedTestMixin, BaseTest):
         from uuid import uuid4
 
         delete_monitor(team_id=self.team.id, monitor_id=uuid4())
+
+
+class TestReorderMonitors(UptimeTeamScopedTestMixin, BaseTest):
+    def test_persists_display_order(self) -> None:
+        a = Monitor.objects.create(team_id=self.team.id, name="a", url="https://a.io")
+        b = Monitor.objects.create(team_id=self.team.id, name="b", url="https://b.io")
+        c = Monitor.objects.create(team_id=self.team.id, name="c", url="https://c.io")
+
+        reorder_monitors(team_id=self.team.id, ordered_ids=[c.id, a.id, b.id])
+
+        for monitor in (a, b, c):
+            monitor.refresh_from_db()
+        assert (c.display_order, a.display_order, b.display_order) == (0, 1, 2)
+
+    def test_ignores_unknown_ids(self) -> None:
+        from uuid import uuid4
+
+        a = Monitor.objects.create(team_id=self.team.id, name="a", url="https://a.io")
+        bogus = uuid4()
+
+        # Should not raise; unknown id is silently skipped.
+        reorder_monitors(team_id=self.team.id, ordered_ids=[bogus, a.id])
+
+        a.refresh_from_db()
+        # `a` gets position 1 because the bogus id occupies position 0.
+        assert a.display_order == 1
 
 
 @pytest.mark.django_db

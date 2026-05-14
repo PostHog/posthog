@@ -1,8 +1,12 @@
+import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { restrictToParentElement } from '@dnd-kit/modifiers'
+import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconEllipsis, IconPencil, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
+import { IconDrag, IconEllipsis, IconPencil, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonCard,
@@ -111,11 +115,29 @@ export function UptimeScene(): JSX.Element {
 
 function MonitorsTab(): JSX.Element {
     const { monitorSummaries, monitorSummariesLoading, suggestedUrls, overallStats } = useValues(uptimeSceneLogic)
-    const { setSuggestModalOpen, setCreateModalOpen, startEditing, confirmDeleteMonitor, pingNow } =
+    const { setSuggestModalOpen, setCreateModalOpen, startEditing, confirmDeleteMonitor, pingNow, reorderMonitors } =
         useActions(uptimeSceneLogic)
 
     const hasMonitors = monitorSummaries.length > 0
     const topSuggestion = suggestedUrls[0] ?? null
+
+    // 6px activation distance so a quick click on the tile still navigates — only a real
+    // drag gesture engages dnd-kit.
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+
+    const onDragEnd = (event: DragEndEvent): void => {
+        const { active, over } = event
+        if (!over || active.id === over.id) {
+            return
+        }
+        const oldIndex = monitorSummaries.findIndex((m) => m.id === active.id)
+        const newIndex = monitorSummaries.findIndex((m) => m.id === over.id)
+        if (oldIndex === -1 || newIndex === -1) {
+            return
+        }
+        const reordered = arrayMove(monitorSummaries, oldIndex, newIndex)
+        reorderMonitors(reordered.map((m) => m.id))
+    }
 
     return (
         <div className="flex flex-col gap-4">
@@ -129,19 +151,26 @@ function MonitorsTab(): JSX.Element {
                     onCreateBlank={() => setCreateModalOpen(true)}
                 />
             ) : (
-                <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 360px))' }}>
-                    {monitorSummariesLoading && !hasMonitors
-                        ? Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)
-                        : monitorSummaries.map((monitor) => (
-                              <MonitorTile
-                                  key={monitor.id}
-                                  monitor={monitor}
-                                  onPingNow={() => pingNow(monitor.id)}
-                                  onEdit={() => startEditing(monitor)}
-                                  onDelete={() => confirmDeleteMonitor({ id: monitor.id, name: monitor.name })}
-                              />
-                          ))}
-                </div>
+                <DndContext sensors={sensors} modifiers={[restrictToParentElement]} onDragEnd={onDragEnd}>
+                    <SortableContext items={monitorSummaries.map((m) => m.id)} strategy={rectSortingStrategy}>
+                        <div
+                            className="grid gap-4"
+                            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 360px))' }}
+                        >
+                            {monitorSummariesLoading && !hasMonitors
+                                ? Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)
+                                : monitorSummaries.map((monitor) => (
+                                      <MonitorTile
+                                          key={monitor.id}
+                                          monitor={monitor}
+                                          onPingNow={() => pingNow(monitor.id)}
+                                          onEdit={() => startEditing(monitor)}
+                                          onDelete={() => confirmDeleteMonitor({ id: monitor.id, name: monitor.name })}
+                                      />
+                                  ))}
+                        </div>
+                    </SortableContext>
+                </DndContext>
             )}
             <EditMonitorModal />
         </div>
@@ -206,8 +235,12 @@ function MonitorTile({
 }): JSX.Element {
     const tone = monitor.status === 'up' ? 'success' : monitor.status === 'down' ? 'danger' : 'muted'
 
-    // The whole card is a Link to the detail page. Interactive children stopPropagation so
-    // clicking them doesn't also fire the navigation.
+    const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
+        id: monitor.id,
+    })
+
+    // Interactive children stopPropagation so clicking them doesn't also fire the
+    // tile-wide navigation.
     const stop = (e: React.MouseEvent): void => e.stopPropagation()
 
     return (
@@ -215,6 +248,15 @@ function MonitorTile({
             hoverEffect
             onClick={() => router.actions.push(urls.uptimeMonitor(monitor.id))}
             className="flex flex-col gap-3 p-4"
+            ref={setNodeRef}
+            // dnd-kit needs inline transform/transition styles; tailwind classes won't work here.
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                transform: CSS.Transform.toString(transform),
+                transition,
+                opacity: isDragging ? 0.5 : undefined,
+                zIndex: isDragging ? 10 : undefined,
+            }}
         >
             <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
@@ -246,6 +288,17 @@ function MonitorTile({
                     >
                         <LemonButton size="xsmall" icon={<IconEllipsis />} aria-label="Monitor actions" />
                     </LemonMenu>
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconDrag />}
+                        aria-label="Drag to reorder"
+                        tooltip="Drag to reorder"
+                        // Pointer-down events are forwarded to dnd-kit via these listeners;
+                        // they intentionally bypass the parent card click handler.
+                        {...attributes}
+                        {...listeners}
+                        className="cursor-grab active:cursor-grabbing"
+                    />
                 </div>
             </div>
 

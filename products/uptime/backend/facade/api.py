@@ -66,6 +66,10 @@ def delete(*, team_id: int, monitor_id: UUID) -> None:
     logic.delete_monitor(team_id=team_id, monitor_id=monitor_id)
 
 
+def reorder(input: contracts.ReorderMonitorsInput) -> None:
+    logic.reorder_monitors(team_id=input.team_id, ordered_ids=input.ordered_ids)
+
+
 def retrieve_monitor_summary(*, team_id: int, monitor_id: UUID) -> contracts.MonitorSummaryDTO | None:
     row = logic.retrieve_monitor_summary(team_id=team_id, monitor_id=monitor_id)
     if row is None:

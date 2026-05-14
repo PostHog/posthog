@@ -58,3 +58,12 @@ export const UptimeMonitorsBulkCreateCreateBody = /* @__PURE__ */ zod.object({
         )
         .describe('List of monitors to create. All-or-nothing: created atomically.'),
 })
+
+/**
+ * Persist the user-controlled display order. Position 0 renders first.
+ */
+export const UptimeMonitorsReorderCreateBody = /* @__PURE__ */ zod.object({
+    ordered_ids: zod
+        .array(zod.uuid())
+        .describe('Monitor IDs in their desired display order. Position 0 renders first.'),
+})

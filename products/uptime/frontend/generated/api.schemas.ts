@@ -148,6 +148,11 @@ export interface BulkCreateMonitorApi {
     monitors: BulkCreateMonitorItemApi[]
 }
 
+export interface ReorderMonitorsApi {
+    /** Monitor IDs in their desired display order. Position 0 renders first. */
+    ordered_ids: string[]
+}
+
 export interface SuggestedUrlDTOApi {
     url: string
     host: string

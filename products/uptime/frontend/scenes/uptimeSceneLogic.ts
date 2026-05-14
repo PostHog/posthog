@@ -93,6 +93,7 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
         confirmDeleteMonitor: (monitor: { id: string; name: string }) => ({ monitor }),
         deleteMonitor: (monitorId: string) => ({ monitorId }),
         quickAddSuggestion: (suggestion: SuggestedUrl) => ({ suggestion }),
+        reorderMonitors: (orderedIds: string[]) => ({ orderedIds }),
     }),
 
     reducers({
@@ -140,6 +141,24 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
                     return await api.get<MonitorSummary[]>(
                         `api/projects/${values.currentProjectId}/uptime/monitors/summary/`
                     )
+                },
+                // Optimistic update — reorder locally so the drag-drop feels instant.
+                // The backend POST runs in a listener and is the source of truth on next load.
+                reorderMonitors: (state: MonitorSummary[], { orderedIds }: { orderedIds: string[] }) => {
+                    const byId = new Map(state.map((m) => [m.id, m]))
+                    const reordered: MonitorSummary[] = []
+                    for (const id of orderedIds) {
+                        const found = byId.get(id)
+                        if (found) {
+                            reordered.push(found)
+                            byId.delete(id)
+                        }
+                    }
+                    // Append anything the caller didn't include (shouldn't happen, but defensive).
+                    for (const remaining of byId.values()) {
+                        reordered.push(remaining)
+                    }
+                    return reordered
                 },
             },
         ],
@@ -221,6 +240,18 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
             lemonToast.success('Monitor deleted')
             actions.loadMonitorSummaries()
             actions.loadSuggestedUrls()
+        },
+        reorderMonitors: async ({ orderedIds }) => {
+            try {
+                await api.create(`api/projects/${values.currentProjectId}/uptime/monitors/reorder/`, {
+                    ordered_ids: orderedIds,
+                })
+            } catch (err) {
+                // Backend rejected the new order — refetch authoritative list so the UI snaps back.
+                lemonToast.error("Couldn't save the new order")
+                actions.loadMonitorSummaries()
+                throw err
+            }
         },
         quickAddSuggestion: async ({ suggestion }) => {
             const created = await api.create<Monitor>(`api/projects/${values.currentProjectId}/uptime/monitors/`, {

@@ -33,6 +33,12 @@ class UpdateMonitorInput:
 
 
 @dataclass(frozen=True)
+class ReorderMonitorsInput:
+    team_id: int
+    ordered_ids: list[UUID]
+
+
+@dataclass(frozen=True)
 class BulkCreateMonitorItem:
     name: str
     url: str

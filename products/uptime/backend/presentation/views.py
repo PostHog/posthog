@@ -21,6 +21,7 @@ from .serializers import (
     MonitorSummarySerializer,
     PingSerializer,
     PublicStatusPageSerializer,
+    ReorderMonitorsSerializer,
     StatusPageSerializer,
     SuggestedUrlSerializer,
     UpdateMonitorSerializer,
@@ -125,6 +126,23 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = int(request.query_params.get("limit", 20))
         suggestions = api.list_suggested_urls(team_id=self.team_id, days=days, limit=limit)
         return Response(SuggestedUrlSerializer(suggestions, many=True).data)
+
+    @extend_schema(
+        request=ReorderMonitorsSerializer,
+        responses={204: OpenApiResponse(description="Display order saved.")},
+        description="Persist the user-controlled display order. Position 0 renders first.",
+    )
+    @action(detail=False, methods=["post"], url_path="reorder")
+    def reorder(self, request: Request, **kwargs) -> Response:
+        serializer = ReorderMonitorsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        api.reorder(
+            contracts.ReorderMonitorsInput(
+                team_id=self.team_id,
+                ordered_ids=serializer.validated_data["ordered_ids"],
+            )
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         request=BulkCreateMonitorSerializer,

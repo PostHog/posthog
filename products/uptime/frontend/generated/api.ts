@@ -18,6 +18,7 @@ import type {
     PaginatedPingDTOListApi,
     PaginatedSuggestedUrlDTOListApi,
     PatchedUpdateMonitorApi,
+    ReorderMonitorsApi,
     UptimeMonitorsBulkCreateCreateParams,
     UptimeMonitorsListParams,
     UptimeMonitorsPingsListParams,
@@ -196,6 +197,26 @@ export const uptimeMonitorsBulkCreateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(bulkCreateMonitorApi),
+    })
+}
+
+export const getUptimeMonitorsReorderCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/uptime/monitors/reorder/`
+}
+
+/**
+ * Persist the user-controlled display order. Position 0 renders first.
+ */
+export const uptimeMonitorsReorderCreate = async (
+    projectId: string,
+    reorderMonitorsApi: ReorderMonitorsApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUptimeMonitorsReorderCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reorderMonitorsApi),
     })
 }
 
