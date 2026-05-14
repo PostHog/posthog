@@ -19,7 +19,6 @@ import {
     IconX,
 } from '@posthog/icons'
 
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -31,7 +30,8 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { DataFlowGraph, DiffStatus, computeFlowDiff } from '../DataFlowGraph'
+import { DataFlowGraph, DiffStatus, FlowDirection, computeFlowDiff } from '../DataFlowGraph'
+import { DiffCodeBlock } from '../DiffCodeBlock'
 import {
     GitHogPRConversationLogicProps,
     GitHogPRMessage,
@@ -421,6 +421,7 @@ function DataFlowWidgetForPR({
     const { dataFlow, dataFlowLoading, view } = useValues(logic)
     const { setView, refreshDataFlow } = useActions(logic)
     const [selected, setSelected] = useState<NodeDiffSelection | null>(null)
+    const [direction, setDirection] = useState<FlowDirection>('horizontal')
 
     const diff = useMemo(() => {
         if (!dataFlow) {
@@ -510,7 +511,7 @@ function DataFlowWidgetForPR({
                 <div className="flex flex-col gap-4">
                     <div className="flex flex-col gap-2 min-w-0">
                         <div className="text-xs uppercase tracking-wide text-muted">Before</div>
-                        <DataFlowGraph graph={dataFlow.flow_before} heightClass="h-[24rem]" />
+                        <DataFlowGraph graph={dataFlow.flow_before} direction={direction} heightClass="h-[24rem]" />
                     </div>
                     <div className="flex flex-col gap-2 min-w-0">
                         <div className="text-xs uppercase tracking-wide text-muted">After</div>
@@ -518,6 +519,7 @@ function DataFlowWidgetForPR({
                             graph={dataFlow.flow_after}
                             nodeDiff={diff?.nodeDiff}
                             onNodeClick={handleNodeClick}
+                            direction={direction}
                             heightClass="h-[24rem]"
                         />
                     </div>
@@ -534,6 +536,7 @@ function DataFlowWidgetForPR({
                 nodeDiff={diff.nodeDiff}
                 edgeDiff={diff.edgeDiff}
                 onNodeClick={handleNodeClick}
+                direction={direction}
                 heightClass="h-[32rem]"
             />
         )
@@ -572,6 +575,20 @@ function DataFlowWidgetForPR({
                             { value: 'steps', label: 'Steps' },
                         ]}
                     />
+                    {view !== 'steps' && (
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            onClick={() => setDirection(direction === 'horizontal' ? 'vertical' : 'horizontal')}
+                            tooltip={
+                                direction === 'horizontal'
+                                    ? 'Switch to vertical layout (top → bottom)'
+                                    : 'Switch to horizontal layout (left → right)'
+                            }
+                        >
+                            {direction === 'horizontal' ? '⇅ Vertical' : '⇄ Horizontal'}
+                        </LemonButton>
+                    )}
                     <LemonButton
                         size="xsmall"
                         type="secondary"
@@ -643,9 +660,7 @@ function NodeDiffModal({
                     {file ? (
                         file.patch ? (
                             <div className="max-h-[60vh] overflow-auto">
-                                <CodeSnippet language={Language.Diff} wrap>
-                                    {file.patch}
-                                </CodeSnippet>
+                                <DiffCodeBlock patch={file.patch} filename={file.filename} />
                             </div>
                         ) : (
                             <p className="text-sm text-secondary italic my-0">

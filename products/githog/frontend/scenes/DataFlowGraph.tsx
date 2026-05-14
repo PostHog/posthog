@@ -27,10 +27,12 @@ const NODE_WIDTH = 200
 const NODE_HEIGHT = 64
 
 export type DiffStatus = 'kept' | 'added' | 'removed'
+export type FlowDirection = 'horizontal' | 'vertical'
 
 interface DataFlowNodeData extends Record<string, unknown> {
     node: GitHogFlowNode
     diff: DiffStatus
+    direction: FlowDirection
 }
 
 function nodeColors(diff: DiffStatus, kind: string): { bg: string; border: string; fg: string } {
@@ -53,9 +55,11 @@ function nodeColors(diff: DiffStatus, kind: string): { bg: string; border: strin
 }
 
 function FlowNodeCard({ data }: { data: DataFlowNodeData }): JSX.Element {
-    const { node, diff } = data
+    const { node, diff, direction } = data
     const c = nodeColors(diff, node.kind)
     const prefix = diff === 'added' ? '+ ' : diff === 'removed' ? '− ' : ''
+    const targetPos = direction === 'vertical' ? Position.Top : Position.Left
+    const sourcePos = direction === 'vertical' ? Position.Bottom : Position.Right
     return (
         <div
             className="rounded-md text-xs px-3 py-2 shadow-sm relative"
@@ -70,7 +74,7 @@ function FlowNodeCard({ data }: { data: DataFlowNodeData }): JSX.Element {
         >
             <Handle
                 type="target"
-                position={Position.Left}
+                position={targetPos}
                 style={{ background: c.border, border: 'none', width: 6, height: 6 }}
             />
             <div className="font-semibold leading-tight">
@@ -80,7 +84,7 @@ function FlowNodeCard({ data }: { data: DataFlowNodeData }): JSX.Element {
             {node.file && <div className="font-mono opacity-70 truncate mt-0.5">{node.file}</div>}
             <Handle
                 type="source"
-                position={Position.Right}
+                position={sourcePos}
                 style={{ background: c.border, border: 'none', width: 6, height: 6 }}
             />
         </div>
@@ -92,14 +96,15 @@ const NODE_TYPES = { flowNode: FlowNodeCard }
 async function layoutGraph(
     graph: GitHogFlowGraph,
     diffByNodeId: Map<string, DiffStatus>,
-    diffByEdgeKey: Map<string, DiffStatus>
+    diffByEdgeKey: Map<string, DiffStatus>,
+    direction: FlowDirection
 ): Promise<{ nodes: Node<DataFlowNodeData>[]; edges: Edge[] }> {
     const elk = await getElk()
     const layout = await elk.layout({
         id: 'root',
         layoutOptions: {
             'elk.algorithm': 'layered',
-            'elk.direction': 'RIGHT',
+            'elk.direction': direction === 'vertical' ? 'DOWN' : 'RIGHT',
             'elk.layered.spacing.nodeNodeBetweenLayers': '80',
             'elk.spacing.nodeNode': '40',
             'elk.spacing.edgeNode': '20',
@@ -123,7 +128,7 @@ async function layoutGraph(
             id: laid.id,
             type: 'flowNode',
             position: { x: laid.x ?? 0, y: laid.y ?? 0 },
-            data: { node, diff: diffByNodeId.get(laid.id) ?? 'kept' },
+            data: { node, diff: diffByNodeId.get(laid.id) ?? 'kept', direction },
             draggable: true,
             connectable: false,
         }
@@ -161,6 +166,8 @@ export interface DataFlowGraphProps {
     heightClass?: string
     /** Called when a node is clicked. `diff` indicates whether the node was added / removed / kept. */
     onNodeClick?: (node: GitHogFlowNode, diff: DiffStatus) => void
+    /** Layout direction; defaults to horizontal (left → right). */
+    direction?: FlowDirection
 }
 
 function DataFlowGraphInner({
@@ -169,6 +176,7 @@ function DataFlowGraphInner({
     edgeDiff,
     heightClass = 'h-96',
     onNodeClick,
+    direction = 'horizontal',
 }: DataFlowGraphProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     // Memoize `safeGraph` so the effect dep is stable across re-renders. Without this,
@@ -186,7 +194,7 @@ function DataFlowGraphInner({
     useEffect(() => {
         let cancelled = false
         setLayoutReady(false)
-        layoutGraph(graph, stableNodeDiff, stableEdgeDiff).then((res) => {
+        layoutGraph(graph, stableNodeDiff, stableEdgeDiff, direction).then((res) => {
             if (cancelled) {
                 return
             }
@@ -197,7 +205,7 @@ function DataFlowGraphInner({
         return () => {
             cancelled = true
         }
-    }, [graph, stableNodeDiff, stableEdgeDiff])
+    }, [graph, stableNodeDiff, stableEdgeDiff, direction])
 
     const onNodesChange = useCallback(
         (changes: NodeChange<Node<DataFlowNodeData>>[]) => setNodes((prev) => applyNodeChanges(changes, prev)),
