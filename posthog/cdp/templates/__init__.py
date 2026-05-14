@@ -5,6 +5,7 @@ from ._siteapps.template_hogdesk import template as hogdesk
 from ._siteapps.template_notification_bar import template as notification_bar
 from ._siteapps.template_pineapple_mode import template as pineapple_mode
 from .activecampaign.template_activecampaign import template as activecampaign
+from .ai_summary.template_ai_summary import template as ai_summary
 from .airtable.template_airtable import template as airtable
 from .attio.template_attio import template as attio
 from .avo.template_avo import (
@@ -93,6 +94,7 @@ HOG_FUNCTION_TEMPLATES = [
     blank_site_app,
     slack,
     activecampaign,
+    ai_summary,
     airtable,
     attio,
     avo,

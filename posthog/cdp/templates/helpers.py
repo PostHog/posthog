@@ -109,6 +109,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
                 "elements_chain": "",
             },
             "person": {"id": "person-id", "properties": {"email": "example@posthog.com"}},
+            "project": {"id": 1, "name": "Test project", "url": "https://us.posthog.com/project/1"},
             "source": {"url": "https://us.posthog.com/hog_functions/1234"},
         }
 
@@ -117,6 +118,8 @@ class BaseHogFunctionTemplateTest(BaseTest):
                 cast(dict, data["event"]).update(globals["event"])
             if globals.get("person"):
                 cast(dict, data["person"]).update(globals["person"])
+            if globals.get("project"):
+                cast(dict, data["project"]).update(globals["project"])
 
         return data
 
