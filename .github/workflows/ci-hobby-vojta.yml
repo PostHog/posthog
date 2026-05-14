@@ -105,4 +105,7 @@ jobs:
 
             - name: Stream task run until it ends
               timeout-minutes: 15
-              run: bin/qa/wait-for-task "${{ steps.create-task.outputs.task_id }}" "${{ steps.create-task.outputs.run_id }}"
+              env:
+                  TASK_ID: ${{ steps.create-task.outputs.task_id }}
+                  RUN_ID: ${{ steps.create-task.outputs.run_id }}
+              run: bin/qa/wait-for-task "$TASK_ID" "$RUN_ID"
