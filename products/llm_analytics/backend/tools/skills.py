@@ -1,6 +1,6 @@
 from typing import Any
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 
 from pydantic import BaseModel, Field
 
@@ -9,7 +9,6 @@ from posthog.schema import AssistantTool
 from posthog.sync import database_sync_to_async
 
 from products.llm_analytics.backend.api.skill_services import (
-    LLMSkillDuplicateNameConflictError,
     LLMSkillEditError,
     LLMSkillFileLimitError,
     LLMSkillNotFoundError,
@@ -26,6 +25,10 @@ from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolFatalError
 
 MAX_LIST_RESULTS = 50
+
+
+class LLMSkillDuplicateNameError(Exception):
+    """Raised when CreateLLMSkillTool detects an existing skill with the same name."""
 
 
 LIST_SKILLS_DESCRIPTION = """List shared agent skills stored for this team.
@@ -250,8 +253,6 @@ def _publish_error_message(err: Exception, skill_name: str) -> str:
         if err.file_path is not None:
             detail = f"{detail} (file: {err.file_path})"
         return detail
-    if isinstance(err, LLMSkillDuplicateNameConflictError):
-        return f"A skill named '{skill_name}' already exists."
     return str(err)
 
 
@@ -384,10 +385,10 @@ class CreateLLMSkillTool(MaxTool):
                 metadata=metadata,
                 files=files,
             )
+        except LLMSkillDuplicateNameError:
+            raise MaxToolFatalError(f"A skill named '{name}' already exists.")
         except IntegrityError as err:
             err_str = str(err)
-            if "unique_llm_skill" in err_str:
-                raise MaxToolFatalError(f"A skill named '{name}' already exists.")
             if "unique_skill_file_path" in err_str:
                 raise MaxToolFatalError("Duplicate file paths are not allowed in `files`.")
             raise MaxToolFatalError(f"Failed to create skill: {err_str}")
@@ -409,29 +410,32 @@ class CreateLLMSkillTool(MaxTool):
         metadata: dict[str, Any] | None,
         files: list[dict[str, str]] | None,
     ) -> LLMSkill:
-        skill = LLMSkill.objects.create(
-            team=self._team,
-            name=name,
-            description=description,
-            body=body,
-            license=license or "",
-            compatibility=compatibility or "",
-            allowed_tools=allowed_tools or [],
-            metadata=metadata or {},
-            created_by=self._user,
-        )
-        if files:
-            LLMSkillFile.objects.bulk_create(
-                [
-                    LLMSkillFile(
-                        skill=skill,
-                        path=item["path"],
-                        content=item.get("content", ""),
-                        content_type=item.get("content_type", "text/plain"),
-                    )
-                    for item in files
-                ]
+        with transaction.atomic():
+            if LLMSkill.objects.filter(team=self._team, name=name, deleted=False).exists():
+                raise LLMSkillDuplicateNameError()
+            skill = LLMSkill.objects.create(
+                team=self._team,
+                name=name,
+                description=description,
+                body=body,
+                license=license or "",
+                compatibility=compatibility or "",
+                allowed_tools=allowed_tools or [],
+                metadata=metadata or {},
+                created_by=self._user,
             )
+            if files:
+                LLMSkillFile.objects.bulk_create(
+                    [
+                        LLMSkillFile(
+                            skill=skill,
+                            path=item["path"],
+                            content=item.get("content", ""),
+                            content_type=item.get("content_type", "text/plain"),
+                        )
+                        for item in files
+                    ]
+                )
         return skill
 
 

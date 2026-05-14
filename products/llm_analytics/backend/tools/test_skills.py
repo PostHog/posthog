@@ -197,12 +197,8 @@ class TestCreateLLMSkillTool(BaseTest):
 
         tool = CreateLLMSkillTool(team=self.team, user=self.user)
 
-        try:
+        with self.assertRaisesRegex(MaxToolFatalError, "already exists"):
             _run(tool, name="dup", description="d2", body="b2")
-        except MaxToolFatalError as err:
-            assert "already exists" in str(err)
-        else:
-            raise AssertionError("Expected MaxToolFatalError for duplicate name")
 
 
 class TestUpdateLLMSkillTool(BaseTest):
@@ -251,23 +247,19 @@ class TestUpdateLLMSkillTool(BaseTest):
         existing = self._create_skill()
         tool = UpdateLLMSkillTool(team=self.team, user=self.user)
 
-        try:
+        with self.assertRaisesRegex(MaxToolFatalError, "modified"):
             _run(
                 tool,
                 skill_name="make-fractals",
                 base_version=existing.version + 5,
                 body="new body",
             )
-        except MaxToolFatalError as err:
-            assert "modified" in str(err)
-        else:
-            raise AssertionError("Expected MaxToolFatalError for version conflict")
 
     def test_body_and_edits_are_mutually_exclusive(self):
         existing = self._create_skill()
         tool = UpdateLLMSkillTool(team=self.team, user=self.user)
 
-        try:
+        with self.assertRaisesRegex(MaxToolFatalError, r"either `body` or `edits`"):
             _run(
                 tool,
                 skill_name="make-fractals",
@@ -275,10 +267,6 @@ class TestUpdateLLMSkillTool(BaseTest):
                 body="full",
                 edits=[{"old": "a", "new": "b"}],
             )
-        except MaxToolFatalError as err:
-            assert "either `body` or `edits`" in str(err)
-        else:
-            raise AssertionError("Expected MaxToolFatalError when both body and edits passed")
 
 
 class TestArchiveLLMSkillTool(BaseTest):
@@ -300,9 +288,5 @@ class TestArchiveLLMSkillTool(BaseTest):
     def test_unknown_skill_raises_fatal(self):
         tool = ArchiveLLMSkillTool(team=self.team, user=self.user)
 
-        try:
+        with self.assertRaisesRegex(MaxToolFatalError, "missing"):
             _run(tool, skill_name="missing")
-        except MaxToolFatalError as err:
-            assert "missing" in str(err)
-        else:
-            raise AssertionError("Expected MaxToolFatalError for unknown skill")
