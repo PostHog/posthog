@@ -151,6 +151,7 @@ export enum Scene {
     Coupons = 'Coupons',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
+    SemanticLayerProposals = 'SemanticLayerProposals',
     Survey = 'Survey',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
