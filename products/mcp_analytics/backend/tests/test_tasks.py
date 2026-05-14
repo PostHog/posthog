@@ -39,8 +39,9 @@ class TestComputeIntentClusters(APIBaseTest):
 
     def test_writes_snapshot_on_success(self) -> None:
         with (
-            patch.object(intent_clustering, "fetch_intent_corpus", return_value=self._stub_corpus()),
+            patch.object(intent_clustering, "fetch_intent_corpus", return_value=(self._stub_corpus(), {})),
             patch.object(intent_clustering, "embed_intents_async") as mock_embed,
+            patch.object(intent_clustering, "fetch_session_journeys", return_value={}),
         ):
             # asyncio.run unwraps the coroutine; emulate the awaited result.
             async def fake_embed(team, texts):  # noqa: ARG001
@@ -58,7 +59,7 @@ class TestComputeIntentClusters(APIBaseTest):
         assert snapshot.clusters["clusters"][0]["call_count"] == 14
 
     def test_empty_corpus_writes_empty_snapshot(self) -> None:
-        with patch.object(intent_clustering, "fetch_intent_corpus", return_value=[]):
+        with patch.object(intent_clustering, "fetch_intent_corpus", return_value=([], {})):
             tasks.compute_intent_clusters.apply(args=[self.team.id, self.user.id]).get()
 
         snapshot = MCPIntentClusterSnapshot.objects.get(team=self.team)

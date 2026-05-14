@@ -194,6 +194,23 @@ def _to_cluster_dto(item: dict[str, Any]) -> contracts.IntentCluster:
             if isinstance(entry, dict)
         ],
         sample_intents=[str(s) for s in item.get("sample_intents", []) if isinstance(s, str)],
+        journey=_to_journey_dto(item.get("journey")) if isinstance(item.get("journey"), dict) else None,
+    )
+
+
+def _to_journey_path_dto(path: dict[str, Any]) -> contracts.IntentClusterJourneyPath:
+    return contracts.IntentClusterJourneyPath(
+        steps=[str(s) if s is not None else None for s in path.get("steps", [])],
+        outcome=str(path.get("outcome", "completed")),
+        count=int(path.get("count", 0)),
+    )
+
+
+def _to_journey_dto(journey: dict[str, Any]) -> contracts.IntentClusterJourney:
+    return contracts.IntentClusterJourney(
+        paths=[_to_journey_path_dto(p) for p in journey.get("paths", []) if isinstance(p, dict)],
+        total_sessions=int(journey.get("total_sessions", 0)),
+        leak=(_to_journey_path_dto(journey["leak"]) if isinstance(journey.get("leak"), dict) else None),
     )
 
 

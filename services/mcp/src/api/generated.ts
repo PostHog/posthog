@@ -19615,6 +19615,39 @@ export namespace Schemas {
       readonly error_rate_pct: number;
     }
 
+    /**
+     * * `completed` - Completed
+    * `error` - Error
+     */
+    export type OutcomeEnum = typeof OutcomeEnum[keyof typeof OutcomeEnum];
+
+
+    export const OutcomeEnum = {
+      Completed: 'completed',
+      Error: 'error',
+    } as const;
+
+    export interface MCPIntentClusterJourneyPath {
+      /** Ordered tool names called during the path. Length is fixed; null entries indicate the session ended before this step. */
+      readonly steps: readonly (string | null)[];
+      /** Terminal outcome of the sessions following this path.
+
+      * `completed` - Completed
+      * `error` - Error */
+      readonly outcome: OutcomeEnum;
+      /** Number of sessions in this cluster that followed this exact path. */
+      readonly count: number;
+    }
+
+    export interface MCPIntentClusterJourney {
+      /** Top paths by session count, capped at MAX_JOURNEY_PATHS_PER_CLUSTER. */
+      readonly paths: readonly MCPIntentClusterJourneyPath[];
+      /** Total session count represented across all paths in this cluster. */
+      readonly total_sessions: number;
+      /** Highest-volume non-completed path. Null when every path completed successfully. */
+      readonly leak: MCPIntentClusterJourneyPath | null;
+    }
+
     export interface MCPIntentCluster {
       /** Stable cluster identifier within this snapshot. */
       readonly id: number;
@@ -19636,6 +19669,8 @@ export namespace Schemas {
       readonly tool_distribution: readonly MCPIntentClusterToolEntry[];
       /** Up to three representative intent strings from the cluster, ordered by frequency desc. */
       readonly sample_intents: readonly string[];
+      /** Top Sankey-shaped paths the agents took within this cluster. Each path is up to four ordered tool calls plus a completed/error outcome. Null when journey data is unavailable. */
+      readonly journey: MCPIntentClusterJourney | null;
     }
 
     /**

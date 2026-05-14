@@ -254,7 +254,9 @@ class TestFetchIntentCorpus(ClickhouseTestMixin, BaseTest):
         )
 
     def test_returns_empty_when_no_sessions(self) -> None:
-        assert fetch_intent_corpus(self.team) == []
+        records, intent_by_session = fetch_intent_corpus(self.team)
+        assert records == []
+        assert intent_by_session == {}
 
     def test_aggregates_tool_calls_across_sessions_with_matching_intent(self) -> None:
         self._seed_session("session-a", "check feature flag rollout")
@@ -265,20 +267,24 @@ class TestFetchIntentCorpus(ClickhouseTestMixin, BaseTest):
         self._seed_tool_call("session-b", "query_run")
         flush_persons_and_events()
 
-        records = fetch_intent_corpus(self.team)
+        records, intent_by_session = fetch_intent_corpus(self.team)
 
         assert len(records) == 1
         assert records[0].intent_text == "check feature flag rollout"
         assert records[0].tool_counts == {"feature_flag_get": 3, "query_run": 1}
         assert records[0].error_counts == {"feature_flag_get": 1}
         assert records[0].frequency == 4
+        assert intent_by_session == {
+            "session-a": "check feature flag rollout",
+            "session-b": "check feature flag rollout",
+        }
 
     def test_keeps_intents_without_tool_calls_as_zero_call_records(self) -> None:
         # A session was logged but no events flowed through yet — we should
         # still surface the intent so the UI can show "no calls yet".
         self._seed_session("session-quiet", "quiet intent with no events")
 
-        records = fetch_intent_corpus(self.team)
+        records, _ = fetch_intent_corpus(self.team)
 
         assert len(records) == 1
         assert records[0].intent_text == "quiet intent with no events"

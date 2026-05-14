@@ -168,6 +168,38 @@ export interface MCPIntentClusterToolEntryApi {
     readonly error_rate_pct: number
 }
 
+/**
+ * * `completed` - Completed
+ * `error` - Error
+ */
+export type OutcomeEnumApi = (typeof OutcomeEnumApi)[keyof typeof OutcomeEnumApi]
+
+export const OutcomeEnumApi = {
+    Completed: 'completed',
+    Error: 'error',
+} as const
+
+export interface MCPIntentClusterJourneyPathApi {
+    /** Ordered tool names called during the path. Length is fixed; null entries indicate the session ended before this step. */
+    readonly steps: readonly (string | null)[]
+    /** Terminal outcome of the sessions following this path.
+
+  * `completed` - Completed
+  * `error` - Error */
+    readonly outcome: OutcomeEnumApi
+    /** Number of sessions in this cluster that followed this exact path. */
+    readonly count: number
+}
+
+export interface MCPIntentClusterJourneyApi {
+    /** Top paths by session count, capped at MAX_JOURNEY_PATHS_PER_CLUSTER. */
+    readonly paths: readonly MCPIntentClusterJourneyPathApi[]
+    /** Total session count represented across all paths in this cluster. */
+    readonly total_sessions: number
+    /** Highest-volume non-completed path. Null when every path completed successfully. */
+    readonly leak: MCPIntentClusterJourneyPathApi | null
+}
+
 export interface MCPIntentClusterApi {
     /** Stable cluster identifier within this snapshot. */
     readonly id: number
@@ -189,6 +221,8 @@ export interface MCPIntentClusterApi {
     readonly tool_distribution: readonly MCPIntentClusterToolEntryApi[]
     /** Up to three representative intent strings from the cluster, ordered by frequency desc. */
     readonly sample_intents: readonly string[]
+    /** Top Sankey-shaped paths the agents took within this cluster. Each path is up to four ordered tool calls plus a completed/error outcome. Null when journey data is unavailable. */
+    readonly journey: MCPIntentClusterJourneyApi | null
 }
 
 export interface MCPIntentClusterSnapshotMetaApi {

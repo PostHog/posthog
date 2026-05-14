@@ -41,6 +41,12 @@ DEFAULT_TOP_N_INTENTS = 500
 DEFAULT_DISTANCE_THRESHOLD = 0.2
 MAX_SAMPLE_INTENTS_PER_CLUSTER = 3
 
+# How many tool-call steps to show in the per-cluster Sankey before the
+# outcome column. Sessions with fewer steps pad with None so the column
+# count stays fixed; the UI renders those as an "Ended" node.
+JOURNEY_DEPTH = 4
+MAX_JOURNEY_PATHS_PER_CLUSTER = 10
+
 
 @dataclass(frozen=True)
 class IntentRecord:
@@ -77,21 +83,46 @@ WHERE event = {event}
 GROUP BY session_id, tool_name
 """
 
+# Per-session ordered tool sequence + whether any call errored. arrayMap +
+# arraySort on (timestamp, tool) tuples preserves call order.
+_SESSION_JOURNEY_SQL = """
+SELECT
+    properties.$session_id AS session_id,
+    arrayMap(
+        x -> x.2,
+        arraySort(
+            x -> x.1,
+            groupArray(tuple(timestamp, toString(properties.$mcp_tool_name)))
+        )
+    ) AS tool_sequence,
+    countIf(toString(properties.$mcp_is_error) IN ('true', '1')) > 0 AS had_error
+FROM events
+WHERE event = {event}
+    AND properties.$session_id IN {session_ids}
+    AND properties.$mcp_tool_name IS NOT NULL
+    AND properties.$mcp_tool_name != ''
+    AND timestamp >= now() - INTERVAL {lookback_days} DAY
+GROUP BY session_id
+"""
+
 
 def fetch_intent_corpus(
     team: Team,
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
     top_n: int = DEFAULT_TOP_N_INTENTS,
-) -> list[IntentRecord]:
-    """Return the top-N most frequent distinct intents with their tool stats.
+) -> tuple[list[IntentRecord], dict[str, str]]:
+    """Return ``(records, intent_by_session)`` for clustering.
 
     The intent text comes from posthog_mcp_session (Postgres), one row per
     MCP session. Tool stats come from ClickHouse mcp_tool_call events joined
     by session_id. Same intent string repeated across sessions aggregates.
+
+    ``intent_by_session`` is exposed so callers can later join session-level
+    data (e.g. journey aggregation) back to the cluster a session belongs to.
     """
     session_rows = list(MCPSession.objects.filter(team=team).values_list("session_id", "intent"))
     if not session_rows:
-        return []
+        return [], {}
 
     # Map session_id -> intent_text (last write wins per session).
     intent_by_session: dict[str, str] = {}
@@ -102,7 +133,7 @@ def fetch_intent_corpus(
         intent_by_session[session_id] = text
 
     if not intent_by_session:
-        return []
+        return [], {}
 
     session_ids = list(intent_by_session.keys())
     query = parse_select(
@@ -155,7 +186,91 @@ def fetch_intent_corpus(
         )
 
     records.sort(key=lambda r: r.frequency, reverse=True)
-    return records[:top_n]
+    return records[:top_n], intent_by_session
+
+
+# Journeys ----------------------------------------------------------------
+
+
+def fetch_session_journeys(
+    team: Team,
+    session_ids: list[str],
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+) -> dict[str, dict[str, Any]]:
+    """Return ``{session_id: {tool_sequence: [...], had_error: bool}}``.
+
+    Tool calls are sorted by timestamp so the sequence reflects the order
+    the agent invoked them.
+    """
+    if not session_ids:
+        return {}
+    query = parse_select(
+        _SESSION_JOURNEY_SQL,
+        placeholders={
+            "event": ast.Constant(value="mcp_tool_call"),
+            "session_ids": ast.Tuple(exprs=[ast.Constant(value=sid) for sid in session_ids]),
+            "lookback_days": ast.Constant(value=lookback_days),
+        },
+    )
+    with tags_context(product=Product.MCP, feature=Feature.QUERY, team_id=team.id):
+        response = execute_hogql_query(query=query, team=team)
+
+    out: dict[str, dict[str, Any]] = {}
+    for row in response.results or []:
+        session_id = row[0] or ""
+        tool_sequence = list(row[1] or [])
+        had_error = bool(row[2])
+        if not session_id:
+            continue
+        out[session_id] = {"tool_sequence": tool_sequence, "had_error": had_error}
+    return out
+
+
+def aggregate_journeys_per_cluster(
+    records: list[IntentRecord],
+    labels: np.ndarray,
+    session_journeys: dict[str, dict[str, Any]],
+    intent_to_sessions: dict[str, list[str]],
+) -> dict[int, dict[str, Any]]:
+    """For each cluster id, build a Sankey-shaped journey aggregation.
+
+    Walks each session in each cluster, takes the first ``JOURNEY_DEPTH``
+    ordered tool calls (padded with ``None`` for shorter sessions), pairs
+    them with an ``error``/``completed`` outcome, and counts unique paths.
+    Returns a per-cluster dict with ``paths`` (top N), ``total_sessions``,
+    and ``leak`` (highest-volume non-completed path).
+    """
+    journeys_by_cluster: dict[int, Counter[tuple[tuple[str | None, ...], str]]] = defaultdict(Counter)
+
+    for i, record in enumerate(records):
+        cluster_id = int(labels[i])
+        for session_id in intent_to_sessions.get(record.intent_text, []):
+            journey = session_journeys.get(session_id)
+            if not journey:
+                continue
+            raw_sequence = journey["tool_sequence"][:JOURNEY_DEPTH]
+            padded: list[str | None] = [str(t) for t in raw_sequence] + [None] * (JOURNEY_DEPTH - len(raw_sequence))
+            outcome = "error" if journey.get("had_error") else "completed"
+            journeys_by_cluster[cluster_id][(tuple(padded), outcome)] += 1
+
+    result: dict[int, dict[str, Any]] = {}
+    for cluster_id, path_counts in journeys_by_cluster.items():
+        ranked = path_counts.most_common()
+        total_sessions = sum(path_counts.values())
+        leak_path: dict[str, Any] | None = None
+        for (steps, outcome), count in ranked:
+            if outcome != "completed":
+                leak_path = {"steps": list(steps), "outcome": outcome, "count": count}
+                break
+        result[cluster_id] = {
+            "paths": [
+                {"steps": list(steps), "outcome": outcome, "count": count}
+                for (steps, outcome), count in ranked[:MAX_JOURNEY_PATHS_PER_CLUSTER]
+            ],
+            "total_sessions": total_sessions,
+            "leak": leak_path,
+        }
+    return result
 
 
 # Embeddings --------------------------------------------------------------
@@ -262,11 +377,15 @@ def build_snapshot(
     labels: np.ndarray,
     embeddings: np.ndarray,
     distance_threshold: float = DEFAULT_DISTANCE_THRESHOLD,
+    journeys_by_cluster: dict[int, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Aggregate clusters into the JSONB snapshot shape persisted in Postgres.
 
     ``records``, ``labels``, and ``embeddings`` must be aligned: position ``i``
     in each refers to the same intent.
+
+    ``journeys_by_cluster`` is the output of ``aggregate_journeys_per_cluster``
+    keyed by cluster id. Optional; clusters without an entry get a null journey.
     """
     if len(records) == 0:
         return _empty_snapshot(distance_threshold, n_intents=0)
@@ -318,6 +437,7 @@ def build_snapshot(
                 "tool_distribution": tool_distribution,
                 "sample_intents": sample_intents,
                 "routing_entropy": round(_routing_entropy(tool_counts), 3),
+                "journey": (journeys_by_cluster or {}).get(cluster_id),
             }
         )
 

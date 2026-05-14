@@ -197,6 +197,41 @@ class MCPIntentClusterToolEntrySerializer(serializers.Serializer):
     )
 
 
+class MCPIntentClusterJourneyPathSerializer(serializers.Serializer):
+    steps = serializers.ListField(
+        child=serializers.CharField(allow_null=True),
+        read_only=True,
+        help_text=(
+            "Ordered tool names called during the path. Length is fixed; null entries "
+            "indicate the session ended before this step."
+        ),
+    )
+    outcome = serializers.ChoiceField(
+        choices=[("completed", "Completed"), ("error", "Error")],
+        read_only=True,
+        help_text="Terminal outcome of the sessions following this path.",
+    )
+    count = serializers.IntegerField(
+        read_only=True, help_text="Number of sessions in this cluster that followed this exact path."
+    )
+
+
+class MCPIntentClusterJourneySerializer(serializers.Serializer):
+    paths = MCPIntentClusterJourneyPathSerializer(
+        many=True,
+        read_only=True,
+        help_text="Top paths by session count, capped at MAX_JOURNEY_PATHS_PER_CLUSTER.",
+    )
+    total_sessions = serializers.IntegerField(
+        read_only=True, help_text="Total session count represented across all paths in this cluster."
+    )
+    leak = MCPIntentClusterJourneyPathSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Highest-volume non-completed path. Null when every path completed successfully.",
+    )
+
+
 class MCPIntentClusterSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True, help_text="Stable cluster identifier within this snapshot.")
     label = serializers.CharField(  # type: ignore[assignment]
@@ -232,6 +267,14 @@ class MCPIntentClusterSerializer(serializers.Serializer):
         child=serializers.CharField(),
         read_only=True,
         help_text="Up to three representative intent strings from the cluster, ordered by frequency desc.",
+    )
+    journey = MCPIntentClusterJourneySerializer(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Top Sankey-shaped paths the agents took within this cluster. Each path is up to "
+            "four ordered tool calls plus a completed/error outcome. Null when journey data is unavailable."
+        ),
     )
 
 

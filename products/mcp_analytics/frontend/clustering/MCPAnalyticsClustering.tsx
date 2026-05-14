@@ -9,6 +9,7 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import type { MCPIntentClusterApi, MCPIntentClusterToolEntryApi } from '../generated/api.schemas'
+import { ClusterJourneySankey } from './ClusterJourneySankey'
 import { ClusterSortKey, mcpClusteringLogic } from './mcpClusteringLogic'
 
 const SORT_LABELS: Record<ClusterSortKey, string> = {
@@ -418,6 +419,11 @@ function ClusterDetail({ cluster }: { cluster: MCPIntentClusterApi }): JSX.Eleme
                         },
                     ]}
                 />
+            </section>
+
+            <section className="flex flex-col gap-2">
+                <span className="text-xs uppercase text-muted font-medium">Agent journeys</span>
+                <ClusterJourneySankey journey={cluster.journey ?? null} />
             </section>
         </div>
     )

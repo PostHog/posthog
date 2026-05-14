@@ -87,6 +87,20 @@ class IntentClusterToolEntry:
 
 
 @dataclass(frozen=True)
+class IntentClusterJourneyPath:
+    steps: list[str | None]
+    outcome: str
+    count: int
+
+
+@dataclass(frozen=True)
+class IntentClusterJourney:
+    paths: list[IntentClusterJourneyPath]
+    total_sessions: int
+    leak: IntentClusterJourneyPath | None
+
+
+@dataclass(frozen=True)
 class IntentCluster:
     id: int
     label: str
@@ -98,6 +112,7 @@ class IntentCluster:
     routing_entropy: float
     tool_distribution: list[IntentClusterToolEntry]
     sample_intents: list[str]
+    journey: IntentClusterJourney | None = None
 
 
 @dataclass(frozen=True)
