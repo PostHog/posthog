@@ -7,6 +7,8 @@ export type ReferralInviteStage = {
     complete: boolean
     locked: boolean
     hint: string
+    /** Short reward line shown on the tile when this milestone earns something. */
+    reward?: string
     /** Unlockable next step they're working toward (excludes future roadmap-only milestones). */
     isCurrent: boolean
 }
@@ -30,6 +32,7 @@ export function buildReferralInviteStages(firstEventSent: boolean): {
             hint: firstEventSent
                 ? 'Their project has sent at least one event.'
                 : 'Next up: their project sends its first event.',
+            reward: '$25 merch store coupon',
             isCurrent: !firstEventSent,
         },
         {
@@ -37,6 +40,7 @@ export function buildReferralInviteStages(firstEventSent: boolean): {
             complete: false,
             locked: true,
             hint: 'Another milestone—details coming soon.',
+            reward: 'Surprise',
             isCurrent: false,
         },
         {
@@ -44,6 +48,7 @@ export function buildReferralInviteStages(firstEventSent: boolean): {
             complete: false,
             locked: true,
             hint: 'Another milestone—details coming soon.',
+            reward: 'Bigger Surprise',
             isCurrent: false,
         },
     ]
