@@ -6,6 +6,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonCheckbox,
+    LemonCollapse,
     LemonInput,
     LemonSelect,
     LemonSkeleton,
@@ -277,10 +278,20 @@ function QueryTransformBlock({ title, value }: { title: string; value?: string |
     }
 
     return (
-        <div className="space-y-1">
-            <div className="text-sm font-semibold">{title}</div>
-            <pre className="bg-bg-light border rounded p-3 overflow-auto text-xs whitespace-pre-wrap">{value}</pre>
-        </div>
+        <LemonCollapse
+            defaultActiveKey={title}
+            panels={[
+                {
+                    key: title,
+                    header: title,
+                    content: (
+                        <pre className="bg-bg-light border rounded p-3 overflow-auto text-xs whitespace-pre-wrap m-0">
+                            {value}
+                        </pre>
+                    ),
+                },
+            ]}
+        />
     )
 }
 
