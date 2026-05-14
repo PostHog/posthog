@@ -12,14 +12,16 @@
         "tenant_value": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "number"
-                        }
-                    ]
+                    "type": "string"
+                },
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                },
+                {
+                    "type": "null"
                 },
                 {
                     "type": "null"

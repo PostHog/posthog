@@ -34,6 +34,16 @@
                 }
             ],
             "description": "Column name that must exist on every enabled table and will be enforced as the tenant key."
+        },
+        "tenant_column_names_by_table": {
+            "additionalProperties": {
+                "type": "string"
+            },
+            "description": "Optional per-table tenant column overrides keyed by direct Postgres table name. Each override must have the same inferred tenant type as the global tenant column.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
         }
     },
     "required": ["connection_id", "enabled"],
