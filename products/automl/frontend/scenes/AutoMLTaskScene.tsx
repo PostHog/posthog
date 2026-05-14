@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -37,6 +38,11 @@ export default function AutoMLTaskScene(): JSX.Element {
                 name={taskDetail.name}
                 description="Task spec, query versions, and training runs."
                 resourceType={{ type: 'task' }}
+                actions={
+                    <LemonButton to={urls.automlTasks()} type="secondary">
+                        ← Back to AutoML
+                    </LemonButton>
+                }
             />
 
             <Section title="Spec">

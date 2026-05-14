@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSelect, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSelect, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -18,10 +18,16 @@ export const scene: SceneExport = {
     logic: automlLogic,
 }
 
+const PAGE_SIZE_OPTIONS: { value: number; label: string }[] = [
+    { value: 10, label: '10' },
+    { value: 25, label: '25' },
+    { value: 100, label: '100' },
+]
+
 export default function AutoMLRunScene(): JSX.Element {
-    const { runDetail, runDetailLoading, preview, previewLoading, previewArtifact, previewLimit } =
+    const { runDetail, runDetailLoading, preview, previewLoading, previewArtifact, previewPageSize, previewPage } =
         useValues(automlLogic)
-    const { setPreviewArtifact, setPreviewLimit } = useActions(automlLogic)
+    const { setPreviewArtifact, setPreviewPageSize, setPreviewPage } = useActions(automlLogic)
 
     if (runDetailLoading && !runDetail) {
         return <LemonSkeleton className="h-64" />
@@ -69,32 +75,34 @@ export default function AutoMLRunScene(): JSX.Element {
                                 options={parquetArtifacts.map((a) => ({ value: a, label: a }))}
                                 onChange={(value) => setPreviewArtifact(value)}
                             />
-                            <LemonInput
-                                type="number"
-                                value={previewLimit}
-                                onChange={(value) => setPreviewLimit(Math.max(1, Math.min(200, Number(value) || 50)))}
-                                className="w-24"
+                            <LemonSegmentedButton
+                                size="small"
+                                value={previewPageSize}
+                                onChange={(value) => setPreviewPageSize(value)}
+                                options={PAGE_SIZE_OPTIONS}
                             />
                         </div>
-                        {previewLoading ? (
+                        {previewLoading && !preview ? (
                             <LemonSkeleton className="h-48" />
                         ) : preview ? (
-                            <>
-                                <p className="text-xs text-muted mb-2">
-                                    Showing {preview.returned_rows} of {preview.total_rows.toLocaleString()} rows
-                                </p>
-                                <LemonTable
-                                    dataSource={preview.rows.map((row, idx) => ({ __idx: idx, ...row }))}
-                                    rowKey="__idx"
-                                    columns={preview.columns.map((col) => ({
-                                        title: col,
-                                        dataIndex: col,
-                                        render: (value) => (
-                                            <span className="font-mono text-xs">{formatCell(value)}</span>
-                                        ),
-                                    }))}
-                                />
-                            </>
+                            <LemonTable
+                                loading={previewLoading}
+                                dataSource={preview.rows.map((row, idx) => ({ __idx: idx, ...row }))}
+                                rowKey="__idx"
+                                columns={preview.columns.map((col) => ({
+                                    title: col,
+                                    dataIndex: col,
+                                    render: (value) => <span className="font-mono text-xs">{formatCell(value)}</span>,
+                                }))}
+                                pagination={{
+                                    controlled: true,
+                                    pageSize: previewPageSize,
+                                    currentPage: previewPage,
+                                    entryCount: preview.total_rows,
+                                    onBackward: () => setPreviewPage(previewPage - 1),
+                                    onForward: () => setPreviewPage(previewPage + 1),
+                                }}
+                            />
                         ) : (
                             <p className="text-muted">No preview available for this artifact.</p>
                         )}

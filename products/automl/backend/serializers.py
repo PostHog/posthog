@@ -70,7 +70,9 @@ class QueryTextSerializer(serializers.Serializer):
 class ParquetPreviewSerializer(serializers.Serializer):
     columns = serializers.ListField(child=serializers.CharField(), help_text="Column names in schema order.")
     rows = serializers.ListField(
-        child=serializers.DictField(), help_text="The first `returned_rows` rows, as a list of column->value dicts."
+        child=serializers.DictField(),
+        help_text="The `returned_rows` rows starting at `offset`, as a list of column->value dicts.",
     )
     total_rows = serializers.IntegerField(help_text="Total row count in the parquet file.")
     returned_rows = serializers.IntegerField(help_text="Number of rows actually returned (after limit).")
+    offset = serializers.IntegerField(help_text="Zero-based offset of the first returned row.")

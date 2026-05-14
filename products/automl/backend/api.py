@@ -69,7 +69,8 @@ class AutoMLTaskViewSet(viewsets.GenericViewSet):
     @extend_schema(
         parameters=[
             OpenApiParameter(name="artifact", description="Parquet path under the run, e.g. `predictions.parquet`."),
-            OpenApiParameter(name="limit", description=f"Row cap (max {MAX_PARQUET_PREVIEW_ROWS})."),
+            OpenApiParameter(name="limit", description=f"Page size (max {MAX_PARQUET_PREVIEW_ROWS})."),
+            OpenApiParameter(name="offset", description="Zero-based row offset for paging."),
         ],
         responses={200: ParquetPreviewSerializer},
     )
@@ -81,7 +82,8 @@ class AutoMLTaskViewSet(viewsets.GenericViewSet):
     def preview(self, request: Request, name: str, run_id: str, **kwargs) -> Response:
         artifact = request.query_params.get("artifact", "predictions.parquet")
         limit = _parse_limit(request.query_params.get("limit"))
-        preview = storage.preview_parquet(name, run_id, artifact, limit=limit)
+        offset = _parse_offset(request.query_params.get("offset"))
+        preview = storage.preview_parquet(name, run_id, artifact, limit=limit, offset=offset)
         if preview is None:
             raise exceptions.NotFound()
         return Response(ParquetPreviewSerializer(preview).data)
@@ -95,3 +97,13 @@ def _parse_limit(raw: str | None) -> int:
     except (TypeError, ValueError):
         return DEFAULT_PARQUET_PREVIEW_ROWS
     return max(1, min(parsed, MAX_PARQUET_PREVIEW_ROWS))
+
+
+def _parse_offset(raw: str | None) -> int:
+    if raw is None:
+        return 0
+    try:
+        parsed = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, parsed)

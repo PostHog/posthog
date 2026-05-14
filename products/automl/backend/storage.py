@@ -222,8 +222,9 @@ def preview_parquet(
     run_id: str,
     relative_path: str,
     limit: int = 50,
+    offset: int = 0,
 ) -> Optional[dict]:
-    """Return columns + the first `limit` rows of a parquet artifact, as JSON-safe values."""
+    """Return columns + a window of rows from a parquet artifact, as JSON-safe values."""
     if not _safe_segment(run_id) or ".." in relative_path or relative_path.startswith("/"):
         return None
     if not relative_path.endswith(".parquet"):
@@ -238,7 +239,8 @@ def preview_parquet(
         return None
 
     table = pq.read_table(io.BytesIO(data))
-    sliced = table.slice(0, limit)
+    safe_offset = max(0, min(offset, table.num_rows))
+    sliced = table.slice(safe_offset, limit)
     columns = [field.name for field in sliced.schema]
     rows: list[dict] = []
     for record in sliced.to_pylist():
@@ -248,6 +250,7 @@ def preview_parquet(
         "rows": rows,
         "total_rows": table.num_rows,
         "returned_rows": len(rows),
+        "offset": safe_offset,
     }
 
 

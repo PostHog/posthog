@@ -50,6 +50,7 @@ export interface ParquetPreview {
     rows: Record<string, unknown>[]
     total_rows: number
     returned_rows: number
+    offset: number
 }
 
 function base(): string {
@@ -76,9 +77,10 @@ export async function previewParquet(
     name: string,
     runId: string,
     artifact: string = 'predictions.parquet',
-    limit: number = 50
+    limit: number = 25,
+    offset: number = 0
 ): Promise<ParquetPreview> {
-    const params = new URLSearchParams({ artifact, limit: String(limit) })
+    const params = new URLSearchParams({ artifact, limit: String(limit), offset: String(offset) })
     return await api.get<ParquetPreview>(
         `${base()}/${encodeURIComponent(name)}/runs/${encodeURIComponent(runId)}/preview/?${params.toString()}`
     )

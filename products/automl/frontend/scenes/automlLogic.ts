@@ -26,7 +26,8 @@ export const automlLogic = kea<automlLogicType>([
         setSelectedRun: (runId: string | null) => ({ runId }),
         setSelectedQuery: (version: string | null) => ({ version }),
         setPreviewArtifact: (artifact: string) => ({ artifact }),
-        setPreviewLimit: (limit: number) => ({ limit }),
+        setPreviewPageSize: (pageSize: number) => ({ pageSize }),
+        setPreviewPage: (page: number) => ({ page }),
     }),
 
     reducers({
@@ -54,10 +55,19 @@ export const automlLogic = kea<automlLogicType>([
                 setPreviewArtifact: (_, { artifact }) => artifact,
             },
         ],
-        previewLimit: [
-            50,
+        previewPageSize: [
+            25,
             {
-                setPreviewLimit: (_, { limit }) => limit,
+                setPreviewPageSize: (_, { pageSize }) => pageSize,
+            },
+        ],
+        previewPage: [
+            1,
+            {
+                setPreviewPage: (_, { page }) => Math.max(1, page),
+                setPreviewArtifact: () => 1,
+                setPreviewPageSize: () => 1,
+                setSelectedRun: () => 1,
             },
         ],
     }),
@@ -102,7 +112,8 @@ export const automlLogic = kea<automlLogicType>([
             null as ParquetPreview | null,
             {
                 loadPreview: async ({ name, runId }: { name: string; runId: string }) => {
-                    return await previewParquet(name, runId, values.previewArtifact, values.previewLimit)
+                    const offset = (values.previewPage - 1) * values.previewPageSize
+                    return await previewParquet(name, runId, values.previewArtifact, values.previewPageSize, offset)
                 },
                 clearPreview: () => null,
             },
@@ -146,7 +157,12 @@ export const automlLogic = kea<automlLogicType>([
                 actions.loadPreview({ name: values.selectedTask, runId: values.selectedRun })
             }
         },
-        setPreviewLimit: () => {
+        setPreviewPageSize: () => {
+            if (values.selectedTask && values.selectedRun) {
+                actions.loadPreview({ name: values.selectedTask, runId: values.selectedRun })
+            }
+        },
+        setPreviewPage: () => {
             if (values.selectedTask && values.selectedRun) {
                 actions.loadPreview({ name: values.selectedTask, runId: values.selectedRun })
             }
