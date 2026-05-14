@@ -543,6 +543,7 @@ export function processOpenEndedResults(
     const numCols = Object.keys(columnMap).length
     const distinctIdIdx = numCols
     const timestampIdx = numCols + 1
+    const sessionIdIdx = numCols + 2
     const result: ResponsesByQuestion = {}
 
     for (const [questionId, { columnIndex, type }] of Object.entries(columnMap)) {
@@ -557,6 +558,7 @@ export function processOpenEndedResults(
                     distinctId: row[distinctIdIdx] as string,
                     response: value,
                     timestamp: row[timestampIdx] as string,
+                    sessionId: (row[sessionIdIdx] as string) || undefined,
                 })
             }
             result[questionId] = { type: SurveyQuestionType.Open, data, totalResponses: data.length }

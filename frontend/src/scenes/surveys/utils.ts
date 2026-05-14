@@ -735,7 +735,8 @@ export function buildOpenEndedQuery(
     const query = `SELECT
             ${openColumns.join(',\n')},
             events.distinct_id,
-            events.timestamp
+            events.timestamp,
+            events.properties.$session_id
         FROM events
         WHERE event = '${SurveyEventName.SENT}'
             AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
