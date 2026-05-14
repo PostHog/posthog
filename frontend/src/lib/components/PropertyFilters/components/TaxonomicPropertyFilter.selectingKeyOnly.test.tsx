@@ -74,28 +74,33 @@ describe('TaxonomicPropertyFilter selectingKeyOnly', () => {
         )
     }
 
-    it('renders the operator+value pair for a cohort row when selectingKeyOnly is unset', async () => {
-        renderWith({})
-
-        await waitFor(() => {
-            expect(document.querySelector('[data-attr="taxonomic-operator"]')).toBeInTheDocument()
-        })
-    })
-
     it.each([
+        {
+            name: 'no extra props renders the operator+value pair for cohort rows',
+            extraProps: {},
+            expectOperator: true,
+        },
+        {
+            name: 'feature-flag preset renders the operator+value pair so users can pick "not in"',
+            extraProps: FEATURE_FLAG_COHORT_PICKER_PROPS,
+            expectOperator: true,
+        },
         {
             name: 'workflow trigger preset hides the operator+value pair for cohort rows',
             extraProps: COHORTS_IN_ONLY_PICKER_PROPS,
+            expectOperator: false,
         },
         {
             name: 'inline selectingKeyOnly={{ Cohorts: true }} also hides it',
             extraProps: { selectingKeyOnly: { [TaxonomicFilterGroupType.Cohorts]: true } },
+            expectOperator: false,
         },
         {
             name: 'selectingKeyOnly: true (whole picker) also hides it',
             extraProps: { selectingKeyOnly: true },
+            expectOperator: false,
         },
-    ])('$name', async ({ extraProps }) => {
+    ])('$name', async ({ extraProps, expectOperator }) => {
         renderWith(extraProps)
 
         // Wait for the cohort row to render.
@@ -103,8 +108,15 @@ describe('TaxonomicPropertyFilter selectingKeyOnly', () => {
             expect(screen.getByText('Power Users')).toBeInTheDocument()
         })
 
-        expect(document.querySelector('[data-attr="taxonomic-operator"]')).not.toBeInTheDocument()
-        expect(document.querySelector('[data-attr="taxonomic-value-select"]')).not.toBeInTheDocument()
+        const operator = document.querySelector('[data-attr="taxonomic-operator"]')
+        const valueSelect = document.querySelector('[data-attr="taxonomic-value-select"]')
+
+        if (expectOperator) {
+            expect(operator).toBeInTheDocument()
+        } else {
+            expect(operator).not.toBeInTheDocument()
+            expect(valueSelect).not.toBeInTheDocument()
+        }
     })
 
     it('keeps the operator+value pair on event-property rows even when Cohorts is key-only', async () => {
@@ -125,15 +137,5 @@ describe('TaxonomicPropertyFilter selectingKeyOnly', () => {
         await waitFor(() => {
             expect(document.querySelector('[data-attr="taxonomic-operator"]')).toBeInTheDocument()
         })
-    })
-
-    it('feature-flag preset shows the operator+value pair for cohort rows so users can pick "not in"', async () => {
-        renderWith(FEATURE_FLAG_COHORT_PICKER_PROPS)
-
-        await waitFor(() => {
-            expect(screen.getByText('Power Users')).toBeInTheDocument()
-        })
-
-        expect(document.querySelector('[data-attr="taxonomic-operator"]')).toBeInTheDocument()
     })
 })
