@@ -1,5 +1,3 @@
-<!-- markdownlint-disable MD031 MD040 -->
-
 # PR Comment Template
 
 Post one comment per completed run. Do not edit the PR body. The template
@@ -56,8 +54,8 @@ wrapper - reviewers must see what was exercised vs skipped at a glance.
 | `/billing`       | Coverage gap · blocked by auth boundary | ⏭     |
 ```
 
-Result symbols: `✅` passed, `❌` failed, `⏭` skipped/coverage gap,
-`🛠` fixed (use only when a fix landed on this target).
+Result symbols: `✅` passed, `❌` failed, `⏭` skipped/coverage gap, `🛠`
+fixed (use only when a fix landed on this target).
 
 Coverage gaps from the walker or runtime loop must appear as their own row
 with the "Coverage gap · `<reason>`" action and the `⏭` symbol. Do not
@@ -87,78 +85,52 @@ level-3 section with a status suffix:
 ### 🐛 Finding 3 · suggested patch (out of PR diff)
 ```
 
-Finding body has four blocks in order:
+Finding body has six blocks in order. The full block layout for one
+finding (substitute your own values):
 
-1. **Title and severity bar.** Title in bold-quoted code; severity as an
-   ASCII bar so the reviewer reads it without parsing words:
+````markdown
+### 🐛 Finding 1 · auto-fixed in `<sha>`
 
-   ```markdown
-   **`Save button in dashboard header does not fire onClick`**
-   ```
+**`Save button in dashboard header does not fire onClick`**
 
-   severity ████████░░ HIGH
+```text
+severity   ████████░░   HIGH
+```
 
-   ```
+`frontend/src/scenes/dashboard/DashboardHeader.tsx` · `DashboardHeader`
 
-   ```
+```diff
+- const handleSave = () => save
++ const handleSave = () => save()
+```
 
-   Severity bars: `████████░░ HIGH`, `█████░░░░░ MEDIUM`, `██░░░░░░░░ LOW`.
+**Failing step**
 
-2. **Location.** File path · symbol on its own line so reviewers know where
-   in the diff:
+```text
+url:      /dashboard/123
+action:   clicked Save
+expected: save toast appears, URL stays
+got:      no UI change, no network call, no console error
+```
 
-   ```markdown
-   `frontend/src/scenes/dashboard/DashboardHeader.tsx` · `DashboardHeader`
-   ```
+**Evidence**
 
-3. **Fix diff** (if a fix was applied or proposed) in a fenced `diff`
-   block. Omit when there is no patch.
+- ![flow](<cloudinary url>)
+- ![still](<cloudinary url>)
 
-   ````markdown
-   ```diff
-   - const handleSave = () => save
-   + const handleSave = () => save()
-   ```
-   ````
+<details>
+<summary>📜 Fix cycle</summary>
 
-4. **Failing step.** A short structured block describing what was
-   exercised and what went wrong:
+- **re-run** · ✅ · 0m52s · `<sha>` - verified fix
+- **initial** · ❌ · 2m38s · `<prev sha>` - bug found
 
-   ```markdown
-   **Failing step**
-   ```
+</details>
+````
 
-   url: /dashboard/123
-   action: clicked Save
-   expected: save toast appears, URL stays
-   got: no UI change, no network call, no console error
+Severity bars: `████████░░ HIGH`, `█████░░░░░ MEDIUM`, `██░░░░░░░░ LOW`.
 
-   ```
-
-   ```
-
-5. **Evidence.** One or two visuals, inline markdown images so they
-   render in the PR thread:
-
-   ```markdown
-   **Evidence**
-
-   - ![flow](<cloudinary url>)
-   - ![still](<cloudinary url>)
-   ```
-
-6. **Fix cycle** (collapsible, only when a fix loop ran). Mirrors the MCP
-   skill's collapsible:
-
-   ```markdown
-   <details>
-   <summary>📜 Fix cycle</summary>
-
-   - **re-run** · ✅ · 0m52s · `<sha>` - verified fix
-   - **initial** · ❌ · 2m38s · `<prev sha>` - bug found
-
-   </details>
-   ```
+Skip the Fix diff block when there is no patch. Skip the Fix cycle
+collapsible when no fix loop ran.
 
 ## Suggested patches (when fix was not applied autonomously)
 
@@ -199,7 +171,7 @@ suggested patch:
 
 ## Full FIXED example
 
-```markdown
+````markdown
 ## 🦔 PostHog QA Swarm · Frontend Report
 
 **🟡 FIXED** · 3/3 · 5m21s · commit `8b36c7b5` · 1 medium-sev auto-fixed
@@ -222,22 +194,21 @@ suggested patch:
 ### 🐛 Finding 1 · auto-fixed in `8b36c7b5`
 
 **`Duplicate question's title is built from the wrong field`**
+
+```text
+severity   █████░░░░░   MEDIUM
 ```
-
-severity █████░░░░░ MEDIUM
-
-````
 
 `frontend/src/scenes/surveys/surveyLogic.tsx` · `duplicateQuestion` listener
 
 ```diff
 -        question: `${original.description ?? ''} (copy)`,
 +        question: `${original.question} (copy)`,
-````
+```
 
 **Failing step**
 
-```
+```text
 url:      /surveys/new
 action:   clicked Duplicate on Question 1 ("Give us feedback…")
 expected: new Question 2 titled "Give us feedback… (copy)"
@@ -258,20 +229,20 @@ got:      new Question 2 titled " (copy)" - empty title with stray space
 </details>
 
 <sub>🦔 PostHog QA Swarm · Frontend Report</sub>
-
 ````
 
 ## Evidence URLs
 
-Use the `url` field from each `uploaded` entry in
-`upload-manifest.json` verbatim. The script uploads directly to Cloudinary,
-so URLs live on `res.cloudinary.com/<cloud>/image/upload/v.../<public_id>.<ext>`
-with dashes preserved. The local filename in `public_id` is for traceability
-only; the embeddable URL is always the `url` field.
+Use the `url` field from each `uploaded` entry in `upload-manifest.json`
+verbatim. The script uploads directly to Cloudinary, so URLs live on
+`res.cloudinary.com/<cloud>/image/upload/v.../<public_id>.<ext>` with dashes
+preserved. The local filename in `public_id` is for traceability only; the
+embeddable URL is always the `url` field.
 
 Embed images and GIFs with markdown image syntax (`![alt](url)`) so they
-render inline. Use one or two key visuals per finding - the GIF for the flow
-and one still per finding. Do not paste the full local screenshot inventory.
+render inline. Use one or two key visuals per finding - the GIF for the
+flow and one still per finding. Do not paste the full local screenshot
+inventory.
 
 When `upload-manifest.json` reports `skipped_no_env: true` or lists files
 under `failed`, fall back to local paths and append `(upload failed)`:
@@ -281,7 +252,7 @@ under `failed`, fall back to local paths and append `(upload failed)`:
 
 - GIF: `.qa-runtime/runs/<run-id>/runtime-qa.gif` (upload failed)
 - Still: `.qa-runtime/runs/<run-id>/011-detail.png` (upload failed)
-````
+```
 
 Local mode always uses local paths. Do not invent external URLs when no
 upload was performed.
@@ -317,9 +288,10 @@ Before posting, scrub console excerpts for:
 - secret-looking keys
 - long encoded values near credential labels
 
-Never include `CLOUDINARY_URL`, the Cloudinary API key/secret, or raw upload
-response bodies. The upload script does not log these by default; if you copy
-any script output into the comment, double-check the line you paste.
+Never include `CLOUDINARY_URL`, the Cloudinary API key/secret, or raw
+upload response bodies. The upload script does not log these by default;
+if you copy any script output into the comment, double-check the line you
+paste.
 
 Screenshots from local stacks should be embedded only when small and safe.
 Never use em dashes (`—`) in any output; use a plain hyphen (`-`) or
