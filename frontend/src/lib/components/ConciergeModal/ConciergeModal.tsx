@@ -10,6 +10,7 @@ import envelopeStampSrc from 'public/concierge/envelope/envelope-stamp.png'
 import fullEnvelopeSrc from 'public/concierge/envelope/full-envelope.png'
 import letterFoldedSrc from 'public/concierge/envelope/letter-folded.png'
 import letterUnfoldedSrc from 'public/concierge/envelope/letter-unfolded.png'
+import hoggiePencilSrc from 'public/concierge/hoggie-pencil.png'
 import hoggieQuillSrc from 'public/concierge/hoggie-quill.png'
 import scrollParchmentSrc from 'public/concierge/scroll/scroll-parchment.png'
 import scrollRollLeftSrc from 'public/concierge/scroll/scroll-roll-left.png'
@@ -76,9 +77,13 @@ interface HoggiePos {
 function HandwrittenText({
     text,
     onHoggieUpdate,
+    wrapperClass = 'scroll-parchment-wrapper',
+    fontSize = 20,
 }: {
     text: string
     onHoggieUpdate?: (pos: HoggiePos) => void
+    wrapperClass?: string
+    fontSize?: number
 }): JSX.Element {
     const [visibleCount, setVisibleCount] = useState(0)
     const cursorRef = useRef<HTMLSpanElement>(null)
@@ -91,7 +96,7 @@ function HandwrittenText({
         if (visibleCount >= text.length) {
             return
         }
-        const delay = 25 + Math.random() * 30
+        const delay = 18 + Math.random() * 22
         const timer = setTimeout(() => setVisibleCount((c) => c + 1), delay)
         return () => clearTimeout(timer)
     }, [visibleCount, text])
@@ -103,8 +108,7 @@ function HandwrittenText({
         }
         cursorRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
         if (onHoggieUpdate) {
-            // Get position relative to the parchment wrapper (closest .scroll-parchment-wrapper)
-            const wrapper = cursorRef.current.closest('.scroll-parchment-wrapper')
+            const wrapper = cursorRef.current.closest(`.${wrapperClass}`)
             if (wrapper) {
                 const wrapperRect = wrapper.getBoundingClientRect()
                 const cursorRect = cursorRef.current.getBoundingClientRect()
@@ -121,7 +125,7 @@ function HandwrittenText({
         <div
             style={{
                 fontFamily: "'Caveat', cursive",
-                fontSize: 20,
+                fontSize,
                 color: '#3B2B26',
                 lineHeight: 1.5,
                 whiteSpace: 'pre-wrap',
@@ -138,6 +142,18 @@ function HandwrittenText({
 
 function EnvelopeMode({ message }: { message: string }): JSX.Element {
     const [phase, setPhase] = useState<'sealed' | 'stamp-peeling' | 'open' | 'letter-unfolded'>('sealed')
+    const [hoggie, setHoggie] = useState<HoggiePos | null>(null)
+    const [hoggieSettled, setHoggieSettled] = useState(false)
+    const wrapperRef = useRef<HTMLDivElement>(null)
+
+    // Once writing stops, wait for walk animation then stop wiggling
+    useEffect(() => {
+        if (hoggie && !hoggie.isWriting) {
+            const timer = setTimeout(() => setHoggieSettled(true), 1300)
+            return () => clearTimeout(timer)
+        }
+        setHoggieSettled(false)
+    }, [hoggie?.isWriting, hoggie])
 
     useEffect(() => {
         const timers = [
@@ -234,17 +250,17 @@ function EnvelopeMode({ message }: { message: string }): JSX.Element {
                     draggable={false}
                 />
 
-                {/* Text on the letter */}
+                {/* Text on the letter — clipped to paper area */}
                 {phase === 'letter-unfolded' && (
                     <motion.div
-                        className="absolute overflow-y-auto"
+                        ref={wrapperRef}
+                        className="envelope-letter-wrapper absolute overflow-hidden"
                         style={{
-                            top: '34%',
+                            top: '32%',
                             left: '39%',
                             right: '37%',
-                            bottom: '25%',
+                            bottom: '26%',
                             zIndex: 30,
-                            scrollbarWidth: 'none',
                             // Shift up with the letter
                             transform: 'translateY(-40px)',
                         }}
@@ -252,23 +268,56 @@ function EnvelopeMode({ message }: { message: string }): JSX.Element {
                         animate={{ opacity: 1 }}
                         transition={{ duration: 0.4, delay: 0.5 }}
                     >
-                        <div className="px-3 py-2">
-                            <span
-                                style={{
-                                    fontFamily: "'Caveat', cursive",
-                                    fontSize: 16,
-                                    color: '#3B2B26',
-                                    lineHeight: 1.4,
-                                    whiteSpace: 'pre-wrap',
-                                    textAlign: 'left',
-                                    display: 'block',
-                                }}
-                            >
-                                {message}
-                            </span>
+                        <div className="w-full h-full overflow-y-auto px-4 py-6" style={{ scrollbarWidth: 'none' }}>
+                            <HandwrittenText
+                                text={message}
+                                onHoggieUpdate={setHoggie}
+                                wrapperClass="envelope-letter-wrapper"
+                                fontSize={16}
+                            />
                         </div>
                     </motion.div>
                 )}
+
+                {/* Hoggie pencil — follows cursor while writing, walks to corner when done */}
+                {phase === 'letter-unfolded' &&
+                    hoggie &&
+                    (() => {
+                        const w = wrapperRef.current
+                        const restLeft = w ? w.offsetWidth - 100 + 10 : 0
+                        const restTop = w ? w.offsetHeight - 100 + 20 : 0
+
+                        return (
+                            <motion.div
+                                className="absolute z-40 pointer-events-none"
+                                style={{
+                                    width: 100,
+                                    top: '32%',
+                                    left: '39%',
+                                    marginTop: -40,
+                                }}
+                                animate={{
+                                    x: hoggie.isWriting ? hoggie.x + 4 : restLeft,
+                                    y: hoggie.isWriting ? hoggie.y - 85 : restTop,
+                                    rotate: hoggieSettled ? 0 : [-1.5, 1.5, -1.5],
+                                }}
+                                transition={{
+                                    x: { duration: hoggie.isWriting ? 0.15 : 1.2, ease: 'easeInOut' },
+                                    y: { duration: hoggie.isWriting ? 0.15 : 1.2, ease: 'easeInOut' },
+                                    rotate: hoggieSettled
+                                        ? { duration: 0.2 }
+                                        : { duration: 0.3, repeat: Infinity, ease: 'easeInOut' },
+                                }}
+                            >
+                                <img
+                                    src={hoggiePencilSrc}
+                                    alt="Hoggie writing"
+                                    style={{ width: '100%', transform: 'scaleX(-1)' }}
+                                    draggable={false}
+                                />
+                            </motion.div>
+                        )
+                    })()}
             </div>
         </div>
     )
