@@ -6,7 +6,10 @@ import { Button, cn, InputGroup, InputGroupAddon, InputGroupButton, InputGroupTe
 
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { CanvasNote, CanvasSlot, FOUNDER_CHAT_SCRIPT, founderChatLogic } from './founderChatLogic'
+import { founderValidationLogic } from './components/founderValidationLogic'
+import { ValidationReportView } from './components/ValidationReportView'
+import { ValidationRunningCard } from './components/ValidationRunningCard'
+import { ALL_SLOTS, CanvasNote, founderChatLogic } from './founderChatLogic'
 import { founderLogic } from './scenes/founderLogic'
 
 const CARD_WIDTH = 480
@@ -96,11 +99,12 @@ function stackTopFor(idx: number): number {
     return STACK_TOP + idx * STACK_STEP
 }
 
-// Every script beat that has a canvas slot — the full set of cards we'll fill in.
-const ALL_SLOTS: CanvasSlot[] = FOUNDER_CHAT_SCRIPT.map((b) => b.canvasSlot).filter((s): s is CanvasSlot => !!s)
+// ALL_SLOTS is the ordered slot vocabulary, imported from founderChatLogic above.
+// It used to be derived from a scripted FOUNDER_CHAT_SCRIPT — now it's a static export
+// since the chat flow is LLM-driven and slot ordering is purely a visualization concern.
 
 export function FounderModeLayout(): JSX.Element {
-    const { phase, currentAgentMessage, draft, activeSlot, canvasNotes } = useValues(founderChatLogic)
+    const { phase, currentAgentMessage, draft, activeSlot, canvasNotes, thinking } = useValues(founderChatLogic)
     const { sendUserMessage } = useActions(founderChatLogic)
 
     const [questionFading, setQuestionFading] = React.useState(false)
@@ -117,7 +121,9 @@ export function FounderModeLayout(): JSX.Element {
         }
     }, [currentAgentMessage])
 
-    const canSubmit = !!draft.trim() && !submitting.current && !!activeSlot && phase === 'chat'
+    // `thinking` gates submission while /cofounder_turn/ is in flight — prevents double-submits
+    // and gives the user visual feedback that the agent is generating a response.
+    const canSubmit = !!draft.trim() && !submitting.current && !!activeSlot && phase === 'chat' && !thinking
     const targetPileIdx = canvasNotes.length
 
     const submit = (): void => {
@@ -415,8 +421,10 @@ function Stage({
 }
 
 function FloatingComposer({ onSubmit, canSubmit }: { onSubmit: () => void; canSubmit: boolean }): JSX.Element {
-    const { draft, activeSlot } = useValues(founderChatLogic)
+    const { draft, activeSlot, thinking, turnError } = useValues(founderChatLogic)
     const { setDraft } = useActions(founderChatLogic)
+
+    const placeholder = thinking ? 'JT is thinking…' : activeSlot ? 'Type your answer…' : 'Reply…'
 
     return (
         <div
@@ -424,9 +432,14 @@ function FloatingComposer({ onSubmit, canSubmit }: { onSubmit: () => void; canSu
             style={{ bottom: COMPOSER_BOTTOM }}
         >
             <div className="pointer-events-auto w-full max-w-xl px-4">
+                {turnError && (
+                    <div className="mb-2 px-3 py-2 rounded bg-danger/10 text-danger text-xs border border-danger/30">
+                        {turnError}
+                    </div>
+                )}
                 <InputGroup className="shadow-lg bg-white border border-border-bold/40 rounded">
                     <InputGroupTextarea
-                        placeholder={activeSlot ? 'Type your answer…' : 'Reply…'}
+                        placeholder={placeholder}
                         value={draft}
                         onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDraft(e.target.value)}
                         onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -437,6 +450,7 @@ function FloatingComposer({ onSubmit, canSubmit }: { onSubmit: () => void; canSu
                         }}
                         className="bg-white text-sm"
                         autoFocus
+                        disabled={thinking}
                     />
                     <InputGroupAddon align="block-end" className="bg-white">
                         <InputGroupButton
@@ -503,12 +517,81 @@ function Spinner(): JSX.Element {
 }
 
 function ValidationSession(): JSX.Element {
+    const { currentProjectId } = useValues(founderLogic)
+    const { validationError } = useValues(founderChatLogic)
+
+    if (validationError) {
+        return (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
+                <h2 className="text-2xl font-semibold mb-3 text-danger">Couldn't kick off validation</h2>
+                <p className="text-text-secondary max-w-md">{validationError}</p>
+            </div>
+        )
+    }
+
+    // Brief gap between startValidation firing and the FounderProject POST resolving. Show a
+    // friendly "lining things up" state so the founder doesn't see a blank screen.
+    if (!currentProjectId) {
+        return (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 gap-4">
+                <Spinner />
+                <p className="text-text-secondary max-w-md">Spinning up your project…</p>
+            </div>
+        )
+    }
+
+    return <ValidationSessionInner projectId={currentProjectId} />
+}
+
+function ValidationSessionInner({ projectId }: { projectId: string }): JSX.Element {
+    const logic = founderValidationLogic({ projectId })
+    const { project, report, validation, status, errorMessage, isRunning } = useValues(logic)
+    const { regenerate } = useActions(logic)
+
+    if (!project) {
+        return (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 gap-4">
+                <Spinner />
+                <p className="text-text-secondary max-w-md">Loading your project…</p>
+            </div>
+        )
+    }
+
     return (
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
-            <h2 className="text-2xl font-semibold mb-3">Validation</h2>
-            <p className="text-text-secondary max-w-md">
-                Time to pressure-test the idea. (This is where we'll plug in the validation flow next.)
-            </p>
+        <div className="absolute inset-0 overflow-y-auto px-6 py-8">
+            <div className="max-w-3xl mx-auto flex flex-col gap-4">
+                <header className="flex items-baseline justify-between gap-3">
+                    <div>
+                        <h2 className="text-2xl font-semibold">Validation</h2>
+                        <p className="text-sm text-text-secondary mt-1">
+                            Pressure-testing the riskiest assumptions in your idea.
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => regenerate()}
+                        disabled={isRunning}
+                        className={cn(
+                            'text-xs px-3 py-1.5 rounded border border-border-bold/40 transition-opacity',
+                            isRunning ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-80 cursor-pointer'
+                        )}
+                    >
+                        {report ? 'Re-run' : 'Run again'}
+                    </button>
+                </header>
+
+                {status === 'failed' && (
+                    <div className="px-3 py-2 rounded bg-danger/10 text-danger text-sm border border-danger/30">
+                        Validation failed: {errorMessage || 'unknown error'}
+                    </div>
+                )}
+
+                {isRunning && (
+                    <ValidationRunningCard startedAt={validation?.started_at} currentPass={validation?.current_pass} />
+                )}
+
+                {report && <ValidationReportView report={report} />}
+            </div>
         </div>
     )
 }

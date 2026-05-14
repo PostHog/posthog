@@ -1,6 +1,9 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 
+import api from 'lib/api'
+
 import type { founderChatLogicType } from './founderChatLogicType'
+import { founderLogic } from './scenes/founderLogic'
 
 export type ChatAuthor = 'agent' | 'user'
 
@@ -9,8 +12,10 @@ export interface ChatMessage {
     value: string
 }
 
+export type CanvasSlotKey = 'idea' | 'pain' | 'audience' | 'currentSolution' | 'worstCase' | 'success' | 'killerFeature'
+
 export interface CanvasSlot {
-    key: string
+    key: CanvasSlotKey | string
     label: string
 }
 
@@ -22,73 +27,41 @@ export interface CanvasNote {
 
 export type FounderPhase = 'chat' | 'review' | 'summarizing' | 'validation'
 
-export interface ScriptBeat {
-    /** Agent message shown after the preceding user input lands. */
-    agentMessage: string
-    /**
-     * Slot the user's preceding reply gets written into. Named consistently
-     * with the lean-canvas vocabulary so the script reads as "writing down
-     * our plan as we go".
-     */
-    canvasSlot?: CanvasSlot
-}
+// Lean-canvas slot vocabulary — kept in sync with the backend (logic/cofounder_chat/schemas.py
+// CanvasSlotKey literal). Order is the order the UI's pile visualization expects.
+const SLOT_IDEA: CanvasSlot = { key: 'idea', label: 'Idea' }
+const SLOT_PAIN: CanvasSlot = { key: 'pain', label: 'Pain' }
+const SLOT_AUDIENCE: CanvasSlot = { key: 'audience', label: 'Who feels it' }
+const SLOT_CURRENT_SOLUTION: CanvasSlot = { key: 'currentSolution', label: 'How they solve it today' }
+const SLOT_WORST_CASE: CanvasSlot = { key: 'worstCase', label: 'If they do nothing' }
+const SLOT_SUCCESS: CanvasSlot = { key: 'success', label: 'Success in 6 months' }
+const SLOT_KILLER: CanvasSlot = { key: 'killerFeature', label: 'The "have to use this"' }
 
-const slot = (key: string, label: string): CanvasSlot => ({ key, label })
-
-const SLOT_INTRO = slot('intro', 'Where we started')
-const SLOT_IDEA = slot('idea', 'Idea')
-const SLOT_PAIN = slot('pain', 'Pain')
-const SLOT_AUDIENCE = slot('audience', 'Who feels it')
-const SLOT_CURRENT_SOLUTION = slot('currentSolution', 'How they solve it today')
-const SLOT_WORST_CASE = slot('worstCase', 'If they do nothing')
-const SLOT_SUCCESS = slot('success', 'Success in 6 months')
-const SLOT_KILLER = slot('killerFeature', 'The "have to use this"')
-
-export const FOUNDER_CHAT_SCRIPT: ScriptBeat[] = [
-    {
-        agentMessage:
-            "Hey there! Let's build out the lean canvas on your idea — I'm here to help you nail this down before we start coding anything.",
-    },
-    {
-        agentMessage: "What's the idea?",
-        canvasSlot: SLOT_INTRO,
-    },
-    {
-        agentMessage:
-            "Tinder for hedgehogs. That's… very strange. But I want to hear what you're thinking. Let's start small — what pain do your future customers (or customers' hedgehogs) feel today?",
-        canvasSlot: SLOT_IDEA,
-    },
-    {
-        agentMessage:
-            'Got it. And who specifically feels that pain most — the hedgehog owner, the breeder, the rescue manager?',
-        canvasSlot: SLOT_PAIN,
-    },
-    {
-        agentMessage:
-            "Nice. How are they solving this today? Forums, breeder networks, word of mouth, an Excel spreadsheet someone's grandma maintains?",
-        canvasSlot: SLOT_AUDIENCE,
-    },
-    {
-        agentMessage: "Okay, let's get sharper on the problem. If they did nothing, what's the worst that happens?",
-        canvasSlot: SLOT_CURRENT_SOLUTION,
-    },
-    {
-        agentMessage: 'Good. Now flip it — what does success look like for them in 6 months if your product works?',
-        canvasSlot: SLOT_WORST_CASE,
-    },
-    {
-        agentMessage:
-            'Cool. Last one for now: what would make them say "I have to use this" instead of "this is neat"?',
-        canvasSlot: SLOT_SUCCESS,
-    },
-    {
-        agentMessage:
-            "That's enough to draft the lean canvas. I'll fill it in on the right as we go — we can come back and tighten any panel.",
-        canvasSlot: SLOT_KILLER,
-    },
+export const ALL_SLOTS: CanvasSlot[] = [
+    SLOT_IDEA,
+    SLOT_PAIN,
+    SLOT_AUDIENCE,
+    SLOT_CURRENT_SOLUTION,
+    SLOT_WORST_CASE,
+    SLOT_SUCCESS,
+    SLOT_KILLER,
 ]
 
-const AGENT_REPLY_DELAY_MS = 400
+const SLOT_BY_KEY: Record<CanvasSlotKey, CanvasSlot> = {
+    idea: SLOT_IDEA,
+    pain: SLOT_PAIN,
+    audience: SLOT_AUDIENCE,
+    currentSolution: SLOT_CURRENT_SOLUTION,
+    worstCase: SLOT_WORST_CASE,
+    success: SLOT_SUCCESS,
+    killerFeature: SLOT_KILLER,
+}
+
+// Static opening line — saves a round-trip on mount and gives JT a consistent entry point.
+// Everything after this is LLM-driven from /cofounder_turn/.
+const OPENING_MESSAGE = "Hey. I'm JT — your cofounder for this session. What are you building?"
+const OPENING_SLOT_HINT: CanvasSlotKey = 'idea'
+
 const SWEEP_TO_REVIEW_DELAY_MS = 1500
 
 /** Sample answers per slot, used by the debug "jump to end" action. */
@@ -105,6 +78,31 @@ const SLOT_SAMPLES: Record<string, string> = {
 const SUMMARY_BUILD_DELAY_MS = 1200
 const SUMMARY_STREAM_CHUNK_MS = 18
 
+// Backend response shape — mirrors products/founder_mode/backend/logic/cofounder_chat/schemas.py.
+export interface IdeationPayload {
+    what: string
+    how: string
+    who: string
+    problem: string
+}
+
+interface TurnResponse {
+    agent_message: string
+    canvas_slot: { key: CanvasSlotKey; label: string; value: string } | null
+    should_end_chat: boolean
+    next_slot_hint: CanvasSlotKey | null
+    reasoning: string
+    ideation_payload: IdeationPayload | null
+}
+
+interface FounderProjectCreateResponse {
+    id: string
+    name: string
+}
+
+const COFOUNDER_TURN_URL = 'api/projects/@current/founder_projects/cofounder_turn/'
+const FOUNDER_PROJECTS_URL = 'api/projects/@current/founder_projects/'
+
 function buildSummary(notes: CanvasNote[]): string {
     const idea = notes.find((n) => n.key === 'idea')?.value ?? 'your idea'
     const audience = notes.find((n) => n.key === 'audience')?.value ?? 'your target users'
@@ -116,9 +114,13 @@ export const founderChatLogic = kea<founderChatLogicType>([
     path(['products', 'founder_mode', 'founderChatLogic']),
     actions({
         sendUserMessage: (value: string) => ({ value }),
-        appendAgentReply: (value: string) => ({ value }),
+        appendAgentReply: (value: string, slotHint: CanvasSlotKey | null) => ({ value, slotHint }),
         writeCanvas: (note: CanvasNote) => ({ note }),
         setDraft: (value: string) => ({ value }),
+        setThinking: (thinking: boolean) => ({ thinking }),
+        setTurnError: (error: string | null) => ({ error }),
+        setIdeationPayload: (payload: IdeationPayload | null) => ({ payload }),
+        setValidationError: (error: string | null) => ({ error }),
         startReview: true,
         acceptCard: true,
         denyCard: true,
@@ -162,6 +164,30 @@ export const founderChatLogic = kea<founderChatLogicType>([
                 saveEdit: (state, { key, value }) => state.map((n) => (n.key === key ? { ...n, value } : n)),
             },
         ],
+        // Which slot the user's NEXT answer is expected to fill. Comes from the backend's
+        // `next_slot_hint` — drives the input box label + the active-card visualization.
+        nextSlotHint: [
+            OPENING_SLOT_HINT as CanvasSlotKey | null,
+            {
+                appendAgentReply: (_, { slotHint }) => slotHint,
+            },
+        ],
+        // True while a /cofounder_turn/ call is in flight. The composer disables submit during this.
+        thinking: [
+            false,
+            {
+                setThinking: (_, { thinking }) => thinking,
+                sendUserMessage: () => true,
+                appendAgentReply: () => false,
+            },
+        ],
+        turnError: [
+            null as string | null,
+            {
+                setTurnError: (_, { error }) => error,
+                sendUserMessage: () => null,
+            },
+        ],
         reviewIndex: [
             0,
             {
@@ -179,12 +205,6 @@ export const founderChatLogic = kea<founderChatLogicType>([
                 denyCard: () => null,
             },
         ],
-        agentIndex: [
-            0,
-            {
-                appendAgentReply: (state) => state + 1,
-            },
-        ],
         draft: [
             '',
             {
@@ -199,9 +219,24 @@ export const founderChatLogic = kea<founderChatLogicType>([
                 finishReview: () => '',
             },
         ],
+        // The agent's synthesized {what, how, who, problem} payload, returned when the chat
+        // ends. Fed into the FounderProject row at startValidation time so the validation
+        // stage runs against rich prose rather than raw slot values.
+        ideationPayload: [
+            null as IdeationPayload | null,
+            {
+                setIdeationPayload: (_, { payload }) => payload,
+            },
+        ],
+        validationError: [
+            null as string | null,
+            {
+                setValidationError: (_, { error }) => error,
+                startValidation: () => null,
+            },
+        ],
     }),
     selectors({
-        isChatComplete: [(s) => [s.agentIndex], (agentIndex): boolean => agentIndex >= FOUNDER_CHAT_SCRIPT.length],
         currentAgentMessage: [
             (s) => [s.messages],
             (messages): string | null => {
@@ -213,10 +248,7 @@ export const founderChatLogic = kea<founderChatLogicType>([
                 return null
             },
         ],
-        activeSlot: [
-            (s) => [s.agentIndex],
-            (agentIndex): CanvasSlot | null => FOUNDER_CHAT_SCRIPT[agentIndex]?.canvasSlot ?? null,
-        ],
+        activeSlot: [(s) => [s.nextSlotHint], (hint): CanvasSlot | null => (hint ? SLOT_BY_KEY[hint] : null)],
         reviewCard: [
             (s) => [s.canvasNotes, s.reviewIndex],
             (canvasNotes, reviewIndex): CanvasNote | null => canvasNotes[reviewIndex] ?? null,
@@ -231,32 +263,67 @@ export const founderChatLogic = kea<founderChatLogicType>([
     }),
     listeners(({ actions, values }) => ({
         debugFillAndJumpToReview: () => {
-            for (const beat of FOUNDER_CHAT_SCRIPT) {
-                if (beat.canvasSlot) {
-                    const sample = SLOT_SAMPLES[beat.canvasSlot.key] ?? beat.canvasSlot.label
-                    actions.writeCanvas({ ...beat.canvasSlot, value: sample })
-                }
+            // Debug shortcut for designer/dev iteration on the review + validation phases —
+            // skips the chat entirely by writing sample values into every canvas slot. Also
+            // stubs an ideationPayload so a downstream `startValidation` doesn't hit the
+            // "no synthesized ideation available" branch.
+            for (const slot of ALL_SLOTS) {
+                const sample = SLOT_SAMPLES[slot.key] ?? slot.label
+                actions.writeCanvas({ key: slot.key, label: slot.label, value: sample })
             }
-            // Skip past the chat by advancing agentIndex to the end so activeSlot becomes null.
-            const remaining = FOUNDER_CHAT_SCRIPT.length - values.agentIndex
-            for (let i = 0; i < remaining; i++) {
-                actions.appendAgentReply('')
-            }
+            actions.setIdeationPayload({
+                what: SLOT_SAMPLES.idea,
+                how: SLOT_SAMPLES.killerFeature,
+                who: SLOT_SAMPLES.audience,
+                problem: `${SLOT_SAMPLES.pain} Today they cope via ${SLOT_SAMPLES.currentSolution}. If nothing changes: ${SLOT_SAMPLES.worstCase}. Success looks like: ${SLOT_SAMPLES.success}.`,
+            })
             actions.startReview()
         },
         sendUserMessage: async ({ value }, breakpoint) => {
-            const currentIndex = values.agentIndex
-            const nextBeat = FOUNDER_CHAT_SCRIPT[currentIndex]
-            if (nextBeat?.canvasSlot) {
-                actions.writeCanvas({ ...nextBeat.canvasSlot, value })
+            // Locate the question the founder is answering — the most recent agent message.
+            let lastQuestion: string | null = null
+            for (let i = values.messages.length - 1; i >= 0; i--) {
+                if (values.messages[i].author === 'agent') {
+                    lastQuestion = values.messages[i].value
+                    break
+                }
             }
-            await breakpoint(AGENT_REPLY_DELAY_MS)
-            if (nextBeat) {
-                actions.appendAgentReply(nextBeat.agentMessage)
-            }
-            if (currentIndex + 1 >= FOUNDER_CHAT_SCRIPT.length) {
-                await breakpoint(SWEEP_TO_REVIEW_DELAY_MS)
-                actions.startReview()
+            // Snapshot the conversation BEFORE this user message landed — the reducer ran first
+            // (sendUserMessage appended `value`), so we need to skip the last entry for the
+            // payload's `messages` field. The backend reconstructs the full turn from
+            // `last_question` + `user_answer` + prior `messages`.
+            const priorMessages = values.messages.slice(0, -1)
+
+            try {
+                const response = await api.create<TurnResponse>(COFOUNDER_TURN_URL, {
+                    user_answer: value,
+                    last_question: lastQuestion,
+                    messages: priorMessages,
+                    canvas_notes: values.canvasNotes,
+                })
+                breakpoint()
+
+                if (response.canvas_slot) {
+                    actions.writeCanvas({
+                        key: response.canvas_slot.key,
+                        label: response.canvas_slot.label,
+                        value: response.canvas_slot.value,
+                    })
+                }
+                actions.appendAgentReply(response.agent_message, response.next_slot_hint)
+
+                if (response.should_end_chat) {
+                    // Stash the prose synthesis for use at validation handoff time. The agent is
+                    // contractually required to return ideation_payload when should_end_chat is true.
+                    if (response.ideation_payload) {
+                        actions.setIdeationPayload(response.ideation_payload)
+                    }
+                    await breakpoint(SWEEP_TO_REVIEW_DELAY_MS)
+                    actions.startReview()
+                }
+            } catch (e: any) {
+                actions.setThinking(false)
+                actions.setTurnError(e?.message ?? 'Cofounder turn failed')
             }
         },
         acceptCard: () => {
@@ -277,11 +344,37 @@ export const founderChatLogic = kea<founderChatLogicType>([
                 actions.appendSummaryChunk(summary[i])
             }
         },
+        startValidation: async (_, breakpoint) => {
+            // Materialize a FounderProject the moment the founder commits to validation. The
+            // ideation_payload (prose synthesis from the chat-end turn) becomes
+            // FounderProject.ideation; the backend's perform_create auto-fires the validation
+            // task. We hand the new id to founderLogic so the validation UI can pick it up.
+            const payload = values.ideationPayload
+            if (!payload) {
+                actions.setValidationError(
+                    'No synthesized ideation available — the chat ended without a payload. Re-run the chat.'
+                )
+                return
+            }
+            const ideaNote = values.canvasNotes.find((n) => n.key === 'idea')
+            const name = (ideaNote?.value ?? 'Untitled idea').slice(0, 60)
+
+            try {
+                const project = await api.create<FounderProjectCreateResponse>(FOUNDER_PROJECTS_URL, {
+                    name,
+                    ideation: payload,
+                })
+                breakpoint()
+                founderLogic.actions.setCurrentProjectId(project.id)
+            } catch (e: any) {
+                actions.setValidationError(e?.message ?? 'Could not create founder project')
+            }
+        },
     })),
     events(({ actions, values }) => ({
         afterMount: () => {
-            if (values.messages.length === 0 && values.agentIndex < FOUNDER_CHAT_SCRIPT.length) {
-                actions.appendAgentReply(FOUNDER_CHAT_SCRIPT[0].agentMessage)
+            if (values.messages.length === 0) {
+                actions.appendAgentReply(OPENING_MESSAGE, OPENING_SLOT_HINT)
             }
         },
     })),

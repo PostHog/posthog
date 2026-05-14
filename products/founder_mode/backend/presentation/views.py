@@ -19,6 +19,8 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from products.founder_mode.backend.logic.cofounder_chat.schemas import TurnRequest, TurnResponse
+from products.founder_mode.backend.logic.cofounder_chat.service import run_chat_turn
 from products.founder_mode.backend.models import FounderProject
 from products.founder_mode.backend.tasks.tasks import run_landing_page_task, run_validation_task
 
@@ -99,3 +101,34 @@ class FounderProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.mvp = {**(instance.mvp or {}), "status": "pending"}
         instance.save(update_fields=["mvp", "updated_at"])
         return Response(self.get_serializer(instance).data, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        request=TurnRequest,
+        responses={200: TurnResponse},
+        description=(
+            "Run one turn of the cofounder chat. Synchronous Gemini call. The request carries the "
+            "full conversation state (chat is ephemeral until the founder commits at the end of the "
+            "chat phase), the response carries the agent's next message plus an optional canvas "
+            "slot decision and an end-of-chat signal."
+        ),
+    )
+    @action(detail=False, methods=["POST"], url_path="cofounder_turn")
+    def cofounder_turn(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            turn_request = TurnRequest.model_validate(request.data)
+        except Exception as exc:
+            return Response({"detail": f"Invalid request body: {exc}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            turn_response, _trace_id = run_chat_turn(
+                request=turn_request,
+                team=self.team,
+                user=request.user,
+            )
+        except Exception as exc:
+            return Response(
+                {"detail": f"Cofounder turn failed: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(turn_response.model_dump(), status=status.HTTP_200_OK)
