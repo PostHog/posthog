@@ -1,4 +1,12 @@
-import { InMemorySessionBus, RedisSessionBus, SessionBus, logger } from '@posthog/agent-core'
+import {
+    ApplicationsRepository,
+    EncryptedFields,
+    InMemorySessionBus,
+    PosthogDbClient,
+    RedisSessionBus,
+    SessionBus,
+    logger,
+} from '@posthog/agent-core'
 
 import { loadConfig } from './config'
 import { NotImplementedExecutor } from './executor-stub'
@@ -6,6 +14,10 @@ import { RunnerWorker } from './worker'
 
 async function main(): Promise<void> {
     const config = loadConfig()
+
+    const posthogDb = new PosthogDbClient({ dbUrl: config.posthogDbUrl })
+    const encryption = new EncryptedFields(config.encryptionSaltKeys)
+    const repository = new ApplicationsRepository({ db: posthogDb, encryption })
 
     const bus: SessionBus = config.redisUrl ? new RedisSessionBus({ url: config.redisUrl }) : new InMemorySessionBus()
 
@@ -18,12 +30,13 @@ async function main(): Promise<void> {
         queueName: config.queueName,
         executor: new NotImplementedExecutor(),
         bus,
-        loadSecrets: () => {
-            // EchoExecutor (v1) never reaches tool dispatch, so we skip the Django
-            // decrypt call. When the real Claude Agent SDK executor lands we'll wire
-            // `InternalApiClient.decryptSecrets(applicationId, names)` here, scoped
-            // to the names declared on the manifest the turn is about to invoke.
-            return Promise.resolve({})
+        loadSecrets: async (applicationId) => {
+            if (!applicationId) {
+                return {}
+            }
+            // Pulls the application's encrypted `.env` blob from the main posthog DB and
+            // decrypts it locally via fernet. Tools see secrets through ToolContext.secrets.
+            return await repository.decryptEnv(applicationId)
         },
     })
 
@@ -34,6 +47,7 @@ async function main(): Promise<void> {
         logger.info('agent-runner shutting down', { signal })
         await worker.stop()
         await bus.disconnect()
+        await posthogDb.disconnect()
         process.exit(0)
     }
 

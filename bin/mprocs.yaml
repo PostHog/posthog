@@ -228,7 +228,7 @@ procs:
             bin/wait-for-docker && \
             until [ -f services/agent-core/dist/index.js ]; do sleep 0.5; done && \
             AGENT_RUNTIME_QUEUE_DATABASE_URL=${AGENT_RUNTIME_QUEUE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/agent_runtime_queue} \
-            INTERNAL_API_BASE_URL=${INTERNAL_API_BASE_URL:-http://localhost:8000} \
+            POSTHOG_DATABASE_URL=${POSTHOG_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/posthog} \
             REDIS_URL=${REDIS_URL:-redis://localhost:6379/0} \
             AGENT_DEV_REVISIONS_PATH=${AGENT_DEV_REVISIONS_PATH:-$PWD/services/agent-ingress/dev/revisions.json} \
             PORT=${AGENT_INGRESS_PORT:-3030} \
@@ -244,7 +244,8 @@ procs:
             bin/wait-for-docker && \
             until [ -f services/agent-core/dist/index.js ]; do sleep 0.5; done && \
             AGENT_RUNTIME_QUEUE_DATABASE_URL=${AGENT_RUNTIME_QUEUE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/agent_runtime_queue} \
-            INTERNAL_API_BASE_URL=${INTERNAL_API_BASE_URL:-http://localhost:8000} \
+            POSTHOG_DATABASE_URL=${POSTHOG_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/posthog} \
+            ENCRYPTION_SALT_KEYS=${ENCRYPTION_SALT_KEYS:-00beef0000beef0000beef0000beef00} \
             REDIS_URL=${REDIS_URL:-redis://localhost:6379/0} \
             pnpm --filter @posthog/agent-runner start:dev
         capability: agent_runtime

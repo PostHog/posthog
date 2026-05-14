@@ -1,6 +1,7 @@
 export * from './queue'
 export * from './pubsub'
-export * from './internal-api'
+export * from './posthog-db'
+export * from './encryption'
 export * from './builtins'
 export * from './manifest'
 export { logger } from './logger'

@@ -3446,15 +3446,15 @@ importers:
 
   services/agent-core:
     dependencies:
+      fernet-nodejs:
+        specifier: ^1.0.6
+        version: 1.0.6
       ioredis:
         specifier: ^4.27.6
         version: 4.28.5
       luxon:
         specifier: ^3.4.4
         version: 3.7.2
-      node-fetch:
-        specifier: ^2.6.1
-        version: 2.7.0(encoding@0.1.13)
       pg:
         specifier: ^8.6.0
         version: 8.10.0
@@ -3489,9 +3489,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 22.18.8
-      '@types/node-fetch':
-        specifier: ^2.5.10
-        version: 2.6.4
       '@types/pg':
         specifier: ^8.6.0
         version: 8.15.4
@@ -3522,9 +3519,6 @@ importers:
       ts-jest:
         specifier: ^29.1.0
         version: 29.4.1(@babel/core@7.29.0)(@jest/transform@30.0.5)(@jest/types@30.0.5)(babel-jest@30.0.5(@babel/core@7.29.0))(jest-util@30.0.5)(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3)))(typescript@5.9.3)
-      tsx:
-        specifier: ^4.7.0
-        version: 4.20.5
       typescript:
         specifier: 5.9.3
         version: 5.9.3

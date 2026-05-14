@@ -31,7 +31,7 @@ Working tracker for the runtime services only — the Django side is being built
 - [x] Janitor / stall recovery + poison-pill + terminal cleanup + Prom metrics ([src/queue/janitor.ts](../../services/agent-core/src/queue/janitor.ts))
 - [x] Migrations runner ([rust/bin/migrate-agent-runtime-queue](../../rust/bin/migrate-agent-runtime-queue), wired into the shared rust sqlx-migrate image)
 - [x] Pub-sub interface + Redis adapter + in-memory adapter ([src/pubsub/](../../services/agent-core/src/pubsub))
-- [x] Internal-API client (`resolve`, `decrypt`) with optional shared-key header ([src/internal-api/client.ts](../../services/agent-core/src/internal-api/client.ts))
+- [x] PostHog DB reader (`agent_stack_agentapplication` / `*revision` rows) + Fernet decryptor for `encrypted_env` — replaces the old HTTP InternalApiClient. ([src/posthog-db/](../../services/agent-core/src/posthog-db/), [src/encryption/](../../services/agent-core/src/encryption/))
 - [x] Built-ins registry — `posthog.events.capture`, `posthog.feature_flags.evaluate`, `http.fetch` ([src/builtins/index.ts](../../services/agent-core/src/builtins/index.ts))
 - [x] Manifest reader + Zod schema + built-in id validation ([src/manifest/index.ts](../../services/agent-core/src/manifest/index.ts))
 - [x] Logger (pino) + Prom metrics ([src/logger.ts](../../services/agent-core/src/logger.ts), [src/metrics.ts](../../services/agent-core/src/metrics.ts))
@@ -145,7 +145,7 @@ Shared library, no process of its own. Lives here:
 - TypeScript types for the session model, manifest, tool protocol, secrets.
 - Postgres client(s) — one for the main posthog DB (read app/revision/encrypted_env rows; write `AgentApplicationSession`/`AgentApplicationSandboxInstance` rows), one for the agent-runtime queue DB (jobs). Each package depends on whichever it needs.
 - **Queue primitives** — the cyclotron-v2-shaped session queue (see next section). Single `cyclotron_jobs`-style table with `available | running | completed | failed | canceled`, `FOR UPDATE SKIP LOCKED` dequeue, `lock_id` + `last_heartbeat`, `reschedule({ scheduledAt, state })`, janitor loop. The schema and ops are a clean reimplementation in this package — we own it end-to-end, no shared migrations with `cyclotron_node`.
-- Internal-API HTTP client (talks to Django for resolve/decrypt).
+- PostHog DB reader — pg pool + `ApplicationsRepository` reading `agent_stack_agentapplication` / `*revision` rows directly from the main posthog Postgres. Encryption helper (copied from `nodejs/src/cdp/utils/encryption-utils.ts`) decrypts `encrypted_env` in-process. No HTTP hop to Django.
 - Structured logger, Prom registry, OTel setup.
 - Manifest reader / built-ins registry (also imported by the future validator package, so the same code rejects unknown ids in both places).
 

@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs'
 
 import {
+    ApplicationsRepository,
     InMemorySessionBus,
-    InternalApiClient,
+    PosthogDbClient,
     RedisSessionBus,
     ResolvedRevision,
-    ResolvedRevisionSchema,
     SessionBus,
     SessionQueueManager,
     logger,
@@ -21,15 +21,14 @@ async function main(): Promise<void> {
     const queue = new SessionQueueManager({ pool: { dbUrl: config.queueDbUrl } })
     await queue.connect()
 
-    const apiClient = new InternalApiClient({
-        baseUrl: config.internalApiBaseUrl,
-        sharedKey: config.internalApiSharedKey,
-    })
+    const posthogDb = new PosthogDbClient({ dbUrl: config.posthogDbUrl })
+    const repository = new ApplicationsRepository({ db: posthogDb })
 
     const localRevisions = loadLocalRevisions(process.env.AGENT_DEV_REVISIONS_PATH, config.domainSuffix)
     const resolver = new RevisionResolver({
-        client: apiClient,
+        repository,
         ttlMs: config.resolverTtlMs,
+        domainSuffix: config.domainSuffix,
         localRevisions,
     })
 
@@ -50,6 +49,7 @@ async function main(): Promise<void> {
         server.close()
         await bus.disconnect()
         await queue.disconnect()
+        await posthogDb.disconnect()
         process.exit(0)
     }
 
@@ -60,7 +60,7 @@ async function main(): Promise<void> {
 /**
  * Dev-only fixture loader. Reads a JSON file shaped as `ResolvedRevision[]` and
  * returns a Map keyed by `app:<applicationId>` and `domain:<applicationSlug><suffix>`.
- * Lets the local stack run without a wired Django `resolve` endpoint.
+ * Lets the local stack run against canned revisions without inserting Django rows.
  */
 function loadLocalRevisions(path: string | undefined, domainSuffix: string): Map<string, ResolvedRevision> | undefined {
     if (!path) {
@@ -72,7 +72,7 @@ function loadLocalRevisions(path: string | undefined, domainSuffix: string): Map
     }
     const map = new Map<string, ResolvedRevision>()
     for (const entry of raw) {
-        const revision = ResolvedRevisionSchema.parse(entry)
+        const revision = entry as ResolvedRevision
         map.set(`app:${revision.applicationId}`, revision)
         map.set(`domain:${revision.applicationSlug}${domainSuffix}`, revision)
     }

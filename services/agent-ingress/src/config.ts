@@ -2,11 +2,10 @@ import { z } from 'zod'
 
 const ConfigSchema = z.object({
     port: z.coerce.number().int().min(1).max(65_535).default(3030),
+    /** agent-runtime queue DB (where session jobs live). */
     queueDbUrl: z.string().min(1),
-    /** Base URL for the Django internal API (e.g. http://app:8000). */
-    internalApiBaseUrl: z.string().min(1),
-    /** Shared signing key for internal-api calls. */
-    internalApiSharedKey: z.string().optional(),
+    /** Main posthog Postgres — read agent_stack_agentapplication / *revision directly. */
+    posthogDbUrl: z.string().min(1),
     /** ioredis URL. When unset, we fall back to the in-memory bus (single-process only). */
     redisUrl: z.string().optional(),
     /** Resolver cache TTL for `(domain → revision)` entries. */
@@ -21,8 +20,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): IngressConfig 
     return ConfigSchema.parse({
         port: env.PORT,
         queueDbUrl: env.AGENT_RUNTIME_QUEUE_DATABASE_URL,
-        internalApiBaseUrl: env.INTERNAL_API_BASE_URL,
-        internalApiSharedKey: env.INTERNAL_API_SHARED_KEY,
+        posthogDbUrl: env.POSTHOG_DATABASE_URL,
         redisUrl: env.REDIS_URL,
         resolverTtlMs: env.RESOLVER_TTL_MS,
         domainSuffix: env.DOMAIN_SUFFIX,
