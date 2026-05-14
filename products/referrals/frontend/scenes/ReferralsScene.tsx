@@ -103,7 +103,7 @@ export function ReferralsScene(): JSX.Element {
     const copyDisabledReason = !referralShareUrl ? 'Loading user…' : undefined
 
     return (
-        <SceneContent>
+        <SceneContent translate="no">
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Referrals].name}
                 description={sceneConfigurations[Scene.Referrals].description}
