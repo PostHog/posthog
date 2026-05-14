@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -102,8 +101,21 @@ export function UserInterviews(): JSX.Element {
                             )
                         },
                     },
-                    createdAtColumn<UserInterviewTopicApi>(),
-                    createdByColumn<UserInterviewTopicApi>(),
+                    {
+                        title: 'Created',
+                        key: 'created_at',
+                        render: (_, row: UserInterviewTopicApi) => (
+                            <span className="text-muted whitespace-nowrap">{row.created_at?.split('T')[0]}</span>
+                        ),
+                        sorter: (a, b) => (a.created_at || '').localeCompare(b.created_at || ''),
+                    },
+                    {
+                        title: 'Created by',
+                        key: 'created_by',
+                        render: (_, row: UserInterviewTopicApi) => (
+                            <span>{row.created_by?.first_name || row.created_by?.email || '—'}</span>
+                        ),
+                    },
                 ]}
                 dataSource={topics}
                 rowKey="id"
