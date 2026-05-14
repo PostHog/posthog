@@ -1,10 +1,12 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { convertToHogFunctionInvocationGlobals } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { DESTINATION_OPTIONS, DestinationKey } from 'scenes/hog-functions/list/newNotificationDialogLogic'
 import {
     HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES,
@@ -18,11 +20,20 @@ import {
     getSurveyIdBasedResponseKey,
 } from 'scenes/surveys/utils'
 
+import { performQuery } from '~/queries/query'
+import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
+    CyclotronJobInvocationGlobals,
+    CyclotronJobTestInvocationResult,
+    EventType,
     HogFunctionTemplateType,
     HogFunctionType,
     IntegrationType,
+    PersonType,
+    PropertyFilterType,
+    PropertyOperator,
     Survey,
+    SurveyEventName,
     SurveyEventProperties,
     SurveyQuestionType,
 } from '~/types'
@@ -64,6 +75,7 @@ export interface SurveyNotificationModalLogicProps {
 
 type SurveyMessageField = 'slackMessage' | 'discordMessage' | 'teamsMessage'
 type HogFunctionInputValue = HogFunctionType['inputs'] extends Record<string, infer T> | null | undefined ? T : never
+export type SurveyNotificationTestSource = 'sample' | 'last_response'
 export type SurveyNotificationModalIntent = 'add' | 'edit' | 'copy'
 export type OpenSurveyNotificationDialogPayload = {
     notification?: HogFunctionType | null
@@ -220,12 +232,106 @@ function buildSurveyNotificationForm(survey: SurveyNotificationContext): SurveyN
     }
 }
 
-function buildTemplateGlobals(survey: SurveyNotificationContext): Record<string, unknown> {
+function buildTemplateGlobals(survey: SurveyNotificationContext): CyclotronJobInvocationGlobals {
     return buildSurveyExampleInvocationGlobals({
         survey,
         projectId: 1,
         projectName: 'Project',
         projectUrl: 'https://app.posthog.com/project/1',
+    })
+}
+
+export function buildLastSurveyResponseQuery(surveyId: string): EventsQuery | null {
+    if (!surveyId || surveyId === NEW_SURVEY.id) {
+        return null
+    }
+    return {
+        kind: NodeKind.EventsQuery,
+        select: ['*', 'person'],
+        fixedProperties: [
+            {
+                key: SurveyEventProperties.SURVEY_ID,
+                type: PropertyFilterType.Event,
+                value: surveyId,
+                operator: PropertyOperator.Exact,
+            },
+            {
+                type: PropertyFilterType.HogQL,
+                key: `event IN ('${SurveyEventName.SENT}', '${SurveyEventName.DISMISSED}')`,
+            },
+        ],
+        after: '-90d',
+        orderBy: ['timestamp DESC'],
+        limit: 1,
+        modifiers: {
+            personsOnEventsMode: 'person_id_no_override_properties_on_events',
+        },
+    }
+}
+
+async function fetchLastSurveyResponseGlobals(
+    query: EventsQuery | null
+): Promise<CyclotronJobInvocationGlobals | null> {
+    if (!query) {
+        return null
+    }
+    try {
+        const response = await performQuery(query)
+        const row = response?.results?.[0]
+        if (!row) {
+            return null
+        }
+        const event = row[0] as EventType | undefined
+        const person = row[1] as PersonType | undefined
+        if (!event || !person) {
+            return null
+        }
+        return convertToHogFunctionInvocationGlobals(event, person)
+    } catch {
+        return null
+    }
+}
+
+async function buildSurveyNotificationPayload({
+    form,
+    survey,
+    editingNotification,
+    copiedNotification,
+}: {
+    form: SurveyNotificationForm
+    survey: SurveyNotificationContext
+    editingNotification: HogFunctionType | null
+    copiedNotification: HogFunctionType | null
+}): Promise<Partial<HogFunctionType>> {
+    const templateId = DESTINATION_OPTIONS.find((option) => option.value === form.destination)?.templateId
+    const template = await api.hogFunctions.getTemplate(templateId || 'template-slack')
+
+    if (editingNotification) {
+        return updateSurveyNotificationPayload({
+            notification: editingNotification,
+            template,
+            destination: form.destination,
+            surveyId: survey.id,
+            form,
+        })
+    }
+
+    if (copiedNotification) {
+        return createCopiedSurveyNotificationPayload({
+            notification: copiedNotification,
+            template,
+            destination: form.destination,
+            survey,
+            form,
+        })
+    }
+
+    return createSurveyNotificationPayload({
+        template,
+        destination: form.destination,
+        surveyName: survey.name,
+        surveyId: survey.id,
+        form,
     })
 }
 
@@ -668,6 +774,8 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
         }),
         closeDialog: true,
         setNotificationSubmissionError: (error: string | null) => ({ error }),
+        clearTestResult: true,
+        sendTestNotification: (payload: { source: SurveyNotificationTestSource }) => ({ source: payload.source }),
     }),
 
     reducers({
@@ -700,7 +808,52 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                 closeDialog: () => null,
             },
         ],
+        testResultError: [
+            null as string | null,
+            {
+                sendTestNotification: () => null,
+                sendTestNotificationSuccess: () => null,
+                sendTestNotificationFailure: (_, { error }) => error || 'Failed to send test notification.',
+                openDialog: () => null,
+                closeDialog: () => null,
+                clearTestResult: () => null,
+            },
+        ],
     }),
+
+    loaders(({ values }) => ({
+        testResult: [
+            null as CyclotronJobTestInvocationResult | null,
+            {
+                clearTestResult: () => null,
+                sendTestNotification: async ({ source }) => {
+                    const configuration = await buildSurveyNotificationPayload({
+                        form: values.notificationForm,
+                        survey: values.survey,
+                        editingNotification: values.editingNotification,
+                        copiedNotification: values.copiedNotification,
+                    })
+
+                    let globals: CyclotronJobInvocationGlobals = values.templateGlobals
+                    if (source === 'last_response') {
+                        const realGlobals = await fetchLastSurveyResponseGlobals(values.lastResponseEventQuery)
+                        if (realGlobals) {
+                            globals = realGlobals
+                        } else {
+                            lemonToast.info('No survey responses yet — sent the test with sample data instead.')
+                        }
+                    }
+
+                    const id = values.editingNotification?.id ?? 'new'
+                    return await api.hogFunctions.createTestInvocation(id, {
+                        configuration: configuration as Record<string, any>,
+                        mock_async_functions: false,
+                        globals,
+                    })
+                },
+            },
+        ],
+    })),
 
     forms(({ values }) => ({
         notificationForm: {
@@ -713,32 +866,12 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                         false) as boolean
                 ),
             submit: async (form: SurveyNotificationForm) => {
-                const templateId = DESTINATION_OPTIONS.find((option) => option.value === form.destination)?.templateId
-                const template = await api.hogFunctions.getTemplate(templateId || 'template-slack')
-
-                const payload = values.editingNotification
-                    ? updateSurveyNotificationPayload({
-                          notification: values.editingNotification,
-                          template,
-                          destination: form.destination,
-                          surveyId: values.survey.id,
-                          form,
-                      })
-                    : values.copiedNotification
-                      ? createCopiedSurveyNotificationPayload({
-                            notification: values.copiedNotification,
-                            template,
-                            destination: form.destination,
-                            survey: values.survey,
-                            form,
-                        })
-                      : createSurveyNotificationPayload({
-                            template,
-                            destination: form.destination,
-                            surveyName: values.survey.name,
-                            surveyId: values.survey.id,
-                            form,
-                        })
+                const payload = await buildSurveyNotificationPayload({
+                    form,
+                    survey: values.survey,
+                    editingNotification: values.editingNotification,
+                    copiedNotification: values.copiedNotification,
+                })
 
                 if (values.editingNotification) {
                     await api.hogFunctions.update(values.editingNotification.id, payload)
@@ -762,6 +895,10 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                 null,
         ],
         templateGlobals: [(s) => [s.survey], (survey: SurveyNotificationContext) => buildTemplateGlobals(survey)],
+        lastResponseEventQuery: [
+            (s) => [s.survey],
+            (survey: SurveyNotificationContext): EventsQuery | null => buildLastSurveyResponseQuery(survey.id),
+        ],
         submitDisabledReason: [
             (s) => [
                 s.survey,
@@ -795,14 +932,26 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
     listeners(({ actions, values }) => ({
         openDialog: ({ notification, intent }) => {
             actions.resetNotificationForm()
+            actions.clearTestResult()
             actions.setNotificationFormValues(
                 notification
                     ? buildSurveyNotificationFormFromNotification(notification, values.survey, intent === 'copy')
                     : buildSurveyNotificationForm(values.survey)
             )
         },
+        sendTestNotificationSuccess: ({ testResult }) => {
+            if (testResult?.status === 'success') {
+                lemonToast.success('Test notification sent.')
+            } else if (testResult?.status === 'error') {
+                lemonToast.error('Test notification failed — see logs below.')
+            }
+        },
+        sendTestNotificationFailure: ({ error }) => {
+            lemonToast.error(error || 'Failed to send test notification.')
+        },
         closeDialog: () => {
             actions.resetNotificationForm()
+            actions.clearTestResult()
         },
         submitNotificationFormSuccess: async () => {
             const updatedNotification = values.editingNotification
