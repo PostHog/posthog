@@ -63,9 +63,8 @@ describe('surveyNotificationModalLogic', () => {
         })
     })
 
-    it('returns no query when building a last-response lookup for an unsaved survey', () => {
-        expect(buildLastSurveyResponseQuery(NEW_SURVEY.id)).toBeNull()
-        expect(buildLastSurveyResponseQuery('')).toBeNull()
+    it.each([NEW_SURVEY.id, ''])('returns no query when building a last-response lookup for survey id "%s"', (id) => {
+        expect(buildLastSurveyResponseQuery(id)).toBeNull()
     })
 
     it('builds a last-response events query scoped to the survey, matching sent or dismissed', () => {

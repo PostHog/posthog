@@ -884,22 +884,26 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                     })
 
                     let globals: CyclotronJobInvocationGlobals = values.templateGlobals
+                    let usingSample = source === 'sample'
                     if (source === 'last_response') {
                         const lookup = await fetchLastSurveyResponseGlobals(values.lastResponseEventQuery)
                         if (lookup.status === 'ok') {
                             globals = lookup.globals
                         } else if (lookup.status === 'failed') {
+                            usingSample = true
                             lemonToast.warning(
                                 'Could not fetch the last response — sent the test with sample data instead.'
                             )
                         } else {
+                            usingSample = true
                             lemonToast.info('No survey responses yet — sent the test with sample data instead.')
                         }
                     }
 
-                    // For sample-data tests, align the event with the saved filter's expected values
-                    // so the test isn't skipped by a $survey_id or completion-flag mismatch.
-                    if (source === 'sample') {
+                    // Align sample globals with the saved filter's expected values so the test
+                    // isn't skipped by a $survey_id or completion-flag mismatch. Applies to an
+                    // explicit sample-data test and to a last-response test that fell back to it.
+                    if (usingSample) {
                         globals = alignGlobalsWithNotificationFilter(globals, values.editingNotification)
                     }
 
