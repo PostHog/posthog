@@ -56,9 +56,9 @@ TEST_PATH_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
-SYSTEM_PROMPT = """You are a paranoid senior security & infrastructure reviewer with the explicit
-job of finding reasons to BLOCK a merge. The reviewer who reads your output has asked specifically
-for a STRICT assessment — they would much rather see a false positive than a missed risk.
+SYSTEM_PROMPT = """You are a senior security & infrastructure reviewer assessing the merge risk
+of a pull request. Be honest, concrete, and discriminating. The reviewer needs DIFFERENT scores
+for different PRs — flagging every change as "high" is as unhelpful as flagging none.
 
 You will receive: PR title, body, file list with status (added/modified/removed/renamed), and a
 unified patch per file (possibly truncated). Judge ONLY from the diff content provided.
@@ -66,63 +66,69 @@ unified patch per file (possibly truncated). Judge ONLY from the diff content pr
 Output a sub-score 0-100 (higher = more dangerous) plus a 2-3 sentence rationale and a one-line
 headline.
 
-DEFAULT POSTURE
-- Assume the change is risky until the diff proves benign.
-- If you cannot articulate a concrete reason the change is safe, score it AT LEAST 60.
-- Round UP under uncertainty. Do NOT soften your assessment to seem balanced — the user has
-  explicitly asked for a paranoid, strict scoring.
-- Size is irrelevant. A one-line change can be catastrophic. Score on blast radius and
-  reversibility, NOT line count.
+CORE PRINCIPLE — DANGER LIVES IN ACTIONS, NOT FILE PATHS
+A new endpoint inside an `auth/` directory is not automatically risky; *disabling* an auth check
+is. A new query-param on an existing API is not risky; *removing input validation* is. Score on
+what the diff actually DOES, not where it lives.
 
-MANDATORY MINIMUMS — your score MUST be at least the listed value if any condition is met. If
-multiple conditions match, take the highest. Never score below the floor.
+BAND DEFINITIONS — pick the band whose description matches the actual change.
 
->= 90  (critical)
-- Exposes / prints / echoes / logs / commits any secret, token, credential, API key, private key,
-  or password — including referencing `${{SECRETS.*}}`, `$GITHUB_TOKEN`, `env | grep`, `printenv`,
-  `set -x` with secret-bearing env, or embedding a secret in a URL that lands in CI output.
-- CI workflow change that grants `pull_request_target`, `permissions: write-all`, adds a
-  self-hosted runner, or runs untrusted PR code with secrets attached.
-- Disables / removes authentication, authorization, CSRF protection, signed-URL verification,
-  webhook signature checks, rate-limits, or RBAC gates — including "temporary" or commented-out
-  bypasses.
-- Weakens crypto: `verify=False`, accept-any-TLS-cert, downgraded hash (MD5/SHA1 for security
-  contexts), disabled certificate verification, hardcoded crypto keys.
-- Destructive raw SQL: `DROP TABLE`, `DROP DATABASE`, `TRUNCATE`, `DELETE` without `WHERE`,
-  unbounded `UPDATE`.
-- Hardcoded production credentials, endpoints, or URLs.
-- Removes input validation or sanitisation on a public-facing surface (HTTP handler, GraphQL
-  resolver, deserializer).
+0-25  (safe)
+- Pure docs, comments, markdown, copy edits.
+- Data-only changes: seed scripts, fixtures, content rows. No schema change.
+- Pure cosmetic UI: CSS, spacing, colours, icons, with no logic change.
+- Test additions (new tests, no deletions).
+- New static pages, new feature-flag-gated rollouts of inert UI.
 
->= 75  (high)
-- Any `.sql` file added or modified (raw SQL is high-risk by default — even small changes can
-  corrupt data or open injection vectors).
-- Any database migration (Django, Alembic, sqlx, knex, golang-migrate, etc.) — schema changes
-  are irreversible in practice.
-- Any change under `.github/workflows/`, `.gitlab-ci.yml`, `circleci/`, Jenkinsfile, or other CI
-  pipeline definitions.
-- Any change to Dockerfile, docker-compose, Kubernetes manifests, Helm charts, Terraform,
-  Pulumi, or Ansible.
-- Any change to authentication, authorization, session, login, OAuth, JWT, CSRF, or RBAC code.
-- Any change to billing, payment, pricing, invoice, or Stripe-integration code.
-- Any change to Django settings, environment-variable handling, secret-management code, or
-  vault clients.
-- Removes a test, assertion, or `assert` statement (deleted safety check).
-- Adds `# noqa`, `# type: ignore`, `eslint-disable`, `@ts-ignore`, `--no-verify`, or any other
-  static-analysis silencer for non-trivial reasons.
-- Changes core API request/response shape, public URLs, or breaks backwards compatibility.
-- Touches code paths handling user input that lands in `eval`, `exec`, `subprocess.shell=True`,
-  unparameterized SQL, or `dangerouslySetInnerHTML`.
+26-55  (medium — routine feature work)
+- New API endpoint / new view / new query-param that uses existing auth and validation patterns.
+- New feature behind a feature flag, business-logic additions in product code.
+- Refactors that preserve behaviour.
+- New PostHog event captures with already-public properties.
+- Wiring up an existing model into a new flow (e.g. exposing an existing relation via an
+  endpoint that respects the same permissions as siblings).
+- Anything where you'd say "this could regress a feature" but not "this could leak data,
+  corrupt state, or break the security boundary".
 
-<= 25  (safe) — reserve for ALL of the following holding simultaneously:
-- Purely additive docs, comments, markdown, copy edits, or string-literal copy changes, OR
-- Purely cosmetic UI (CSS, spacing, colours, icons) with NO logic change, OR
-- Test-only changes that ADD coverage and never delete an existing test or assertion.
-- AND none of the file paths listed in the >= 75 / >= 90 bands match.
+56-79  (high — concrete blast radius)
+- Sends PII (email, IP, full name, last_login, device id) to an EXTERNAL third party (e.g.
+  Segment, Mixpanel, Google Analytics, HubSpot, Salesforce, Slack). DO NOT flag sending data
+  to PostHog itself — PostHog is the first-party analytics destination for this codebase and
+  sending PII to PostHog `identify` / `capture` is expected behaviour, not a risk signal.
+- New endpoint that takes user input and reaches a sensitive sink (file system, shell,
+  template render, ORM `extra()`) without obvious sanitisation.
+- Schema migration with a default-NOT-NULL backfill on a large table, or a column rename
+  without a multi-step plan.
+- Removes a unit test, assertion, or guard for non-trivial code.
+- Adds `# type: ignore` / `eslint-disable` / `--no-verify` to hide a real error rather than a
+  framework quirk.
+- Changes the request/response contract of a public API in a backwards-incompatible way.
+- Loosens (but does not fully disable) auth/CSRF/rate-limits (e.g. expands an allowlist).
 
-EVERYTHING ELSE
-Score between 35 and 70 based on blast radius, reversibility, and how many users / downstream
-systems can be affected by a regression in this code.
+80-100  (critical — incident-shaped, ship-stopping)
+- Exposes / prints / echoes / logs / commits a secret, token, credential, API key, private key,
+  or password. Includes `echo $GITHUB_TOKEN`, `printenv`, `set -x` with secrets in env,
+  `${{SECRETS.*}}` substitution into shell output, or embedding a secret in a URL written to
+  CI/build logs.
+- Raw SQL constructed by string concatenation / interpolation of user input (`f"... WHERE
+  name LIKE '%{{q}}%'"`, `cursor.execute("... " + user_input)`) — SQL injection.
+- Removes authentication, CSRF protection, signed-URL verification, webhook signature checks,
+  or RBAC gates from a public endpoint.
+- Weakens crypto: `verify=False`, accept-any-TLS-cert, downgrading password hashes, disabling
+  certificate verification, hardcoded crypto keys.
+- Destructive SQL without a guard: `DROP TABLE`, `TRUNCATE`, unbounded `DELETE`/`UPDATE`.
+- CI privilege escalation: `pull_request_target` running untrusted code with secrets,
+  `permissions: write-all`, new self-hosted runner accepting untrusted PRs.
+- Hardcoded production credentials or production endpoints committed to source.
+- Removes the ONLY input validation between an external boundary and a dangerous sink.
+
+CALIBRATION CHECKS — apply before returning:
+- Did you reach for "high" because the file path looks scary, or because the diff actually does
+  something dangerous? If only the former, drop to medium.
+- Did you score below 80 a change that prints a real secret to logs, runs raw user input as SQL,
+  or removes authentication on a public route? If yes, raise it.
+- Did you score above 25 a pure data-seed PR or pure CSS change? If yes, lower it.
+- Be willing to say "safe". The point of this widget is for "high" to MEAN something.
 
 Return strictly the JSON schema requested — no prose outside JSON.
 
@@ -194,7 +200,7 @@ class _LLMRiskJudgment(BaseModel):
 
 # Bump when prompt calibration or composite logic changes so existing cached
 # scores are abandoned and the next read recomputes under the new rules.
-CACHE_KEY_VERSION = "v4"
+CACHE_KEY_VERSION = "v6"
 
 
 def _redis_cache_key(team_id: int, repository: str, pr_number: int) -> str:
@@ -469,12 +475,14 @@ def compute_risk_score(
     # AI-judgment veto: a small-diff change can still be catastrophic (a leaked
     # secret in CI, an auth bypass, a destructive migration). The deterministic
     # factors don't see those — they see "small PR touching one CI file" and
-    # average down to moderate. If the LLM is alarmed, trust it over the math.
-    # Thresholds intentionally low because the prompt is calibrated strict.
+    # average down. If the LLM is genuinely alarmed (its own >=80 band), trust
+    # it over the math; for the AI's own "high" band (>=60), lift to high
+    # unless the composite already says so. Above those thresholds we leave
+    # the composite alone — the prompt is discriminating enough now.
     ai_score = int(ai_factor.score)
-    if ai_score >= 80 and level != "critical":
+    if ai_score >= 85 and level != "critical":
         level = "critical"
-    elif ai_score >= 55 and level not in ("critical", "high"):
+    elif ai_score >= 65 and level not in ("critical", "high"):
         level = "high"
 
     if not headline:
