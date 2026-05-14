@@ -228,7 +228,12 @@ class TestListMCPToolCalls(ClickhouseTestMixin, APIBaseTest):
             data={"date_from": "not-a-date"},
         )
         assert response.status_code == 400
-        assert "date_from" in response.json()
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "Expected an ISO 8601 datetime, got 'not-a-date'.",
+            "attr": "date_from",
+        }
 
     def test_view_returns_truncated_field_in_response(self) -> None:
         session_id = str(uuid7())
