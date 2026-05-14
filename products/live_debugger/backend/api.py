@@ -801,6 +801,10 @@ class InstallProgramInSessionRequestSerializer(serializers.Serializer):
     )
 
 
+class UninstallProgramInSessionRequestSerializer(serializers.Serializer):
+    program_id = serializers.UUIDField(help_text="ID of the program to uninstall.")
+
+
 class LiveDebuggerSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Start, list, inspect, and close debugging sessions.
@@ -939,3 +943,41 @@ class LiveDebuggerSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             LiveDebuggerProgramSerializer(program).data,
             status=status.HTTP_201_CREATED,
         )
+
+    @extend_schema(
+        summary="Uninstall a program from a session",
+        description=(
+            "Soft-uninstalls a program belonging to this session and appends a "
+            "`program_uninstall` entry. Already-uninstalled programs are no-ops. "
+            "Calling this on a program that does not belong to this session returns 404."
+        ),
+        request=UninstallProgramInSessionRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=LiveDebuggerProgramSerializer, description="Program uninstalled."),
+            400: OpenApiResponse(description="Invalid payload or session is closed."),
+            404: OpenApiResponse(description="Program not found in session."),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="uninstall_program")
+    def uninstall_program(self, request: Request, *args, **kwargs) -> Response:
+        session = self.get_object()
+        self._ensure_open(session)
+        ser = UninstallProgramInSessionRequestSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        program = LiveDebuggerProgram.objects.filter(
+            id=ser.validated_data["program_id"],
+            session=session,
+            team=self.team,
+        ).first()
+        if program is None:
+            return Response({"detail": "Program not found in session."}, status=status.HTTP_404_NOT_FOUND)
+        with transaction.atomic():
+            if program.status != LiveDebuggerProgram.Status.UNINSTALLED:
+                program.status = LiveDebuggerProgram.Status.UNINSTALLED
+                program.save(update_fields=["status", "updated_at"])
+            LiveDebuggerSessionEntry.objects.create(
+                session=session,
+                kind=LiveDebuggerSessionEntry.Kind.PROGRAM_UNINSTALL,
+                payload={"program_id": str(program.id)},
+            )
+        return Response(LiveDebuggerProgramSerializer(program).data)

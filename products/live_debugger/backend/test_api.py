@@ -1508,3 +1508,32 @@ class TestLiveDebuggerSessionAPI(APIBaseTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_uninstall_program_transitions_status_and_appends_entry(self):
+        sid = self._start_session()
+        install = self.client.post(
+            self._url(f"{sid}/install_program/"),
+            data={"code": "probe foo {}", "description": ""},
+            content_type="application/json",
+        )
+        program_id = install.json()["id"]
+        response = self.client.post(
+            self._url(f"{sid}/uninstall_program/"),
+            data={"program_id": program_id},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "uninstalled")
+
+        body = self.client.get(self._url(f"{sid}/")).json()
+        kinds = [e["kind"] for e in body["entries"]]
+        self.assertEqual(kinds, ["program_install", "program_uninstall"])
+
+    def test_uninstall_program_404_if_program_not_in_session(self):
+        sid = self._start_session()
+        response = self.client.post(
+            self._url(f"{sid}/uninstall_program/"),
+            data={"program_id": "00000000-0000-0000-0000-000000000001"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
