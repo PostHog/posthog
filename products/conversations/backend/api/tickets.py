@@ -874,6 +874,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             if person is not None and person.distinct_ids:
                 distinct_id = person.distinct_ids[0]
 
+        person = get_person_by_distinct_id(team.id, distinct_id)
+        if person is None and distinct_id == recipient_email:
+            person = get_person_by_email_property(team.id, recipient_email)
+            if person is not None and person.distinct_ids:
+                distinct_id = person.distinct_ids[0]
+
         with transaction.atomic():
             ticket = Ticket.objects.create_with_number(
                 team=team,
