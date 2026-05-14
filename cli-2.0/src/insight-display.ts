@@ -5,6 +5,14 @@ export type JsonRecord = Record<string, unknown>
 
 export type ChartSeries = JsonRecord & { data: unknown[]; labels: unknown[] }
 
+/**
+ * MCP tool names whose responses we render as an insight (chart, funnel table,
+ * etc.) instead of a generic object summary. Both the renderer dispatch in
+ * `output.ts` and the `refresh=blocking` injection in `index.ts` key off this
+ * set, so a tool rename only needs one update.
+ */
+export const CHARTABLE_INSIGHT_TOOLS: ReadonlySet<string> = new Set(['insight-get'])
+
 export const Y_AXIS_PAD = 7
 const MAX_STEP = 12
 

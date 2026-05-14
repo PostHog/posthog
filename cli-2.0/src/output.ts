@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 
 import {
     buildLabelRow,
+    CHARTABLE_INSIGHT_TOOLS,
     type ChartSeries,
     formatYValue,
     getInsightType,
@@ -1207,7 +1208,7 @@ function printHumanResult(toolName: string, result: unknown): void {
         return
     }
 
-    if (toolName === 'insight-get' || toolName === 'insights-get') {
+    if (CHARTABLE_INSIGHT_TOOLS.has(toolName)) {
         printInsightDetail(result)
         return
     }
