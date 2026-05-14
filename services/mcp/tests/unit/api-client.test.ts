@@ -128,59 +128,44 @@ describe('ApiClient', () => {
         vi.unstubAllGlobals()
     })
 
-    it('forwards mcpSessionId and mcpConversationId as x-posthog-mcp-* headers when provided', async () => {
+    it.each([
+        [
+            'both ids set',
+            { mcpSessionId: 'abc123session', mcpConversationId: '01984ad9-bda4-7000-8000-abcdef012345' },
+            { 'x-posthog-mcp-session-id': 'abc123session', 'x-posthog-mcp-conversation-id': '01984ad9-bda4-7000-8000-abcdef012345' },
+        ],
+        [
+            'only session id set',
+            { mcpSessionId: 'only-session' },
+            { 'x-posthog-mcp-session-id': 'only-session' },
+        ],
+        [
+            'neither id set',
+            {},
+            {},
+        ],
+    ] as const)('forwards mcp id headers — %s', async (_label, extraConfig, expectedHeaders) => {
         const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
         vi.stubGlobal('fetch', mockFetch)
 
         const client = new ApiClient({
             apiToken: 'test-token-123',
             baseUrl: 'https://example.com',
-            mcpSessionId: 'abc123session',
-            mcpConversationId: '01984ad9-bda4-7000-8000-abcdef012345',
+            ...extraConfig,
         })
 
         await (client as any).fetch('https://example.com/api/test', { method: 'GET' })
 
         const [, options] = mockFetch.mock.calls[0]!
-        expect(options.headers['x-posthog-mcp-session-id']).toBe('abc123session')
-        expect(options.headers['x-posthog-mcp-conversation-id']).toBe('01984ad9-bda4-7000-8000-abcdef012345')
-
-        vi.unstubAllGlobals()
-    })
-
-    it('forwards only the headers that are set', async () => {
-        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
-        vi.stubGlobal('fetch', mockFetch)
-
-        const client = new ApiClient({
-            apiToken: 'test-token-123',
-            baseUrl: 'https://example.com',
-            mcpSessionId: 'only-session',
-        })
-
-        await (client as any).fetch('https://example.com/api/test', { method: 'GET' })
-
-        const [, options] = mockFetch.mock.calls[0]!
-        expect(options.headers['x-posthog-mcp-session-id']).toBe('only-session')
-        expect(options.headers).not.toHaveProperty('x-posthog-mcp-conversation-id')
-
-        vi.unstubAllGlobals()
-    })
-
-    it('omits both headers when neither id is set', async () => {
-        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
-        vi.stubGlobal('fetch', mockFetch)
-
-        const client = new ApiClient({
-            apiToken: 'test-token-123',
-            baseUrl: 'https://example.com',
-        })
-
-        await (client as any).fetch('https://example.com/api/test', { method: 'GET' })
-
-        const [, options] = mockFetch.mock.calls[0]!
-        expect(options.headers).not.toHaveProperty('x-posthog-mcp-session-id')
-        expect(options.headers).not.toHaveProperty('x-posthog-mcp-conversation-id')
+        for (const [header, value] of Object.entries(expectedHeaders)) {
+            expect(options.headers[header]).toBe(value)
+        }
+        const absent = ['x-posthog-mcp-session-id', 'x-posthog-mcp-conversation-id'].filter(
+            (h) => !(h in expectedHeaders)
+        )
+        for (const header of absent) {
+            expect(options.headers).not.toHaveProperty(header)
+        }
 
         vi.unstubAllGlobals()
     })
