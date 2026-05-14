@@ -74,7 +74,7 @@ class TestUserSecrets:
         monkeypatch.setattr(coder.subprocess, "run", fake_run)
         monkeypatch.setattr(coder, "_resolve_coder", lambda args: args)
 
-        coder.upsert_user_secret("API_KEY", "v1", env_var="API_KEY")
+        coder.upsert_user_secret("API_KEY", "v1", env_name="API_KEY")
 
         assert calls == [(["coder", "secret", "create", "API_KEY", "--env", "API_KEY"], "v1")]
 
@@ -89,12 +89,34 @@ class TestUserSecrets:
         monkeypatch.setattr(coder.subprocess, "run", fake_run)
         monkeypatch.setattr(coder, "_resolve_coder", lambda args: args)
 
-        coder.upsert_user_secret("API_KEY", "v2", env_var="API_KEY")
+        coder.upsert_user_secret("API_KEY", "v2", env_name="API_KEY")
 
         assert calls == [
             ["coder", "secret", "create", "API_KEY", "--env", "API_KEY"],
             ["coder", "secret", "update", "API_KEY", "--env", "API_KEY"],
         ]
+
+    def test_upsert_pipes_value_via_stdin_never_argv(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Security invariant: the value MUST be piped on stdin, never as a
+        # CLI flag. coder secret create's --value would expose it in argv /
+        # /proc/<pid>/cmdline / ps aux.
+        calls: list[tuple[list[str], str | None]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append((args, kwargs.get("input")))  # type: ignore[arg-type]
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+        monkeypatch.setattr(coder, "_resolve_coder", lambda args: args)
+
+        coder.upsert_user_secret("API_KEY", "super-secret", env_name="API_KEY", description="api creds")
+
+        argv, stdin = calls[0]
+        assert stdin == "super-secret"
+        assert "--value" not in argv
+        assert "super-secret" not in argv
+        assert argv[: argv.index("--env")] == ["coder", "secret", "create", "API_KEY"]
+        assert "--description" in argv and argv[argv.index("--description") + 1] == "api creds"
 
     def test_upsert_exits_when_both_create_and_update_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -104,7 +126,7 @@ class TestUserSecrets:
         monkeypatch.setattr(coder, "_resolve_coder", lambda args: args)
 
         with pytest.raises(SystemExit) as excinfo:
-            coder.upsert_user_secret("API_KEY", "v3", env_var="API_KEY")
+            coder.upsert_user_secret("API_KEY", "v3", env_name="API_KEY")
         assert excinfo.value.code == 2
 
     def test_user_secret_exists_matches_by_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1318,30 +1340,6 @@ class TestCoderUserSecrets:
         monkeypatch.setattr(coder, "list_user_secrets", lambda: None)
         assert coder.has_claude_oauth_secret() is False
 
-    def test_create_user_secret_passes_env_and_file_with_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, object] = {}
-
-        def fake_run(args: list[str], capture_output: bool = False) -> subprocess.CompletedProcess[str]:
-            file_index = args.index("--file") + 1
-            captured["args"] = args
-            captured["file_contents"] = Path(args[file_index]).read_text()
-            return subprocess.CompletedProcess(args, 0, "", "")
-
-        monkeypatch.setattr(coder, "_run", fake_run)
-        coder.create_user_secret(
-            "CLAUDE_CODE_OAUTH_TOKEN",
-            "secret-value",
-            env_name="CLAUDE_CODE_OAUTH_TOKEN",
-            description="Claude Code OAuth token (managed by hogli)",
-        )
-
-        args = captured["args"]
-        assert args[:4] == ["coder", "secret", "create", "CLAUDE_CODE_OAUTH_TOKEN"]
-        assert "--env" in args
-        assert args[args.index("--env") + 1] == "CLAUDE_CODE_OAUTH_TOKEN"
-        assert "--description" in args
-        assert captured["file_contents"] == "secret-value"
-
     def test_delete_user_secret_passes_yes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: list[list[str]] = []
 
@@ -1398,20 +1396,19 @@ class TestSetupClaudeSecret:
         deleted: list[bool] = []
         monkeypatch.setattr(devbox_cli, "_delete_legacy_keychain_token", lambda: deleted.append(True) or True)
 
-        created: list[str] = []
-
-        def fake_create(name: str, value: str, *, env_name=None, description=None) -> subprocess.CompletedProcess[str]:
-            created.append(value)
-            return subprocess.CompletedProcess([], 0, "", "")
-
-        monkeypatch.setattr(devbox_cli, "create_user_secret", fake_create)
+        upserts: list[tuple[str, str]] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "upsert_user_secret",
+            lambda name, value, **kw: upserts.append((name, value)),
+        )
 
         echoed: list[str] = []
         monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
 
         devbox_cli.maybe_configure_claude_secret(None)
 
-        assert created == ["legacy-token"]
+        assert upserts == [("CLAUDE_CODE_OAUTH_TOKEN", "legacy-token")]
         assert deleted == [True]
 
     def test_fresh_setup_creates_secret_from_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1422,16 +1419,15 @@ class TestSetupClaudeSecret:
         monkeypatch.setattr(devbox_cli.click, "echo", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli.click, "prompt", lambda *a, **kw: "fresh-token")
 
-        created: list[str] = []
-
-        def fake_create(name: str, value: str, *, env_name=None, description=None) -> subprocess.CompletedProcess[str]:
-            created.append(value)
-            return subprocess.CompletedProcess([], 0, "", "")
-
-        monkeypatch.setattr(devbox_cli, "create_user_secret", fake_create)
+        upserts: list[str] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "upsert_user_secret",
+            lambda name, value, **kw: upserts.append(value),
+        )
 
         devbox_cli.maybe_configure_claude_secret(None)
-        assert created == ["fresh-token"]
+        assert upserts == ["fresh-token"]
 
     def test_empty_prompt_skips_create(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
@@ -1444,8 +1440,8 @@ class TestSetupClaudeSecret:
         called: list[str] = []
         monkeypatch.setattr(
             devbox_cli,
-            "create_user_secret",
-            lambda *a, **kw: called.append("create") or subprocess.CompletedProcess([], 0, "", ""),
+            "upsert_user_secret",
+            lambda *a, **kw: called.append("upsert"),
         )
 
         devbox_cli.maybe_configure_claude_secret(None)
@@ -1518,45 +1514,39 @@ class TestDevboxSecretCommands:
         assert result.exit_code != 0
         assert "does not support user secrets" in result.output
 
-    def test_secret_set_creates_secret_from_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_secret_set_upserts_from_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
-        monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
         captured: dict[str, object] = {}
 
-        def fake_create(name, value, *, env_name=None, description=None) -> subprocess.CompletedProcess[str]:
+        def fake_upsert(name: str, value: str, *, env_name=None, description=None) -> None:
             captured["name"] = name
             captured["value"] = value
             captured["env_name"] = env_name
-            return subprocess.CompletedProcess([], 0, "", "")
 
-        monkeypatch.setattr(devbox_cli, "create_user_secret", fake_create)
+        monkeypatch.setattr(devbox_cli, "upsert_user_secret", fake_upsert)
 
         result = runner.invoke(cli, ["devbox:secret:set", "GH_TOKEN"], input="ghp-value\nghp-value\n")
 
         assert result.exit_code == 0
         assert captured == {"name": "GH_TOKEN", "value": "ghp-value", "env_name": "GH_TOKEN"}
 
-    def test_secret_set_replaces_existing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_secret_set_reads_value_from_file(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
-        monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [{"name": "GH_TOKEN"}])
+        source = tmp_path / "secret.txt"
+        source.write_text("file-value\n")  # trailing newline must be stripped
 
-        deleted: list[str] = []
+        captured: dict[str, object] = {}
         monkeypatch.setattr(
             devbox_cli,
-            "delete_user_secret",
-            lambda name: deleted.append(name) or subprocess.CompletedProcess([], 0, "", ""),
-        )
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_user_secret",
-            lambda *a, **kw: subprocess.CompletedProcess([], 0, "", ""),
+            "upsert_user_secret",
+            lambda name, value, **kw: captured.update({"name": name, "value": value}),
         )
 
-        result = runner.invoke(cli, ["devbox:secret:set", "GH_TOKEN"], input="new-value\nnew-value\n")
-        assert result.exit_code == 0
-        assert deleted == ["GH_TOKEN"]
+        result = runner.invoke(cli, ["devbox:secret:set", "GH_TOKEN", "--file", str(source)])
+        assert result.exit_code == 0, result.output
+        assert captured == {"name": "GH_TOKEN", "value": "file-value"}
 
     def test_secret_rm_calls_delete(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
@@ -1780,7 +1770,7 @@ class TestSetupGitSigning:
         monkeypatch.setattr(
             devbox_cli,
             "upsert_user_secret",
-            lambda name, value, env_var=None: upserts.append((name, value, env_var)),
+            lambda name, value, env_name=None, description=None: upserts.append((name, value, env_name)),
         )
 
         devbox_cli.maybe_configure_git_signing(None)
@@ -1794,7 +1784,7 @@ class TestSetupGitSigning:
         monkeypatch.setattr(
             devbox_cli,
             "upsert_user_secret",
-            lambda name, value, env_var=None: upserts.append((name, value, env_var)),
+            lambda name, value, env_name=None, description=None: upserts.append((name, value, env_name)),
         )
 
         devbox_cli.maybe_configure_git_signing(None)
@@ -1808,7 +1798,7 @@ class TestSetupGitSigning:
         monkeypatch.setattr(
             devbox_cli,
             "upsert_user_secret",
-            lambda name, value, env_var=None: upserts.append((name, value, env_var)),
+            lambda name, value, env_name=None, description=None: upserts.append((name, value, env_name)),
         )
 
         devbox_cli.maybe_configure_git_signing(True)
@@ -1822,7 +1812,7 @@ class TestSetupGitSigning:
         monkeypatch.setattr(
             devbox_cli,
             "upsert_user_secret",
-            lambda name, value, env_var=None: upserts.append((name, value, env_var)),
+            lambda name, value, env_name=None, description=None: upserts.append((name, value, env_name)),
         )
 
         devbox_cli.maybe_configure_git_signing(None)
@@ -1836,7 +1826,7 @@ class TestSetupGitSigning:
         monkeypatch.setattr(
             devbox_cli,
             "upsert_user_secret",
-            lambda name, value, env_var=None: upserts.append((name, value, env_var)),
+            lambda name, value, env_name=None, description=None: upserts.append((name, value, env_name)),
         )
 
         devbox_cli.maybe_configure_git_signing(None)

@@ -28,8 +28,6 @@ from .coder import (
     GIT_SIGNING_KEY_SECRET,
     _fail,
     create_task,
-    create_user_secret,
-    create_user_secret_from_file,
     create_workspace,
     delete_user_secret,
     delete_workspace,
@@ -300,22 +298,6 @@ def _prompt_for_claude_token() -> str | None:
     return token or None
 
 
-def _create_claude_secret(token: str) -> bool:
-    """Create the CLAUDE_CODE_OAUTH_TOKEN Coder user secret. Returns True on success."""
-    result = create_user_secret(
-        CLAUDE_CODE_OAUTH_ENV,
-        token,
-        env_name=CLAUDE_CODE_OAUTH_ENV,
-        description="Claude Code OAuth token (managed by hogli)",
-    )
-    if result.returncode == 0:
-        return True
-    click.echo(click.style("Failed to create Coder user secret.", fg="red"))
-    if result.stderr:
-        click.echo(result.stderr.strip())
-    return False
-
-
 def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
     """Optionally persist Git identity defaults for new workspaces."""
     config = load_config()
@@ -464,7 +446,7 @@ def maybe_configure_git_signing(configure_git_signing: bool | None) -> None:
         click.echo(f"  Use ECDSA or Ed25519 per the handbook: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
         return
 
-    upsert_user_secret(GIT_SIGNING_KEY_SECRET, public_key, env_var=GIT_SIGNING_KEY_SECRET)
+    upsert_user_secret(GIT_SIGNING_KEY_SECRET, public_key, env_name=GIT_SIGNING_KEY_SECRET)
 
     click.echo()
     click.echo(click.style("Git commit signing", bold=True))
@@ -572,11 +554,16 @@ def maybe_configure_claude_secret(configure_claude: bool | None) -> None:
         click.echo("  hogli now stores the Claude OAuth token as a Coder user secret so that")
         click.echo("  workspaces -- and devbox:task runs -- pick it up automatically.")
         if click.confirm("Migrate the existing Keychain entry now?", default=True):
-            if _create_claude_secret(legacy_token):
-                if _delete_legacy_keychain_token():
-                    click.echo("Migrated to Coder user secret. Removed the legacy Keychain entry.")
-                else:
-                    click.echo("Migrated to Coder user secret. (Could not remove the legacy Keychain entry.)")
+            upsert_user_secret(
+                CLAUDE_CODE_OAUTH_ENV,
+                legacy_token,
+                env_name=CLAUDE_CODE_OAUTH_ENV,
+                description="Claude Code OAuth token (managed by hogli)",
+            )
+            if _delete_legacy_keychain_token():
+                click.echo("Migrated to Coder user secret. Removed the legacy Keychain entry.")
+            else:
+                click.echo("Migrated to Coder user secret. (Could not remove the legacy Keychain entry.)")
             return
 
     click.echo()
@@ -592,13 +579,13 @@ def maybe_configure_claude_secret(configure_claude: bool | None) -> None:
         click.echo("No token provided. Skipping.")
         return
 
-    if secret_exists:
-        # Replacing an existing secret: delete first since `coder secret create`
-        # rejects a duplicate name.
-        delete_user_secret(CLAUDE_CODE_OAUTH_ENV)
-
-    if _create_claude_secret(token):
-        click.echo(f"Saved Claude token as Coder user secret '{CLAUDE_CODE_OAUTH_ENV}'.")
+    upsert_user_secret(
+        CLAUDE_CODE_OAUTH_ENV,
+        token,
+        env_name=CLAUDE_CODE_OAUTH_ENV,
+        description="Claude Code OAuth token (managed by hogli)",
+    )
+    click.echo(f"Saved Claude token as Coder user secret '{CLAUDE_CODE_OAUTH_ENV}'.")
 
 
 @click.command(name="devbox:setup", help="Install and configure local access to Coder devboxes")
@@ -1017,24 +1004,14 @@ def devbox_secret_set(name: str, file_path: Path | None, env_name: str | None, d
 
     target_env = env_name or name
 
-    # `coder secret create` rejects a duplicate name; delete-then-create keeps the
-    # CLI surface declarative ("set NAME to value") rather than two-step.
-    existing = list_user_secrets() or []
-    if any(isinstance(s, dict) and s.get("name") == name for s in existing):
-        delete_user_secret(name)
-
     if file_path is not None:
-        result = create_user_secret_from_file(name, file_path, env_name=target_env, description=description)
+        value = file_path.read_text().rstrip("\n")
     else:
         value = click.prompt(f"Value for {name}", hide_input=True, confirmation_prompt=True)
-        if not value:
-            _fail("Empty value rejected. Pass --file PATH or enter a non-empty value.")
-        result = create_user_secret(name, value, env_name=target_env, description=description)
+    if not value:
+        _fail("Empty value rejected. Pass --file PATH or enter a non-empty value.")
 
-    if result.returncode != 0:
-        if result.stderr:
-            click.echo(result.stderr.strip(), err=True)
-        _fail(f"Failed to create user secret '{name}'.")
+    upsert_user_secret(name, value, env_name=target_env, description=description)
     click.echo(f"Set user secret '{name}' (env: {target_env}). Restart workspaces to pick up the change.")
 
 
