@@ -6,15 +6,11 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import type { gitHogPRLayoutLogicType } from './gitHogPRLayoutLogicType'
 
-export type GitHogWidgetType =
-    | 'conversation'
-    | 'stats'
-    | 'files'
-    | 'reviewers'
-    | 'agent'
-    | 'dataFlow'
-    | 'riskScore'
-    | 'impact'
+export type GitHogWidgetType = 'conversation' | 'stats' | 'files' | 'agent' | 'dataFlow' | 'impact'
+
+// Widget keys that used to exist but have been retired. We filter them out of
+// persisted layouts so stale entries don't reappear in the user's grid.
+const RETIRED_WIDGETS = new Set<string>(['riskScore', 'reviewers'])
 
 export interface GitHogLayoutItem {
     i: GitHogWidgetType | string
@@ -29,14 +25,14 @@ export interface GitHogPRLayoutResponse {
     exists: boolean
 }
 
-// Default layout on the 12-col grid used by the PR workspace. Tuned so the most
-// important signals (risk + flow) land above the fold on a typical screen.
+// Default layout on the 12-col grid used by the PR workspace. Risk is shown
+// inline in the PR header strip rather than as a widget, so it doesn't appear
+// here.
 export const DEFAULT_LAYOUT: GitHogLayoutItem[] = [
-    { i: 'riskScore', x: 8, y: 0, w: 4, h: 5 },
     { i: 'dataFlow', x: 0, y: 0, w: 8, h: 7 },
-    { i: 'stats', x: 8, y: 5, w: 4, h: 3 },
+    { i: 'stats', x: 8, y: 0, w: 4, h: 3 },
     { i: 'impact', x: 0, y: 7, w: 8, h: 8 },
-    { i: 'files', x: 8, y: 8, w: 4, h: 5 },
+    { i: 'files', x: 8, y: 3, w: 4, h: 5 },
 ]
 
 const SAVE_DEBOUNCE_MS = 500
@@ -55,7 +51,7 @@ export const gitHogPRLayoutLogic = kea<gitHogPRLayoutLogicType>([
         layoutItems: [
             DEFAULT_LAYOUT as GitHogLayoutItem[],
             {
-                setLayout: (_, { items }) => items,
+                setLayout: (_, { items }) => items.filter((it) => !RETIRED_WIDGETS.has(it.i)),
                 addWidget: (state, { widget }) => {
                     if (state.some((it) => it.i === widget)) {
                         return state
@@ -67,7 +63,7 @@ export const gitHogPRLayoutLogic = kea<gitHogPRLayoutLogicType>([
                 removeWidget: (state, { widget }) => state.filter((it) => it.i !== widget),
                 loadLayoutSuccess: (state, { layout }) => {
                     if (layout && layout.exists && layout.items.length > 0) {
-                        return layout.items
+                        return layout.items.filter((it) => !RETIRED_WIDGETS.has(it.i))
                     }
                     return state
                 },

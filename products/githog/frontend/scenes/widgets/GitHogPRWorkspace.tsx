@@ -7,17 +7,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo, useState } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 
-import {
-    IconCheck,
-    IconCode,
-    IconDrag,
-    IconGitBranch,
-    IconGithub,
-    IconPlus,
-    IconRefresh,
-    IconTrash,
-    IconX,
-} from '@posthog/icons'
+import { IconCode, IconDrag, IconGitBranch, IconPlus, IconRefresh, IconTrash, IconX } from '@posthog/icons'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -64,12 +54,6 @@ import { GitHogImpactWidget } from './GitHogImpactWidget'
 // Reviewers aren't yet exposed by the githog backend; keep the mock so the
 // scene renders. Conversation messages are real (see ConversationWidget).
 
-const SAMPLE_REVIEWERS = [
-    { name: 'Marcus Webb', initials: 'MW', status: 'changes_requested' as const },
-    { name: 'Priya Kapoor', initials: 'PK', status: 'approved' as const },
-    { name: 'James Liu', initials: 'JL', status: 'pending' as const },
-]
-
 // ─── Widget registry ─────────────────────────────────────────────────────────
 
 type WidgetType = GitHogWidgetType
@@ -84,14 +68,7 @@ const WIDGET_DEFS: Record<WidgetType, { label: string; description: string; defa
         defaultW: 8,
         defaultH: 7,
     },
-    riskScore: {
-        label: 'Risk assessment',
-        description: 'Per-factor risk breakdown for this PR',
-        defaultW: 4,
-        defaultH: 5,
-    },
     stats: { label: 'Stats', description: 'Additions, deletions, and commits', defaultW: 4, defaultH: 3 },
-    reviewers: { label: 'Reviewers', description: 'Review status per reviewer', defaultW: 4, defaultH: 4 },
     impact: {
         label: 'Impact',
         description: 'Users, sessions, and surfaces this PR touches — measured from PostHog activity',
@@ -117,16 +94,6 @@ function Avatar({ initials, size = 'md' }: { initials: string; size?: 'sm' | 'md
             {initials}
         </div>
     )
-}
-
-function ReviewerDot({ status }: { status: 'approved' | 'changes_requested' | 'pending' }): JSX.Element {
-    if (status === 'approved') {
-        return <IconCheck className="size-4 text-success" />
-    }
-    if (status === 'changes_requested') {
-        return <IconX className="size-4 text-danger" />
-    }
-    return <span className="size-2 rounded-full bg-border-bold inline-block mt-1" />
 }
 
 function WidgetShell({
@@ -299,26 +266,6 @@ function StatsWidget({ pr }: { pr: GitHogPullRequestDetail }): JSX.Element {
                     <span className="text-xs text-secondary">{label}</span>
                 </div>
             ))}
-        </div>
-    )
-}
-
-function ReviewersWidget(): JSX.Element {
-    return (
-        <div className="flex flex-col divide-y divide-border">
-            <div className="px-4 py-3 flex items-center justify-between">
-                <span className="font-semibold text-sm">Reviewers</span>
-                <span className="text-xs text-secondary">mock</span>
-            </div>
-            <div className="px-4 py-3 flex flex-col gap-y-3">
-                {SAMPLE_REVIEWERS.map((r) => (
-                    <div key={r.initials} className="flex items-center gap-x-2.5">
-                        <Avatar initials={r.initials} size="sm" />
-                        <span className="text-sm flex-1">{r.name}</span>
-                        <ReviewerDot status={r.status} />
-                    </div>
-                ))}
-            </div>
         </div>
     )
 }
@@ -690,13 +637,30 @@ const RISK_LEVEL_STYLES: Record<
     critical: { tag: 'danger', bar: 'bg-danger', text: 'text-danger', label: 'High risk' },
 }
 
-function FactorBar({ value }: { value: number }): JSX.Element {
-    const pct = Math.max(0, Math.min(100, value))
-    const color = pct >= 75 ? 'bg-danger' : pct >= 50 ? 'bg-warning' : pct >= 25 ? 'bg-muted' : 'bg-success'
+function RiskInlineSummary({ owner, name, number }: GitHogPullRequestRiskScoreLogicProps): JSX.Element | null {
+    // Replaces the standalone Risk-assessment widget — surfaces the same one-
+    // line summary inline in the PR header so we don't show the data twice.
+    const logic = gitHogPullRequestRiskScoreLogic({ owner, name, number })
+    const { riskScore, riskScoreLoading } = useValues(logic)
+
+    if (riskScoreLoading && !riskScore) {
+        return <span className="text-muted text-xs italic">Assessing risk…</span>
+    }
+    if (!riskScore) {
+        return null
+    }
+    const styles = RISK_LEVEL_STYLES[riskScore.level] || RISK_LEVEL_STYLES.moderate
     return (
-        <div className="w-full h-1.5 rounded-full bg-fill-highlight-100 overflow-hidden">
-            <div className={`h-full ${color}`} style={{ width: `${pct}%` }} />
-        </div>
+        <span className="text-muted text-xs inline-flex items-baseline gap-x-1 min-w-0" title={riskScore.headline}>
+            <span className="shrink-0">Risk:</span>
+            <span className={`font-medium ${styles.text}`}>{styles.label}</span>
+            {riskScore.headline && (
+                <>
+                    <span className="text-muted shrink-0">—</span>
+                    <span className="truncate">{riskScore.headline}</span>
+                </>
+            )}
+        </span>
     )
 }
 
@@ -726,111 +690,6 @@ function FilesWidget({ files }: { files: GitHogPullRequestFile[] }): JSX.Element
                 </div>
             ))}
         </div>
-    )
-}
-
-function RiskScoreWidgetForPR({ owner, name, number }: GitHogPullRequestRiskScoreLogicProps): JSX.Element {
-    const logic = gitHogPullRequestRiskScoreLogic({ owner, name, number })
-    const { riskScore, riskScoreLoading } = useValues(logic)
-    const { refreshRiskScore } = useActions(logic)
-
-    const styles = (riskScore && RISK_LEVEL_STYLES[riskScore.level]) || RISK_LEVEL_STYLES.moderate
-    const factors = riskScore?.factors ?? []
-    const headSha = riskScore?.head_sha ?? ''
-
-    return (
-        <div className="flex flex-col divide-y divide-border">
-            <div className="px-4 py-3 flex items-center justify-between gap-2">
-                <span className="font-semibold text-sm">Risk assessment</span>
-                <LemonButton
-                    size="xsmall"
-                    type="secondary"
-                    icon={<IconRefresh />}
-                    loading={riskScoreLoading}
-                    onClick={() => refreshRiskScore()}
-                    tooltip="Force-recompute via LLM"
-                >
-                    Refresh
-                </LemonButton>
-            </div>
-            <div className="px-4 py-4 flex flex-col gap-3">
-                {riskScoreLoading && !riskScore ? (
-                    <>
-                        <LemonSkeleton className="h-6 w-24" />
-                        <LemonSkeleton className="h-4 w-full" />
-                        <LemonSkeleton className="h-4 w-3/4" />
-                    </>
-                ) : !riskScore ? (
-                    <p className="text-secondary text-sm my-0">No assessment yet. Click Refresh to generate one.</p>
-                ) : (
-                    <>
-                        <div>
-                            <LemonTag type={styles.tag} size="small">
-                                <span className={`font-semibold ${styles.text}`}>{styles.label}</span>
-                            </LemonTag>
-                        </div>
-                        {riskScore.headline && (
-                            <p className="text-sm text-primary my-0 leading-relaxed">{riskScore.headline}</p>
-                        )}
-                        {riskScore.truncated && (
-                            <LemonTag type="warning" size="small">
-                                Truncated — diff was too large for full context
-                            </LemonTag>
-                        )}
-                        <div className="flex flex-col gap-2.5 mt-1">
-                            {factors.map((f) => (
-                                <div key={f.key} className="flex flex-col gap-1">
-                                    <span className="text-xs font-medium">{f.label}</span>
-                                    <FactorBar value={f.score} />
-                                    <span className="text-xs text-muted leading-snug">{f.detail}</span>
-                                </div>
-                            ))}
-                        </div>
-                        <div className="text-xs text-muted">
-                            {headSha ? `head ${headSha.slice(0, 7)} · ` : ''}
-                            {riskScore.cached ? 'cached' : 'freshly computed'}
-                        </div>
-                    </>
-                )}
-            </div>
-        </div>
-    )
-}
-
-function RiskAssessmentBanner({ owner, name, number }: GitHogPullRequestRiskScoreLogicProps): JSX.Element {
-    // Compact pinned banner — no refresh, no close. Shows just the level and a
-    // micro-grid of factors so the reviewer scans risk at a glance.
-    const logic = gitHogPullRequestRiskScoreLogic({ owner, name, number })
-    const { riskScore, riskScoreLoading } = useValues(logic)
-
-    const styles = (riskScore && RISK_LEVEL_STYLES[riskScore.level]) || RISK_LEVEL_STYLES.moderate
-    const factors = riskScore?.factors ?? []
-
-    return (
-        <LemonCard hoverEffect={false} className="p-0 overflow-hidden">
-            <div className="px-4 py-3 flex items-center gap-3 flex-wrap">
-                <span className="font-semibold text-sm shrink-0">Risk</span>
-                {riskScoreLoading && !riskScore ? (
-                    <LemonSkeleton className="h-5 w-20 rounded-full" />
-                ) : !riskScore ? (
-                    <span className="text-secondary text-xs">No assessment yet</span>
-                ) : (
-                    <>
-                        <LemonTag type={styles.tag} size="small">
-                            <span className={`font-semibold ${styles.text}`}>{styles.label}</span>
-                        </LemonTag>
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                            {factors.map((f) => (
-                                <div key={f.key} className="flex flex-col gap-0.5 min-w-0 flex-1" title={f.detail}>
-                                    <span className="text-xs text-secondary truncate">{f.label}</span>
-                                    <FactorBar value={f.score} />
-                                </div>
-                            ))}
-                        </div>
-                    </>
-                )}
-            </div>
-        </LemonCard>
     )
 }
 
@@ -924,12 +783,8 @@ function GitHogPRWorkspaceInner({
                 return <AgentWidget owner={owner} repo={repoName} pr={pr} files={prDetail.files} diff={prDetail.diff} />
             case 'dataFlow':
                 return <DataFlowWidgetForPR owner={owner} name={repoName} number={number} files={prDetail.files} />
-            case 'riskScore':
-                return <RiskScoreWidgetForPR owner={owner} name={repoName} number={number} />
             case 'stats':
                 return <StatsWidget pr={pr} />
-            case 'reviewers':
-                return <ReviewersWidget />
             case 'impact':
                 return <GitHogImpactWidget owner={owner} name={repoName} number={number} />
             default:
@@ -1048,11 +903,13 @@ function GitHogPRWorkspaceInner({
                                     </>
                                 )}
                             </div>
+                            {/* Inline risk summary — replaces the standalone widget; the data
+                                shouldn't appear twice on the page. */}
+                            <div className="min-w-0">
+                                <RiskInlineSummary owner={owner} name={repoName} number={number} />
+                            </div>
                         </div>
                         <div className="flex items-center gap-x-2 shrink-0">
-                            <LemonButton type="secondary" size="small" icon={<IconGithub />} to={pr.url} targetBlank>
-                                View on GitHub
-                            </LemonButton>
                             <LemonMenu
                                 items={available.map((key) => ({
                                     label: WIDGET_DEFS[key].label,
@@ -1073,10 +930,6 @@ function GitHogPRWorkspaceInner({
                             </LemonMenu>
                         </div>
                     </div>
-
-                    {/* Compact risk summary pinned above the grid; the detailed `riskScore`
-                        widget below stays available for the per-factor breakdown. */}
-                    <RiskAssessmentBanner owner={owner} name={repoName} number={number} />
 
                     {widgets.length === 0 ? (
                         <div className="border-2 border-dashed rounded-lg p-16 flex flex-col items-center gap-3 text-center mt-4">

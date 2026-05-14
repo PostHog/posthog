@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
-import { IconGithub, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
+import { IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -101,7 +101,7 @@ function PRListItem({
                         )}
                         <span className="truncate">{pr.author || 'unknown'}</span>
                         <span className="text-muted">·</span>
-                        <TZLabel time={pr.updated_at} />
+                        <TZLabel time={pr.updated_at} showPopover={false} />
                     </div>
                 </div>
                 <div className="shrink-0">
@@ -128,17 +128,6 @@ export function GitHogRepoScene({ owner, name, number }: GitHogRepoSceneProps): 
                 name={repository}
                 description="Inbox of open pull requests. Click one to open its review workspace."
                 resourceType={{ type: 'githog' }}
-                actions={
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconGithub />}
-                        to={`https://github.com/${owner}/${name}`}
-                        targetBlank
-                    >
-                        View on GitHub
-                    </LemonButton>
-                }
             />
             <div className="flex gap-4 items-start min-h-[60vh]">
                 {/* Inbox column — collapses to a narrow rail */}
