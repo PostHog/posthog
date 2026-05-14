@@ -233,10 +233,11 @@ export function createErrorTrackingPipeline(
                                         // Process through Cymbal as a batch (before enrichment - Cymbal only
                                         // needs raw exception data, not person/geoip/group data).
                                         // Retry on transient failures (5xx, timeout, network errors).
-                                        // 10 tries with 100ms base sleep and 2x backoff (capped at 10s)
-                                        // gives ~30s total budget to ride out a Cymbal restart.
+                                        // 3 retries keeps the worst-case batch time (3 × 45s timeout =
+                                        // 135s) well within the 180s liveness interval, and reduces
+                                        // amplification pressure on Cymbal during degradation.
                                         .pipeBatchWithRetry(createCymbalProcessingStep(cymbalClient), {
-                                            tries: 10,
+                                            tries: 3,
                                             sleepMs: 100,
                                         })
                                         // Enrich, prepare, create, and emit events

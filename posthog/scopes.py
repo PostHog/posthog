@@ -34,6 +34,7 @@ APIScopeObject = Literal[
     "event_filter",
     "dashboard_template",
     "dataset",
+    "deployment",
     "desktop_recording",
     "early_access_feature",
     "endpoint",
@@ -92,7 +93,7 @@ APIScopeObject = Literal[
     "uploaded_media",
     "usage_metric",
     "user",
-    "user_interview_DO_NOT_USE",  # This is a super alpha product, so only exposing here for internal personal API key access
+    "user_interview",  # Alpha product — access gated by feature flag at the MCP/API layer rather than by hiding the scope.
     "visual_review",
     "warehouse_objects",
     "warehouse_table",
@@ -123,7 +124,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"clickhouse_t
 # OAuth metadata. Used for alpha / not-yet-public products where a user can
 # manually paste the scope into a PAT but where we don't want OAuth-based
 # clients (the consent screen, MCP, third-party apps) to discover it.
-OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"user_interview_DO_NOT_USE", "replay_lens"})
+OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"replay_lens"})
 
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 

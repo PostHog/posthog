@@ -37,7 +37,7 @@
     "dependencies": {
         "@modelcontextprotocol/ext-apps": "^1.5.0",
         "@modelcontextprotocol/sdk": "^1.29.0",
-        "@posthog/mcp-analytics": "npm:@posthog/mcp@0.0.2",
+        "@posthog/mcp-analytics": "npm:@posthog/mcp@0.0.6",
         "@posthog/quill": "workspace:*",
         "@toon-format/toon": "^2.1.0",
         "agents": "0.10.2",

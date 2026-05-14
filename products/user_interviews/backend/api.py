@@ -1,25 +1,28 @@
 import re
 import json
 from functools import cached_property
+from typing import Any
 from uuid import uuid4
 
 from django.conf import settings
 from django.core.files import File
+from django.db.models import QuerySet
 
 import posthoganalytics
 import posthoganalytics.ai.openai
 from drf_spectacular.utils import extend_schema
 from elevenlabs import ElevenLabs
 from posthoganalytics.ai.openai import OpenAI
-from rest_framework import serializers, viewsets
+from rest_framework import filters, serializers, viewsets
 from rest_framework.parsers import JSONParser, MultiPartParser
 
 from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.permissions import PostHogFeatureFlagPermission
 
-from .models import UserInterview
+from .models import EmailWithDisplayNameValidator, IntervieweeContext, UserInterview, UserInterviewTopic
 
 elevenlabs_client = ElevenLabs()
 
@@ -221,7 +224,173 @@ Record the agreed-upon next steps, including any additional actions that need to
 
 @extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "user_interview_DO_NOT_USE"
+    scope_object = "user_interview"
     queryset = UserInterview.objects.order_by("-created_at").select_related("created_by").all()
     serializer_class = UserInterviewSerializer
     parser_classes = [MultiPartParser, JSONParser]
+    posthog_feature_flag = "user-interviews"
+    permission_classes = [PostHogFeatureFlagPermission]
+
+
+class UserInterviewTopicSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    interviewee_cohort = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Optional cohort ID identifying who to target. Not enforced as a foreign key.",
+    )
+    interviewee_emails = serializers.ListField(
+        child=serializers.CharField(max_length=254, validators=[EmailWithDisplayNameValidator()]),
+        required=False,
+        help_text="Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids.",
+    )
+    interviewee_distinct_ids = serializers.ListField(
+        child=serializers.CharField(max_length=400),
+        required=False,
+        help_text="PostHog distinct IDs of people to interview. May be combined with interviewee_cohort and interviewee_emails.",
+    )
+    topic = serializers.CharField(
+        help_text="The product, feature, or idea you want to ask interviewees about.",
+    )
+    agent_context = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional additional system prompt for the voice agent — extra background, tone, or constraints.",
+    )
+    questions = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Ordered list of questions the voice agent should work through during the interview.",
+    )
+
+    class Meta:
+        model = UserInterviewTopic
+        fields = (
+            "id",
+            "created_by",
+            "created_at",
+            "interviewee_cohort",
+            "interviewee_emails",
+            "interviewee_distinct_ids",
+            "topic",
+            "agent_context",
+            "questions",
+        )
+        read_only_fields = ("id", "created_by", "created_at")
+
+    def validate(self, attrs: dict) -> dict:
+        cohort = (
+            attrs.get("interviewee_cohort")
+            if "interviewee_cohort" in attrs
+            else getattr(self.instance, "interviewee_cohort", None)
+        )
+        emails = (
+            attrs.get("interviewee_emails")
+            if "interviewee_emails" in attrs
+            else getattr(self.instance, "interviewee_emails", [])
+        )
+        distinct_ids = (
+            attrs.get("interviewee_distinct_ids")
+            if "interviewee_distinct_ids" in attrs
+            else getattr(self.instance, "interviewee_distinct_ids", [])
+        )
+        if cohort is None and not emails and not distinct_ids:
+            raise serializers.ValidationError(
+                "At least one of interviewee_cohort, interviewee_emails, or interviewee_distinct_ids must be provided."
+            )
+        return attrs
+
+    def create(self, validated_data: dict) -> UserInterviewTopic:
+        request = self.context["request"]
+        team = self.context["get_team"]()
+        return UserInterviewTopic.objects.create(
+            team=team,
+            created_by=request.user,
+            **validated_data,
+        )
+
+
+@extend_schema(tags=[ProductKey.USER_INTERVIEWS])
+class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """Planned user interview topics: who we want to target (cohort) and what we want to ask about."""
+
+    scope_object = "user_interview"
+    queryset = UserInterviewTopic.objects.select_related("created_by").all()
+    serializer_class = UserInterviewTopicSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["topic"]
+    posthog_feature_flag = "user-interviews"
+    permission_classes = [PostHogFeatureFlagPermission]
+
+
+class IntervieweeContextSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    interviewee_identifier = serializers.CharField(
+        max_length=400,
+        help_text="Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.",
+    )
+    agent_context = serializers.CharField(
+        max_length=10000,
+        help_text="Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.",
+    )
+
+    class Meta:
+        model = IntervieweeContext
+        fields = (
+            "id",
+            "created_by",
+            "created_at",
+            "interviewee_identifier",
+            "agent_context",
+        )
+        read_only_fields = ("id", "created_by", "created_at")
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        topic_id = self.context["topic_id"]
+        team = self.context["get_team"]()
+
+        if not UserInterviewTopic.objects.filter(id=topic_id, team_id=team.id).exists():
+            raise serializers.ValidationError({"topic": "Topic not found in this project."})
+
+        if self.instance is None:
+            interviewee_identifier = attrs.get("interviewee_identifier")
+            if IntervieweeContext.objects.filter(
+                topic_id=topic_id, interviewee_identifier=interviewee_identifier
+            ).exists():
+                raise serializers.ValidationError(
+                    {
+                        "interviewee_identifier": "A context row for this interviewee already exists on this topic. Update the existing row instead of creating a new one."
+                    }
+                )
+        return attrs
+
+    def create(self, validated_data: dict[str, Any]) -> IntervieweeContext:
+        request = self.context["request"]
+        team = self.context["get_team"]()
+        topic_id = self.context["topic_id"]
+        return IntervieweeContext.objects.create(
+            team=team,
+            topic_id=topic_id,
+            created_by=request.user,
+            **validated_data,
+        )
+
+
+@extend_schema(tags=[ProductKey.USER_INTERVIEWS])
+class IntervieweeContextViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier)."""
+
+    scope_object = "user_interview"
+    serializer_class = IntervieweeContextSerializer
+    queryset = IntervieweeContext.objects.select_related("created_by").all()
+    posthog_feature_flag = "user-interviews"
+    permission_classes = [PostHogFeatureFlagPermission]
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        return queryset.filter(
+            topic_id=self.parents_query_dict["topic_id"],
+            team_id=self.parents_query_dict["team_id"],
+        )
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        return {**super().get_serializer_context(), "topic_id": self.parents_query_dict["topic_id"]}
