@@ -22,8 +22,6 @@ export const deploymentProjectsCreateBodyNameMax = 200
 export const deploymentProjectsCreateBodySlugMax = 80
 
 export const deploymentProjectsCreateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
-export const deploymentProjectsCreateBodyRepoUrlMax = 1024
-
 export const deploymentProjectsCreateBodyDefaultBranchMax = 255
 
 export const deploymentProjectsCreateBodyOutputDirDefault = `dist`
@@ -42,32 +40,15 @@ export const DeploymentProjectsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(deploymentProjectsCreateBodySlugMax)
         .regex(deploymentProjectsCreateBodySlugRegExp)
-        .describe(
-            'URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.'
-        ),
-    repo_url: zod
-        .url()
-        .max(deploymentProjectsCreateBodyRepoUrlMax)
-        .optional()
-        .describe('HTTPS URL of the source repository this project deploys from.'),
+        .describe('URL-safe handle. Becomes the subdomain `{slug}.posthog-app.com`. Must be unique per team.'),
     default_branch: zod
         .string()
         .max(deploymentProjectsCreateBodyDefaultBranchMax)
         .optional()
         .describe('Branch PostHog tracks for deployment updates. Defaults to the repository default branch.'),
-    github_integration: zod
-        .number()
-        .nullish()
-        .describe(
-            'ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.'
-        ),
-    github_integration_id: zod
-        .number()
-        .nullish()
-        .describe('Existing PostHog GitHub integration id used for repository access.'),
+    github_integration_id: zod.number().describe('Existing PostHog GitHub integration id used for repository access.'),
     github_repo_id: zod
         .number()
-        .nullish()
         .describe("Stable GitHub repository identifier selected from the existing integration's repository list."),
     build_command: zod
         .string()
@@ -135,9 +116,6 @@ export const deploymentProjectsUpdateBodyNameMax = 200
 export const deploymentProjectsUpdateBodySlugMax = 80
 
 export const deploymentProjectsUpdateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
-export const deploymentProjectsUpdateBodyRepoUrlMax = 1024
-
-export const deploymentProjectsUpdateBodyDefaultBranchDefault = `main`
 export const deploymentProjectsUpdateBodyDefaultBranchMax = 255
 
 export const deploymentProjectsUpdateBodyOutputDirDefault = `dist`
@@ -159,21 +137,11 @@ export const DeploymentProjectsUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.'
         ),
-    repo_url: zod
-        .url()
-        .max(deploymentProjectsUpdateBodyRepoUrlMax)
-        .describe('HTTPS URL of the source repository this project deploys from.'),
     default_branch: zod
         .string()
         .max(deploymentProjectsUpdateBodyDefaultBranchMax)
-        .default(deploymentProjectsUpdateBodyDefaultBranchDefault)
+        .optional()
         .describe('Branch PostHog tracks for deployment updates. Defaults to the repository default branch.'),
-    github_integration: zod
-        .number()
-        .nullish()
-        .describe(
-            'ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.'
-        ),
     github_integration_id: zod
         .number()
         .nullish()
@@ -219,9 +187,6 @@ export const deploymentProjectsPartialUpdateBodyNameMax = 200
 export const deploymentProjectsPartialUpdateBodySlugMax = 80
 
 export const deploymentProjectsPartialUpdateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
-export const deploymentProjectsPartialUpdateBodyRepoUrlMax = 1024
-
-export const deploymentProjectsPartialUpdateBodyDefaultBranchDefault = `main`
 export const deploymentProjectsPartialUpdateBodyDefaultBranchMax = 255
 
 export const deploymentProjectsPartialUpdateBodyOutputDirDefault = `dist`
@@ -245,22 +210,11 @@ export const DeploymentProjectsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.'
         ),
-    repo_url: zod
-        .url()
-        .max(deploymentProjectsPartialUpdateBodyRepoUrlMax)
-        .optional()
-        .describe('HTTPS URL of the source repository this project deploys from.'),
     default_branch: zod
         .string()
         .max(deploymentProjectsPartialUpdateBodyDefaultBranchMax)
-        .default(deploymentProjectsPartialUpdateBodyDefaultBranchDefault)
+        .optional()
         .describe('Branch PostHog tracks for deployment updates. Defaults to the repository default branch.'),
-    github_integration: zod
-        .number()
-        .nullish()
-        .describe(
-            'ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.'
-        ),
     github_integration_id: zod
         .number()
         .nullish()

@@ -32,7 +32,11 @@ from ..access import has_deployments_access
 from ..adapters import CloudflareError, get_cloudflare_adapter, get_github_adapter
 from ..adapters.github import GitHubError, repo_url_from_full_name
 from ..models import DeploymentProject
-from ..serializers import DeploymentProjectCreateSerializer, DeploymentProjectSerializer
+from ..serializers import (
+    DeploymentProjectCreateSerializer,
+    DeploymentProjectSerializer,
+    DeploymentProjectWriteSerializer,
+)
 from ..services import provision_project
 
 
@@ -89,21 +93,12 @@ def _resolve_repository_config(
     data: dict[str, Any], *, team_id: int, user_access_control: UserAccessControl
 ) -> ResolvedRepositoryConfig:
     github_integration_id = data.get("github_integration_id")
-
     if github_integration_id is None:
-        repo_url = str(data.get("repo_url") or "").strip()
-        if not repo_url:
-            raise ValidationError({"repo_url": "This field is required when github_integration_id is not set."})
-        return ResolvedRepositoryConfig(
-            repo_url=repo_url,
-            default_branch=str(data.get("default_branch") or "main").strip() or "main",
-            github_integration_id=None,
-            github_repo_id=None,
-        )
+        raise ValidationError({"github_integration_id": "This field is required."})
 
     github_repo_id = data.get("github_repo_id")
     if github_repo_id is None:
-        raise ValidationError({"github_repo_id": "This field is required when github_integration_id is set."})
+        raise ValidationError({"github_repo_id": "This field is required."})
 
     integration = _get_team_github_integration(
         team_id=team_id,
@@ -250,11 +245,10 @@ class DeploymentProjectViewSet(
         return Response(self.get_serializer(project).data, status=status.HTTP_201_CREATED)
 
     def _save_with_repository_config(self, instance: DeploymentProject, serializer: Any) -> DeploymentProject:
-        tracking_fields = {"github_integration_id", "github_repo_id", "repo_url", "default_branch"}
+        tracking_fields = {"github_integration_id", "github_repo_id", "default_branch"}
         save_kwargs: dict[str, Any] = {}
         if tracking_fields.intersection(serializer.validated_data):
             merged_data = {
-                "repo_url": instance.repo_url,
                 "default_branch": instance.default_branch,
                 "github_integration_id": instance.github_integration_id,
                 "github_repo_id": instance.github_repo_id,
@@ -273,18 +267,31 @@ class DeploymentProjectViewSet(
             }
         return serializer.save(**save_kwargs)
 
-    @extend_schema(request=DeploymentProjectSerializer, responses={status.HTTP_200_OK: DeploymentProjectSerializer})
+    @extend_schema(
+        request=DeploymentProjectWriteSerializer, responses={status.HTTP_200_OK: DeploymentProjectSerializer}
+    )
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data)
+        serializer = DeploymentProjectWriteSerializer(
+            instance,
+            data=request.data,
+            context=self.get_serializer_context(),
+        )
         serializer.is_valid(raise_exception=True)
         project = self._save_with_repository_config(instance, serializer)
         return Response(self.get_serializer(project).data, status=status.HTTP_200_OK)
 
-    @extend_schema(request=DeploymentProjectSerializer, responses={status.HTTP_200_OK: DeploymentProjectSerializer})
+    @extend_schema(
+        request=DeploymentProjectWriteSerializer, responses={status.HTTP_200_OK: DeploymentProjectSerializer}
+    )
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer = DeploymentProjectWriteSerializer(
+            instance,
+            data=request.data,
+            partial=True,
+            context=self.get_serializer_context(),
+        )
         serializer.is_valid(raise_exception=True)
         project = self._save_with_repository_config(instance, serializer)
         return Response(self.get_serializer(project).data, status=status.HTTP_200_OK)

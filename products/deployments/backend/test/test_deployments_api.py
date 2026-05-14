@@ -103,35 +103,21 @@ class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
         slugs = [p["slug"] for p in results]
         self.assertEqual(slugs, ["alive"])
 
-    def test_github_integration_is_persisted_and_returned(self) -> None:
-        # POST accepts a github_integration id pointing at the team's
-        # `posthog.Integration` row; the FK is returned on GETs (it's a
-        # reference, not a secret — the access token lives on Integration).
-        integration = Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="42",
-            sensitive_config={"access_token": "ghs_short_lived"},
-        )
+    def test_create_project_rejects_repo_url_input(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/deployment_projects/",
             {
                 "name": "Site",
                 "slug": "site",
                 "repo_url": "https://github.com/example-org/site",
-                "github_integration": integration.id,
+                "github_integration_id": 42,
+                "github_repo_id": 42,
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
-        body = response.json()
-        self.assertEqual(body["github_integration"], integration.id)
-        # Verify the FK is stored on the row.
-        project = DeploymentProject.all_teams.get(pk=body["id"])
-        self.assertEqual(project.github_integration_id, integration.id)
-        # No secrets exposed via the API surface.
-        self.assertNotIn("access_token", body)
-        self.assertNotIn("sensitive_config", body)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json().get("attr"), "repo_url")
 
     def test_github_integration_must_belong_to_team(self) -> None:
         # An integration from another team is not selectable.
@@ -147,13 +133,12 @@ class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
             {
                 "name": "Site",
                 "slug": "site",
-                "repo_url": "https://github.com/example-org/site",
-                "github_integration": outsider.id,
+                "github_integration_id": outsider.id,
+                "github_repo_id": 42,
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
-        self.assertEqual(response.json().get("attr"), "github_integration")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
 
     def test_github_integration_kind_must_be_github(self) -> None:
         slack = Integration.objects.create(
@@ -167,21 +152,32 @@ class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
             {
                 "name": "Site",
                 "slug": "site",
-                "repo_url": "https://github.com/example-org/site",
-                "github_integration": slack.id,
+                "github_integration_id": slack.id,
+                "github_repo_id": 42,
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
-        self.assertEqual(response.json().get("attr"), "github_integration")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
 
-    def test_create_provisions_cloudflare_via_null_adapter(self) -> None:
+    @patch("products.deployments.backend.api.deployment_projects.get_github_adapter")
+    def test_create_provisions_cloudflare_via_null_adapter(self, mock_get_github_adapter: MagicMock) -> None:
+        integration = self._github_integration()
+        adapter = mock_get_github_adapter.return_value
+        adapter.get_repository_by_id.return_value = GitHubRepository(
+            id=42,
+            full_name="example-org/site",
+            default_branch="main",
+            html_url="https://github.com/example-org/site",
+        )
+        adapter.get_branch.return_value = GitHubBranch(name="main", sha="abc123")
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/deployment_projects/",
             {
                 "name": "Site",
                 "slug": "site",
-                "repo_url": "https://github.com/example-org/site",
+                "github_integration_id": integration.id,
+                "github_repo_id": 42,
             },
             format="json",
         )
@@ -227,6 +223,37 @@ class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
         self.assertEqual(body["default_branch"], "master")
         project = DeploymentProject.all_teams.get(team_id=self.team.id, github_repo_id=42)
         self.assertEqual(project.github_integration_id, integration.id)
+
+    @patch("products.deployments.backend.api.deployment_projects.get_github_adapter")
+    def test_update_project_rejects_repo_url_input(self, mock_get_github_adapter: MagicMock) -> None:
+        integration = self._github_integration()
+        project = DeploymentProject.objects.create(
+            team_id=self.team.id,
+            name="Site",
+            slug="site",
+            repo_url="https://github.com/PostHog/posthog",
+            github_integration_id=integration.id,
+            github_repo_id=42,
+            default_branch="master",
+        )
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/deployment_projects/{project.id}/",
+            {
+                "name": "Renamed site",
+                "slug": "site",
+                "repo_url": "https://github.com/Other/repo",
+                "github_integration_id": integration.id,
+                "github_repo_id": 42,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json().get("attr"), "repo_url")
+        mock_get_github_adapter.assert_not_called()
+        project.refresh_from_db()
+        self.assertEqual(project.repo_url, "https://github.com/PostHog/posthog")
 
     @parameterized.expand(
         [
