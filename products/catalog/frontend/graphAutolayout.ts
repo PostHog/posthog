@@ -3,20 +3,21 @@ import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
 
 import { getElk } from 'lib/elk'
 
-export const GRAPH_NODE_WIDTH = 220
-export const GRAPH_NODE_HEIGHT = 80
+export const GRAPH_NODE_WIDTH = 260
+export const GRAPH_NODE_HEIGHT = 116
 
 const ELK_OPTIONS = {
     'elk.algorithm': 'stress',
     'elk.stress.iterationLimit': '500',
     'elk.stress.epsilon': '0.0001',
-    // The default desired-edge-length is ~100 — way too tight for our card-sized nodes (220×80).
-    // Bumping it gives the stress solver room to keep cards from overlapping.
-    'elk.stress.desiredEdgeLength': '320',
+    // The default desired-edge-length is ~100 — way too tight for our card-sized
+    // nodes (260×116). Bumping it gives the stress solver room to keep cards
+    // from overlapping.
+    'elk.stress.desiredEdgeLength': '420',
     'elk.padding': '[left=40, top=40, right=40, bottom=40]',
-    'elk.spacing.nodeNode': '120',
+    'elk.spacing.nodeNode': '180',
     'elk.separateConnectedComponents': 'true',
-    'elk.componentLayout.componentsSpacing': '160',
+    'elk.componentLayout.componentsSpacing': '220',
 }
 
 export async function applyForceLayout<N extends Node>(nodes: N[], edges: Edge[]): Promise<N[]> {

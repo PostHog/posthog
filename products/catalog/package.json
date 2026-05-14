@@ -14,6 +14,7 @@
         "@types/react": "*",
         "@xyflow/react": "*",
         "elkjs": "*",
-        "react": "*"
+        "react": "*",
+        "use-resize-observer": "*"
     }
 }
