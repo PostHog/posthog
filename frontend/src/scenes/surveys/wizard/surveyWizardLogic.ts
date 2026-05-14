@@ -278,11 +278,11 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 monthly: 30,
             }
             const { value: frequencyValue } = values.recommendedFrequency
-            actions.setSurveyValue('schedule', frequencyValue === 'once' ? SurveySchedule.Once : SurveySchedule.Always)
-            actions.setSurveyValue('conditions', {
-                ...template.conditions,
-                seenSurveyWaitPeriodInDays: frequencyToDays[frequencyValue],
-            })
+            const isOnce = frequencyValue === 'once'
+            actions.setSurveyValue('schedule', isOnce ? SurveySchedule.Once : SurveySchedule.Recurring)
+            actions.setSurveyValue('iteration_count', isOnce ? 0 : 10)
+            actions.setSurveyValue('iteration_frequency_days', isOnce ? 0 : frequencyToDays[frequencyValue])
+            actions.setSurveyValue('conditions', template.conditions ?? null)
 
             actions.reportSurveyTemplateClicked(template.templateType, SURVEY_CREATED_SOURCE.SURVEY_WIZARD)
         },
