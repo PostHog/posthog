@@ -717,7 +717,6 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
             {
                 setPendingDeepLink: (_, { target }) => target,
                 openDialog: () => null,
-                closeDialog: () => null,
             },
         ],
     }),
@@ -865,6 +864,11 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
         },
         closeDialog: () => {
             actions.resetNotificationForm()
+            // If a deep link arrived while another dialog was already open it stayed pending —
+            // try to consume it now that we're no longer blocked by `isOpen`.
+            if (values.pendingDeepLink) {
+                actions.consumePendingDeepLink()
+            }
         },
         submitNotificationFormSuccess: async () => {
             const updatedNotification = values.editingNotification

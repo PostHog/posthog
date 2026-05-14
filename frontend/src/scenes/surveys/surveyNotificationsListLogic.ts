@@ -89,15 +89,8 @@ export const surveyNotificationsListLogic = kea<surveyNotificationsListLogicType
                 knownSurveys.filter((survey) => !survey.archived),
         ],
         notifications: [
-            (s) => [s.allNotifications, s.knownSurveyIds, s.knownSurveysLoading],
-            (
-                allNotifications: HogFunctionType[],
-                knownSurveyIds: Set<string>,
-                knownSurveysLoading: boolean
-            ): HogFunctionType[] => {
-                if (knownSurveysLoading) {
-                    return []
-                }
+            (s) => [s.allNotifications, s.knownSurveyIds],
+            (allNotifications: HogFunctionType[], knownSurveyIds: Set<string>): HogFunctionType[] => {
                 return allNotifications.filter((notification) => {
                     const linkedIds = getSurveyIdsFromNotificationFilters(notification.filters)
                     if (linkedIds.length === 0) {
