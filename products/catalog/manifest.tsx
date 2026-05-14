@@ -7,6 +7,14 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 export const manifest: ProductManifest = {
     name: 'Catalog',
     scenes: {
+        CatalogProposals: {
+            import: () => import('./frontend/CatalogProposalsScene'),
+            projectBased: true,
+            name: 'Proposals',
+            activityScope: 'CatalogNode',
+            layout: 'app-container',
+            iconType: 'data_warehouse',
+        },
         CatalogList: {
             import: () => import('./frontend/CatalogListScene'),
             projectBased: true,
@@ -33,12 +41,16 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/catalog': ['CatalogList', 'catalog'],
+        '/catalog': ['CatalogProposals', 'catalog'],
+        '/catalog/proposals/:id': ['CatalogProposals', 'catalogProposal'],
+        '/catalog/list': ['CatalogList', 'catalogList'],
         '/catalog/graph': ['CatalogGraph', 'catalogGraph'],
         '/catalog/definitions/:id': ['CatalogDefinition', 'catalogDefinition'],
     },
     urls: {
         catalog: (): string => '/catalog',
+        catalogProposal: (id: string): string => `/catalog/proposals/${id}`,
+        catalogList: (): string => '/catalog/list',
         catalogGraph: (): string => '/catalog/graph',
         catalogDefinition: (id: string): string => `/catalog/definitions/${id}`,
     },
@@ -54,7 +66,7 @@ export const manifest: ProductManifest = {
             iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
             flag: FEATURE_FLAGS.CATALOG,
             tags: ['alpha'],
-            sceneKey: 'CatalogList',
+            sceneKey: 'CatalogProposals',
         },
     ],
 }
