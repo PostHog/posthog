@@ -5,7 +5,8 @@
     },
     "dependencies": {
         "kea": "catalog:",
-        "kea-loaders": "catalog:"
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "*",
@@ -13,6 +14,7 @@
         "@types/react": "*",
         "@xyflow/react": "*",
         "elkjs": "*",
-        "react": "*"
+        "react": "*",
+        "react-grid-layout": "*"
     }
 }
