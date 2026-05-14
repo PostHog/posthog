@@ -1,6 +1,7 @@
 import json
 import math
 import hashlib
+from datetime import UTC, datetime
 from typing import Any
 
 from django.conf import settings
@@ -28,12 +29,33 @@ CSP_SIGNAL_ENABLED_CACHE_TTL_SECONDS = 60
 CSP_SIGNAL_ENABLED_CACHE_KEY_PREFIX = "csp_signal_enabled"
 CSP_SIGNAL_TASK_SOFT_TIME_LIMIT_SECONDS = 15
 CSP_SIGNAL_TASK_TIME_LIMIT_SECONDS = 30
+CSP_SIGNAL_DAILY_COUNT_KEY_PREFIX = "csp_signal_daily_count"
+CSP_SIGNAL_DAILY_COUNT_TTL_SECONDS = 60 * 60 * 25  # 25h, safe margin past UTC midnight
 
 CSP_SIGNAL_DROPPED_COUNTER = Counter(
     "csp_signal_dropped_total",
     "CSP signal emissions skipped before reaching the signals pipeline, tagged by reason.",
     labelnames=["reason"],
 )
+
+CSP_SIGNAL_OUTCOME_COUNTER = Counter(
+    "csp_signal_outcome_total",
+    "Per-team count of CSP signals embedded into the signals pipeline vs dropped.",
+    labelnames=["team_id", "outcome"],
+)
+
+
+def _record_outcome(team_id: int, n: int, outcome: str) -> None:
+    if n <= 0:
+        return
+    CSP_SIGNAL_OUTCOME_COUNTER.labels(team_id=str(team_id), outcome=outcome).inc(n)
+
+
+def _record_dropped(team_id: int, n: int, reason: str) -> None:
+    if n <= 0:
+        return
+    CSP_SIGNAL_DROPPED_COUNTER.labels(reason=reason).inc(n)
+    _record_outcome(team_id, n, "dropped")
 
 
 def _stringify(value: object) -> str:
@@ -65,6 +87,11 @@ def _source_id(fingerprint: str) -> str:
 
 def _enabled_cache_key(team_id: int) -> str:
     return f"{CSP_SIGNAL_ENABLED_CACHE_KEY_PREFIX}:{team_id}"
+
+
+def _daily_count_key(team_id: int) -> str:
+    today = datetime.now(UTC).date().isoformat()
+    return f"{CSP_SIGNAL_DAILY_COUNT_KEY_PREFIX}:{team_id}:{today}"
 
 
 def _is_csp_signal_enabled(team_id: int) -> bool:
@@ -155,27 +182,51 @@ def enqueue_csp_violation_signals(team_id: int, properties_list: list[dict]) -> 
     emit twice. Signal emission itself is best-effort: if it fails, the violation event has
     already been captured through the normal ingestion path.
     """
+    total = len(properties_list)
+    if total == 0:
+        return 0
+
     if not settings.CSP_SIGNAL_EMISSION_ENABLED:
-        CSP_SIGNAL_DROPPED_COUNTER.labels(reason="ops_kill_switch").inc()
+        _record_dropped(team_id, total, reason="ops_kill_switch")
         return 0
 
     if not _is_csp_signal_enabled(team_id):
-        CSP_SIGNAL_DROPPED_COUNTER.labels(reason="source_disabled").inc()
+        _record_dropped(team_id, total, reason="source_disabled")
         return 0
 
     client = get_client()
+    daily_key = _daily_count_key(team_id)
+    cap = settings.CSP_SIGNAL_DAILY_CAP_PER_TEAM
+    try:
+        current_raw = client.get(daily_key)
+        current_count = int(current_raw) if current_raw is not None else 0
+    except Exception:
+        logger.exception("csp_signal_daily_count_read_failed", team_id=team_id)
+        _record_dropped(team_id, total, reason="redis_count_error")
+        return 0
+
+    remaining_budget = max(0, cap - current_count)
+    if remaining_budget == 0:
+        _record_dropped(team_id, total, reason="daily_cap_reached")
+        return 0
+
     signals_to_emit: list[dict] = []
     acquired_keys: list[str] = []
+    over_cap = 0
     for properties in properties_list:
+        if len(signals_to_emit) >= remaining_budget:
+            over_cap += 1
+            continue
         fingerprint = _fingerprint(properties)
         key = _dedup_key(team_id, fingerprint)
         try:
             acquired = client.set(key, "1", nx=True, ex=CSP_SIGNAL_DEDUP_TTL_SECONDS)
         except Exception:
-            CSP_SIGNAL_DROPPED_COUNTER.labels(reason="redis_throttle_error").inc()
+            _record_dropped(team_id, 1, reason="redis_throttle_error")
             logger.exception("csp_signal_throttle_check_failed", team_id=team_id, fingerprint=fingerprint)
             continue
         if not acquired:
+            _record_dropped(team_id, 1, reason="duplicate")
             continue
         acquired_keys.append(key)
         signals_to_emit.append(
@@ -185,6 +236,9 @@ def enqueue_csp_violation_signals(team_id: int, properties_list: list[dict]) -> 
                 "extra": _build_extra(properties),
             }
         )
+
+    if over_cap:
+        _record_dropped(team_id, over_cap, reason="daily_cap_reached")
 
     if not signals_to_emit:
         return 0
@@ -199,10 +253,20 @@ def enqueue_csp_violation_signals(team_id: int, properties_list: list[dict]) -> 
                 client.delete(key)
             except Exception:
                 pass
-        CSP_SIGNAL_DROPPED_COUNTER.labels(reason="celery_enqueue_failed").inc()
+        _record_dropped(team_id, len(signals_to_emit), reason="celery_enqueue_failed")
         logger.exception("csp_signal_celery_enqueue_failed", team_id=team_id, signal_count=len(signals_to_emit))
         return 0
 
+    try:
+        new_count = client.incrby(daily_key, len(signals_to_emit))
+        # First write today seeds the key; set a TTL so it expires shortly after UTC midnight.
+        if new_count == len(signals_to_emit):
+            client.expire(daily_key, CSP_SIGNAL_DAILY_COUNT_TTL_SECONDS)
+    except Exception:
+        # Counter failure shouldn't fail the emit — Celery has already accepted the work.
+        logger.exception("csp_signal_daily_count_increment_failed", team_id=team_id)
+
+    _record_outcome(team_id, len(signals_to_emit), "embedded")
     return len(signals_to_emit)
 
 

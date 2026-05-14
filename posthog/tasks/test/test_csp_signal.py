@@ -11,6 +11,7 @@ from posthog.tasks.csp_signal import (
     CSP_SIGNAL_DEDUP_TTL_SECONDS,
     _build_description,
     _build_extra,
+    _daily_count_key,
     _dedup_key,
     _enabled_cache_key,
     _fingerprint,
@@ -148,8 +149,9 @@ class TestCSPSignalThrottle(BaseTest):
         from posthog.redis import get_client
 
         client = get_client()
-        for key in client.scan_iter(match="csp_signal_dedup:*"):
-            client.delete(key)
+        for pattern in ("csp_signal_dedup:*", "csp_signal_daily_count:*"):
+            for key in client.scan_iter(match=pattern):
+                client.delete(key)
         cache.delete(_enabled_cache_key(self.team.id))
         _enable_csp_signals(self.team.id)
 
@@ -239,6 +241,55 @@ class TestCSPSignalThrottle(BaseTest):
 
         key = _dedup_key(self.team.id, _fingerprint(properties))
         assert get_client().get(key) is None
+
+    @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
+    def test_daily_count_increments_after_dispatch(self, mock_delay: MagicMock) -> None:
+        from posthog.redis import get_client
+
+        enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
+        count = get_client().get(_daily_count_key(self.team.id))
+        assert int(count) == 1
+
+    @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
+    def test_daily_cap_drops_violations_once_reached(self, mock_delay: MagicMock) -> None:
+        from django.test import override_settings
+
+        from posthog.redis import get_client
+
+        # Seed counter at cap
+        get_client().set(_daily_count_key(self.team.id), "3")
+
+        with override_settings(CSP_SIGNAL_DAILY_CAP_PER_TEAM=3):
+            result = enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
+        assert result == 0
+        mock_delay.assert_not_called()
+
+    @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
+    def test_daily_cap_partially_drops_when_batch_overflows(self, mock_delay: MagicMock) -> None:
+        from django.test import override_settings
+
+        from posthog.redis import get_client
+
+        # Two slots remaining
+        get_client().set(_daily_count_key(self.team.id), "8")
+        batch = [
+            _csp_properties(),
+            _csp_properties(**{"$csp_blocked_url": "https://a/x.js"}),
+            _csp_properties(**{"$csp_blocked_url": "https://b/x.js"}),
+            _csp_properties(**{"$csp_blocked_url": "https://c/x.js"}),
+            _csp_properties(**{"$csp_blocked_url": "https://d/x.js"}),
+        ]
+
+        with override_settings(CSP_SIGNAL_DAILY_CAP_PER_TEAM=10):
+            result = enqueue_csp_violation_signals(self.team.id, batch)
+
+        assert result == 2
+        mock_delay.assert_called_once()
+        kwargs = mock_delay.call_args.kwargs
+        assert len(kwargs["signals"]) == 2
+        # Counter advanced from 8 to 10, not 13.
+        count = get_client().get(_daily_count_key(self.team.id))
+        assert int(count) == 10
 
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
     def test_ops_kill_switch_short_circuits_emission(self, mock_delay: MagicMock) -> None:
