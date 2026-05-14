@@ -22,6 +22,7 @@ packages:
     - tools/*
     - '!tools/hedgebox-dummy'
     - rust/cyclotron-node
+    - cli-2.0
 
 catalog:
     # Kea ecosystem - state management
