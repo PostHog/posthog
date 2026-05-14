@@ -64,23 +64,19 @@ const SAMPLE_COMMENTS = [
 
 // ─── Widget registry ─────────────────────────────────────────────────────────
 
-type WidgetType = 'conversation' | 'stats' | 'files' | 'reviewers' | 'agent' | 'dataFlow' | 'riskScore'
+// Note: the agent chat and risk assessment are pinned and not part of this
+// menu — they're always visible at the right and at the top respectively.
+type WidgetType = 'conversation' | 'stats' | 'files' | 'reviewers' | 'dataFlow'
 
-const WIDGET_DEFS: Record<WidgetType, { label: string; description: string; column: 'main' | 'side' }> = {
-    conversation: { label: 'Conversation', description: 'Comments and review discussion', column: 'main' },
-    files: { label: 'Files changed', description: 'Modified files with line counts', column: 'main' },
-    agent: { label: 'Ask the agent', description: 'Chat with an AI agent about this PR', column: 'main' },
-    dataFlow: { label: 'Data flow', description: 'AI-generated execution flow before vs after', column: 'main' },
-    riskScore: {
-        label: 'Risk assessment',
-        description: 'Per-factor risk breakdown for this PR',
-        column: 'side',
-    },
-    stats: { label: 'Stats', description: 'Additions, deletions, and commits', column: 'side' },
-    reviewers: { label: 'Reviewers', description: 'Review status per reviewer', column: 'side' },
+const WIDGET_DEFS: Record<WidgetType, { label: string; description: string }> = {
+    dataFlow: { label: 'Data flow', description: 'AI-generated execution flow before vs after' },
+    files: { label: 'Files changed', description: 'Modified files with line counts' },
+    stats: { label: 'Stats', description: 'Additions, deletions, and commits' },
+    conversation: { label: 'Conversation', description: 'Comments and review discussion' },
+    reviewers: { label: 'Reviewers', description: 'Review status per reviewer' },
 }
 
-const DEFAULT_WIDGETS: WidgetType[] = ['riskScore', 'dataFlow', 'files', 'stats']
+const DEFAULT_WIDGETS: WidgetType[] = ['dataFlow', 'files', 'stats']
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
@@ -355,71 +351,40 @@ function FactorBar({ value }: { value: number }): JSX.Element {
     )
 }
 
-function RiskScoreWidgetForPR({ owner, name, number }: GitHogPullRequestRiskScoreLogicProps): JSX.Element {
+function RiskAssessmentBanner({ owner, name, number }: GitHogPullRequestRiskScoreLogicProps): JSX.Element {
+    // Compact pinned banner — no refresh, no close. Shows just the level and a
+    // micro-grid of factors so the reviewer scans risk at a glance.
     const logic = gitHogPullRequestRiskScoreLogic({ owner, name, number })
     const { riskScore, riskScoreLoading } = useValues(logic)
-    const { refreshRiskScore } = useActions(logic)
 
     const styles = (riskScore && RISK_LEVEL_STYLES[riskScore.level]) || RISK_LEVEL_STYLES.moderate
     const factors = riskScore?.factors ?? []
-    const headSha = riskScore?.head_sha ?? ''
 
     return (
-        <div className="flex flex-col divide-y divide-border">
-            <div className="px-4 py-3 flex items-center justify-between gap-2">
-                <span className="font-semibold text-sm">Risk assessment</span>
-                <LemonButton
-                    size="xsmall"
-                    type="secondary"
-                    icon={<IconRefresh />}
-                    loading={riskScoreLoading}
-                    onClick={() => refreshRiskScore()}
-                    tooltip="Force-recompute via LLM"
-                >
-                    Refresh
-                </LemonButton>
-            </div>
-            <div className="px-4 py-4 flex flex-col gap-3">
+        <LemonCard hoverEffect={false} className="p-0 overflow-hidden">
+            <div className="px-4 py-3 flex items-center gap-3 flex-wrap">
+                <span className="font-semibold text-sm shrink-0">Risk</span>
                 {riskScoreLoading && !riskScore ? (
-                    <>
-                        <LemonSkeleton className="h-6 w-24" />
-                        <LemonSkeleton className="h-4 w-full" />
-                        <LemonSkeleton className="h-4 w-3/4" />
-                    </>
+                    <LemonSkeleton className="h-5 w-20 rounded-full" />
                 ) : !riskScore ? (
-                    <p className="text-secondary text-sm my-0">No assessment yet. Click Refresh to generate one.</p>
+                    <span className="text-secondary text-xs">No assessment yet</span>
                 ) : (
                     <>
-                        <div>
-                            <LemonTag type={styles.tag} size="small">
-                                <span className={`font-semibold ${styles.text}`}>{styles.label}</span>
-                            </LemonTag>
-                        </div>
-                        {riskScore.headline && (
-                            <p className="text-sm text-primary my-0 leading-relaxed">{riskScore.headline}</p>
-                        )}
-                        {riskScore.truncated && (
-                            <LemonTag type="warning" size="small">
-                                Truncated — diff was too large for full context
-                            </LemonTag>
-                        )}
-                        <div className="flex flex-col gap-2.5 mt-1">
+                        <LemonTag type={styles.tag} size="small">
+                            <span className={`font-semibold ${styles.text}`}>{styles.label}</span>
+                        </LemonTag>
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
                             {factors.map((f) => (
-                                <div key={f.key} className="flex flex-col gap-1">
-                                    <span className="text-xs font-medium">{f.label}</span>
+                                <div key={f.key} className="flex flex-col gap-0.5 min-w-0 flex-1" title={f.detail}>
+                                    <span className="text-xs text-secondary truncate">{f.label}</span>
                                     <FactorBar value={f.score} />
-                                    <span className="text-xs text-muted leading-snug">{f.detail}</span>
                                 </div>
                             ))}
-                        </div>
-                        <div className="text-xs text-muted">
-                            {headSha ? `head ${headSha.slice(0, 7)} · ` : ''}
-                            {riskScore.cached ? 'cached' : 'freshly computed'}
                         </div>
                     </>
                 )}
             </div>
-        </div>
+        </LemonCard>
     )
 }
 
@@ -453,10 +418,6 @@ function GitHogPRWorkspaceInner({
 
     const available = (Object.keys(WIDGET_DEFS) as WidgetType[]).filter((k) => !widgets.includes(k))
 
-    const mainWidgets = widgets.filter((w) => WIDGET_DEFS[w].column === 'main')
-    const sideWidgets = widgets.filter((w) => WIDGET_DEFS[w].column === 'side')
-    const hasSide = sideWidgets.length > 0
-
     if (prDetailLoading && !prDetail) {
         return (
             <div className="flex items-center justify-center py-16">
@@ -484,12 +445,8 @@ function GitHogPRWorkspaceInner({
                 return <ConversationWidget />
             case 'files':
                 return <FilesWidget files={prDetail.files} />
-            case 'agent':
-                return <AgentWidget owner={owner} repo={repoName} pr={pr} files={prDetail.files} diff={prDetail.diff} />
             case 'dataFlow':
                 return <DataFlowWidgetForPR owner={owner} name={repoName} number={number} />
-            case 'riskScore':
-                return <RiskScoreWidgetForPR owner={owner} name={repoName} number={number} />
             case 'stats':
                 return <StatsWidget pr={pr} />
             case 'reviewers':
@@ -584,44 +541,48 @@ function GitHogPRWorkspaceInner({
                 </LemonMenu>
             </div>
 
-            {widgets.length === 0 ? (
-                <div className="border-2 border-dashed rounded-lg p-16 flex flex-col items-center gap-3 text-center mt-4">
-                    <p className="text-secondary text-sm my-0">Add widgets to build your review workspace</p>
-                    <LemonMenu
-                        items={available.map((key) => ({
-                            label: WIDGET_DEFS[key].label,
-                            onClick: () => addWidget(key),
-                        }))}
-                        closeParentPopoverOnClickInside
-                    >
-                        <LemonButton type="primary" icon={<IconPlus />} size="small">
-                            Add widget
-                        </LemonButton>
-                    </LemonMenu>
-                </div>
-            ) : (
-                <div className="flex gap-4 items-start mt-2">
-                    {(mainWidgets.length > 0 || !hasSide) && (
-                        <div className="flex flex-col gap-y-4 flex-1 min-w-0">
-                            {mainWidgets.map((type) => (
-                                <WidgetShell key={type} onRemove={() => removeWidget(type)}>
-                                    {renderWidget(type)}
-                                </WidgetShell>
-                            ))}
-                        </div>
-                    )}
+            <div className="flex gap-4 items-start mt-2">
+                {/* Main widget column — pinned risk banner on top, then stackable widgets */}
+                <div className="flex flex-col gap-y-4 flex-1 min-w-0">
+                    <RiskAssessmentBanner owner={owner} name={repoName} number={number} />
 
-                    {hasSide && (
-                        <div className="flex flex-col gap-y-4 w-72 shrink-0">
-                            {sideWidgets.map((type) => (
-                                <WidgetShell key={type} onRemove={() => removeWidget(type)}>
-                                    {renderWidget(type)}
-                                </WidgetShell>
-                            ))}
+                    {widgets.length === 0 ? (
+                        <div className="border-2 border-dashed rounded-lg p-16 flex flex-col items-center gap-3 text-center">
+                            <p className="text-secondary text-sm my-0">Add widgets to build your review workspace</p>
+                            <LemonMenu
+                                items={available.map((key) => ({
+                                    label: WIDGET_DEFS[key].label,
+                                    onClick: () => addWidget(key),
+                                }))}
+                                closeParentPopoverOnClickInside
+                            >
+                                <LemonButton type="primary" icon={<IconPlus />} size="small">
+                                    Add widget
+                                </LemonButton>
+                            </LemonMenu>
                         </div>
+                    ) : (
+                        widgets.map((type) => (
+                            <WidgetShell key={type} onRemove={() => removeWidget(type)}>
+                                {renderWidget(type)}
+                            </WidgetShell>
+                        ))
                     )}
                 </div>
-            )}
+
+                {/* Sticky chat column — viewport-bound height so it's always fully visible */}
+                <aside className="w-80 shrink-0 sticky top-4 self-start h-[calc(100vh-6rem)]">
+                    <LemonCard hoverEffect={false} className="p-0 overflow-hidden h-full flex flex-col">
+                        <AgentWidget
+                            owner={owner}
+                            repo={repoName}
+                            pr={pr}
+                            files={prDetail.files}
+                            diff={prDetail.diff}
+                        />
+                    </LemonCard>
+                </aside>
+            </div>
         </div>
     )
 }
