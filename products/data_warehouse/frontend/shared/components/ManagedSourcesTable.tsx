@@ -21,7 +21,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExternalDataSchemaStatus } from '~/types'
 
 import { StatusTagSetting } from 'products/data_warehouse/frontend/utils'
 
@@ -149,15 +149,64 @@ export function ManagedSourcesTable(): JSX.Element {
                             if (!source.status) {
                                 return null
                             }
-                            const tagContent = (
-                                <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
-                            )
-                            return source.latest_error && source.status === 'Failed' ? (
-                                <Tooltip title={source.latest_error} interactive>
-                                    {tagContent}
-                                </Tooltip>
-                            ) : (
-                                tagContent
+                            const syncingSchemas = source.schemas.filter((s) => s.should_sync)
+                            const statusOrder: ExternalDataSchemaStatus[] = [
+                                ExternalDataSchemaStatus.Failed,
+                                ExternalDataSchemaStatus.Paused,
+                                ExternalDataSchemaStatus.Cancelled,
+                                ExternalDataSchemaStatus.Running,
+                                ExternalDataSchemaStatus.Completed,
+                            ]
+                            const statusLabel: Record<ExternalDataSchemaStatus, string> = {
+                                [ExternalDataSchemaStatus.Failed]: 'failed',
+                                [ExternalDataSchemaStatus.Paused]: 'paused',
+                                [ExternalDataSchemaStatus.Cancelled]: 'cancelled',
+                                [ExternalDataSchemaStatus.Running]: 'running',
+                                [ExternalDataSchemaStatus.Completed]: 'completed',
+                            }
+                            const counts = statusOrder
+                                .map((status) => ({
+                                    status,
+                                    schemas: syncingSchemas.filter((s) => s.status === status),
+                                }))
+                                .filter(({ schemas }) => schemas.length > 0)
+
+                            // No per-schema status data — fall back to the source-level tag.
+                            if (counts.length === 0) {
+                                const tagContent = (
+                                    <LemonTag type={StatusTagSetting[source.status] || 'default'}>
+                                        {source.status}
+                                    </LemonTag>
+                                )
+                                return source.latest_error && source.status === 'Failed' ? (
+                                    <Tooltip title={source.latest_error} interactive>
+                                        {tagContent}
+                                    </Tooltip>
+                                ) : (
+                                    tagContent
+                                )
+                            }
+
+                            return (
+                                <div className="flex flex-wrap gap-1">
+                                    {counts.map(({ status, schemas }) => (
+                                        <Tooltip
+                                            key={status}
+                                            interactive
+                                            title={
+                                                <ul className="list-disc pl-4 m-0">
+                                                    {schemas.map((s) => (
+                                                        <li key={s.id}>{s.name}</li>
+                                                    ))}
+                                                </ul>
+                                            }
+                                        >
+                                            <LemonTag type={StatusTagSetting[status] || 'default'}>
+                                                {schemas.length} {statusLabel[status]}
+                                            </LemonTag>
+                                        </Tooltip>
+                                    ))}
+                                </div>
                             )
                         },
                     },
