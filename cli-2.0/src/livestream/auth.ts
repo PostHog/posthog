@@ -1,20 +1,9 @@
-import { createServer, type Server } from 'node:http'
-
-import { openBrowser } from '../oauth.js'
+import { config } from '../config.js'
 import type { LivestreamCredentials } from './types.js'
 import { deriveLivestreamHost } from './utils/host.js'
 import { secureStorage } from './utils/keychain.js'
 
 type AuthOptions = { token?: string; host?: string; livestreamHost?: string }
-
-type CallbackResult = {
-  token: string
-  teamName: string
-  teamId: number
-  apiHost: string
-}
-
-const AUTH_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 const loadCredentials = (): LivestreamCredentials | null => {
   try {
@@ -30,87 +19,50 @@ const saveCredentials = (creds: LivestreamCredentials): void => {
   secureStorage.set(JSON.stringify(creds))
 }
 
-type CallbackServer = {
-  port: number
-  waitForCallback: Promise<CallbackResult>
-  close: () => void
-}
-
-const startCallbackServer = (): Promise<CallbackServer> => {
-  return new Promise((resolve, reject) => {
-    // Create the result promise upfront to avoid race condition
-    let callbackResolve: (result: CallbackResult) => void
-    let callbackReject: (error: Error) => void
-    const callbackPromise = new Promise<CallbackResult>((res, rej) => {
-      callbackResolve = res
-      callbackReject = rej
+// Fetches the livestream JWT from the PostHog API using an OAuth access token
+const fetchLivestreamToken = async (
+  accessToken: string,
+  host: string,
+  projectId: string
+): Promise<{ token: string; teamId: number; teamName: string } | null> => {
+  try {
+    const url = new URL(`/api/projects/${projectId}/`, host)
+    const response = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'PostHog-CLI-2.0/0.1.0',
+      },
     })
 
-    let server: Server
-    let timeoutId: NodeJS.Timeout
-
-    const cleanup = () => {
-      clearTimeout(timeoutId)
-      server?.close()
+    if (!response.ok) {
+      return null
     }
 
-    server = createServer((req, res) => {
-      const url = new URL(req.url!, `http://localhost`)
-      if (url.pathname === '/callback') {
-        const token = url.searchParams.get('token')
-        const teamName = url.searchParams.get('team_name') || ''
-        const teamId = parseInt(url.searchParams.get('team_id') || '0', 10)
-        const apiHost = url.searchParams.get('api_host') || ''
+    const data = (await response.json()) as {
+      id: number
+      name?: string
+      live_events_token?: string
+    }
 
-        if (!token) {
-          res.writeHead(400, { 'Content-Type': 'text/html' })
-          res.end(`<html><body style="font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;background:#1d1f27;color:#fff">
-            <div style="text-align:center"><h1 style="color:#F54E00">Authorization failed</h1><p>No token received. Please try again.</p></div>
-          </body></html>`)
-          cleanup()
-          callbackReject(new Error('No token received from callback'))
-          return
-        }
+    if (!data.live_events_token) {
+      return null
+    }
 
-        res.writeHead(200, { 'Content-Type': 'text/html' })
-        res.end(`<html><body style="font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;background:#1d1f27;color:#fff">
-          <div style="text-align:center"><h1 style="color:#F54E00">Authorization complete!</h1><p>You can close this tab.</p></div>
-        </body></html>`)
-
-        cleanup()
-        callbackResolve({ token, teamName, teamId, apiHost })
-      }
-    })
-
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address()
-      const port = typeof addr === 'object' ? addr!.port : 0
-
-      // Set up timeout
-      timeoutId = setTimeout(() => {
-        cleanup()
-        callbackReject(new Error('Authorization timed out after 5 minutes'))
-      }, AUTH_TIMEOUT_MS)
-
-      resolve({
-        port,
-        waitForCallback: callbackPromise,
-        close: cleanup,
-      })
-    })
-
-    server.on('error', (err) => {
-      cleanup()
-      reject(err)
-    })
-  })
+    return {
+      token: data.live_events_token,
+      teamId: data.id,
+      teamName: data.name || '',
+    }
+  } catch {
+    return null
+  }
 }
 
 export const authenticate = async (opts: AuthOptions): Promise<LivestreamCredentials> => {
-  const host = opts.host || 'https://app.posthog.com'
-
-  // Priority 1: direct token flag
+  // Priority 1: direct token flag (for scripting)
   if (opts.token) {
+    const host = opts.host || 'https://app.posthog.com'
     const livestreamHost = opts.livestreamHost || deriveLivestreamHost(host)
     return {
       host,
@@ -122,47 +74,41 @@ export const authenticate = async (opts: AuthOptions): Promise<LivestreamCredent
     }
   }
 
-  // Priority 2: cached credentials (if not expired)
+  // OAuth is the source of truth - ensure we have a valid OAuth token
+  const mainConfig = await config.ensureAuth()
+
+  if (!mainConfig.accessToken || !mainConfig.projectId || !mainConfig.host) {
+    throw new Error('Authentication failed. Run: ph auth login')
+  }
+
+  // Check if we have a valid cached JWT for this project
   const cached = loadCredentials()
-  if (cached && cached.expiresAt > Date.now()) {
+  if (cached && cached.expiresAt > Date.now() && cached.teamId === Number(mainConfig.projectId)) {
     return cached
   }
 
-  // Priority 3: browser flow
-  const callbackServer = await startCallbackServer()
-  const url = `${host}/cli/live?port=${callbackServer.port}`
+  // Silently fetch a new JWT using the OAuth token
+  const result = await fetchLivestreamToken(
+    mainConfig.accessToken,
+    mainConfig.host,
+    mainConfig.projectId
+  )
 
-  console.error(`Opening browser to authorize: ${url}`)
-
-  openBrowser(url)
-  console.error(`If the browser does not open, please open this URL manually: ${url}`)
-
-  console.error('Waiting for authorization (timeout: 5 minutes)...')
-
-  let result: CallbackResult
-  try {
-    result = await callbackServer.waitForCallback
-  } catch (err) {
-    callbackServer.close()
-    throw err
+  if (!result) {
+    throw new Error('Failed to obtain livestream token. Please try again.')
   }
 
-  const livestreamHost = opts.livestreamHost || deriveLivestreamHost(result.apiHost || host)
-
+  const livestreamHost = opts.livestreamHost || deriveLivestreamHost(mainConfig.host)
   const creds: LivestreamCredentials = {
-    host: result.apiHost || host,
+    host: mainConfig.host,
     livestreamHost,
     token: result.token,
     teamId: result.teamId,
     teamName: result.teamName,
-    expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000, // JWT valid for 7 days
   }
 
   saveCredentials(creds)
-
-  if (secureStorage.isSecure) {
-    console.error('Credentials stored securely in macOS Keychain')
-  }
 
   return creds
 }
