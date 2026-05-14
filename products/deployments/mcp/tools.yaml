@@ -1,0 +1,113 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Deployments
+feature: deployments
+url_prefix: /deployments
+ui_apps:
+    deployment:
+        type: detail
+        view_prop: deployment
+    deployment-list:
+        type: list
+        detail_tool: deployments-get
+tools:
+    deployments-list:
+        operation: deployments_list
+        enabled: true
+        scopes:
+            - deployment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List deployments
+        description: >
+            List deployments for a project. Returns deployments with status, commit metadata,
+            duration, author, source repo, deployment URL, and timestamps. Use this to find
+            recent builds, identify the currently-live deployment, debug a failed deploy, or
+            diff what shipped between two points in time. Default ordering is most-recent
+            first. Pair with `deployments-logs` to investigate failures.
+        ui_app: deployment-list
+    deployments-get:
+        operation: deployments_retrieve
+        enabled: true
+        scopes:
+            - deployment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get deployment
+        description: >
+            Get a single deployment by id. Returns full metadata including commit message and
+            SHA, status, started/finished timestamps, duration, source repo URL, branch,
+            deployment URL, preview image, trigger kind (git/redeploy/rollback/seed), and the
+            parent deployment id when triggered by a redeploy or rollback. Mirrors Vercel's
+            `get_deployment`.
+        ui_app: deployment
+    deployments-logs:
+        operation: deployments_logs_retrieve
+        enabled: true
+        scopes:
+            - deployment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get deployment logs
+        description: >
+            Retrieve build and runtime logs for a specific deployment by id. Returns log
+            entries with timestamp, level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use
+            to debug a failed build, investigate runtime errors, or trace what happened
+            during a deploy. Supports `search` (case-insensitive substring), `level` (comma-
+            separated filter), `after`/`before` (ISO timestamps), and `limit` (1-500).
+            Mirrors Vercel's `get_deployment_build_logs` + `get_runtime_logs(deploymentId)`.
+            Empty until log ingestion writes entries with `log_source = "deployment"`.
+    deployments-redeploy:
+        operation: deployments_redeploy_create
+        # TODO(deployments-v1): enable once the backend action returns 201 instead of 501.
+        enabled: false
+        scopes:
+            - deployment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Redeploy
+        description: >
+            Trigger a redeploy from the commit of an existing deployment. Creates a new
+            deployment with `trigger_kind = "redeploy"` that walks through the build pipeline.
+    deployments-rollback:
+        operation: deployments_rollback_create
+        # TODO(deployments-v1): enable once the backend action returns 201 instead of 501.
+        enabled: false
+        scopes:
+            - deployment:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Rollback
+        description: >
+            Roll back to a previous deployment, making it the currently-live one. Creates a
+            new deployment with `trigger_kind = "rollback"` pointing at the target.
+    deployments-refresh-preview:
+        operation: deployments_refresh_preview_create
+        # TODO(deployments-v1): enable once the backend action returns 201 instead of 501.
+        enabled: false
+        scopes:
+            - deployment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Refresh preview image
+        description: >
+            Re-capture the preview screenshot for a deployment. Useful if the original
+            capture failed or the deployed site changed after the build completed.

@@ -22,6 +22,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission
@@ -53,6 +54,7 @@ from .deployment_projects import DeploymentsAccessPermission
 )
 class DeploymentViewSet(
     TeamAndOrgViewSetMixin,
+    LogEntryMixin,
     AccessControlViewSetMixin,
     viewsets.ModelViewSet,
 ):
