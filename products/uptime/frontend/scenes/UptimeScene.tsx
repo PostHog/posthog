@@ -233,8 +233,6 @@ function MonitorTile({
     onEdit: () => void
     onDelete: () => void
 }): JSX.Element {
-    const tone = monitor.status === 'up' ? 'success' : monitor.status === 'down' ? 'danger' : 'muted'
-
     const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
         id: monitor.id,
     })
@@ -280,9 +278,6 @@ function MonitorTile({
                     </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0" onClick={stop}>
-                    <LemonTag type={tone} size="small">
-                        {statusLabel(monitor.status)}
-                    </LemonTag>
                     <LemonMenu
                         items={[
                             { label: 'Edit', icon: <IconPencil />, onClick: onEdit },
