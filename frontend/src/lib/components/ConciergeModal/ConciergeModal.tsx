@@ -455,27 +455,3 @@ export function ConciergeModal({ isOpen, onClose, title, body }: ConciergeModalP
         </>
     )
 }
-
-// -- Temporary test harness -- delete before merging --
-const TEST_BODY = JSON.stringify({
-    body: 'Dear Sarah,\n\nThis is your CSM, Christophe. I am checking back in after our call yesterday. I wanted to make sure you and your team have everything you need to get started.\n\nLorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.\n\nWith care,\nChristophe',
-    call_to_action: 'Book a follow-up',
-    notification_style: 'royal',
-})
-
-export function ConciergeModalTest(): JSX.Element {
-    const [open, setOpen] = useState(true)
-    return (
-        <div className="p-4">
-            <LemonButton type="primary" onClick={() => setOpen(true)}>
-                Open concierge modal
-            </LemonButton>
-            <ConciergeModal
-                isOpen={open}
-                onClose={() => setOpen(false)}
-                title="A note from your CSM"
-                body={TEST_BODY}
-            />
-        </div>
-    )
-}
