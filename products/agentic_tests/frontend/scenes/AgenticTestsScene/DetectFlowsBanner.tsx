@@ -6,12 +6,13 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { detectFlowsLogic } from './detectFlowsLogic'
 
 const STEPS = [
-    { active: 'Setting up sandbox', done: 'Sandbox set up' },
+    { active: 'Setting up agent', done: 'Agent set up' },
     { active: 'Analyzing product', done: 'Product analyzed' },
 ] as const
 
 export function DetectFlowsBanner(): JSX.Element | null {
-    const { bannerVisible, step, proposedCount, isTerminal, isFailed, hasLogs } = useValues(detectFlowsLogic)
+    const { bannerVisible, step, proposedCount, isTerminal, isFailed, hasLogs, latestActivity } =
+        useValues(detectFlowsLogic)
     const { openLogsModal, dismissBanner } = useActions(detectFlowsLogic)
 
     if (!bannerVisible) {
@@ -54,6 +55,14 @@ export function DetectFlowsBanner(): JSX.Element | null {
                                 <span className={completed ? 'text-success' : active ? 'font-semibold' : 'text-muted'}>
                                     {completed ? s.done : s.active}
                                 </span>
+                                {active && latestActivity && (
+                                    <span
+                                        className={`text-muted text-xs max-w-60 truncate ${latestActivity.isTool ? 'font-mono' : ''}`}
+                                        title={latestActivity.text}
+                                    >
+                                        — {latestActivity.text}
+                                    </span>
+                                )}
                             </div>
                         )
                     })}

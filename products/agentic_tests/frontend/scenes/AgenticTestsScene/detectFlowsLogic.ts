@@ -269,6 +269,28 @@ export const detectFlowsLogic = kea<detectFlowsLogicType>([
             (runStatus): boolean => runStatus === TaskRunStatus.FAILED || runStatus === TaskRunStatus.CANCELLED,
         ],
         hasLogs: [(s) => [s.streamEntries], (streamEntries): boolean => streamEntries.length > 0],
+        latestActivity: [
+            (s) => [s.streamEntries, s.isTerminal],
+            (streamEntries, isTerminal): { text: string; isTool: boolean } | null => {
+                if (isTerminal || streamEntries.length === 0) {
+                    return null
+                }
+                for (let i = streamEntries.length - 1; i >= 0; i--) {
+                    const entry = streamEntries[i]
+                    if (entry.type === 'tool' && entry.toolName) {
+                        const detail = entry.toolArgs ? ` ${JSON.stringify(entry.toolArgs).slice(0, 80)}` : ''
+                        return { text: `${entry.toolName}${detail}`, isTool: true }
+                    }
+                    if (entry.type === 'agent' && entry.message) {
+                        return { text: entry.message.slice(0, 80).trim(), isTool: false }
+                    }
+                    if (entry.type === 'thinking' && entry.message) {
+                        return { text: entry.message.slice(0, 80).trim(), isTool: false }
+                    }
+                }
+                return null
+            },
+        ],
         canSubmit: [
             (s) => [s.repository, s.domain, s.submitting],
             (repository, domain, submitting): boolean => !!repository && !!domain && !submitting,
@@ -406,6 +428,15 @@ export const detectFlowsLogic = kea<detectFlowsLogicType>([
                                         updatedEntriesById.set(updatedEntry.id, updatedEntry)
                                     })
                                     if (entry) {
+                                        // Structured output = agent is done proposing flows
+                                        if (
+                                            entry.type === 'tool' &&
+                                            entry.toolName === 'StructuredOutput' &&
+                                            entry.toolStatus === 'done'
+                                        ) {
+                                            actions.setRunStatus(TaskRunStatus.COMPLETED)
+                                        }
+
                                         const last = batch[batch.length - 1]
                                         if (
                                             last?.type === entry.type &&
