@@ -1,15 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItem, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
 import {
     getSurveyIdsFromNotificationFilters,
     surveyNotificationsListLogic,
 } from 'scenes/surveys/surveyNotificationsListLogic'
-import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionType, Survey } from '~/types'
@@ -40,37 +39,39 @@ function surveyNotificationsUrl(surveyId: string, params: Record<string, string>
     return `${urls.survey(surveyId)}?${search}`
 }
 
-function NewNotificationButton(): JSX.Element {
+function NewNotificationPicker(): JSX.Element {
     const { push } = useActions(router)
-    const { data } = useValues(surveysLogic)
+    const { selectableSurveys, knownSurveysLoading } = useValues(surveyNotificationsListLogic)
 
-    const eligibleSurveys = data.surveys.filter((survey: Survey) => !survey.archived)
-
-    const items: LemonMenuItem[] = eligibleSurveys.map((survey: Survey) => ({
+    const options = selectableSurveys.map((survey: Pick<Survey, 'id' | 'name'>) => ({
         key: survey.id,
         label: survey.name,
-        onClick: () => push(surveyNotificationsUrl(survey.id, { notification: 'add' })),
     }))
 
-    if (eligibleSurveys.length === 0) {
-        return (
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconPlus />}
-                disabledReason="Create a survey first, then set up notifications from its Notifications tab."
-            >
-                New notification
-            </LemonButton>
-        )
+    const handleChange = (newValue: string[]): void => {
+        const surveyId = newValue[0]
+        if (surveyId) {
+            push(surveyNotificationsUrl(surveyId, { notification: 'add' }))
+        }
     }
 
     return (
-        <LemonMenu items={[{ title: 'Add notification to…', items }]} placement="bottom-end" maxContentWidth>
-            <LemonButton type="secondary" size="small" icon={<IconPlus />}>
-                New notification
-            </LemonButton>
-        </LemonMenu>
+        <div className="w-80 max-w-full">
+            <LemonInputSelect
+                mode="single"
+                placeholder="Add notification to a survey…"
+                title="Add notification to…"
+                options={options}
+                value={null}
+                onChange={handleChange}
+                loading={knownSurveysLoading}
+                size="small"
+                emptyStateComponent={
+                    <div className="p-2 text-xs text-muted">No surveys to notify on. Create a survey first.</div>
+                }
+                data-attr="survey-list-new-notification-picker"
+            />
+        </div>
     )
 }
 
@@ -98,7 +99,7 @@ export function SurveyNotificationsList(): JSX.Element {
                         Send every new survey response to Slack, Discord, Microsoft Teams, or a webhook.
                     </p>
                 </div>
-                <NewNotificationButton />
+                <NewNotificationPicker />
             </div>
         )
     }
@@ -143,9 +144,7 @@ export function SurveyNotificationsList(): JSX.Element {
                     )
                 })}
             </div>
-            <div>
-                <NewNotificationButton />
-            </div>
+            <NewNotificationPicker />
         </div>
     )
 }

@@ -64,11 +64,15 @@ export const surveyNotificationsListLogic = kea<surveyNotificationsListLogicType
             },
         ],
         knownSurveys: [
-            [] as Pick<Survey, 'id' | 'name'>[],
+            [] as Pick<Survey, 'id' | 'name' | 'archived'>[],
             {
-                loadKnownSurveys: async (): Promise<Pick<Survey, 'id' | 'name'>[]> => {
+                loadKnownSurveys: async (): Promise<Pick<Survey, 'id' | 'name' | 'archived'>[]> => {
                     const response = await api.surveys.list({ limit: SURVEY_INDEX_LIMIT })
-                    return response.results.map((survey) => ({ id: survey.id, name: survey.name }))
+                    return response.results.map((survey) => ({
+                        id: survey.id,
+                        name: survey.name,
+                        archived: survey.archived,
+                    }))
                 },
             },
         ],
@@ -76,7 +80,13 @@ export const surveyNotificationsListLogic = kea<surveyNotificationsListLogicType
     selectors({
         knownSurveyIds: [
             (s) => [s.knownSurveys],
-            (knownSurveys: Pick<Survey, 'id' | 'name'>[]) => new Set(knownSurveys.map((survey) => survey.id)),
+            (knownSurveys: Pick<Survey, 'id' | 'name' | 'archived'>[]) =>
+                new Set(knownSurveys.map((survey) => survey.id)),
+        ],
+        selectableSurveys: [
+            (s) => [s.knownSurveys],
+            (knownSurveys: Pick<Survey, 'id' | 'name' | 'archived'>[]) =>
+                knownSurveys.filter((survey) => !survey.archived),
         ],
         notifications: [
             (s) => [s.allNotifications, s.knownSurveyIds, s.knownSurveysLoading],
