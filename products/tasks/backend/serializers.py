@@ -1701,8 +1701,9 @@ class RenderingCanvasSerializer(serializers.ModelSerializer):
             "name": {"help_text": "Human-readable name for the canvas."},
             "path": {
                 "help_text": (
-                    "Slash-separated virtual file path (e.g. 'src/components/Button.tsx'). "
-                    "Parsed client-side into a file tree. Empty string means root."
+                    "Slash-separated folder path used purely to organize canvases in "
+                    "PostHog Code (e.g. 'Analytics' or 'Folder 1/Onboarding'). "
+                    "Not a code path. Empty string means root."
                 ),
                 "required": False,
                 "allow_blank": True,

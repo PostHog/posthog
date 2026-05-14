@@ -21,7 +21,7 @@ import jsonschema
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -2599,11 +2599,48 @@ class RenderingCanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def generate(self, request, *args, **kwargs):
         data = request.validated_data
-        tsx, name = generate_canvas_tsx(
-            team=self.team,
-            user=request.user,
-            prompt=data["prompt"],
-            name_hint=data.get("name"),
+        prompt = data["prompt"]
+        prompt_preview = prompt[:200].replace("\n", " ")
+        logger.info(
+            "canvas.generate.start team_id=%s user_id=%s prompt_len=%s prompt_preview=%r",
+            self.team.id,
+            request.user.id,
+            len(prompt),
+            prompt_preview,
         )
-        validate_canvas_content(tsx)
+        try:
+            tsx, name = generate_canvas_tsx(
+                team=self.team,
+                user=request.user,
+                prompt=prompt,
+                name_hint=data.get("name"),
+            )
+        except Exception:
+            logger.exception("canvas.generate.llm_failed team_id=%s user_id=%s", self.team.id, request.user.id)
+            raise
+        try:
+            validate_canvas_content(tsx)
+        except serializers.ValidationError as e:
+            # The LLM emitted something the validator rejected. Log the offending head/tail so we can
+            # see *what* tripped the rule and so the MCP error bubble (already includes e.detail)
+            # gives the agent enough to self-correct.
+            head = tsx[:500].replace("\n", "\\n")
+            tail = tsx[-500:].replace("\n", "\\n") if len(tsx) > 500 else ""
+            logger.warning(
+                "canvas.generate.validation_failed team_id=%s user_id=%s reason=%r content_len=%s head=%r tail=%r",
+                self.team.id,
+                request.user.id,
+                e.detail,
+                len(tsx),
+                head,
+                tail,
+            )
+            raise
+        logger.info(
+            "canvas.generate.ok team_id=%s user_id=%s name=%r content_len=%s",
+            self.team.id,
+            request.user.id,
+            name,
+            len(tsx),
+        )
         return Response({"name": name, "content": tsx}, status=status.HTTP_200_OK)
