@@ -179,31 +179,47 @@ many dashboards; only a few become reference points. Use these tools:
     your metric definitions in what tables actually exist and what their
     columns mean. Use the descriptions Phase 2 just wrote.
 
-  - `read-data-schema` with `{"kind": "events"}` — returns the **event
-    definitions** for the team (`signed_up`, `paid_bill`, …). Use this
-    for event discovery. It reads metadata from Postgres and returns
-    instantly.
+  - `read-data-schema` with `{"kind": "events"}` — returns the team's
+    **event definitions** (`signed_up`, `paid_bill`, …) from a Postgres
+    metadata table. Definitions are written at ingestion and are
+    unique per `(team, name)`, so the list you get back is already
+    deduplicated. Returns instantly. **This is the canonical way to
+    discover what events the team has.**
+  - `event-definitions-list` — same data, full row-level details
+    (`last_seen_at`, etc.) if you need them.
 
-**The `events` ClickHouse table is off-limits. Do not query it at all.**
-You have already learned everything you need about events from
-`read-data-schema {"kind": "events"}` above — that's the canonical list
-of which events the team tracks, and it's all you need to write metric
-definitions. The `events` table is billions of rows in production and
-slow even locally, and you will not learn anything from scanning it
-that the metadata doesn't already tell you.
+### ⛔ Do **NOT** query the `events` ClickHouse table
 
-Concretely, do not write any query that mentions `FROM events` —
-no `SELECT count() FROM events`, no `SELECT DISTINCT event FROM events`,
-no "let me peek with LIMIT 10". Skip it. Also: never re-run an identical
-query you already ran.
+The `events` table is event-level fact data — billions of rows in
+production, partitioned by time. Scanning it to find unique event
+names will not work in production, and even locally each scan takes
+5–8 minutes through the local Clickhouse. **You already have the
+deduplicated list of event names from `read-data-schema` above.**
+There is no extra information you can learn by hitting `events`.
 
-Your inputs for choosing metrics are:
-  1. Dashboard contents (from `dashboards-get-all` + `dashboard-get`)
-  2. Event definitions (from `read-data-schema {"kind": "events"}`)
-  3. Warehouse table names + columns (from `system.tables` / `system.columns`)
-  4. Dashboard popularity (from `app_metrics` if needed)
+Specifically, **never** write any query that contains `FROM events`:
 
-That's it. Once you have those, **write the metrics**. Don't explore further.
+  - ❌ `SELECT DISTINCT event FROM events …`
+  - ❌ `SELECT count() FROM events …`
+  - ❌ `SELECT * FROM events LIMIT 10`
+  - ❌ Any "let me just peek" variant.
+
+If you find yourself reaching for `FROM events`, **stop** — go re-read
+the `read-data-schema {"kind": "events"}` result you already have, or
+call `event-definitions-list`. Also: never re-run an identical query
+you already ran.
+
+### Your fixed input set
+
+These four sources are everything you need. Don't go beyond them:
+
+  1. Dashboard contents — `dashboards-get-all` + `dashboard-get`
+  2. Event definitions — `read-data-schema {"kind": "events"}` (or
+     `event-definitions-list` for the long form)
+  3. Warehouse table names + columns — `system.tables` / `system.columns`
+  4. Dashboard popularity (optional) — `app_metrics` HogQL table
+
+After gathering those, **write the metrics**. Stop exploring.
 
 If the team has fewer than 3 multi-viewer dashboards, fall back to:
 "propose the standard AARRR metrics that the team *could* track given
