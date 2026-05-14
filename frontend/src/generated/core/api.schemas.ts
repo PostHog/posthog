@@ -3254,6 +3254,56 @@ export interface OnboardingSkipRequestApi {
     step_at_skip?: string
 }
 
+/**
+ * * `ios` - iOS
+ * `android` - Android
+ * `web` - Web
+ */
+export type PushTokenPlatformEnumApi = (typeof PushTokenPlatformEnumApi)[keyof typeof PushTokenPlatformEnumApi]
+
+export const PushTokenPlatformEnumApi = {
+    Ios: 'ios',
+    Android: 'android',
+    Web: 'web',
+} as const
+
+export interface UserPushTokenRegisterRequestApi {
+    /**
+     * Opaque push token issued by the device's platform push service (e.g. an Expo push token).
+     * @maxLength 512
+     */
+    token: string
+    /** Device platform the token was issued for. One of `ios`, `android`, or `web`.
+
+  * `ios` - iOS
+  * `android` - Android
+  * `web` - Web */
+    platform: PushTokenPlatformEnumApi
+}
+
+export interface UserPushTokenItemApi {
+    /** PostHog UserPushToken row id. */
+    id: string
+    /** Device platform the token was issued for.
+
+  * `ios` - iOS
+  * `android` - Android
+  * `web` - Web */
+    platform: PushTokenPlatformEnumApi
+    /** When this token was first registered. */
+    created_at: string
+    /** Last time the mobile app re-registered this token. */
+    last_seen_at: string
+}
+
+export interface UserPushTokenUnregisterRequestApi {
+    /**
+     * The opaque push token to remove for the authenticated user.
+     * @maxLength 512
+     */
+    token: string
+}
+
 export type SubscriptionsDeliveriesListParams = {
     /**
      * The pagination cursor value.
