@@ -167,7 +167,10 @@ describe('deploymentProjectLogic', () => {
             logic.actions.setFilters({ search: 'feat', status: ['ready', 'error'] })
         }).toFinishAllListeners()
 
-        expect(router.values.location.pathname).toEqual(`/deployments/${projectA.id}`)
+        // `urls.deploymentProject(id)` returns `/deployments/<id>`; kea's
+        // project router prefixes it with `/project/<teamId>`, so match
+        // against the suffix rather than the full path.
+        expect(router.values.location.pathname).toMatch(new RegExp(`/deployments/${projectA.id}$`))
         expect(router.values.searchParams.search).toEqual('feat')
         expect(router.values.searchParams.status).toEqual('ready,error')
     })
