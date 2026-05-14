@@ -126,6 +126,11 @@ def _build_synthesized_columns_select(team_id_param: str) -> str:
                 # Skip join targets, lazy tables, and expression aliases — same
                 # logic as the deleted `enumerate.py:_fields_to_column_refs`.
                 continue
+            if descriptor.hidden or field_name.startswith("_"):
+                # Hidden raw fields (e.g. `_paused`, `_deleted`) exist solely to
+                # back an ExpressionField alias. Surfacing them in `system.columns`
+                # would be noise — users only see the visible alias.
+                continue
             col_id = deterministic_column_id(table_name, field_name)
             ch_type = _normalize_hogql_type(descriptor)
             nullable_literal = "true" if descriptor.is_nullable() else "false"
