@@ -188,7 +188,7 @@ class ExperimentService:
     @classmethod
     def validate_experiment_exposure_criteria(cls, exposure_criteria: dict | None) -> None:
         """Validate experiment exposure criteria payloads."""
-        if not exposure_criteria:
+        if exposure_criteria is None:
             return
 
         if not isinstance(exposure_criteria, dict):

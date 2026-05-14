@@ -446,6 +446,21 @@ class TestExperimentService(APIBaseTest):
                 "exposure_criteria must be an object, got str",
             ),
             (
+                "falsy_empty_list",
+                [],
+                "exposure_criteria must be an object, got list",
+            ),
+            (
+                "falsy_empty_string",
+                "",
+                "exposure_criteria must be an object, got str",
+            ),
+            (
+                "falsy_false",
+                False,
+                "exposure_criteria must be an object, got bool",
+            ),
+            (
                 "filter_test_accounts_string",
                 {"filterTestAccounts": "true"},
                 "exposure_criteria.filterTestAccounts must be a boolean, got str: 'true'",
@@ -488,25 +503,38 @@ class TestExperimentService(APIBaseTest):
             f"Expected fragment {expected_error_fragment!r} in error: {ctx.exception}"
         )
 
-    def test_validate_experiment_exposure_criteria_accepts_valid_event_payload(self) -> None:
-        ExperimentService.validate_experiment_exposure_criteria(
-            {
-                "filterTestAccounts": True,
-                "exposure_config": {
-                    "kind": "ExperimentEventExposureConfig",
-                    "event": "$feature_flag_called",
-                    "properties": [],
+    @parameterized.expand(
+        [
+            ("none", None),
+            ("empty_dict", {}),
+            (
+                "event_payload",
+                {
+                    "filterTestAccounts": True,
+                    "exposure_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "$feature_flag_called",
+                        "properties": [],
+                    },
                 },
-            }
-        )
-
-    def test_validate_experiment_exposure_criteria_accepts_valid_action_payload(self) -> None:
-        ExperimentService.validate_experiment_exposure_criteria(
-            {
-                "filterTestAccounts": False,
-                "exposure_config": {"kind": "ActionsNode", "id": 1},
-            }
-        )
+            ),
+            (
+                "action_payload",
+                {
+                    "filterTestAccounts": False,
+                    "exposure_config": {"kind": "ActionsNode", "id": 1},
+                },
+            ),
+            (
+                "event_payload_without_explicit_kind",
+                {"exposure_config": {"event": "$pageview", "properties": []}},
+            ),
+        ]
+    )
+    def test_validate_experiment_exposure_criteria_accepts_valid_payloads(
+        self, _: str, exposure_criteria: object
+    ) -> None:
+        ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)  # type: ignore[arg-type]
 
     def test_validate_experiment_exposure_criteria_hint_is_actionable(self) -> None:
         """The error hint should name both supported kinds so the LLM can self-correct."""
