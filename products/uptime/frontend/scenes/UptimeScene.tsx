@@ -18,6 +18,7 @@ import {
     LemonTable,
     LemonTabs,
     LemonTag,
+    LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
 
@@ -32,12 +33,14 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { IncidentTile } from './IncidentTile'
 import { StatusPagesList } from './statusPage/StatusPagesList'
 import { statusPagesListLogic } from './statusPage/statusPagesListLogic'
 import { UptimeAlerts } from './uptimeAlerts/UptimeAlerts'
 import {
     DailyBucket,
     DailyStatus,
+    Incident,
     MonitorStatus,
     MonitorSummary,
     OverallStats,
@@ -52,7 +55,7 @@ export const scene: SceneExport = {
 }
 
 export function UptimeScene(): JSX.Element {
-    const { activeTab, suggestedUrls } = useValues(uptimeSceneLogic)
+    const { activeTab, suggestedUrls, ongoingIncidentsCount } = useValues(uptimeSceneLogic)
     const { setActiveTab, setCreateModalOpen, setSuggestModalOpen } = useActions(uptimeSceneLogic)
     const { createNewStatusPage } = useActions(statusPagesListLogic)
 
@@ -63,6 +66,23 @@ export function UptimeScene(): JSX.Element {
             key: 'monitors',
             label: 'Monitors',
             content: <MonitorsTab />,
+        },
+        {
+            key: 'incidents',
+            label: (
+                <span className="flex items-center gap-1.5">
+                    Declared incidents
+                    {ongoingIncidentsCount > 0 && (
+                        <span
+                            className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-danger text-white text-[10px] font-semibold leading-none"
+                            aria-label={`${ongoingIncidentsCount} ongoing declared incidents`}
+                        >
+                            {ongoingIncidentsCount}
+                        </span>
+                    )}
+                </span>
+            ),
+            content: <IncidentsTab />,
         },
         {
             key: 'alerts',
@@ -187,6 +207,112 @@ function MonitorsTab(): JSX.Element {
             )}
             <EditMonitorModal />
         </div>
+    )
+}
+
+function IncidentsTab(): JSX.Element {
+    const { ongoingIncidents, resolvedIncidents, incidentsLoading, monitorSummaries } = useValues(uptimeSceneLogic)
+    const { startEditingIncident, promptResolveIncident, reopenIncident, confirmDeleteIncident } =
+        useActions(uptimeSceneLogic)
+
+    const monitorsById = new Map(monitorSummaries.map((m: MonitorSummary) => [m.id, m]))
+
+    if (incidentsLoading && ongoingIncidents.length === 0 && resolvedIncidents.length === 0) {
+        return <div className="text-secondary text-sm">Loading declared incidents…</div>
+    }
+
+    if (ongoingIncidents.length === 0 && resolvedIncidents.length === 0) {
+        return (
+            <LemonCard hoverEffect={false} className="flex flex-col items-center gap-2 p-8 text-center">
+                <div className="text-xl font-semibold">No declared incidents yet</div>
+                <div className="text-secondary max-w-md">
+                    Open a monitor's detail page to declare an incident. Ongoing declared incidents will appear here.
+                </div>
+            </LemonCard>
+        )
+    }
+
+    const renderTile = (incident: Incident): JSX.Element => (
+        <IncidentTile
+            key={incident.id}
+            incident={incident}
+            monitorName={monitorsById.get(incident.monitor_id)?.name}
+            linkToMonitor
+            onEdit={() => startEditingIncident(incident)}
+            onResolve={() => promptResolveIncident(incident)}
+            onReopen={() => reopenIncident(incident.id)}
+            onDelete={() => confirmDeleteIncident({ id: incident.id, name: incident.name })}
+        />
+    )
+
+    return (
+        <div className="flex flex-col gap-6">
+            {ongoingIncidents.length > 0 && (
+                <section className="flex flex-col gap-3">
+                    <h3 className="text-base font-semibold m-0">Ongoing</h3>
+                    <div
+                        className="grid gap-4"
+                        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 360px))' }}
+                    >
+                        {ongoingIncidents.map(renderTile)}
+                    </div>
+                </section>
+            )}
+            {resolvedIncidents.length > 0 && (
+                <section className="flex flex-col gap-3">
+                    <h3 className="text-base font-semibold m-0">Resolved</h3>
+                    <div
+                        className="grid gap-4"
+                        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 360px))' }}
+                    >
+                        {resolvedIncidents.map(renderTile)}
+                    </div>
+                </section>
+            )}
+            <EditIncidentModal />
+        </div>
+    )
+}
+
+function EditIncidentModal(): JSX.Element {
+    const { editingIncidentId, isEditIncidentFormSubmitting, editingIncident } = useValues(uptimeSceneLogic)
+    const { setEditIncidentValue, submitEditIncident, stopEditingIncident } = useActions(uptimeSceneLogic)
+
+    const showResolutionField = editingIncident?.resolved_at != null
+
+    return (
+        <LemonModal
+            isOpen={editingIncidentId !== null}
+            onClose={stopEditingIncident}
+            title="Edit declared incident"
+            footer={
+                <LemonButton type="primary" loading={isEditIncidentFormSubmitting} onClick={() => submitEditIncident()}>
+                    Save
+                </LemonButton>
+            }
+        >
+            <Form logic={uptimeSceneLogic} formKey="editIncident" className="deprecated-space-y-4">
+                <LemonField name="name" label="Name">
+                    <LemonInput placeholder="API outage" onChange={(v) => setEditIncidentValue('name', v)} />
+                </LemonField>
+                <LemonField name="description" label="Description">
+                    <LemonTextArea
+                        placeholder="What's happening?"
+                        rows={4}
+                        onChange={(v) => setEditIncidentValue('description', v)}
+                    />
+                </LemonField>
+                {showResolutionField && (
+                    <LemonField name="resolution_note" label="Resolution">
+                        <LemonTextArea
+                            placeholder="What fixed it?"
+                            rows={3}
+                            onChange={(v) => setEditIncidentValue('resolution_note', v)}
+                        />
+                    </LemonField>
+                )}
+            </Form>
+        </LemonModal>
     )
 }
 
@@ -415,7 +541,7 @@ function EmptyState({
                         ? 'Start with a URL we found in your traffic below, or add one manually.'
                         : 'Add a URL to start tracking its uptime, latency, and response codes.'}
                 </div>
-                <LemonButton type="primary" icon={<IconPlus />} onClick={onCreateBlank}>
+                <LemonButton type="primary" icon={<IconPlus />} onClick={onCreateBlank} size="small">
                     Create monitor
                 </LemonButton>
             </LemonCard>

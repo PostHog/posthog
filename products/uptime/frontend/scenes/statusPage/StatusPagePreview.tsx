@@ -4,12 +4,14 @@ import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 
-import { DailyBucket, DailyStatus, MonitorStatus, MonitorSummary } from '../uptimeSceneLogic'
+import { DailyBucket, DailyStatus, Incident, MonitorStatus, MonitorSummary } from '../uptimeSceneLogic'
 
 interface StatusPagePreviewProps {
     title: string
     monitors: MonitorSummary[]
     publishedAt?: string | null
+    ongoingIncidents?: Incident[]
+    recentIncidents?: Incident[]
     placeholder?: string
 }
 
@@ -17,9 +19,12 @@ export function StatusPagePreview({
     title,
     monitors,
     publishedAt,
+    ongoingIncidents = [],
+    recentIncidents = [],
     placeholder = 'Add monitors from the left to see them here.',
 }: StatusPagePreviewProps): JSX.Element {
     const overallStatus = computeOverallStatus(monitors)
+    const monitorNameById = new Map(monitors.map((m) => [m.id, m.name]))
 
     return (
         <div className="flex flex-col gap-6 w-full max-w-2xl mx-auto">
@@ -31,6 +36,22 @@ export function StatusPagePreview({
                     </div>
                 )}
             </header>
+
+            {ongoingIncidents.length > 0 && (
+                <section className="flex flex-col gap-2">
+                    <h2 className="text-sm font-semibold text-primary m-0">Ongoing declared incidents</h2>
+                    <ul className="flex flex-col gap-2">
+                        {ongoingIncidents.map((incident) => (
+                            <li key={incident.id}>
+                                <PublicIncidentRow
+                                    incident={incident}
+                                    monitorName={monitorNameById.get(incident.monitor_id)}
+                                />
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            )}
 
             <OverallBanner status={overallStatus} count={monitors.length} />
 
@@ -45,6 +66,56 @@ export function StatusPagePreview({
                     ))}
                 </ul>
             )}
+
+            {recentIncidents.length > 0 && (
+                <section className="flex flex-col gap-2">
+                    <h2 className="text-sm font-semibold text-primary m-0">Recently resolved</h2>
+                    <ul className="flex flex-col gap-2">
+                        {recentIncidents.map((incident) => (
+                            <li key={incident.id}>
+                                <PublicIncidentRow
+                                    incident={incident}
+                                    monitorName={monitorNameById.get(incident.monitor_id)}
+                                />
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            )}
+        </div>
+    )
+}
+
+function PublicIncidentRow({ incident, monitorName }: { incident: Incident; monitorName?: string }): JSX.Element {
+    const ongoing = incident.resolved_at === null
+    return (
+        <div className="flex flex-col gap-1 p-3 border rounded bg-surface-primary">
+            <div className="flex items-center gap-2 min-w-0">
+                <span
+                    className={cn(
+                        'inline-block w-2 h-2 rounded-full shrink-0',
+                        ongoing ? 'bg-danger animate-pulse' : 'bg-success'
+                    )}
+                    aria-hidden
+                />
+                <span className="font-medium truncate">{incident.name}</span>
+            </div>
+            {incident.description && (
+                <div className="text-xs text-secondary whitespace-pre-wrap">{incident.description}</div>
+            )}
+            {!ongoing && incident.resolution_note && (
+                <div className="text-xs whitespace-pre-wrap p-2 rounded bg-surface-secondary">
+                    <span className="font-semibold">Resolution: </span>
+                    {incident.resolution_note}
+                </div>
+            )}
+            <div className="flex flex-wrap gap-x-3 text-[11px] text-secondary">
+                {monitorName && <span className="font-medium">{monitorName}</span>}
+                <span>Started {dayjs(incident.started_at).format('MMM D, YYYY h:mm A')}</span>
+                {incident.resolved_at && (
+                    <span>Resolved {dayjs(incident.resolved_at).format('MMM D, YYYY h:mm A')}</span>
+                )}
+            </div>
         </div>
     )
 }

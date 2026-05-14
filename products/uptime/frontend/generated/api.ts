@@ -10,21 +10,161 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     BulkCreateMonitorApi,
+    CreateIncidentApi,
     CreateMonitorApi,
+    IncidentDTOApi,
     MonitorDTOApi,
     MonitorSummaryDTOApi,
+    PaginatedIncidentDTOListApi,
     PaginatedMonitorDTOListApi,
     PaginatedMonitorSummaryDTOListApi,
     PaginatedPingDTOListApi,
+    PaginatedStatusPageDTOListApi,
     PaginatedSuggestedUrlDTOListApi,
+    PatchedUpdateIncidentApi,
     PatchedUpdateMonitorApi,
+    PatchedUpdateStatusPageApi,
     ReorderMonitorsApi,
+    ResolveIncidentApi,
+    StatusPageDTOApi,
+    UptimeIncidentsListParams,
     UptimeMonitorsBulkCreateCreateParams,
     UptimeMonitorsListParams,
     UptimeMonitorsPingsListParams,
     UptimeMonitorsSuggestedUrlsListParams,
     UptimeMonitorsSummaryListParams,
+    UptimeStatusPagesListParams,
 } from './api.schemas'
+
+export const getUptimeIncidentsListUrl = (projectId: string, params?: UptimeIncidentsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/uptime/incidents/?${stringifiedParams}`
+        : `/api/projects/${projectId}/uptime/incidents/`
+}
+
+/**
+ * Incidents for the team, ongoing first, then most recently started.
+ */
+export const uptimeIncidentsList = async (
+    projectId: string,
+    params?: UptimeIncidentsListParams,
+    options?: RequestInit
+): Promise<PaginatedIncidentDTOListApi> => {
+    return apiMutator<PaginatedIncidentDTOListApi>(getUptimeIncidentsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUptimeIncidentsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/uptime/incidents/`
+}
+
+export const uptimeIncidentsCreate = async (
+    projectId: string,
+    createIncidentApi: CreateIncidentApi,
+    options?: RequestInit
+): Promise<IncidentDTOApi> => {
+    return apiMutator<IncidentDTOApi>(getUptimeIncidentsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createIncidentApi),
+    })
+}
+
+export const getUptimeIncidentsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uptime/incidents/${id}/`
+}
+
+export const uptimeIncidentsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<IncidentDTOApi> => {
+    return apiMutator<IncidentDTOApi>(getUptimeIncidentsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUptimeIncidentsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uptime/incidents/${id}/`
+}
+
+export const uptimeIncidentsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedUpdateIncidentApi?: PatchedUpdateIncidentApi,
+    options?: RequestInit
+): Promise<IncidentDTOApi> => {
+    return apiMutator<IncidentDTOApi>(getUptimeIncidentsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUpdateIncidentApi),
+    })
+}
+
+export const getUptimeIncidentsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uptime/incidents/${id}/`
+}
+
+export const uptimeIncidentsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUptimeIncidentsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getUptimeIncidentsReopenCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uptime/incidents/${id}/reopen/`
+}
+
+/**
+ * Reopen the incident, clearing resolved_at and the resolution note so it shows as ongoing again.
+ */
+export const uptimeIncidentsReopenCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<IncidentDTOApi> => {
+    return apiMutator<IncidentDTOApi>(getUptimeIncidentsReopenCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getUptimeIncidentsResolveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uptime/incidents/${id}/resolve/`
+}
+
+/**
+ * Mark the incident as resolved with a required resolution note. The note is shown on the public status page.
+ */
+export const uptimeIncidentsResolveCreate = async (
+    projectId: string,
+    id: string,
+    resolveIncidentApi: ResolveIncidentApi,
+    options?: RequestInit
+): Promise<IncidentDTOApi> => {
+    return apiMutator<IncidentDTOApi>(getUptimeIncidentsResolveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(resolveIncidentApi),
+    })
+}
 
 export const getUptimeMonitorsListUrl = (projectId: string, params?: UptimeMonitorsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -280,5 +420,129 @@ export const uptimeMonitorsSummaryList = async (
     return apiMutator<PaginatedMonitorSummaryDTOListApi>(getUptimeMonitorsSummaryListUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getUptimeStatusPagesListUrl = (projectId: string, params?: UptimeStatusPagesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/uptime/status_pages/?${stringifiedParams}`
+        : `/api/projects/${projectId}/uptime/status_pages/`
+}
+
+export const uptimeStatusPagesList = async (
+    projectId: string,
+    params?: UptimeStatusPagesListParams,
+    options?: RequestInit
+): Promise<PaginatedStatusPageDTOListApi> => {
+    return apiMutator<PaginatedStatusPageDTOListApi>(getUptimeStatusPagesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUptimeStatusPagesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/uptime/status_pages/`
+}
+
+/**
+ * Create a draft status page with default title, color, and slug. Returns the new draft.
+ */
+export const uptimeStatusPagesCreate = async (projectId: string, options?: RequestInit): Promise<StatusPageDTOApi> => {
+    return apiMutator<StatusPageDTOApi>(getUptimeStatusPagesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getUptimeStatusPagesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uptime/status_pages/${id}/`
+}
+
+export const uptimeStatusPagesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<StatusPageDTOApi> => {
+    return apiMutator<StatusPageDTOApi>(getUptimeStatusPagesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUptimeStatusPagesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uptime/status_pages/${id}/`
+}
+
+/**
+ * Patch any subset of title, slug, monitor_ids on the page.
+ */
+export const uptimeStatusPagesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedUpdateStatusPageApi?: PatchedUpdateStatusPageApi,
+    options?: RequestInit
+): Promise<StatusPageDTOApi> => {
+    return apiMutator<StatusPageDTOApi>(getUptimeStatusPagesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUpdateStatusPageApi),
+    })
+}
+
+export const getUptimeStatusPagesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uptime/status_pages/${id}/`
+}
+
+export const uptimeStatusPagesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUptimeStatusPagesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getUptimeStatusPagesPublishCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uptime/status_pages/${id}/publish/`
+}
+
+/**
+ * Publish the status page. Makes it accessible at /status/<slug> without authentication.
+ */
+export const uptimeStatusPagesPublishCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<StatusPageDTOApi> => {
+    return apiMutator<StatusPageDTOApi>(getUptimeStatusPagesPublishCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getUptimeStatusPagesUnpublishCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uptime/status_pages/${id}/unpublish/`
+}
+
+/**
+ * Revert the status page to draft and remove public access.
+ */
+export const uptimeStatusPagesUnpublishCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<StatusPageDTOApi> => {
+    return apiMutator<StatusPageDTOApi>(getUptimeStatusPagesUnpublishCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }

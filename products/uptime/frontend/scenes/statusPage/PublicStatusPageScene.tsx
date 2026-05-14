@@ -45,6 +45,8 @@ function PublicStatusPageScene(): JSX.Element {
                 title={page.title}
                 monitors={page.monitors}
                 publishedAt={page.published_at}
+                ongoingIncidents={page.ongoing_incidents}
+                recentIncidents={page.recent_incidents}
                 placeholder="No monitors on this status page yet."
             />
             <footer className="max-w-2xl mx-auto mt-12 text-center text-[11px] text-secondary">

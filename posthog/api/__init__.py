@@ -113,6 +113,7 @@ from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservat
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.uptime.backend.presentation.views import (
+    IncidentViewSet as UptimeIncidentViewSet,
     MonitorViewSet as UptimeMonitorViewSet,
     StatusPageViewSet as UptimeStatusPageViewSet,
 )
@@ -1621,5 +1622,17 @@ projects_router.register(
     r"uptime/status_pages",
     UptimeStatusPageViewSet,
     "project_uptime_status_pages",
+    ["project_id"],
+)
+environments_router.register(
+    r"uptime/incidents",
+    UptimeIncidentViewSet,
+    "environment_uptime_incidents",
+    ["team_id"],
+)
+projects_router.register(
+    r"uptime/incidents",
+    UptimeIncidentViewSet,
+    "project_uptime_incidents",
     ["project_id"],
 )

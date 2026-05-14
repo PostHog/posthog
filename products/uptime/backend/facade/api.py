@@ -3,7 +3,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from .. import logic
-from ..models import Monitor, StatusPage
+from ..models import Incident, Monitor, StatusPage
 from . import contracts
 
 
@@ -13,6 +13,20 @@ def _to_dto(obj: Monitor) -> contracts.MonitorDTO:
         name=obj.name,
         url=obj.url,
         created_at=obj.created_at,
+    )
+
+
+def _incident_to_dto(incident: Incident) -> contracts.IncidentDTO:
+    return contracts.IncidentDTO(
+        id=incident.id,
+        monitor_id=incident.monitor_id,
+        name=incident.name,
+        description=incident.description,
+        started_at=incident.started_at,
+        resolved_at=incident.resolved_at,
+        resolution_note=incident.resolution_note,
+        created_at=incident.created_at,
+        updated_at=incident.updated_at,
     )
 
 
@@ -185,4 +199,63 @@ def get_public_status_page(*, slug: str) -> contracts.PublicStatusPageDTO | None
         title=view["title"],
         monitors=[_summary_dict_to_dto(row) for row in view["monitors"]],
         published_at=view["published_at"],
+        ongoing_incidents=[_incident_to_dto(i) for i in view["ongoing_incidents"]],
+        recent_incidents=[_incident_to_dto(i) for i in view["recent_incidents"]],
     )
+
+
+def create_incident(input: contracts.CreateIncidentInput) -> contracts.IncidentDTO:
+    return _incident_to_dto(
+        logic.create_incident(
+            team_id=input.team_id,
+            monitor_id=input.monitor_id,
+            name=input.name,
+            description=input.description,
+            started_at=input.started_at,
+        )
+    )
+
+
+def update_incident(input: contracts.UpdateIncidentInput) -> contracts.IncidentDTO:
+    return _incident_to_dto(
+        logic.update_incident(
+            team_id=input.team_id,
+            incident_id=input.incident_id,
+            name=input.name,
+            description=input.description,
+            started_at=input.started_at,
+            resolved_at=input.resolved_at,
+            resolution_note=input.resolution_note,
+            clear_resolved_at=input.clear_resolved_at,
+        )
+    )
+
+
+def resolve_incident(input: contracts.ResolveIncidentInput) -> contracts.IncidentDTO:
+    return _incident_to_dto(
+        logic.resolve_incident(
+            team_id=input.team_id,
+            incident_id=input.incident_id,
+            resolution_note=input.resolution_note,
+        )
+    )
+
+
+def reopen_incident(*, team_id: int, incident_id: UUID) -> contracts.IncidentDTO:
+    return _incident_to_dto(logic.reopen_incident(team_id=team_id, incident_id=incident_id))
+
+
+def delete_incident(*, team_id: int, incident_id: UUID) -> None:
+    logic.delete_incident(team_id=team_id, incident_id=incident_id)
+
+
+def get_incident(*, team_id: int, incident_id: UUID) -> contracts.IncidentDTO:
+    return _incident_to_dto(logic.get_incident(team_id=team_id, incident_id=incident_id))
+
+
+def list_incidents(*, team_id: int) -> list[contracts.IncidentDTO]:
+    return [_incident_to_dto(i) for i in logic.list_incidents(team_id=team_id)]
+
+
+def list_incidents_for_monitor(*, team_id: int, monitor_id: UUID) -> list[contracts.IncidentDTO]:
+    return [_incident_to_dto(i) for i in logic.list_incidents_for_monitor(team_id=team_id, monitor_id=monitor_id)]

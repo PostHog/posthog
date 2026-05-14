@@ -3,13 +3,15 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { MonitorSummary } from '../uptimeSceneLogic'
+import { Incident, MonitorSummary } from '../uptimeSceneLogic'
 import type { publicStatusPageLogicType } from './publicStatusPageLogicType'
 
 export interface PublicStatusPage {
     title: string
     monitors: MonitorSummary[]
     published_at: string | null
+    ongoing_incidents: Incident[]
+    recent_incidents: Incident[]
 }
 
 export interface PublicStatusPageLogicProps {

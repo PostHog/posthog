@@ -16,14 +16,18 @@ from ..logic import SlugAlreadyTakenError
 from ..tasks import ping_monitor
 from .serializers import (
     BulkCreateMonitorSerializer,
+    CreateIncidentSerializer,
     CreateMonitorSerializer,
+    IncidentSerializer,
     MonitorSerializer,
     MonitorSummarySerializer,
     PingSerializer,
     PublicStatusPageSerializer,
     ReorderMonitorsSerializer,
+    ResolveIncidentSerializer,
     StatusPageSerializer,
     SuggestedUrlSerializer,
+    UpdateIncidentSerializer,
     UpdateMonitorSerializer,
     UpdateStatusPageSerializer,
 )
@@ -163,6 +167,125 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         )
         return Response(MonitorSerializer(dtos, many=True).data, status=status.HTTP_201_CREATED)
+
+
+class IncidentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "INTERNAL"
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="monitor_id",
+                type=OpenApiTypes.UUID,
+                required=False,
+                description="When provided, only incidents for this monitor are returned.",
+            ),
+        ],
+        responses={200: IncidentSerializer(many=True)},
+        description="Incidents for the team, ongoing first, then most recently started.",
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        monitor_id = request.query_params.get("monitor_id")
+        if monitor_id:
+            try:
+                items = api.list_incidents_for_monitor(team_id=self.team_id, monitor_id=UUID(monitor_id))
+            except ValueError as exc:
+                raise ValidationError({"monitor_id": "Invalid UUID."}) from exc
+        else:
+            items = api.list_incidents(team_id=self.team_id)
+        return Response(IncidentSerializer(items, many=True).data)
+
+    @extend_schema(
+        responses={200: IncidentSerializer, 404: OpenApiResponse(description="Incident not found.")},
+    )
+    def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        try:
+            dto = api.get_incident(team_id=self.team_id, incident_id=UUID(str(pk)))
+        except Exception as exc:
+            raise NotFound("Incident not found") from exc
+        return Response(IncidentSerializer(dto).data)
+
+    @extend_schema(request=CreateIncidentSerializer, responses={201: IncidentSerializer})
+    def create(self, request: Request, **kwargs) -> Response:
+        serializer = CreateIncidentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            dto = api.create_incident(
+                contracts.CreateIncidentInput(
+                    team_id=self.team_id,
+                    monitor_id=serializer.validated_data["monitor_id"],
+                    name=serializer.validated_data["name"],
+                    description=serializer.validated_data.get("description", ""),
+                    started_at=serializer.validated_data.get("started_at"),
+                )
+            )
+        except Exception as exc:
+            raise ValidationError({"monitor_id": "Monitor not found for this team."}) from exc
+        return Response(IncidentSerializer(dto).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=UpdateIncidentSerializer, responses={200: IncidentSerializer})
+    def partial_update(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        serializer = UpdateIncidentSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        # If the caller explicitly sends "resolved_at": null, that means "reopen the incident".
+        # DRF's validated_data merges null into the field, but partial=True won't include the key
+        # if it was absent — so we need to check the raw request to distinguish "omitted" from "set to null".
+        clear_resolved_at = "resolved_at" in request.data and request.data.get("resolved_at") is None
+        try:
+            dto = api.update_incident(
+                contracts.UpdateIncidentInput(
+                    team_id=self.team_id,
+                    incident_id=UUID(str(pk)),
+                    name=serializer.validated_data.get("name"),
+                    description=serializer.validated_data.get("description"),
+                    started_at=serializer.validated_data.get("started_at"),
+                    resolved_at=serializer.validated_data.get("resolved_at") if not clear_resolved_at else None,
+                    resolution_note=serializer.validated_data.get("resolution_note"),
+                    clear_resolved_at=clear_resolved_at,
+                )
+            )
+        except Exception as exc:
+            raise NotFound("Incident not found") from exc
+        return Response(IncidentSerializer(dto).data)
+
+    @extend_schema(responses={204: OpenApiResponse(description="Incident deleted.")})
+    def destroy(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        api.delete_incident(team_id=self.team_id, incident_id=UUID(str(pk)))
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        request=ResolveIncidentSerializer,
+        responses={200: IncidentSerializer},
+        description="Mark the incident as resolved with a required resolution note. The note is shown on the public status page.",
+    )
+    @action(detail=True, methods=["post"], url_path="resolve")
+    def resolve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        serializer = ResolveIncidentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            dto = api.resolve_incident(
+                contracts.ResolveIncidentInput(
+                    team_id=self.team_id,
+                    incident_id=UUID(str(pk)),
+                    resolution_note=serializer.validated_data["resolution_note"],
+                )
+            )
+        except Exception as exc:
+            raise NotFound("Incident not found") from exc
+        return Response(IncidentSerializer(dto).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: IncidentSerializer},
+        description="Reopen the incident, clearing resolved_at and the resolution note so it shows as ongoing again.",
+    )
+    @action(detail=True, methods=["post"], url_path="reopen")
+    def reopen(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        try:
+            dto = api.reopen_incident(team_id=self.team_id, incident_id=UUID(str(pk)))
+        except Exception as exc:
+            raise NotFound("Incident not found") from exc
+        return Response(IncidentSerializer(dto).data)
 
 
 class StatusPageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

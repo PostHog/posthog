@@ -24,6 +24,22 @@ class Monitor(ProductTeamModel):
         return self.name
 
 
+class Incident(ProductTeamModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    monitor = models.ForeignKey(Monitor, on_delete=models.CASCADE, related_name="incidents")
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default="")
+    started_at = models.DateTimeField()
+    # A null resolved_at means the incident is still ongoing — that's the canonical "open" signal.
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_note = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class StatusPage(ProductTeamModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255)

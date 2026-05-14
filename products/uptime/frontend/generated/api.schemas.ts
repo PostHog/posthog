@@ -7,6 +7,66 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface IncidentDTOApi {
+    id: string
+    monitor_id: string
+    name: string
+    description: string
+    started_at: string
+    /** @nullable */
+    resolved_at: string | null
+    resolution_note: string
+    created_at: string
+    updated_at: string
+}
+
+export interface PaginatedIncidentDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: IncidentDTOApi[]
+}
+
+export interface CreateIncidentApi {
+    /** ID of the monitor this incident is attached to. */
+    monitor_id: string
+    /**
+     * Short, human-readable incident title.
+     * @maxLength 255
+     */
+    name: string
+    /** Longer description of the incident, shown publicly. */
+    description?: string
+    /** When the incident started. Defaults to the time the incident was created. */
+    started_at?: string
+}
+
+export interface PatchedUpdateIncidentApi {
+    /**
+     * Updated incident title.
+     * @maxLength 255
+     */
+    name?: string
+    /** Updated description of the incident. */
+    description?: string
+    /** Updated start time of the incident. */
+    started_at?: string
+    /**
+     * When the incident was resolved. Null means the incident is still ongoing.
+     * @nullable
+     */
+    resolved_at?: string | null
+    /** Note explaining how the incident was resolved. */
+    resolution_note?: string
+}
+
+export interface ResolveIncidentApi {
+    /** Required note explaining how the incident was resolved. Shown on the public status page. */
+    resolution_note: string
+}
+
 export interface MonitorDTOApi {
     id: string
     name: string
@@ -179,6 +239,57 @@ export interface PaginatedMonitorSummaryDTOListApi {
     results: MonitorSummaryDTOApi[]
 }
 
+export interface StatusPageDTOApi {
+    id: string
+    title: string
+    slug: string
+    monitor_ids: string[]
+    is_published: boolean
+    /** @nullable */
+    published_at: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface PaginatedStatusPageDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: StatusPageDTOApi[]
+}
+
+export interface PatchedUpdateStatusPageApi {
+    /**
+     * Human-readable title of the status page, shown publicly above the monitor list.
+     * @maxLength 255
+     */
+    title?: string
+    /**
+     * URL slug used in the public URL /status/<slug>. Must be globally unique.
+     * @maxLength 64
+     */
+    slug?: string
+    /** Ordered list of monitor IDs to display on this status page. Order is preserved. */
+    monitor_ids?: string[]
+}
+
+export type UptimeIncidentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * When provided, only incidents for this monitor are returned.
+     */
+    monitor_id?: string
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type UptimeMonitorsListParams = {
     /**
      * Number of results to return per page.
@@ -228,6 +339,17 @@ export type UptimeMonitorsSuggestedUrlsListParams = {
 }
 
 export type UptimeMonitorsSummaryListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type UptimeStatusPagesListParams = {
     /**
      * Number of results to return per page.
      */

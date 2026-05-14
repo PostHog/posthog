@@ -3,6 +3,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from ..facade.contracts import (
     DailyBucketDTO,
+    IncidentDTO,
     MonitorDTO,
     MonitorSummaryDTO,
     PingDTO,
@@ -76,6 +77,45 @@ class StatusPageSerializer(DataclassSerializer):
 class PublicStatusPageSerializer(DataclassSerializer):
     class Meta:
         dataclass = PublicStatusPageDTO
+
+
+class IncidentSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = IncidentDTO
+
+
+class CreateIncidentSerializer(serializers.Serializer):
+    monitor_id = serializers.UUIDField(help_text="ID of the monitor this incident is attached to.")
+    name = serializers.CharField(max_length=255, help_text="Short, human-readable incident title.")
+    description = serializers.CharField(
+        required=False, allow_blank=True, help_text="Longer description of the incident, shown publicly."
+    )
+    started_at = serializers.DateTimeField(
+        required=False,
+        help_text="When the incident started. Defaults to the time the incident was created.",
+    )
+
+
+class UpdateIncidentSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=255, required=False, help_text="Updated incident title.")
+    description = serializers.CharField(
+        required=False, allow_blank=True, help_text="Updated description of the incident."
+    )
+    started_at = serializers.DateTimeField(required=False, help_text="Updated start time of the incident.")
+    resolved_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="When the incident was resolved. Null means the incident is still ongoing.",
+    )
+    resolution_note = serializers.CharField(
+        required=False, allow_blank=True, help_text="Note explaining how the incident was resolved."
+    )
+
+
+class ResolveIncidentSerializer(serializers.Serializer):
+    resolution_note = serializers.CharField(
+        help_text="Required note explaining how the incident was resolved. Shown on the public status page."
+    )
 
 
 class UpdateStatusPageSerializer(serializers.Serializer):

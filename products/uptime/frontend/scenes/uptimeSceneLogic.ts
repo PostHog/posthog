@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
+import { openResolveIncidentDialog } from './incidentActions'
 import type { uptimeSceneLogicType } from './uptimeSceneLogicType'
 
 export interface Monitor {
@@ -69,7 +70,19 @@ export interface OverallStats {
     avgLatencyMs: number | null
 }
 
-export type UptimeSceneActiveTab = 'monitors' | 'alerts' | 'status_pages'
+export interface Incident {
+    id: string
+    monitor_id: string
+    name: string
+    description: string
+    started_at: string
+    resolved_at: string | null
+    resolution_note: string
+    created_at: string
+    updated_at: string
+}
+
+export type UptimeSceneActiveTab = 'monitors' | 'incidents' | 'alerts' | 'status_pages'
 
 const DEFAULT_ACTIVE_TAB: UptimeSceneActiveTab = 'monitors'
 
@@ -94,6 +107,12 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
         deleteMonitor: (monitorId: string) => ({ monitorId }),
         quickAddSuggestion: (suggestion: SuggestedUrl) => ({ suggestion }),
         reorderMonitors: (orderedIds: string[]) => ({ orderedIds }),
+        startEditingIncident: (incident: Incident) => ({ incident }),
+        stopEditingIncident: true,
+        promptResolveIncident: (incident: Incident) => ({ incident }),
+        reopenIncident: (incidentId: string) => ({ incidentId }),
+        confirmDeleteIncident: (incident: { id: string; name: string }) => ({ incident }),
+        deleteIncident: (incidentId: string) => ({ incidentId }),
     }),
 
     reducers({
@@ -131,6 +150,14 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
                 stopEditing: () => null,
             },
         ],
+        // Incident id being edited from this scene's listing; null = closed.
+        editingIncidentId: [
+            null as string | null,
+            {
+                startEditingIncident: (_, { incident }) => incident.id,
+                stopEditingIncident: () => null,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -151,6 +178,14 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
                     return await api.get<SuggestedUrl[]>(
                         `api/projects/${values.currentProjectId}/uptime/monitors/suggested_urls/`
                     )
+                },
+            },
+        ],
+        incidents: [
+            [] as Incident[],
+            {
+                loadIncidents: async () => {
+                    return await api.get<Incident[]>(`api/projects/${values.currentProjectId}/uptime/incidents/`)
                 },
             },
         ],
@@ -219,6 +254,34 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
                 actions.loadMonitorSummaries()
             },
         },
+        editIncident: {
+            defaults: { name: '', description: '', resolution_note: '' } as {
+                name: string
+                description: string
+                resolution_note: string
+            },
+            errors: ({ name, resolution_note }) => ({
+                name: !name ? 'Name is required' : null,
+                resolution_note:
+                    values.editingIncident?.resolved_at && !resolution_note?.trim()
+                        ? 'A resolution note is required'
+                        : null,
+            }),
+            submit: async ({ name, description, resolution_note }) => {
+                const id = values.editingIncidentId
+                if (!id) {
+                    return
+                }
+                const payload: Record<string, string> = { name, description }
+                if (values.editingIncident?.resolved_at) {
+                    payload.resolution_note = resolution_note
+                }
+                await api.update<Incident>(`api/projects/${values.currentProjectId}/uptime/incidents/${id}/`, payload)
+                lemonToast.success('Declared incident updated')
+                actions.stopEditingIncident()
+                actions.loadIncidents()
+            },
+        },
     })),
 
     listeners(({ actions, values }) => ({
@@ -271,6 +334,42 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
             router.actions.push(urls.uptimeMonitor(created.id))
             actions.loadSuggestedUrls()
         },
+        startEditingIncident: ({ incident }) => {
+            actions.setEditIncidentValues({
+                name: incident.name,
+                description: incident.description,
+                resolution_note: incident.resolution_note,
+            })
+        },
+        promptResolveIncident: ({ incident }) => {
+            openResolveIncidentDialog({
+                incident,
+                projectId: values.currentProjectId as string,
+                onResolved: () => actions.loadIncidents(),
+            })
+        },
+        reopenIncident: async ({ incidentId }) => {
+            await api.create(`api/projects/${values.currentProjectId}/uptime/incidents/${incidentId}/reopen/`, {})
+            lemonToast.info('Declared incident reopened')
+            actions.loadIncidents()
+        },
+        confirmDeleteIncident: ({ incident }) => {
+            LemonDialog.open({
+                title: `Delete declared incident "${incident.name}"?`,
+                description: 'This permanently removes the incident.',
+                primaryButton: {
+                    children: 'Delete',
+                    status: 'danger',
+                    onClick: () => actions.deleteIncident(incident.id),
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+        },
+        deleteIncident: async ({ incidentId }) => {
+            await api.delete(`api/projects/${values.currentProjectId}/uptime/incidents/${incidentId}/`)
+            lemonToast.success('Declared incident deleted')
+            actions.loadIncidents()
+        },
         bulkAddSelected: async () => {
             const selected = values.selectedSuggestionsAsItems
             if (selected.length === 0) {
@@ -312,6 +411,24 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
                     .map((s) => ({ name: s.host, url: s.url }))
             },
         ],
+        editingIncident: [
+            (s) => [s.incidents, s.editingIncidentId],
+            (incidents: Incident[], id: string | null): Incident | null => {
+                if (!id) {
+                    return null
+                }
+                return incidents.find((i) => i.id === id) ?? null
+            },
+        ],
+        ongoingIncidents: [
+            (s) => [s.incidents],
+            (incidents: Incident[]): Incident[] => incidents.filter((i) => i.resolved_at === null),
+        ],
+        resolvedIncidents: [
+            (s) => [s.incidents],
+            (incidents: Incident[]): Incident[] => incidents.filter((i) => i.resolved_at !== null),
+        ],
+        ongoingIncidentsCount: [(s) => [s.ongoingIncidents], (ongoing: Incident[]): number => ongoing.length],
         overallStats: [
             (s) => [s.monitorSummaries],
             (summaries: MonitorSummary[]): OverallStats => {
@@ -374,5 +491,6 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
     afterMount(({ actions }) => {
         actions.loadMonitorSummaries()
         actions.loadSuggestedUrls()
+        actions.loadIncidents()
     }),
 ])

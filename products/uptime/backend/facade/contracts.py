@@ -112,7 +112,50 @@ class UpdateStatusPageInput:
 
 
 @dataclass(frozen=True)
+class IncidentDTO:
+    id: UUID
+    monitor_id: UUID
+    name: str
+    description: str
+    started_at: datetime
+    resolved_at: datetime | None
+    resolution_note: str
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class CreateIncidentInput:
+    team_id: int
+    monitor_id: UUID
+    name: str
+    description: str = ""
+    started_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class UpdateIncidentInput:
+    team_id: int
+    incident_id: UUID
+    name: str | None = None
+    description: str | None = None
+    started_at: datetime | None = None
+    resolved_at: datetime | None = None
+    resolution_note: str | None = None
+    clear_resolved_at: bool = False
+
+
+@dataclass(frozen=True)
+class ResolveIncidentInput:
+    team_id: int
+    incident_id: UUID
+    resolution_note: str
+
+
+@dataclass(frozen=True)
 class PublicStatusPageDTO:
     title: str
     monitors: list[MonitorSummaryDTO]
     published_at: datetime | None
+    ongoing_incidents: list[IncidentDTO]
+    recent_incidents: list[IncidentDTO]

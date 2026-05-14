@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import math
 import re
+import math
 import secrets
 from datetime import date, datetime, timedelta
 from typing import Literal
@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from django.db import transaction
+from django.db import models, transaction
 from django.db.utils import IntegrityError
 from django.utils import timezone
 
@@ -26,7 +26,7 @@ from posthog.models.team.team import Team
 from posthog.redis import get_client
 
 from ..facade.enums import PingOutcome
-from ..models import Monitor, StatusPage
+from ..models import Incident, Monitor, StatusPage
 
 logger = structlog.get_logger(__name__)
 
@@ -514,10 +514,13 @@ def get_public_status_page_view(*, slug: str) -> dict | None:
     with team_scope(page.team_id):
         summaries_by_id = {row["id"]: row for row in list_monitor_summaries(team_id=page.team_id)}
     monitors = [summaries_by_id[m_id] for m_id in page.monitor_ids if m_id in summaries_by_id]
+    ongoing, recent = list_public_incidents_for_monitors(monitor_ids=list(page.monitor_ids))
     return {
         "title": page.title,
         "monitors": monitors,
         "published_at": page.published_at,
+        "ongoing_incidents": ongoing,
+        "recent_incidents": recent,
     }
 
 
@@ -546,6 +549,126 @@ def _sanitize_slug(value: str) -> str:
     value = re.sub(r"[^a-z0-9-]+", "-", value)
     value = re.sub(r"-+", "-", value).strip("-")
     return value[:64]
+
+
+RESOLVED_INCIDENT_WINDOW_DAYS = 7
+RESOLVED_INCIDENT_PUBLIC_LIMIT = 5
+
+
+def create_incident(
+    *,
+    team_id: int,
+    monitor_id: UUID,
+    name: str,
+    description: str = "",
+    started_at: datetime | None = None,
+) -> Incident:
+    # Confirm the monitor exists in this team before creating the incident — the FK alone would
+    # accept any monitor_id since the manager auto-scopes.
+    Monitor.objects.get(team_id=team_id, id=monitor_id)
+    return Incident.objects.create(
+        team_id=team_id,
+        monitor_id=monitor_id,
+        name=name,
+        description=description,
+        started_at=started_at or timezone.now(),
+    )
+
+
+def update_incident(
+    *,
+    team_id: int,
+    incident_id: UUID,
+    name: str | None = None,
+    description: str | None = None,
+    started_at: datetime | None = None,
+    resolved_at: datetime | None = None,
+    resolution_note: str | None = None,
+    clear_resolved_at: bool = False,
+) -> Incident:
+    incident = Incident.objects.get(team_id=team_id, id=incident_id)
+    if name is not None:
+        incident.name = name
+    if description is not None:
+        incident.description = description
+    if started_at is not None:
+        incident.started_at = started_at
+    if resolution_note is not None:
+        incident.resolution_note = resolution_note
+    if clear_resolved_at:
+        incident.resolved_at = None
+        incident.resolution_note = ""
+    elif resolved_at is not None:
+        incident.resolved_at = resolved_at
+    incident.save()
+    return incident
+
+
+def resolve_incident(*, team_id: int, incident_id: UUID, resolution_note: str) -> Incident:
+    """Mark an incident as resolved with a required note. Setting resolved_at twice is a no-op
+    on the timestamp, but the note is always written so it can be edited via this endpoint too."""
+    incident = Incident.objects.get(team_id=team_id, id=incident_id)
+    if incident.resolved_at is None:
+        incident.resolved_at = timezone.now()
+    incident.resolution_note = resolution_note
+    incident.save()
+    return incident
+
+
+def reopen_incident(*, team_id: int, incident_id: UUID) -> Incident:
+    incident = Incident.objects.get(team_id=team_id, id=incident_id)
+    incident.resolved_at = None
+    incident.resolution_note = ""
+    incident.save()
+    return incident
+
+
+def delete_incident(*, team_id: int, incident_id: UUID) -> None:
+    Incident.objects.filter(team_id=team_id, id=incident_id).delete()
+
+
+def get_incident(*, team_id: int, incident_id: UUID) -> Incident:
+    return Incident.objects.get(team_id=team_id, id=incident_id)
+
+
+def list_incidents(*, team_id: int) -> list[Incident]:
+    """All incidents for the team. Ongoing (resolved_at is null) sort first, then by recency."""
+    return list(
+        Incident.objects.filter(team_id=team_id).order_by(
+            models.F("resolved_at").asc(nulls_first=True),
+            "-started_at",
+        )
+    )
+
+
+def list_incidents_for_monitor(*, team_id: int, monitor_id: UUID) -> list[Incident]:
+    return list(
+        Incident.objects.filter(team_id=team_id, monitor_id=monitor_id).order_by(
+            models.F("resolved_at").asc(nulls_first=True),
+            "-started_at",
+        )
+    )
+
+
+def list_public_incidents_for_monitors(*, monitor_ids: list[UUID]) -> tuple[list[Incident], list[Incident]]:
+    """Ongoing + recently resolved incidents for the given monitors, scoped without a team filter
+    because the public status page is unauthenticated. The caller has already confirmed the
+    monitor IDs belong to the page being viewed.
+
+    Returns (ongoing, recently_resolved). Recently resolved is capped at the last week and 5 entries.
+    """
+    if not monitor_ids:
+        return [], []
+    cutoff = timezone.now() - timedelta(days=RESOLVED_INCIDENT_WINDOW_DAYS)
+    ongoing = list(
+        Incident.objects.unscoped().filter(monitor_id__in=monitor_ids, resolved_at__isnull=True).order_by("-started_at")
+    )
+    recent = list(
+        Incident.objects.unscoped()
+        .filter(monitor_id__in=monitor_ids, resolved_at__isnull=False, resolved_at__gte=cutoff)
+        .order_by("-resolved_at")[:RESOLVED_INCIDENT_PUBLIC_LIMIT]
+    )
+    return ongoing, recent
 
 
 def list_recent_pings(*, team_id: int, monitor_id: UUID, limit: int = 50) -> list[dict]:

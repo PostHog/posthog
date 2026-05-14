@@ -8010,6 +8010,20 @@ export namespace Schemas {
       group_properties?: unknown;
     }
 
+    export interface CreateIncident {
+      /** ID of the monitor this incident is attached to. */
+      monitor_id: string;
+      /**
+         * Short, human-readable incident title.
+         * @maxLength 255
+         */
+      name: string;
+      /** Longer description of the incident, shown publicly. */
+      description?: string;
+      /** When the incident started. Defaults to the time the incident was created. */
+      started_at?: string;
+    }
+
     /**
      * * `BAA` - BAA
     * `DPA` - DPA
@@ -18255,6 +18269,19 @@ export namespace Schemas {
       tags?: TagDefinition[];
     }
 
+    export interface IncidentDTO {
+      id: string;
+      monitor_id: string;
+      name: string;
+      description: string;
+      started_at: string;
+      /** @nullable */
+      resolved_at: string | null;
+      resolution_note: string;
+      created_at: string;
+      updated_at: string;
+    }
+
     /**
      * @nullable
      */
@@ -21478,6 +21505,15 @@ export namespace Schemas {
       results: HogFunctionTemplate[];
     }
 
+    export interface PaginatedIncidentDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: IncidentDTO[];
+    }
+
     export interface PaginatedInsightList {
       count: number;
       /** @nullable */
@@ -22895,6 +22931,27 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Snapshot[];
+    }
+
+    export interface StatusPageDTO {
+      id: string;
+      title: string;
+      slug: string;
+      monitor_ids: string[];
+      is_published: boolean;
+      /** @nullable */
+      published_at: string | null;
+      created_at: string;
+      updated_at: string;
+    }
+
+    export interface PaginatedStatusPageDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: StatusPageDTO[];
     }
 
     /**
@@ -29813,6 +29870,25 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
+    export interface PatchedUpdateIncident {
+      /**
+         * Updated incident title.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Updated description of the incident. */
+      description?: string;
+      /** Updated start time of the incident. */
+      started_at?: string;
+      /**
+         * When the incident was resolved. Null means the incident is still ongoing.
+         * @nullable
+         */
+      resolved_at?: string | null;
+      /** Note explaining how the incident was resolved. */
+      resolution_note?: string;
+    }
+
     export interface PatchedUpdateMonitor {
       /**
          * New human-readable name of the monitor.
@@ -29836,6 +29912,21 @@ export namespace Schemas {
       baseline_file_paths?: PatchedUpdateRepoRequestInputBaselineFilePaths;
       /** @nullable */
       enable_pr_comments?: boolean | null;
+    }
+
+    export interface PatchedUpdateStatusPage {
+      /**
+         * Human-readable title of the status page, shown publicly above the monitor list.
+         * @maxLength 255
+         */
+      title?: string;
+      /**
+         * URL slug used in the public URL /status/<slug>. Must be globally unique.
+         * @maxLength 64
+         */
+      slug?: string;
+      /** Ordered list of monitor IDs to display on this status page. Order is preserved. */
+      monitor_ids?: string[];
     }
 
     /**
@@ -32979,6 +33070,11 @@ export namespace Schemas {
     export interface ResetPasswordResponse {
       username: string;
       password: string;
+    }
+
+    export interface ResolveIncident {
+      /** Required note explaining how the incident was resolved. Shown on the public status page. */
+      resolution_note: string;
     }
 
     export interface ReviewQueueCreate {
@@ -38110,6 +38206,21 @@ export namespace Schemas {
       at_limit: boolean;
     };
 
+    export type EnvironmentsUptimeIncidentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * When provided, only incidents for this monitor are returned.
+     */
+    monitor_id?: string;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsUptimeMonitorsListParams = {
     /**
      * Number of results to return per page.
@@ -38159,6 +38270,17 @@ export namespace Schemas {
     };
 
     export type EnvironmentsUptimeMonitorsSummaryListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsUptimeStatusPagesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -43688,6 +43810,21 @@ export namespace Schemas {
 
     export type UploadedMediaCreate201 = { [key: string]: unknown };
 
+    export type UptimeIncidentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * When provided, only incidents for this monitor are returned.
+     */
+    monitor_id?: string;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type UptimeMonitorsListParams = {
     /**
      * Number of results to return per page.
@@ -43737,6 +43874,17 @@ export namespace Schemas {
     };
 
     export type UptimeMonitorsSummaryListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type UptimeStatusPagesListParams = {
     /**
      * Number of results to return per page.
      */

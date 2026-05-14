@@ -1,8 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconArrowLeft, IconGraph, IconPencil, IconPlay, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonInput, LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconGraph, IconPencil, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCard,
+    LemonInput,
+    LemonModal,
+    LemonSkeleton,
+    LemonTable,
+    LemonTag,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -15,8 +25,9 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { IncidentTile } from './IncidentTile'
 import { uptimeMonitorSceneLogic } from './uptimeMonitorSceneLogic'
-import { DailyBucket, DailyStatus, MonitorStatus } from './uptimeSceneLogic'
+import { DailyBucket, DailyStatus, Incident, MonitorStatus, Ping } from './uptimeSceneLogic'
 
 export const scene: SceneExport = {
     component: UptimeMonitorScene,
@@ -24,8 +35,18 @@ export const scene: SceneExport = {
 }
 
 export function UptimeMonitorScene(): JSX.Element {
-    const { summary, summaryLoading } = useValues(uptimeMonitorSceneLogic)
-    const { pingNow, setEditModalOpen, deleteMonitor } = useActions(uptimeMonitorSceneLogic)
+    const { summary, summaryLoading, pings, pingsLoading, incidents, incidentsLoading } =
+        useValues(uptimeMonitorSceneLogic)
+    const {
+        pingNow,
+        setEditModalOpen,
+        deleteMonitor,
+        openCreateIncident,
+        startEditingIncident,
+        promptResolveIncident,
+        reopenIncident,
+        confirmDeleteIncident,
+    } = useActions(uptimeMonitorSceneLogic)
 
     if (summaryLoading && !summary) {
         return (
@@ -141,12 +162,154 @@ export function UptimeMonitorScene(): JSX.Element {
                 <StatusTimeline buckets={summary.daily_buckets} />
             </LemonCard>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <DetailPanel title="Panel 1" />
-                <DetailPanel title="Panel 2" />
-                <DetailPanel title="Panel 3" />
+            <div className="grid gap-4 lg:grid-cols-2">
+                <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
+                    <div className="font-semibold">Recent pings</div>
+                    <LemonTable
+                        loading={pingsLoading}
+                        dataSource={pings}
+                        columns={[
+                            {
+                                title: 'When',
+                                dataIndex: 'timestamp',
+                                render: (_, row: Ping) => dayjs(row.timestamp).fromNow(),
+                            },
+                            {
+                                title: 'Outcome',
+                                dataIndex: 'outcome',
+                                render: (_, row: Ping) => (
+                                    <LemonTag type={row.outcome === 'success' ? 'success' : 'danger'}>
+                                        {row.outcome}
+                                    </LemonTag>
+                                ),
+                            },
+                            {
+                                title: 'Status',
+                                dataIndex: 'status_code',
+                                render: (_, row: Ping) => (row.status_code ? String(row.status_code) : '—'),
+                            },
+                            {
+                                title: 'Latency',
+                                dataIndex: 'latency_ms',
+                                render: (_, row: Ping) => `${row.latency_ms} ms`,
+                            },
+                        ]}
+                        emptyState="No pings recorded yet."
+                    />
+                </LemonCard>
+                <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
+                    <div className="flex items-center justify-between">
+                        <div className="font-semibold">Declared incidents</div>
+                        {incidents.length > 0 && (
+                            <LemonButton type="primary" size="small" icon={<IconPlus />} onClick={openCreateIncident}>
+                                Declare new
+                            </LemonButton>
+                        )}
+                    </div>
+                    <IncidentsList
+                        incidents={incidents}
+                        loading={incidentsLoading}
+                        onCreate={openCreateIncident}
+                        onEdit={startEditingIncident}
+                        onResolve={promptResolveIncident}
+                        onReopen={(id) => reopenIncident(id)}
+                        onDelete={(incident) => confirmDeleteIncident({ id: incident.id, name: incident.name })}
+                    />
+                </LemonCard>
             </div>
+            <IncidentModal />
         </SceneContent>
+    )
+}
+
+function IncidentsList({
+    incidents,
+    loading,
+    onCreate,
+    onEdit,
+    onResolve,
+    onReopen,
+    onDelete,
+}: {
+    incidents: Incident[]
+    loading: boolean
+    onCreate: () => void
+    onEdit: (incident: Incident) => void
+    onResolve: (incident: Incident) => void
+    onReopen: (incidentId: string) => void
+    onDelete: (incident: Incident) => void
+}): JSX.Element {
+    if (loading && incidents.length === 0) {
+        return <LemonSkeleton className="h-24 w-full" />
+    }
+
+    if (incidents.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                <div className="text-sm text-secondary max-w-xs">No declared incidents for this monitor yet.</div>
+                <LemonButton type="primary" icon={<IconPlus />} onClick={onCreate}>
+                    Declare new
+                </LemonButton>
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex flex-col gap-3">
+            {incidents.map((incident) => (
+                <IncidentTile
+                    key={incident.id}
+                    incident={incident}
+                    onEdit={() => onEdit(incident)}
+                    onResolve={() => onResolve(incident)}
+                    onReopen={() => onReopen(incident.id)}
+                    onDelete={() => onDelete(incident)}
+                />
+            ))}
+        </div>
+    )
+}
+
+function IncidentModal(): JSX.Element {
+    const { incidentModalState, isIncidentFormSubmitting, editingIncident } = useValues(uptimeMonitorSceneLogic)
+    const { setIncidentFormValue, submitIncidentForm, closeIncidentModal } = useActions(uptimeMonitorSceneLogic)
+
+    const isCreate = incidentModalState === 'new'
+    const showResolutionField = !isCreate && editingIncident?.resolved_at != null
+
+    return (
+        <LemonModal
+            isOpen={incidentModalState !== null}
+            onClose={closeIncidentModal}
+            title={isCreate ? 'Declare incident' : 'Edit declared incident'}
+            footer={
+                <LemonButton type="primary" loading={isIncidentFormSubmitting} onClick={() => submitIncidentForm()}>
+                    {isCreate ? 'Create' : 'Save'}
+                </LemonButton>
+            }
+        >
+            <Form logic={uptimeMonitorSceneLogic} formKey="incidentForm" className="deprecated-space-y-4">
+                <LemonField name="name" label="Name">
+                    <LemonInput placeholder="API outage" onChange={(v) => setIncidentFormValue('name', v)} />
+                </LemonField>
+                <LemonField name="description" label="Description">
+                    <LemonTextArea
+                        placeholder="What's happening?"
+                        rows={4}
+                        onChange={(v) => setIncidentFormValue('description', v)}
+                    />
+                </LemonField>
+                {showResolutionField && (
+                    <LemonField name="resolution_note" label="Resolution">
+                        <LemonTextArea
+                            placeholder="What fixed it?"
+                            rows={3}
+                            onChange={(v) => setIncidentFormValue('resolution_note', v)}
+                        />
+                    </LemonField>
+                )}
+            </Form>
+        </LemonModal>
     )
 }
 
@@ -174,15 +337,6 @@ function EditMonitorModal(): JSX.Element {
                 </LemonField>
             </Form>
         </LemonModal>
-    )
-}
-
-function DetailPanel({ title }: { title: string }): JSX.Element {
-    return (
-        <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4 min-h-[240px]">
-            <div className="font-semibold">{title}</div>
-            <div className="flex-1 flex items-center justify-center text-xs text-secondary">Coming soon</div>
-        </LemonCard>
     )
 }
 
