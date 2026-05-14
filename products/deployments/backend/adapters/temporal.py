@@ -26,7 +26,7 @@ from django.conf import settings
 import structlog
 from temporalio.client import WorkflowHandle as TemporalWorkflowHandle
 from temporalio.common import RetryPolicy
-from temporalio.service import RPCError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.client import sync_connect
 
@@ -141,9 +141,11 @@ class TemporalWorkflowAdapter:
             asyncio.run(_cancel())
         except RPCError as err:
             # Workflow already finished or doesn't exist → not an error
-            # from the user's perspective; the cancel is a no-op. Other
-            # RPC failures bubble up so the viewset can surface them.
-            if "not found" in str(err).lower():
+            # from the user's perspective; the cancel is a no-op. Match
+            # on the structured status code rather than the message text,
+            # which can vary across SDK versions or locales. Other RPC
+            # failures bubble up so the viewset can surface them.
+            if err.status == RPCStatusCode.NOT_FOUND:
                 logger.info("temporal_cancel_workflow_not_found", workflow_id=workflow_id)
                 return
             logger.warning("temporal_cancel_workflow_failed", workflow_id=workflow_id, error=str(err))

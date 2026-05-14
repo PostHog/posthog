@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+from parameterized import parameterized
 from temporalio.service import RPCError, RPCStatusCode
 
 from products.deployments.backend.adapters.temporal import (
@@ -103,25 +104,33 @@ class TestTemporalWorkflowAdapter(SimpleTestCase):
         client.get_workflow_handle.assert_called_once_with("deployment-abc")
         handle.cancel.assert_awaited_once()
 
+    # Drive signal_cancel's NOT_FOUND detection from the structured
+    # RPCStatusCode rather than the message string — including the case
+    # where the message *contains* "not found" but the status is wrong
+    # (which should still raise), proving the substring-match path is
+    # gone.
+    @parameterized.expand(
+        [
+            ("not_found_with_canonical_message", RPCStatusCode.NOT_FOUND, "workflow execution not found", False),
+            ("not_found_with_different_message", RPCStatusCode.NOT_FOUND, "execution does not exist", False),
+            ("unknown_error", RPCStatusCode.UNKNOWN, "internal server error", True),
+            ("unavailable_with_not_found_substring", RPCStatusCode.UNAVAILABLE, "task queue not found", True),
+        ]
+    )
     @patch("products.deployments.backend.adapters.temporal.sync_connect")
-    def test_signal_cancel_swallows_workflow_not_found(self, mock_connect: MagicMock) -> None:
+    def test_signal_cancel_status_code_drives_behaviour(
+        self, _name: str, status: RPCStatusCode, message: str, should_raise: bool, mock_connect: MagicMock
+    ) -> None:
         handle = MagicMock()
-        handle.cancel = AsyncMock(side_effect=_make_rpc_error("workflow execution not found", RPCStatusCode.NOT_FOUND))
+        handle.cancel = AsyncMock(side_effect=_make_rpc_error(message, status))
         client = MagicMock()
         client.get_workflow_handle = MagicMock(return_value=handle)
         mock_connect.return_value = client
 
-        # Should not raise — the workflow finished or never existed.
-        TemporalWorkflowAdapter().signal_cancel(workflow_id="deployment-abc")
-
-    @patch("products.deployments.backend.adapters.temporal.sync_connect")
-    def test_signal_cancel_raises_on_other_rpc_errors(self, mock_connect: MagicMock) -> None:
-        handle = MagicMock()
-        handle.cancel = AsyncMock(side_effect=_make_rpc_error("internal server error"))
-        client = MagicMock()
-        client.get_workflow_handle = MagicMock(return_value=handle)
-        mock_connect.return_value = client
-
-        with self.assertRaises(WorkflowError) as cm:
+        if should_raise:
+            with self.assertRaises(WorkflowError) as cm:
+                TemporalWorkflowAdapter().signal_cancel(workflow_id="deployment-abc")
+            self.assertIn(message, str(cm.exception))
+        else:
+            # No exception — the workflow finished or never existed.
             TemporalWorkflowAdapter().signal_cancel(workflow_id="deployment-abc")
-        self.assertIn("internal server error", str(cm.exception))
