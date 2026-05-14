@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -60,7 +59,6 @@ export const manifest: ProductManifest = {
             ] as FileSystemIconColor,
             sceneKey: 'Deployments',
             sceneKeys: ['Deployments', 'DeploymentProject', 'Deployment'],
-            flag: FEATURE_FLAGS.DEPLOYMENTS,
             tags: ['alpha'],
         },
     ],

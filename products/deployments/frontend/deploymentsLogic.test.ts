@@ -8,7 +8,6 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { deploymentsLogic } from './deploymentsLogic'
-import { POSTHOG_COM_PROJECT_ID } from './stubData'
 import { makeDeployment, makeProject } from './testHelpers'
 
 describe('deploymentsLogic (grid)', () => {
@@ -87,7 +86,7 @@ describe('deploymentsLogic (grid)', () => {
         }).toMatchValues({ addProjectModalOpen: false })
     })
 
-    it('uses posthog.com stub data when deployments-stub is enabled', async () => {
+    it('starts with no projects when deployments-stub is enabled', async () => {
         logic.unmount()
         initKeaTests()
         const flagsLogic = featureFlagLogic()
@@ -101,12 +100,8 @@ describe('deploymentsLogic (grid)', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.isStubMode).toBe(true)
-        expect(logic.values.deploymentProjects[0]).toMatchObject({
-            name: 'posthog.com',
-            repo_url: 'https://github.com/PostHog/posthog.com',
-            default_branch: 'master',
-        })
-        expect(logic.values.currentDeploymentsByProject[POSTHOG_COM_PROJECT_ID]?.preview_image_url).toBeTruthy()
+        expect(logic.values.deploymentProjects).toEqual([])
+        expect(logic.values.hasNoProjects).toBe(true)
 
         flagsLogic.actions.setFeatureFlags([], {})
         flagsLogic.unmount()

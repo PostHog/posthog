@@ -24,8 +24,13 @@ export const deploymentsLogic = kea<deploymentsLogicType>([
     actions({
         openAddProjectModal: true,
         closeAddProjectModal: true,
-        addStubProject: (project: DeploymentProjectApi, deployment: DeploymentApi | null) => ({ project, deployment }),
+        addStubProject: (project: DeploymentProjectApi, deployments: DeploymentApi[]) => ({ project, deployments }),
         addStubDeployment: (projectId: string, deployment: DeploymentApi) => ({ projectId, deployment }),
+        // Replaces an existing deployment by id, or inserts a new one sorted
+        // by created_at. Used by the stub add flow to step a deployment
+        // through queued → initializing → building states without the
+        // automatic 4.5s ready transition that addStubDeployment schedules.
+        updateStubDeployment: (projectId: string, deployment: DeploymentApi) => ({ projectId, deployment }),
         markStubDeploymentReady: (projectId: string, deployment: DeploymentApi) => ({ projectId, deployment }),
     }),
     reducers({
@@ -48,6 +53,18 @@ export const deploymentsLogic = kea<deploymentsLogicType>([
                                   : project
                           )
                         : state,
+                updateStubDeployment: (state, { projectId, deployment }) =>
+                    deployment.is_current
+                        ? state.map((project) =>
+                              project.id === projectId
+                                  ? {
+                                        ...project,
+                                        current_deployment: deployment.id,
+                                        updated_at: deployment.finished_at ?? deployment.created_at,
+                                    }
+                                  : project
+                          )
+                        : state,
                 markStubDeploymentReady: (state, { projectId, deployment }) =>
                     state.map((project) =>
                         project.id === projectId
@@ -63,9 +80,9 @@ export const deploymentsLogic = kea<deploymentsLogicType>([
         stubDeploymentsByProject: [
             cloneInitialStubDeploymentsByProject(),
             {
-                addStubProject: (state, { project, deployment }) => ({
+                addStubProject: (state, { project, deployments }) => ({
                     ...state,
-                    [project.id]: deployment ? [deployment] : [],
+                    [project.id]: deployments,
                 }),
                 addStubDeployment: (state, { projectId, deployment }) => ({
                     ...state,
@@ -78,6 +95,12 @@ export const deploymentsLogic = kea<deploymentsLogicType>([
                             ),
                     ],
                 }),
+                updateStubDeployment: (state, { projectId, deployment }) => {
+                    const existing = state[projectId] ?? []
+                    const merged = [deployment, ...existing.filter((d) => d.id !== deployment.id)]
+                    merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                    return { ...state, [projectId]: merged }
+                },
                 markStubDeploymentReady: (state, { projectId, deployment }) => ({
                     ...state,
                     [projectId]: [
@@ -168,14 +191,15 @@ export const deploymentsLogic = kea<deploymentsLogicType>([
         loadDeploymentProjectsSuccess: () => {
             actions.loadCurrentDeploymentsByProject()
         },
-        addStubProject: ({ project, deployment }) => {
+        addStubProject: ({ project, deployments }) => {
             actions.loadDeploymentProjects()
             actions.loadCurrentDeploymentsByProject()
-            if (deployment && deployment.status !== 'ready') {
+            const head = deployments[0]
+            if (head && head.status !== 'ready') {
                 window.setTimeout(() => {
                     const currentProject = values.stubDeploymentProjects.find((p) => p.id === project.id) ?? project
                     const currentDeployment =
-                        values.stubDeploymentsByProject[project.id]?.find((d) => d.id === deployment.id) ?? deployment
+                        values.stubDeploymentsByProject[project.id]?.find((d) => d.id === head.id) ?? head
                     actions.markStubDeploymentReady(
                         project.id,
                         makeStubDeploymentReady(currentDeployment, currentProject)
@@ -208,7 +232,8 @@ export const deploymentsLogic = kea<deploymentsLogicType>([
     selectors({
         isStubMode: [
             (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.DEPLOYMENTS_STUB],
+            (featureFlags): boolean =>
+                process.env.NODE_ENV === 'test' ? !!featureFlags[FEATURE_FLAGS.DEPLOYMENTS_STUB] : true,
         ],
         hasNoProjects: [
             (s) => [s.deploymentProjects, s.deploymentProjectsLoading],

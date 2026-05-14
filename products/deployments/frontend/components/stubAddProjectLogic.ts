@@ -5,7 +5,13 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { deploymentsLogic } from '../deploymentsLogic'
-import { createStubDeployment, createStubProject, createStubUuid, getStubRepository } from '../stubData'
+import {
+    createStubDeployment,
+    createStubProject,
+    createStubUuid,
+    getSeedDataForRepo,
+    getStubRepository,
+} from '../stubData'
 import type { stubAddProjectLogicType } from './stubAddProjectLogicType'
 
 const slugify = (value: string): string =>
@@ -96,6 +102,19 @@ export const stubAddProjectLogic = kea<stubAddProjectLogicType>([
             actions.setSubmitting(true)
             actions.setError(null)
 
+            // For repos we have rich pre-baked data for, hydrate the project
+            // with its full deployment history at once. Other repos get the
+            // synthetic single-build path.
+            const seed = getSeedDataForRepo(values.repoName)
+            if (seed) {
+                actions.addStubProject(seed.project, seed.deployments)
+                actions.closeAddProjectModal()
+                actions.reset()
+                lemonToast.success('Project connected.')
+                router.actions.push(urls.deploymentProject(seed.project.id))
+                return
+            }
+
             const now = new Date().toISOString()
             const projectId = createStubUuid()
             const project = {
@@ -113,7 +132,7 @@ export const stubAddProjectLogic = kea<stubAddProjectLogicType>([
                 triggerKind: 'manual',
             })
 
-            actions.addStubProject(project, deployment)
+            actions.addStubProject(project, [deployment])
             actions.closeAddProjectModal()
             actions.reset()
             lemonToast.success('Project connected. First deployment started.')

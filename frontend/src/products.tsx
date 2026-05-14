@@ -1451,7 +1451,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ] as FileSystemIconColor,
         sceneKey: 'Deployments',
         sceneKeys: ['Deployments', 'DeploymentProject', 'Deployment'],
-        flag: FEATURE_FLAGS.DEPLOYMENTS,
         tags: ['alpha'],
     },
     {

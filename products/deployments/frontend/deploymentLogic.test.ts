@@ -9,7 +9,6 @@ import { initKeaTests } from '~/test/init'
 import { deploymentLogic } from './deploymentLogic'
 import { deploymentProjectLogic } from './deploymentProjectLogic'
 import { deploymentsLogic } from './deploymentsLogic'
-import { CURRENT_DEPLOYMENT_ID, POSTHOG_COM_PROJECT_ID } from './stubData'
 import { makeDeployment, makeProject } from './testHelpers'
 
 const project = makeProject('project-1', 'Site', { current_deployment: 'dep-current' })
@@ -113,19 +112,6 @@ describe('deploymentLogic', () => {
             expect(crumbs[2]).toMatchObject({ name: 'Deployment' })
         } finally {
             missing.unmount()
-        }
-    })
-
-    it('loads the built-in posthog.com stub deployment directly by UUID', async () => {
-        const detail = deploymentLogic({ projectId: POSTHOG_COM_PROJECT_ID, id: CURRENT_DEPLOYMENT_ID })
-        detail.mount()
-        try {
-            await expectLogic(detail).toFinishAllListeners()
-            expect(detail.values.deployment?.id).toEqual(CURRENT_DEPLOYMENT_ID)
-            expect(detail.values.deployment?.deployment_project_id).toEqual(POSTHOG_COM_PROJECT_ID)
-            expect(detail.values.deploymentMissing).toBe(false)
-        } finally {
-            detail.unmount()
         }
     })
 
