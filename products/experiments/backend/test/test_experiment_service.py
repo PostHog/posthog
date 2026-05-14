@@ -9,9 +9,12 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+import pydantic
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
+
+from posthog.schema import EventsNode, ExperimentMetric
 
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.models import FeatureFlag, Team
@@ -708,8 +711,6 @@ class TestExperimentService(APIBaseTest):
         """Drift guard: every variant of the ExperimentMetric union must have an entry in
         _METRIC_TYPE_TO_CLASS. If a new metric_type is added to the schema, this fails so
         the mapping (used to filter pydantic errors to the matching variant) stays accurate."""
-        from posthog.schema import ExperimentMetric
-
         union_variants = ExperimentMetric.model_fields["root"].annotation.__args__
         schema_pairs = {
             variant.model_fields["metric_type"].annotation.__args__[0]: variant.__name__ for variant in union_variants
@@ -753,10 +754,6 @@ class TestExperimentService(APIBaseTest):
         'extra_forbidden'. Pydantic publishes these slugs as stable public API, but they
         live in an external dependency — fail loudly if a future pydantic upgrade renames
         the slug so the hint stops silently matching."""
-        import pydantic
-
-        from posthog.schema import EventsNode
-
         try:
             EventsNode.model_validate({"event": "x", "totally_made_up_field_does_not_exist": 1})
         except pydantic.ValidationError as e:
@@ -811,8 +808,8 @@ class TestExperimentService(APIBaseTest):
         with self.assertRaises(ValidationError) as ctx:
             ExperimentService.validate_experiment_metrics([metric])
         message = str(ctx.exception)
-        # The truncation marker should appear when the cap is hit.
-        assert "more" in message
+        # The truncation marker key from the implementation should appear when the cap is hit.
+        assert "truncated" in message
         # And the message size remains bounded even with 100 bad steps.
         assert len(message) < 10_000, f"Error message length {len(message)} exceeded bound"
 
