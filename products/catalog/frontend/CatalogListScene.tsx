@@ -1,6 +1,15 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonInputSelect,
+    LemonSelect,
+    LemonSkeleton,
+    LemonTable,
+    LemonTag,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -13,7 +22,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import type { CatalogNodeDTOApi } from 'products/catalog/frontend/generated/api.schemas'
 
 import { STATUS_COLOR, STATUS_LABEL } from './catalogConstants'
-import { catalogListSceneLogic } from './catalogListSceneLogic'
+import { catalogListSceneLogic, type CatalogKindFilter, type CatalogStatusFilter } from './catalogListSceneLogic'
 import { CatalogPageTabs } from './CatalogPageTabs'
 
 export const scene: SceneExport = {
@@ -22,8 +31,36 @@ export const scene: SceneExport = {
     productKey: ProductKey.CATALOG,
 }
 
+const KIND_OPTIONS: { value: CatalogKindFilter; label: string }[] = [
+    { value: 'all', label: 'All kinds' },
+    { value: 'warehouse_table', label: 'Warehouse table' },
+    { value: 'saved_query', label: 'Saved query' },
+    { value: 'system_table', label: 'System table' },
+    { value: 'posthog_table', label: 'PostHog table' },
+]
+
+const STATUS_OPTIONS: { value: CatalogStatusFilter; label: string }[] = [
+    { value: 'all', label: 'All statuses' },
+    { value: 'proposed', label: STATUS_LABEL.proposed },
+    { value: 'approved', label: STATUS_LABEL.approved },
+    { value: 'official', label: STATUS_LABEL.official },
+    { value: 'drift', label: STATUS_LABEL.drift },
+]
+
 export function CatalogListScene(): JSX.Element {
-    const { nodes, nodesLoading } = useValues(catalogListSceneLogic)
+    const {
+        nodes,
+        filteredNodes,
+        nodesLoading,
+        searchTerm,
+        kindFilter,
+        statusFilter,
+        tagFilter,
+        availableTags,
+        hasActiveFilters,
+    } = useValues(catalogListSceneLogic)
+    const { setSearchTerm, setKindFilter, setStatusFilter, setTagFilter, clearFilters } =
+        useActions(catalogListSceneLogic)
 
     const tableColumns: LemonTableColumns<CatalogNodeDTOApi> = [
         {
@@ -48,10 +85,20 @@ export function CatalogListScene(): JSX.Element {
             render: (_, node) => node.business_domain ?? '—',
         },
         {
-            title: 'Columns',
-            key: 'columns',
-            sorter: (a, b) => a.columns.length - b.columns.length,
-            render: (_, node) => node.columns.length,
+            title: 'Tags',
+            key: 'tags',
+            render: (_, node) =>
+                node.tags.length === 0 ? (
+                    '—'
+                ) : (
+                    <div className="flex flex-wrap gap-1">
+                        {node.tags.map((tag) => (
+                            <LemonTag key={tag} type="default">
+                                {tag}
+                            </LemonTag>
+                        ))}
+                    </div>
+                ),
         },
         {
             title: 'Status',
@@ -81,13 +128,58 @@ export function CatalogListScene(): JSX.Element {
                 resourceType={{ type: 'data_warehouse' }}
             />
             <CatalogPageTabs activeTab="list" />
+            <div className="flex flex-wrap items-center gap-2">
+                <LemonInput
+                    type="search"
+                    className="w-64"
+                    placeholder="Search nodes by name"
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                />
+                <LemonSelect<CatalogKindFilter>
+                    value={kindFilter}
+                    onChange={(v) => setKindFilter(v ?? 'all')}
+                    options={KIND_OPTIONS}
+                    size="small"
+                />
+                <LemonSelect<CatalogStatusFilter>
+                    value={statusFilter}
+                    onChange={(v) => setStatusFilter(v ?? 'all')}
+                    options={STATUS_OPTIONS}
+                    size="small"
+                />
+                {availableTags.length > 0 && (
+                    <LemonInputSelect
+                        mode="multiple"
+                        size="small"
+                        placeholder="Filter by tag"
+                        value={tagFilter}
+                        onChange={setTagFilter}
+                        options={availableTags.map((tag) => ({ key: tag, label: tag }))}
+                        allowCustomValues={false}
+                        className="w-64"
+                    />
+                )}
+                {hasActiveFilters && (
+                    <LemonButton type="tertiary" size="small" onClick={clearFilters}>
+                        Clear
+                    </LemonButton>
+                )}
+                <span className="text-secondary text-xs ml-auto">
+                    {filteredNodes.length === nodes.length
+                        ? `${nodes.length} nodes`
+                        : `${filteredNodes.length} of ${nodes.length} nodes`}
+                </span>
+            </div>
             <LemonTable
-                dataSource={nodes}
+                dataSource={filteredNodes}
                 columns={tableColumns}
                 rowKey={(n) => n.id}
                 emptyState={
                     <div className="text-secondary text-sm p-6 text-center">
-                        No catalog nodes yet. Run the traversal workflow to populate it.
+                        {hasActiveFilters
+                            ? 'No catalog nodes match the current filters.'
+                            : 'No catalog nodes yet. Run the traversal workflow to populate it.'}
                     </div>
                 }
             />
