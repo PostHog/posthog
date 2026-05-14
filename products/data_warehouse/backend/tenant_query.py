@@ -403,6 +403,30 @@ def _foreign_key_for_field_name(
     return None
 
 
+def _foreign_key_column_is_nullable(source_schema: ExternalDataSchema, foreign_key: dict[str, str]) -> bool:
+    source_column = _postgres_schema_column(source_schema, foreign_key["column"])
+    if source_column is None:
+        return True
+
+    return bool(source_column.get("is_nullable"))
+
+
+def _required_foreign_key_for_field_name(
+    schemas: list[ExternalDataSchema],
+    source_schema: ExternalDataSchema,
+    field_name: str,
+) -> tuple[dict[str, str], ExternalDataSchema] | None:
+    foreign_key_target = _foreign_key_for_field_name(schemas, source_schema, field_name)
+    if foreign_key_target is None:
+        return None
+
+    foreign_key, target_schema = foreign_key_target
+    if _foreign_key_column_is_nullable(source_schema, foreign_key):
+        return None
+
+    return foreign_key, target_schema
+
+
 def _tenant_column_type_for_schema_path(
     schema: ExternalDataSchema,
     tenant_column_path: str,
@@ -448,6 +472,9 @@ def _foreign_key_tenant_paths_by_table_for_schemas(
         table_name = _schema_display_name(schema)
         paths: set[str] = set()
         for foreign_key in _postgres_schema_foreign_keys(schema):
+            if _foreign_key_column_is_nullable(schema, foreign_key):
+                continue
+
             target_schema = _foreign_key_target_schema(schemas, schema, foreign_key["target_table"])
             if target_schema is None:
                 continue
@@ -1595,7 +1622,7 @@ def _tenant_predicate_from_foreign_key_schema_path(
     if schema_name in visited_names:
         return None
 
-    foreign_key_target = _foreign_key_for_field_name(schemas, schema, tenant_field_chain[0])
+    foreign_key_target = _required_foreign_key_for_field_name(schemas, schema, tenant_field_chain[0])
     if foreign_key_target is None:
         return None
 
@@ -1672,6 +1699,12 @@ def apply_tenant_query_config(
     has_predicate_value = False
     missing_table_names: list[str] = []
     schemas = _direct_postgres_schemas(config.external_data_source)
+    foreign_key_tenant_paths_by_table = _foreign_key_tenant_paths_by_table_for_schemas(
+        schemas,
+        config.tenant_column_name,
+        _tenant_column_overrides(config),
+        config.tenant_column_type,
+    )
 
     for table in _walk_table_nodes(database.tables):
         tenant_column_name = _tenant_column_name_for_direct_postgres_table(table, config)
@@ -1684,6 +1717,15 @@ def apply_tenant_query_config(
             continue
 
         predicate: ast.CompareOperation | None = None
+        source_schema = _schema_for_direct_postgres_table(schemas, table)
+        if len(tenant_field_chain) > 1 and source_schema is not None:
+            source_table_name = _schema_display_name(source_schema)
+            if tenant_column_name not in foreign_key_tenant_paths_by_table.get(source_table_name, []):
+                raise ExposedHogQLError(
+                    f"Tenant column `{tenant_column_name}` is not a valid foreign key tenancy path for table "
+                    f"`{source_table_name}`."
+                )
+
         tenant_field = table.fields.get(tenant_field_chain[0])
         if tenant_field is not None:
             if not has_predicate_value:
@@ -1692,7 +1734,6 @@ def apply_tenant_query_config(
             predicate = _tenant_predicate(tenant_field_chain, tenant_field, predicate_value)
 
         if predicate is None and len(tenant_field_chain) > 1:
-            source_schema = _schema_for_direct_postgres_table(schemas, table)
             if source_schema is not None:
                 if not has_predicate_value:
                     predicate_value = _coerce_tenant_value(config, tenant_value)

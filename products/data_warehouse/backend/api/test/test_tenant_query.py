@@ -254,6 +254,42 @@ class TestTenantQuery(APIBaseTest):
         assert response["disabled_tables"] == []
         assert ExternalDataSchema.objects.get(source=source, name="posthog_dashboard_tiles").should_sync is True
 
+    def test_configure_tenant_query_rejects_nullable_foreign_key_tenant_column_override(self):
+        source = self._create_direct_source()
+        self._create_table(
+            source,
+            name="posthog_dashboard",
+            postgres_columns=[("id", "bigint", False), ("team_id", "bigint", False), ("name", "text", True)],
+        )
+        self._create_table(
+            source,
+            name="posthog_dashboarditem",
+            postgres_columns=[
+                ("id", "bigint", False),
+                ("team_id", "bigint", False),
+                ("dashboard_id", "bigint", True),
+                ("name", "text", True),
+            ],
+            postgres_foreign_keys=[("dashboard_id", "posthog_dashboard", "id")],
+        )
+
+        response = configure_tenant_query(
+            team=self.team,
+            connection_id=str(source.id),
+            enabled=True,
+            tenant_column_name="team_id",
+        )
+
+        assert response["foreign_key_tenant_paths_by_table"] == {}
+        with self.assertRaisesRegex(Exception, "not a valid foreign key tenancy path"):
+            configure_tenant_query(
+                team=self.team,
+                connection_id=str(source.id),
+                enabled=True,
+                tenant_column_name="team_id",
+                tenant_column_names_by_table={"posthog_dashboarditem": "dashboard.team_id"},
+            )
+
     def test_configure_tenant_query_allows_table_without_tenant_column_as_dimension(self):
         source = self._create_direct_source()
         self._create_table(source)
@@ -491,6 +527,33 @@ class TestTenantQuery(APIBaseTest):
         assert "LEFT JOIN" in sql
         assert " IN (" not in sql
         assert "LIMIT 100" in sql
+
+    def test_rejects_nullable_foreign_key_tenant_predicate(self):
+        source = self._create_direct_source()
+        self._create_table(
+            source,
+            name="posthog_dashboard",
+            postgres_columns=[("id", "bigint", False), ("team_id", "bigint", False), ("name", "text", True)],
+        )
+        self._create_table(
+            source,
+            name="posthog_dashboarditem",
+            postgres_columns=[
+                ("id", "bigint", False),
+                ("team_id", "bigint", False),
+                ("dashboard_id", "bigint", True),
+                ("name", "text", True),
+            ],
+            postgres_foreign_keys=[("dashboard_id", "posthog_dashboard", "id")],
+        )
+        config = self._create_config(
+            source,
+            tenant_column_name="team_id",
+            tenant_column_names_by_table={"posthog_dashboarditem": "dashboard.team_id"},
+        )
+
+        with self.assertRaisesRegex(Exception, "not a valid foreign key tenancy path"):
+            self._prepare_sql(source, config, "select * from posthog_dashboarditem")
 
     def test_injects_foreign_key_tenant_predicate_without_runtime_lazy_join(self):
         source = self._create_direct_source()
