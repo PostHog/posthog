@@ -18,9 +18,15 @@ import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 type CapturedEvent = { event: string; properties: Record<string, unknown> }
 
-function makeStubPostHogClient(events: CapturedEvent[]) {
+type StubPostHogClient = {
+    capture: (msg: { event: string; properties?: Record<string, unknown> }) => void
+    flush: () => Promise<void>
+    shutdown: () => Promise<void>
+}
+
+function makeStubPostHogClient(events: CapturedEvent[]): StubPostHogClient {
     return {
-        capture: ({ event, properties }: { event: string; properties?: Record<string, unknown> }) => {
+        capture: ({ event, properties }) => {
             events.push({ event, properties: properties ?? {} })
         },
         flush: async () => {},
@@ -112,7 +118,7 @@ describe('$mcp_exec_tool_call_description end-to-end', () => {
             await new Promise((resolve) => setTimeout(resolve, 50))
 
             const toolCallEvent = events.find((e) => e.event === 'mcp_tool_call')
-            expect(toolCallEvent, 'mcp_tool_call event should be captured').toBeDefined()
+            expect(toolCallEvent, 'mcp_tool_call event should be captured').not.toBeUndefined()
             expect(toolCallEvent?.properties.$mcp_tool_name).toBe('exec')
             // The SDK property reports the *outer* tool's description (exec) — which is
             // exactly the uninformative case the dotcom property exists to fix.
@@ -180,7 +186,7 @@ describe('$mcp_exec_tool_call_description end-to-end', () => {
             await new Promise((resolve) => setTimeout(resolve, 50))
 
             const toolCallEvent = events.find((e) => e.event === 'mcp_tool_call')
-            expect(toolCallEvent).toBeDefined()
+            expect(toolCallEvent).not.toBeUndefined()
             expect(toolCallEvent?.properties).not.toHaveProperty('$mcp_exec_tool_call_description')
         } finally {
             await clientTransport.close?.()
