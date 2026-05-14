@@ -335,6 +335,12 @@ function parseGeneratedTools(): Record<string, ParsedTool> {
                                                 const fieldMatch = fieldLine.match(/(\w+):\s*(.+)/);
                                                 if (fieldMatch) {
                                                     const [, fieldName, fieldDef] = fieldMatch
+                                                    
+                                                    // Skip fields handled globally by the CLI
+                                                    if (fieldName === 'project_id' || fieldName === 'team_id') {
+                                                        continue;
+                                                    }
+                                                    
                                                     let fieldSchema: any = { type: 'string' }
                                                     
                                                     if (fieldDef.includes('castStringToInt') || fieldDef.includes('z.number()')) {
@@ -380,6 +386,12 @@ function parseGeneratedTools(): Record<string, ParsedTool> {
                                             let paramMatch: RegExpExecArray | null;
                                             while ((paramMatch = paramRegex.exec(handlerBody)) !== null) {
                                                 const fieldName = paramMatch[1];
+                                                
+                                                // Skip fields handled globally by the CLI
+                                                if (fieldName === 'project_id' || fieldName === 'team_id') {
+                                                    continue;
+                                                }
+                                                
                                                 // Infer types based on common field names
                                                 let fieldSchema: any = { type: 'string' };
                                                 
