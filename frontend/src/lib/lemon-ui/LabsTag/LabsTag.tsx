@@ -20,7 +20,12 @@ export function LabsTag({ stage, size, className }: LabsTagProps): JSX.Element {
                 </span>
             }
         >
-            <LemonTag type="completion" size={size} className={className}>
+            <LemonTag
+                type="completion"
+                size={size}
+                className={className}
+                aria-label={`PostHog labs feature, currently in ${stage}`}
+            >
                 LABS
             </LemonTag>
         </Tooltip>
