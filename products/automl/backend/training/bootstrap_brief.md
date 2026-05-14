@@ -40,141 +40,140 @@ do not invert their order, do not add steps that mutate user-visible state
 
 ### 1. Setup
 
-You are in a sandboxed checkout of the PostHog monorepo. Working directory
-should be the repo root.
+You are in a fresh sandbox with the `posthog-automl-cli` source bind-mounted
+at `/tmp/workspace/repos/posthog/automl-cli/`. Install it editable so the
+`automl` console command is on `PATH`:
 
-- Ensure deps are installed for the AutoML workspace member:
+```bash
+pip install -e /tmp/workspace/repos/posthog/automl-cli
+automl --version  # sanity check; non-zero exit aborts the run
+```
 
-  ```bash
-  uv sync --package posthog-products-automl
-  ```
+The sandbox already has these env vars set — do **not** override them:
 
-- Set `PYTHONPATH=.` so `products.automl.*` imports resolve.
+- `POSTHOG_API_URL` — base URL for the PostHog API (`http://host.docker.internal:8010` in local dev, `https://us.posthog.com` in cloud).
+- `POSTHOG_PROJECT_ID` — numeric project / team id.
+- `POSTHOG_PERSONAL_API_KEY` — short-lived OAuth-issued key scoped to the user who started this bootstrap. Use this for both `automl` CLI commands and the MCP tool calls below.
+
+If `pip install` fails (CLI not bind-mounted or `pyproject.toml` missing), bail
+with `unknown_error: AutoML CLI not available` — do **not** try to clone or
+install from PyPI as a fallback. Sandbox provisioning is the productization
+side's responsibility, not the agent's.
 
 ### 2. Fetch the training snapshot
 
-Run the pipeline's training-population HogQL via the PostHog MCP `execute-sql`
-tool. The query returns one row per entity with the feature columns and the
+Run the pipeline's training-population HogQL through the CLI, which wraps the
+same `/api/projects/<id>/query/` endpoint the MCP `execute-sql` tool uses.
+The query returns one row per entity with the feature columns and the
 label/target column already in place — the user authored it that way during
 pipeline setup.
 
-- Tool: `execute-sql` (PostHog MCP).
-- Input: the literal `training_population.query` string from the pipeline spec.
-- Save the response as a Parquet snapshot at `./training_snapshot.parquet`.
-  Convert via `polars.from_dicts(rows).write_parquet(...)`.
-- Sanity-check: the snapshot must contain the `target` column named in
-  `config.target` (classification / regression) or the feature columns
-  required for clustering / forecasting. If the target column is missing,
-  bail with a `missing_target` error (see Failure handling).
-- Volume floor: if `len(df) < 1000`, bail with `insufficient_rows` — the
-  trainer can technically run but won't produce a useful model.
+```bash
+# Pull the HogQL from pipeline_spec.training_population.query and write it to
+# a file so we don't have to wrestle shell quoting on multi-line queries.
+cat > ./training_query.sql <<'HOGQL'
+$training_query
+HOGQL
 
-Record the exact HogQL you ran in your scratch notes; it goes into the outcome
+automl prepare-from-hogql \
+  --host "$$POSTHOG_API_URL" \
+  --project-id "$$POSTHOG_PROJECT_ID" \
+  --api-key "$$POSTHOG_PERSONAL_API_KEY" \
+  --query-file ./training_query.sql \
+  --output ./training_snapshot.parquet \
+  --allow-truncated
+```
+
+Stdout is a single-line JSON with `output_path`, `rows`, `columns`, `project_id`,
+`host`. Parse it.
+
+- If `rows` is missing or zero, bail with `snapshot_fetch_failed`.
+- The snapshot must contain the column named in `pipeline_spec.config.target`
+  (classification / regression) or the feature columns required for clustering
+  / forecasting. Verify by checking `columns`; if the target column is missing,
+  bail with `missing_target`.
+- Volume floor: if `rows < 1000`, bail with `insufficient_rows`. The trainer
+  can technically run but won't produce a useful model.
+
+Record the exact HogQL you ran in your scratch notes — it goes into the outcome
 report's reproducibility section.
 
 ### 3. Train
 
-Call the in-process trainer:
+Invoke the CLI's `train` subcommand:
 
-```python
-import polars as pl
-from products.automl.backend.training.trainer import train
-
-df = pl.read_parquet("./training_snapshot.parquet")
-result = train(
-    df,
-    target=spec["config"]["target"],
-    model_dir="./model",
-    time_limit_s=300,
-    presets="medium_quality",
-)
+```bash
+automl train \
+  --train-parquet ./training_snapshot.parquet \
+  --target "<config.target>" \
+  --predictions-output ./predictions.parquet \
+  --time-limit-s 300 \
+  --presets medium_quality \
+  --model-archive-output ./model.tar.gz
 ```
 
-`train(...)` returns a `TrainingResult` dataclass with `metrics`, `leaderboard`,
-`problem_type`, `eval_metric`, `model_path`, `rows_train`, `rows_val`,
-`rows_test`. AutoGluon persists the predictor under `model_path` via its `path=`
-kwarg — the artifact directory is what the productization side records as
-`artifact_uri`.
+Stdout JSON has `model_path` (local AutoGluon predictor dir), `metrics` (final
+eval metrics keyed by name), `leaderboard` (per-model rows), `problem_type`,
+`eval_metric`, `predictions_path`, `splits_paths`. Parse the JSON; **do not**
+re-implement training inside the sandbox.
 
-If `train(...)` raises, bail with `training_failed` and the exception message.
+If the CLI exits non-zero, bail with `training_failed` and the stderr tail.
 
 ### 4. Record the training result
 
-Persist the run as an `AutoMLModelVersion` (always challenger first — promotion
-is a separate explicit step).
+Call the MCP tool `automl-record-training-result` with the trained run.
+**Always** record as challenger first — promotion is the explicit step below.
 
-```python
-import uuid, hashlib, json
-from products.automl.backend.facade import api, contracts
-from products.automl.backend.facade.enums import ModelRole
+Inputs:
 
-features_hash = hashlib.sha256(
-    json.dumps(sorted(df.columns), sort_keys=True).encode()
-).hexdigest()[:16]
+- `id`: `pipeline_spec.pipeline_id` (path parameter)
+- Body fields:
+  - `metrics`: from step 3 JSON
+  - `leaderboard`: from step 3 JSON
+  - `role`: `"challenger"`
+  - `training_params`: `{"target": "<config.target>", "presets": "medium_quality", "time_limit_s": 300, "training_query": "<the HogQL from step 2>"}`
+  - `eval_metric`: from step 3 JSON
+  - `problem_type`: from step 3 JSON
+  - `artifact_uri`: from step 3's `model_path`
+  - `features_hash`: 16-hex sha256 of `json.dumps(sorted(columns_from_step_2), sort_keys=True).encode()`
+  - `rows_train` / `rows_val` / `rows_test`: from step 3 JSON if present, else `null`
 
-version = api.record_training_result(
-    team_id=spec["team_id"],
-    pipeline_id=uuid.UUID(spec["pipeline_id"]),
-    params=contracts.RecordTrainingResultInput(
-        metrics=result.metrics,
-        leaderboard=result.leaderboard,
-        role=ModelRole.CHALLENGER,
-        training_params={
-            "target": spec["config"].get("target"),
-            "presets": "medium_quality",
-            "time_limit_s": 300,
-            "training_query": spec["training_population"]["query"],
-        },
-        eval_metric=result.eval_metric,
-        problem_type=result.problem_type,
-        artifact_uri=result.model_path,
-        features_hash=features_hash,
-        rows_train=result.rows_train,
-        rows_val=result.rows_val,
-        rows_test=result.rows_test,
-        training_task_id=None,  # the bootstrap Task id is on pipeline.runtime; not needed here for v0
-    ),
-)
-```
-
-The returned `version.id` is what later predictions will carry as
-`$$model_version_id`. Stash it in your scratch notes for the outcome report.
+The tool returns the persisted `AutoMLModelVersion` JSON. The `id` field is what
+later predictions will carry as `$$model_version_id` — stash it for the outcome
+report. If the tool errors, bail with `persistence_failed`.
 
 ### 5. Evaluate the gates
 
 The gates block above embeds `primary_metric`, `direction`, and either `floor`
-or `ceiling`. Look up `result.metrics[primary_metric]` (case-sensitive — the
-trainer returns AutoGluon's leaderboard column names verbatim).
+or `ceiling`. Look up `metrics[primary_metric]` from step 3's JSON.
 
 - `direction == "higher_is_better"` and `metric >= floor` → **pass**
 - `direction == "lower_is_better"` and `metric <= ceiling` → **pass**
 - Anything else → **fail** (still persisted as challenger, but no promotion)
 
-If the primary metric is not in `result.metrics`, treat as **fail** and surface
-the available metric names in the outcome report so the user can adjust their
+If the primary metric is not in `metrics`, treat as **fail** and surface the
+available metric names in the outcome report so the user can adjust their
 `success_criteria`.
 
 ### 6. Promote (conditional)
 
 Two preconditions, both required:
 
-```python
-existing_champion = api.get_active_model(
-    team_id=spec["team_id"],
-    pipeline_id=uuid.UUID(spec["pipeline_id"]),
-    role=ModelRole.CHAMPION,
-)
-if existing_champion is None and gates_pass:
-    api.promote_to_champion(
-        team_id=spec["team_id"],
-        model_version_id=version.id,
-    )
-```
+1. There is **no existing champion** on this pipeline — verify with the MCP
+   tool `automl-get-active-model` (path param `id` = pipeline id, query param
+   `role` = `"champion"`). The tool returns 404 when no version holds the
+   role; treat that as "no existing champion".
+2. The gate check from step 5 passed.
+
+If both hold, call MCP tool `automl-promote-model-version` with `id` =
+pipeline id and `version_id` = the id you stashed in step 4. The tool returns
+the promoted version JSON.
 
 Do **not** promote when an existing champion is present — bootstrap doesn't
 auto-displace; head-to-head displacement runs through the retraining flow
-later. Record the existing champion's id in the outcome report so the user can
-see the comparison.
+later. Record the existing champion's id (from the 200-response in
+`automl-get-active-model`) in the outcome report so the user can see the
+comparison.
 
 ### 7. Write the outcome report
 
@@ -224,11 +223,17 @@ productization side can parse and stash it in `pipeline.runtime.bootstrap_error`
 
 ## What you can rely on
 
-- The PostHog MCP `execute-sql` tool is available with `full` scopes — bounded
-  by the user who created the pipeline, not service-level scopes.
-- `products.automl.backend.facade.api` is importable; it's the only AutoML
-  module other code (including this agent) is allowed to import.
-- The trainer (`products.automl.backend.training.trainer.train`) is in-process;
-  no external services required.
+- `posthog-automl-cli` is available bind-mounted at
+  `/tmp/workspace/repos/posthog/automl-cli/`. `pip install -e` it once in
+  step 1 and you'll have the `automl` console command on `PATH` for the
+  remainder of the run.
+- The PostHog MCP tool surface is available under the same `full` scopes as
+  the user who created the pipeline. In particular `automl-record-training-result`,
+  `automl-get-active-model`, and `automl-promote-model-version` give you HTTP
+  access to the model-version facade without needing Python imports.
+- `POSTHOG_API_URL`, `POSTHOG_PROJECT_ID`, and `POSTHOG_PERSONAL_API_KEY` are
+  pre-set in the environment by sandbox provisioning. Do not modify them.
 - Disk under the working directory is yours for the run; cleaned up when the
-  Task finishes.
+  Task finishes. The CLI writes intermediate artifacts (snapshot parquet,
+  predictions parquet, model archive) to relative paths — no need to manage
+  S3 buckets here.

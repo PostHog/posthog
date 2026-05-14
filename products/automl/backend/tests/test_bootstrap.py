@@ -111,21 +111,53 @@ def test_build_orchestration_brief_embeds_gates_block(team):
 
 @pytest.mark.django_db
 def test_brief_mentions_each_canonical_contract_step(team):
-    """The frozen-contract steps are load-bearing — regress us if any goes missing."""
+    """The frozen-contract steps are load-bearing — regress us if any goes missing.
+
+    The agent has to (a) install the CLI, (b) fetch the training snapshot,
+    (c) train, (d) record as challenger, (e) check existing champion, (f) promote.
+    The brief talks to the CLI for (a)-(c) and to MCP tools for (d)-(f) so the
+    sandbox doesn't need a monorepo checkout — see session 14 design.md changelog.
+    """
     pipeline = _make_pipeline(team.id)
     brief = bootstrap._build_orchestration_brief(pipeline)
 
-    # The agent has to (a) fetch via execute-sql, (b) train, (c) record, (d) gate, (e) promote.
     expected_anchors = [
-        "execute-sql",
-        "products.automl.backend.training.trainer",
-        "record_training_result",
-        "get_active_model",
-        "promote_to_champion",
+        # Step 1 — install the CLI from the bind-mounted source.
+        "pip install -e /tmp/workspace/repos/posthog/automl-cli",
+        "automl --version",
+        # Step 2 — fetch the snapshot via the CLI.
+        "automl prepare-from-hogql",
+        "training_snapshot.parquet",
+        # Step 3 — train via the CLI.
+        "automl train",
+        # Steps 4-6 — record / check existing champion / promote, all via MCP tools.
+        "automl-record-training-result",
+        "automl-get-active-model",
+        "automl-promote-model-version",
+        # Error-handling contract preserved.
         "BOOTSTRAP_ERROR:",
     ]
     missing = [a for a in expected_anchors if a not in brief]
     assert not missing, f"brief is missing canonical contract anchors: {missing}"
+
+
+@pytest.mark.django_db
+def test_brief_inlines_training_query_into_step_2_heredoc(team):
+    """The training-population HogQL is substituted inline so step 2's heredoc works."""
+    pipeline = _make_pipeline(team.id)
+    brief = bootstrap._build_orchestration_brief(pipeline)
+    # Heredoc shape — query lands between the markers verbatim.
+    assert "<<'HOGQL'\nSELECT 1\nHOGQL" in brief
+
+
+@pytest.mark.django_db
+def test_extract_training_query_falls_back_to_empty_for_non_hogql(team):
+    """Non-HogQL training populations emit an empty heredoc — agent bails with snapshot_fetch_failed."""
+    pipeline = _make_pipeline(team.id)
+    # Simulate a non-HogQL population shape (cohort id, saved-recipe pointer, etc.).
+    pipeline.training_population = {"kind": "cohort", "id": 42}
+    extracted = bootstrap._extract_training_query(pipeline)
+    assert extracted == ""
 
 
 @pytest.mark.django_db

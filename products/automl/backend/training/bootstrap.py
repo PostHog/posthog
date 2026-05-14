@@ -98,7 +98,27 @@ def _build_orchestration_brief(pipeline: AutoMLPipeline) -> str:
         task_type=pipeline.task_type,
         pipeline_spec=spec_json,
         gates=gates_json,
+        # Inlined so the agent doesn't have to parse JSON to recover the HogQL
+        # in step 2's heredoc. Falls back to an empty string when the population
+        # isn't a HogQL kind — the agent will hit `snapshot_fetch_failed` in
+        # that case, which is the right failure mode.
+        training_query=_extract_training_query(pipeline),
     )
+
+
+def _extract_training_query(pipeline: AutoMLPipeline) -> str:
+    """Pull the HogQL string off the pipeline's training_population.
+
+    Only ``kind: hogql`` populations carry an inline query string; other kinds
+    (saved cohort, recipe-derived, etc.) emit an empty string here. The brief's
+    step 2 will fail on an empty heredoc, surfacing as ``snapshot_fetch_failed``
+    — exactly the failure mode we want when the population shape isn't
+    HogQL-shaped.
+    """
+    pop = pipeline.training_population if isinstance(pipeline.training_population, dict) else {}
+    if pop.get("kind") == "hogql":
+        return str(pop.get("query") or "")
+    return ""
 
 
 def _build_pipeline_spec(pipeline: AutoMLPipeline) -> dict[str, Any]:
