@@ -10,6 +10,7 @@ import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import { ConversationDetail, SidePanelTab } from '~/types'
 
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { QUESTION_SUGGESTIONS_DATA, maxLogic, mergeConversationHistory, mergeConversations } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MOCK_CONVERSATION, MOCK_CONVERSATION_ID, maxMocks } from './testUtils'
@@ -117,6 +118,38 @@ describe('maxLogic', () => {
 
         // Verify no error toast was shown and no reset occurred
         expect(Array.isArray(logic.values.conversationHistory)).toBe(true)
+    })
+
+    it('does not throw when loadConversation hits a 404 for a stale ?chat= URL', async () => {
+        const staleConversationId = 'stale-conversation-id'
+
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': { results: [] },
+                [`/api/environments/:team_id/conversations/${staleConversationId}`]: () => [
+                    404,
+                    { detail: 'Not found.' },
+                ],
+            },
+        })
+
+        const globalLogic = maxGlobalLogic()
+        globalLogic.mount()
+
+        await expectLogic(globalLogic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        await expectLogic(globalLogic, () => {
+            globalLogic.asyncActions.loadConversation(staleConversationId)
+        })
+            .toDispatchActions(['loadConversationSuccess'])
+            .toNotHaveDispatchedActions(['loadConversationFailure'])
+            .toMatchValues({
+                conversationHistory: [],
+            })
+
+        globalLogic.unmount()
     })
 
     it('manages suggestion group selection correctly', async () => {

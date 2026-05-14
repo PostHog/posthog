@@ -119,7 +119,17 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 },
 
                 loadConversation: async (conversationId: string) => {
-                    const response = await api.conversations.get(conversationId)
+                    let response: ConversationDetail
+                    try {
+                        response = await api.conversations.get(conversationId)
+                    } catch (err: any) {
+                        if (err.status === 404) {
+                            // Stale `?chat=<id>` URL pointing at a conversation that no longer exists on the backend.
+                            // Leave history untouched so the caller (e.g. maxThreadLogic.afterMount) skips reconnect.
+                            return values.conversationHistory
+                        }
+                        throw err
+                    }
                     const itemIndex = values.conversationHistory.findIndex((c) => c.id === conversationId)
 
                     if (itemIndex !== -1) {
