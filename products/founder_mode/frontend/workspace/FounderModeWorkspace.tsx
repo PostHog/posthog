@@ -229,6 +229,7 @@ function MarkdownPreview({ body }: { body: string }): JSX.Element {
             {/* eslint-disable-next-line react/forbid-elements */}
             <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
+                urlTransform={(url) => url}
                 components={{
                     a: ({ href, children }) => {
                         if (href && href.startsWith('wiki://')) {
