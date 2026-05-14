@@ -83,10 +83,10 @@ class DeploymentProject(ModelActivityMixin, ProductTeamModel, DeletedMetaFields)
                 name="unique_deploymentproject_slug_per_team",
             ),
             models.UniqueConstraint(
-                fields=("team_id", "github_repo_id", "default_branch"),
+                fields=("team_id", "github_repo_id"),
                 condition=models.Q(github_repo_id__isnull=False)
                 & (models.Q(deleted=False) | models.Q(deleted__isnull=True)),
-                name="deploy_project_team_repo_branch_uniq",
+                name="deploy_project_team_repo_uniq",
             ),
         ]
         indexes = [
