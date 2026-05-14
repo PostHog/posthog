@@ -45,6 +45,8 @@ jobs:
         timeout-minutes: 45
         needs: wait-for-docker-image
         steps:
+            - uses: actions/checkout@v6
+
             - name: Stop hobby before switch
               run: |
                   set -euo pipefail
