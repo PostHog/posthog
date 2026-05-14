@@ -161,5 +161,9 @@ class UserPushTokenViewSet(viewsets.GenericViewSet):
             .values_list("id", flat=True)[MAX_TOKENS_PER_USER:]
         )
         if excess_ids:
-            UserPushToken.objects.filter(id__in=excess_ids).delete()
+            # Belt-and-braces: include user=user in the delete filter as well.
+            # excess_ids was already derived from this user's rows, but the
+            # extra qualifier is defence-in-depth (and satisfies the
+            # idor-lookup-without-user semgrep rule for UserPushToken).
+            UserPushToken.objects.filter(user=user, id__in=excess_ids).delete()
             logger.info("user_push_token.evicted_excess", user_id=user.id, count=len(excess_ids))
