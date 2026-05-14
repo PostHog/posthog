@@ -53,7 +53,7 @@ class Task:
     locked_by: str | None
     locked_until: datetime | None
     attempt: int
-    team_id: int
+    team_id: int = 0
 
 
 @dataclass(frozen=True)

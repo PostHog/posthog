@@ -1,6 +1,6 @@
+import signal
 import asyncio
 import logging
-import signal
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -31,6 +31,8 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        import products.orchestra.backend.demo.greeting  # noqa: F401 — registers @execution/@step
+
         task_queue = options["task_queue"]
         concurrency = options["concurrency"] or settings.ORCHESTRA_MAX_CONCURRENCY
         poll_interval = options["poll_interval"] or settings.ORCHESTRA_POLL_INTERVAL

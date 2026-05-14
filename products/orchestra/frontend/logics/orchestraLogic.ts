@@ -25,7 +25,7 @@ export interface OrchestraDeployment {
     finished_at: string | null
 }
 
-const POLL_INTERVAL_MS = 3000
+const POLL_INTERVAL_MS = 10000
 
 export const orchestraLogic = kea<orchestraLogicType>([
     path(['products', 'orchestra', 'frontend', 'logics', 'orchestraLogic']),
@@ -93,7 +93,6 @@ export const orchestraLogic = kea<orchestraLogicType>([
             actions.loadExecutions()
         },
         refreshAll: () => {
-            actions.loadExecutions()
             actions.loadDeployments()
             actions.loadActiveDeployment()
         },

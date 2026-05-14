@@ -123,7 +123,13 @@ class Worker:
                 await self.db.lock_execution(conn, task.execution_id, task.run_id)
 
                 if terminal_event is not None:
-                    await self.db.append_events(conn, task.execution_id, task.run_id, task.team_id, [terminal_event])
+                    await self.db.append_events(
+                        conn,
+                        task.execution_id,
+                        task.run_id,
+                        [terminal_event],
+                        team_id=task.team_id,
+                    )
                     status = (
                         ExecutionStatus.COMPLETED
                         if terminal_event[0] == EventType.EXECUTION_COMPLETED
@@ -160,7 +166,11 @@ class Worker:
                                 )
                             )
                     assigned_ids = await self.db.append_events(
-                        conn, task.execution_id, task.run_id, task.team_id, new_events
+                        conn,
+                        task.execution_id,
+                        task.run_id,
+                        new_events,
+                        team_id=task.team_id,
                     )
                     for cmd, eid in zip(ctx.commands, assigned_ids):
                         if isinstance(cmd, ScheduleStep):
@@ -170,10 +180,10 @@ class Worker:
                                 task_type=TaskType.STEP_TASK,
                                 execution_id=task.execution_id,
                                 run_id=task.run_id,
-                                team_id=task.team_id,
                                 scheduled_event_id=eid,
                                 step_type=cmd.step_type,
                                 input=cmd.input,
+                                team_id=task.team_id,
                             )
                         elif isinstance(cmd, ScheduleTimer):
                             await self.db.enqueue_task(
@@ -182,9 +192,9 @@ class Worker:
                                 task_type=TaskType.TIMER_TASK,
                                 execution_id=task.execution_id,
                                 run_id=task.run_id,
-                                team_id=task.team_id,
                                 scheduled_event_id=eid,
                                 visible_at=utcnow() + timedelta(seconds=cmd.seconds),
+                                team_id=task.team_id,
                             )
 
                 await self.db.complete_task(conn, task.task_id)
@@ -209,7 +219,7 @@ class Worker:
         async with self.db.pool.connection() as conn:
             async with conn.transaction():
                 await self.db.lock_execution(conn, task.execution_id, task.run_id)
-                await self.db.append_events(conn, task.execution_id, task.run_id, task.team_id, [outcome])
+                await self.db.append_events(conn, task.execution_id, task.run_id, [outcome], team_id=task.team_id)
                 await self.db.enqueue_task(
                     conn,
                     task_queue=self.task_queue,
@@ -231,6 +241,7 @@ class Worker:
                     task.run_id,
                     task.team_id,
                     [(EventType.TIMER_FIRED, {"timer_id": timer_id})],
+                    team_id=task.team_id,
                 )
                 await self.db.enqueue_task(
                     conn,

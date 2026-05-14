@@ -17,9 +17,9 @@ class Client:
         input: Any = None,
         *,
         execution_id: str,
-        team_id: int,
         step_queue: str = "default",
         run_id: UUID | None = None,
+        team_id: int = 0,
     ) -> UUID:
         run_id = run_id or uuid4()
         async with self.db.pool.connection() as conn:
@@ -38,8 +38,8 @@ class Client:
                     conn,
                     execution_id,
                     run_id,
-                    team_id,
                     [(EventType.EXECUTION_STARTED, {"execution_type": execution_type, "input": input})],
+                    team_id=team_id,
                 )
                 await self.db.enqueue_task(
                     conn,
