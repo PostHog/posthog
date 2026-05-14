@@ -289,6 +289,7 @@ services:
         environment:
             ADDRESS: '0.0.0.0:3000'
             KAFKA_TOPIC: 'events_plugin_ingestion'
+            KAFKA_ERROR_TRACKING_TOPIC: 'ingestion-errortracking-main'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
             CAPTURE_MODE: events
@@ -511,6 +512,7 @@ services:
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
+            ERROR_TRACKING_CYMBAL_BASE_URL: 'http://cymbal:3302'
             CDP_REDIS_HOST: redis7
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
 
