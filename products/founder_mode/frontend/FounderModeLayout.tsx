@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import * as React from 'react'
 
 import { IconCheck } from '@posthog/icons'
-import { cn, InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from '@posthog/quill'
+import { Button, cn, InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from '@posthog/quill'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -15,6 +15,7 @@ const STACK_STEP = 4 // each new pile card sits this many px lower
 const X_JITTER = 2 // small horizontal jitter so the pile looks hand-placed
 const ACTIVE_TOP = 280 // px from container top — current active card position
 const UPCOMING_STEP = 4 // each upcoming card peeks this many px below the active card
+const REVIEW_STACK_HEIGHT = 220 // approximate height of the visible review-mode stack
 const QUESTION_BOTTOM = 170 // px from container bottom — question lives just above input
 const COMPOSER_BOTTOM = 24 // px from container bottom — floating input
 
@@ -143,6 +144,7 @@ export function FounderModeLayout(): JSX.Element {
             }}
         >
             <style>{FOUNDER_KEYFRAMES}</style>
+            <DebugMenu />
             <section className="flex-1 relative overflow-hidden">
                 {(phase === 'chat' || phase === 'review' || phase === 'summarizing') && (
                     <Stage questionFading={questionFading} cardFlying={cardFlying} targetPileIdx={targetPileIdx} />
@@ -151,6 +153,24 @@ export function FounderModeLayout(): JSX.Element {
             </section>
             {phase === 'chat' && <FloatingComposer onSubmit={submit} canSubmit={canSubmit} />}
         </main>
+    )
+}
+
+function DebugMenu(): JSX.Element {
+    const { phase } = useValues(founderChatLogic)
+    const { debugFillAndJumpToReview } = useActions(founderChatLogic)
+    return (
+        <div className="absolute top-2 right-3 z-[400] flex gap-2 text-[10px] uppercase tracking-wide text-text-secondary">
+            <span className="px-1.5 py-0.5 rounded bg-fill-highlight-100 border border-border">debug</span>
+            <button
+                type="button"
+                onClick={debugFillAndJumpToReview}
+                disabled={phase !== 'chat'}
+                className="px-2 py-0.5 rounded border border-border bg-white hover:bg-fill-highlight-100 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                Skip to review
+            </button>
+        </div>
     )
 }
 
@@ -350,58 +370,44 @@ function Stage({
                 </div>
             )}
 
-            {/* Review controls */}
+            {/* Review controls — hug the bottom of the stack */}
             {inReview && (
                 <div
-                    className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center gap-3"
-                    style={{ bottom: 32 }}
+                    className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center gap-2"
+                    style={{ top: STACK_TOP + REVIEW_STACK_HEIGHT + 24 }}
                 >
-                    <div className="text-xs text-text-secondary mr-4">
+                    <div className="text-xs text-text-secondary mr-2">
                         Reviewing {reviewProgress.current} / {reviewProgress.total}
                     </div>
-                    <button
-                        type="button"
-                        onClick={denyCard}
-                        className="px-3 py-1.5 text-sm rounded border border-border hover:bg-fill-highlight-100 cursor-pointer"
-                    >
+                    <Button variant="destructive" size="sm" onClick={denyCard}>
                         ✗ Deny
-                    </button>
-                    <button
-                        type="button"
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => canvasNotes[reviewIndex] && editCard(canvasNotes[reviewIndex].key)}
                         disabled={!!editingKey}
-                        className="px-3 py-1.5 text-sm rounded border border-border hover:bg-fill-highlight-100 cursor-pointer disabled:opacity-50"
                     >
                         ✎ Edit
-                    </button>
-                    <button
-                        type="button"
-                        onClick={acceptCard}
-                        className="px-3 py-1.5 text-sm rounded bg-text-primary text-bg-primary cursor-pointer"
-                    >
+                    </Button>
+                    <Button variant="primary" size="sm" onClick={acceptCard}>
                         ✓ Accept
-                    </button>
+                    </Button>
                 </div>
             )}
 
-            {/* Summary stream */}
+            {/* Summary stream + CTA — stacked together below the pile */}
             {inSummarizing && summaryText && (
                 <div
-                    className="absolute left-1/2 -translate-x-1/2 max-w-2xl text-lg leading-relaxed whitespace-pre-wrap text-center"
-                    style={{ top: STACK_TOP + canvasNotes.length * 4 + 100 }}
+                    className="absolute left-1/2 -translate-x-1/2 max-w-2xl text-center flex flex-col items-center gap-6"
+                    style={{ top: STACK_TOP + REVIEW_STACK_HEIGHT + 24 }}
                 >
-                    {summaryText}
-                </div>
-            )}
-            {inSummarizing && summaryText.endsWith('jump into validation.') && (
-                <div className="absolute left-1/2 -translate-x-1/2" style={{ bottom: 48 }}>
-                    <button
-                        type="button"
-                        onClick={startValidation}
-                        className="px-4 py-2 text-sm rounded bg-text-primary text-bg-primary cursor-pointer"
-                    >
-                        Jump into validation →
-                    </button>
+                    <div className="text-lg leading-relaxed whitespace-pre-wrap">{summaryText}</div>
+                    {summaryText.endsWith('jump into validation.') && (
+                        <Button variant="primary" size="sm" onClick={startValidation}>
+                            Jump into validation →
+                        </Button>
+                    )}
                 </div>
             )}
         </div>

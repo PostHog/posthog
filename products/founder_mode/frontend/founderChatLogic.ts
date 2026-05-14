@@ -55,12 +55,12 @@ export const FOUNDER_CHAT_SCRIPT: ScriptBeat[] = [
     },
     {
         agentMessage:
-            "Tinder for horses. That's… very strange. But I want to hear what you're thinking. Let's start small — what pain do your future customers (or customers' horses) feel today?",
+            "Tinder for hedgehogs. That's… very strange. But I want to hear what you're thinking. Let's start small — what pain do your future customers (or customers' hedgehogs) feel today?",
         canvasSlot: SLOT_IDEA,
     },
     {
         agentMessage:
-            'Got it. And who specifically feels that pain most — the horse owner, the breeder, the stable manager?',
+            'Got it. And who specifically feels that pain most — the hedgehog owner, the breeder, the rescue manager?',
         canvasSlot: SLOT_PAIN,
     },
     {
@@ -90,6 +90,18 @@ export const FOUNDER_CHAT_SCRIPT: ScriptBeat[] = [
 
 const AGENT_REPLY_DELAY_MS = 400
 const SWEEP_TO_REVIEW_DELAY_MS = 1500
+
+/** Sample answers per slot, used by the debug "jump to end" action. */
+const SLOT_SAMPLES: Record<string, string> = {
+    intro: 'I have an idea I want to validate.',
+    idea: 'Tinder for hedgehogs',
+    pain: "Hedgehog owners can't easily find compatible breeding/companion matches — it's all word of mouth and outdated forums.",
+    audience: 'Mostly breeders running small operations, and individual hedgehog owners looking for companion matches.',
+    currentSolution: 'Mostly Facebook groups, a few breeder-specific forums, and a lot of phone calls.',
+    worstCase: 'Bad matches → wasted breeding cycles, unhappy hedgehogs, lost money.',
+    success: 'They find a compatible match in days instead of months, with verified profiles.',
+    killerFeature: 'Genetic compatibility scoring + verified vet records baked into every profile.',
+}
 const SUMMARY_BUILD_DELAY_MS = 1200
 const SUMMARY_STREAM_CHUNK_MS = 18
 
@@ -116,6 +128,8 @@ export const founderChatLogic = kea<founderChatLogicType>([
         finishReview: true,
         appendSummaryChunk: (chunk: string) => ({ chunk }),
         startValidation: true,
+        // Debug: instantly fill every slot with a sample and jump to the end of step 1.
+        debugFillAndJumpToReview: true,
     }),
     reducers({
         phase: [
@@ -216,6 +230,20 @@ export const founderChatLogic = kea<founderChatLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        debugFillAndJumpToReview: () => {
+            for (const beat of FOUNDER_CHAT_SCRIPT) {
+                if (beat.canvasSlot) {
+                    const sample = SLOT_SAMPLES[beat.canvasSlot.key] ?? beat.canvasSlot.label
+                    actions.writeCanvas({ ...beat.canvasSlot, value: sample })
+                }
+            }
+            // Skip past the chat by advancing agentIndex to the end so activeSlot becomes null.
+            const remaining = FOUNDER_CHAT_SCRIPT.length - values.agentIndex
+            for (let i = 0; i < remaining; i++) {
+                actions.appendAgentReply('')
+            }
+            actions.startReview()
+        },
         sendUserMessage: async ({ value }, breakpoint) => {
             const currentIndex = values.agentIndex
             const nextBeat = FOUNDER_CHAT_SCRIPT[currentIndex]
