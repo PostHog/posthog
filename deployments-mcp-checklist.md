@@ -4,9 +4,9 @@
   - [x] Rename any MCP-exposed `project` / `project_id` value that actually refers to a `DeploymentProject` to `deployment_project_id`.
   - [x] Update generated/types/UI usage accordingly.
 
-- [ ] Fix MCP UI list drill-down
-  - [ ] Add `detail_args` for `deployment-list` so `deployments-get` receives both `id` and `deployment_project_id`.
-  - [ ] Use the renamed `deployment_project_id` value in the detail args.
+- [x] Fix MCP UI list drill-down
+  - [x] Add `detail_args` for `deployment-list` so `deployments-get` receives both `id` and `deployment_project_id`.
+  - [x] Use the renamed `deployment_project_id` value in the detail args.
 
 - [x] Disable or implement `deployments-logs`
   - [x] Set `deployments-logs.enabled: false` until it works.

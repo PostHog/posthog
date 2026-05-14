@@ -37,7 +37,7 @@ function DeploymentListContent({ data, app }: { data: DeploymentListData; app: A
             try {
                 const result = await app.callServerTool({
                     name: 'deployments-get',
-                    arguments: { id: item.id },
+                    arguments: { id: item.id, deployment_project_id: item.deployment_project_id },
                 })
                 if (result.isError || !result.structuredContent) {
                     fallbackToChat(item.commit_message)
