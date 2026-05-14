@@ -9,7 +9,7 @@ export type FounderStep = 'ideation' | 'validation' | 'gtm' | 'mvp' | 'marketing
 
 export const FOUNDER_STEPS: FounderStep[] = ['ideation', 'validation', 'gtm', 'mvp', 'marketing']
 
-import type { GTMEnvelopeApi, GTMSummaryApi } from '../generated/api.schemas'
+import type { GTMEnvelopeApi, GTMSummaryApi, MVPEnvelopeApi, MVPHappyPathApi } from '../generated/api.schemas'
 
 interface FounderProjectListItem {
     id: string
@@ -31,10 +31,16 @@ export const founderLogic = kea<founderLogicType>([
         triggerGtm: true,
         setGtmEnvelope: (gtm: GTMEnvelopeApi | null) => ({ gtm }),
         setGtmLoaded: (loaded: boolean) => ({ loaded }),
+        triggerMvp: true,
+        setMvpEnvelope: (mvp: MVPEnvelopeApi | null) => ({ mvp }),
+        setMvpLoaded: (loaded: boolean) => ({ loaded }),
         loadExistingProject: true,
         loadExistingGtm: true,
+        loadExistingMvp: true,
         pollGtmStatus: true,
         stopGtmPolling: true,
+        pollMvpStatus: true,
+        stopMvpPolling: true,
         setProjectLoaded: (loaded: boolean) => ({ loaded }),
     }),
 
@@ -84,6 +90,26 @@ export const founderLogic = kea<founderLogicType>([
                 stopGtmPolling: () => false,
             },
         ],
+        mvpEnvelope: [
+            null as MVPEnvelopeApi | null,
+            {
+                setMvpEnvelope: (_, { mvp }) => mvp,
+                triggerMvp: () => ({ status: 'running' }) as MVPEnvelopeApi,
+            },
+        ],
+        mvpLoaded: [
+            false,
+            {
+                setMvpLoaded: (_, { loaded }) => loaded,
+            },
+        ],
+        mvpPolling: [
+            false,
+            {
+                triggerMvp: () => true,
+                stopMvpPolling: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -92,6 +118,10 @@ export const founderLogic = kea<founderLogicType>([
         gtmResult: [(s) => [s.gtmEnvelope], (gtm): GTMSummaryApi | null => gtm?.result ?? null],
         gtmIsRunning: [(s) => [s.gtmStatus], (status): boolean => status === 'pending' || status === 'running'],
         gtmError: [(s) => [s.gtmEnvelope], (gtm): string => gtm?.error ?? ''],
+        mvpStatus: [(s) => [s.mvpEnvelope], (mvp): string => mvp?.status ?? 'idle'],
+        mvpResult: [(s) => [s.mvpEnvelope], (mvp): MVPHappyPathApi | null => mvp?.result ?? null],
+        mvpIsRunning: [(s) => [s.mvpStatus], (status): boolean => status === 'pending' || status === 'running'],
+        mvpError: [(s) => [s.mvpEnvelope], (mvp): string => mvp?.error ?? ''],
     }),
 
     listeners(({ actions, values }) => ({
@@ -143,6 +173,7 @@ export const founderLogic = kea<founderLogicType>([
                 // No existing state
             }
             actions.setGtmLoaded(true)
+            actions.loadExistingMvp()
         },
 
         triggerGtm: async () => {
@@ -183,6 +214,68 @@ export const founderLogic = kea<founderLogicType>([
                 }
             } catch {
                 actions.stopGtmPolling()
+            }
+        },
+
+        loadExistingMvp: async () => {
+            if (!values.currentProjectId) {
+                actions.setMvpLoaded(true)
+                return
+            }
+            try {
+                const project = await api.get<{ mvp: MVPEnvelopeApi | null }>(
+                    `${FOUNDER_PROJECTS_URL}${values.currentProjectId}/`
+                )
+                if (project.mvp?.status) {
+                    actions.setMvpEnvelope(project.mvp)
+                    if (project.mvp.status === 'pending' || project.mvp.status === 'running') {
+                        actions.pollMvpStatus()
+                    }
+                }
+            } catch {
+                // No existing state
+            }
+            actions.setMvpLoaded(true)
+        },
+
+        triggerMvp: async () => {
+            if (!values.currentProjectId) {
+                return
+            }
+            try {
+                const project = await api.create<{ mvp: MVPEnvelopeApi }>(
+                    `${FOUNDER_PROJECTS_URL}${values.currentProjectId}/run_mvp/`
+                )
+                actions.setMvpEnvelope(project.mvp)
+                actions.pollMvpStatus()
+            } catch (e: unknown) {
+                const msg = e instanceof Error ? e.message : 'Request failed'
+                actions.setMvpEnvelope({ status: 'failed', error: msg })
+                actions.stopMvpPolling()
+            }
+        },
+
+        pollMvpStatus: async (_, breakpoint) => {
+            await breakpoint(POLL_INTERVAL_MS)
+            if (!values.mvpPolling || !values.currentProjectId) {
+                return
+            }
+            try {
+                const project = await api.get<{ mvp: MVPEnvelopeApi | null }>(
+                    `${FOUNDER_PROJECTS_URL}${values.currentProjectId}/`
+                )
+                if (project.mvp?.status) {
+                    actions.setMvpEnvelope(project.mvp)
+                    if (project.mvp.status === 'completed' || project.mvp.status === 'failed') {
+                        actions.stopMvpPolling()
+                    } else {
+                        actions.pollMvpStatus()
+                    }
+                } else {
+                    actions.stopMvpPolling()
+                }
+            } catch {
+                actions.stopMvpPolling()
             }
         },
     })),

@@ -10,6 +10,7 @@ import { founderValidationLogic, ValidationReport } from './components/founderVa
 import { Step2 } from './components/Step2'
 import { Step3 } from './components/Step3'
 import { Step4 } from './components/Step4'
+import { Step5 } from './components/Step5'
 import { ValidationReportView } from './components/ValidationReportView'
 import { reactionGifUrl } from './reactionGifs'
 import { founderLogic, FounderStep, FOUNDER_STEPS } from './scenes/founderLogic'
@@ -73,20 +74,14 @@ function StepContent({ step }: { step: FounderStep }): JSX.Element {
             )
         case 'mvp':
             return (
-                <div className="p-6 max-w-3xl mx-auto flex flex-col items-center justify-center gap-4 text-center min-h-[50vh]">
-                    <h2 className="text-2xl font-semibold">MVP</h2>
-                    <p className="text-text-secondary max-w-md">
-                        The MVP spec stage is coming soon. For now, continue to marketing.
-                    </p>
-                    <Button variant="primary" size="sm" onClick={() => founderLogic.actions.advanceStep('marketing')}>
-                        Continue to marketing →
-                    </Button>
+                <div className="p-6 max-w-3xl mx-auto">
+                    <Step4 />
                 </div>
             )
         case 'marketing':
             return (
                 <div className="p-6 max-w-3xl mx-auto">
-                    <Step4 />
+                    <Step5 />
                 </div>
             )
         default:
