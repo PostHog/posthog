@@ -63,6 +63,7 @@ class MCPSession:
     distinct_id: str
     person_email: str
     person_name: str
+    intent: str
 
 
 @dataclass(frozen=True)
