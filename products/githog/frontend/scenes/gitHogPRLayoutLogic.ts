@@ -6,7 +6,15 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import type { gitHogPRLayoutLogicType } from './gitHogPRLayoutLogicType'
 
-export type GitHogWidgetType = 'conversation' | 'stats' | 'files' | 'reviewers' | 'agent' | 'dataFlow' | 'riskScore'
+export type GitHogWidgetType =
+    | 'conversation'
+    | 'stats'
+    | 'files'
+    | 'reviewers'
+    | 'agent'
+    | 'dataFlow'
+    | 'riskScore'
+    | 'impact'
 
 export interface GitHogLayoutItem {
     i: GitHogWidgetType | string
@@ -35,7 +43,8 @@ export const DEFAULT_LAYOUT: GitHogLayoutItem[] = [
     { i: 'riskScore', x: 8, y: 0, w: 4, h: 5 },
     { i: 'dataFlow', x: 0, y: 0, w: 8, h: 7 },
     { i: 'stats', x: 8, y: 5, w: 4, h: 3 },
-    { i: 'files', x: 0, y: 7, w: 8, h: 5 },
+    { i: 'impact', x: 0, y: 7, w: 8, h: 8 },
+    { i: 'files', x: 8, y: 8, w: 4, h: 5 },
 ]
 
 const SAVE_DEBOUNCE_MS = 500

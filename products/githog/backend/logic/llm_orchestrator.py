@@ -30,6 +30,7 @@ import anthropic
 from .event_reach import compute_per_event_reach
 from .flag_reach import compute_per_flag_reach
 from .issue_refs import find_referencing_issues
+from .web_paths import cap_llm_paths, compute_pageview_reach
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
         IssueReference,
         LLMAnalysis,
         RelatedSignal,
+        WebPathReach,
     )
 
 
@@ -146,6 +148,31 @@ def _build_tools() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "get_pageview_reach",
+            "description": (
+                "Measure $pageview reach (total pageviews, unique visitors, sessions) for one or "
+                "more URL paths over the lookback window. Use this for PRs that touch routes / pages: "
+                "the deterministic pass picks up obvious path literals like '/pricing' from the diff, "
+                "but you can identify additional paths from framework conventions — Next.js "
+                "`app/pricing/page.tsx` → `/pricing`, Express `router.get('/users')`, Django URLconf "
+                "entries, etc. — and look them up here. Match is exact against `properties.$pathname`."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "URL paths to measure, each starting with '/' (e.g. '/pricing', "
+                            "'/checkout/start'). Max 10 per call. Do not include query strings or origins."
+                        ),
+                    },
+                },
+                "required": ["paths"],
+            },
+        },
+        {
             "name": "find_issues_for_terms",
             "description": (
                 "Look up Error Tracking issues whose recent $exception events mention any of these terms. "
@@ -210,8 +237,12 @@ def _build_tools() -> list[dict[str, Any]]:
                             "headline": {
                                 "type": "string",
                                 "description": (
-                                    "Short glanceable phrase: 'Most users', 'Many users', 'Few users', "
-                                    "'~14k users', 'iOS users only', 'Unknown'. Keep under 5 words."
+                                    "Short glanceable phrase, under 5 words. Examples: 'Most users', "
+                                    "'Many users', 'Few users', '~14k users', 'iOS users only', "
+                                    "'Net-new surface', '0 users yet'. Use 'Unknown' ONLY when you "
+                                    "genuinely cannot identify a surface — if you have audience or "
+                                    "top_picks, the headline must NOT be 'Unknown'. Net-new code with "
+                                    "0 reach is 'Net-new surface', not 'Unknown'."
                                 ),
                             },
                             "unit": {
@@ -244,9 +275,12 @@ def _build_tools() -> list[dict[str, Any]]:
                                 "type": "string",
                                 "enum": ["high", "medium", "low"],
                                 "description": (
-                                    "high = multiple confirmed signals with real reach numbers; "
-                                    "medium = inferred from related signals or partial data; "
-                                    "low = mostly guessing from the diff with little PostHog data."
+                                    "Confidence in IDENTIFYING what this PR affects — NOT the size of "
+                                    "the numbers. A confident 'this is a new pricing page with 0 visitors "
+                                    "yet' is HIGH confidence because the identification is solid. "
+                                    "high = the surface and audience are clear (whether reach is 0 or 14k); "
+                                    "medium = surface identified but partially inferred; "
+                                    "low = mostly guessing what's being changed from a vague diff."
                                 ),
                             },
                             "rationale": {
@@ -278,11 +312,11 @@ def _build_tools() -> list[dict[str, Any]]:
                             "properties": {
                                 "kind": {
                                     "type": "string",
-                                    "enum": ["flag", "event", "dashboard", "issue"],
+                                    "enum": ["flag", "event", "dashboard", "issue", "page"],
                                 },
                                 "key": {
                                     "type": "string",
-                                    "description": "Flag key / event name / dashboard name / issue name.",
+                                    "description": "Flag key / event name / dashboard name / issue name / URL path.",
                                 },
                                 "reason": {
                                     "type": "string",
@@ -318,6 +352,7 @@ diff, with their measured reach.
 the PR but aren't literally referenced. Treat these as candidates to consider, not as confirmed.
 - Saved dashboards / insights that reference the matched keys.
 - Error Tracking issues whose stack frames mention touched files.
+- URL paths found in the diff with their $pageview reach (pageviews, visitors, sessions).
 - A catalog of the team's known flag keys and recent event names you can search.
 
 Your job (execute these in order):
@@ -325,18 +360,43 @@ Your job (execute these in order):
 2. If you suspect there are additional flags or events worth checking (especially for refactor-y PRs \
 that don't reference instrumentation directly), use `search_flag_keys` / `search_event_names` to find \
 candidates, then `get_flag_reach` / `get_event_reach` to attach real numbers.
-3. **Check for Error Tracking issues against everything you found.** The initial issues list in the \
+3. **If the PR touches routes / pages**, identify the URL paths from framework conventions: \
+Next.js `app/foo/page.tsx` → `/foo`, Next.js `pages/foo.tsx` → `/foo`, Express `router.get('/foo')` → \
+`/foo`, Django URLconf entries, etc. The deterministic pass already picks up obvious literals like \
+`"/pricing"` but file-derived paths need you. Call `get_pageview_reach` with the inferred paths to \
+attach real traffic numbers.
+4. **Check for Error Tracking issues against everything you found.** The initial issues list in the \
 context was built from the original confirmed terms only — it does NOT yet include issues for any \
 flags/events you've discovered via search. Call `find_issues_for_terms` with the new keys to close that \
 loop. Issues are first-class signals; a 1-issue / 200-user / unresolved error on a touched code path \
 is more important than 10k extra users hitting a different surface. Do not skip this step unless you \
 genuinely found zero new keys in step 2.
-4. Reason about which signals matter most for a reviewer trying to decide whether this PR is risky.
-5. Call `submit_analysis` exactly once with your final structured output.
+5. Reason about which signals matter most for a reviewer trying to decide whether this PR is risky.
+6. Call `submit_analysis` exactly once with your final structured output.
 
 The single most important field is `affected` — it's the loud metric the UI renders at the top of the \
 widget. It answers "how many and who" at a glance. Treat it as the headline, not the wall-of-text \
-summary. Some examples of good `affected` outputs:
+summary.
+
+`confidence` semantics — read carefully. It rates your confidence in *identifying what this PR affects*, \
+NOT the size of the numbers. A confident "this is a brand-new pricing page with 0 visitors yet" is \
+`confidence="high"` because the identification is solid. A guess based on a vague diff with no \
+PostHog data is `confidence="low"` because the identification itself is weak.
+
+`headline` rules:
+- Use a concrete description whenever you can identify the surface: "Net-new surface", "0 users (new \
+feature)", "Many users", "Few users", "iOS users only", "~14k API requests", etc.
+- Use "Unknown" ONLY as a last resort — when you genuinely cannot tell from the diff what's being \
+changed. If you have an audience to put in `audience`, or a surface in `top_picks`, the headline must \
+NOT be "Unknown".
+- Net-new code with zero historical reach is NOT "Unknown" — it's "Net-new surface" or "0 users yet" \
+with `unit="users"`, `lower=0`, `upper=0`, `confidence="high"`.
+
+`unit` rules:
+- "users" / "events" / "requests" when you have a counted surface (even if the count is 0).
+- "unknown" only when you couldn't identify a surface to count at all.
+
+Worked examples:
 
 - For a PR with confirmed events firing 14k users / 30d, ~30% of MAU:
   headline="Many users", unit="users", lower=12000, upper=16000, share_lower=0.25, share_upper=0.35, \
@@ -346,13 +406,22 @@ confidence="high", rationale="checkout_started (12k) + checkout_completed (8k) o
   headline="~14k API requests", unit="requests", lower=14000, upper=14000, share_lower=null, share_upper=null, \
 confidence="high", rationale="aviationstack-flight-provider evaluated 14k times by waypoint-api service identity"
 
+- For a net-new user-facing feature (e.g. PR adds a new /pricing route + a new checkout_session_requested \
+event, both with 0 historical activity):
+  headline="Net-new surface", unit="users", lower=0, upper=0, share_lower=null, share_upper=null, \
+confidence="high", rationale="adds /pricing route and checkout_session_requested event — both net-new \
+(0 pageviews / 0 fires in 30d). Reach starts at zero and grows from here."
+
 - For a PR with no PostHog signals but clear scope from the diff (e.g. iOS Live Activity refactor):
   headline="iOS users only", unit="users", lower=null, upper=null, share_lower=null, share_upper=null, \
-confidence="low", rationale="diff touches iOS Live Activity code; no recent events fired against it in PostHog"
+confidence="medium", rationale="diff touches iOS Live Activity code; no recent events fired against \
+the touched files but the platform scope is clear"
 
-- For a green-field internal refactor with no traffic anywhere:
+- For a truly opaque diff with no identifiable surface (rare — e.g. config-only change to internal \
+build tooling, no events / flags / routes / files in any catalog):
   headline="Unknown", unit="unknown", lower=null, upper=null, share_lower=null, share_upper=null, \
-confidence="low", rationale="no recent events or flag evaluations match the touched files"
+confidence="low", rationale="no events, flags, routes, or instrumented files in this PR; cannot \
+identify a user-facing surface"
 
 THE CARDINAL RULE — read carefully:
 
@@ -366,6 +435,7 @@ What counts as "PostHog data":
 - An event name with measured reach.
 - A saved insight or dashboard from the references list.
 - An Error Tracking issue from the references list (status, occurrences, users hit).
+- A URL path with $pageview reach (pageviews, visitors, sessions).
 - A 'no data' / 'no recent activity' observation about a specific surface — also legitimate.
 
 Anti-examples (do NOT write summaries like these):
@@ -470,6 +540,22 @@ class _ToolRunner:
             for r in rows
         ]
 
+    def get_pageview_reach(self, paths: list[str]) -> list[dict[str, Any]]:
+        bounded = cap_llm_paths([str(p) for p in (paths or [])])
+        if not bounded:
+            return []
+        rows = compute_pageview_reach(self.team, bounded, self.lookback_days, matched_from="llm_tool")
+        return [
+            {
+                "path": r.path,
+                "pageviews": r.pageviews,
+                "unique_visitors": r.unique_visitors,
+                "sessions": r.sessions,
+                "has_data": r.has_data,
+            }
+            for r in rows
+        ]
+
     def find_issues_for_terms(self, terms: list[str]) -> list[dict[str, Any]]:
         bounded = [str(t) for t in (terms or []) if str(t).strip()][:15]
         if not bounded:
@@ -507,6 +593,8 @@ class _ToolRunner:
             return self.get_event_reach(tool_input.get("names", []))
         if tool_name == "find_issues_for_terms":
             return self.find_issues_for_terms(tool_input.get("terms", []))
+        if tool_name == "get_pageview_reach":
+            return self.get_pageview_reach(tool_input.get("paths", []))
         return {"error": f"unknown tool: {tool_name}"}
 
 
@@ -520,6 +608,7 @@ def _initial_user_message(
     related_signals: list["RelatedSignal"],
     dashboard_references: list["DashboardReference"],
     issue_references: list["IssueReference"],
+    web_paths: list["WebPathReach"],
     lookback_days: int,
 ) -> str:
     """Compose the structured context the model starts from."""
@@ -585,6 +674,18 @@ def _initial_user_message(
         parts.append("  (none)")
     for ref in dashboard_references[:15]:
         parts.append(f"  - [{ref.kind}] {ref.name} (via: {', '.join(ref.matched_keys)})")
+
+    parts.append("\nURL paths found in the diff (with $pageview reach):")
+    if not web_paths:
+        parts.append("  (none — call get_pageview_reach if you infer paths from framework conventions)")
+    for path in web_paths[:15]:
+        if path.has_data:
+            parts.append(
+                f"  - {path.path}: {path.pageviews} pageviews, {path.unique_visitors} visitors, "
+                f"{path.sessions} sessions (matched_from={path.matched_from})"
+            )
+        else:
+            parts.append(f"  - {path.path}: no pageviews in window (matched_from={path.matched_from})")
 
     parts.append(f"\n--- PR DIFF (truncated as needed) ---\n{_truncate(diff_text, _DIFF_CHAR_LIMIT)}\n--- END DIFF ---")
     parts.append(
@@ -658,7 +759,7 @@ def _parse_submit_analysis(tool_input: dict[str, Any]) -> "LLMAnalysis":
         kind = str(raw.get("kind", "")).strip()
         key = str(raw.get("key", "")).strip()
         reason = str(raw.get("reason", "")).strip()
-        if not key or kind not in {"flag", "event", "dashboard", "issue"}:
+        if not key or kind not in {"flag", "event", "dashboard", "issue", "page"}:
             continue
         picks.append(LLMPick(kind=kind, key=key, reason=reason))
 
@@ -696,6 +797,7 @@ def run_orchestrator(
     related_signals: list["RelatedSignal"],
     dashboard_references: list["DashboardReference"],
     issue_references: list["IssueReference"],
+    web_paths: list["WebPathReach"],
 ) -> "LLMAnalysis | None":
     """Run the tool-use loop. Returns None on any failure (no API key, transport, parse)."""
     from ..facade.contracts import LLMAnalysis
@@ -742,6 +844,7 @@ def run_orchestrator(
         related_signals=related_signals,
         dashboard_references=dashboard_references,
         issue_references=issue_references,
+        web_paths=web_paths,
         lookback_days=lookback_days,
     )
 

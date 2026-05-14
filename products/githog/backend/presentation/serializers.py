@@ -180,10 +180,10 @@ class _EventReachResponseSerializer(serializers.Serializer):
 
 class _LLMPickResponseSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
-        choices=["flag", "event", "dashboard", "issue"],
+        choices=["flag", "event", "dashboard", "issue", "page"],
         help_text="Which kind of signal this pick refers to.",
     )
-    key = serializers.CharField(help_text="Flag key / event name / dashboard name / issue name.")
+    key = serializers.CharField(help_text="Flag key / event name / dashboard name / issue name / URL path.")
     reason = serializers.CharField(help_text="The model's justification, ideally citing real numbers.")
 
 
@@ -235,6 +235,21 @@ class _LLMAnalysisResponseSerializer(serializers.Serializer):
     )
     tool_calls_used = serializers.IntegerField(
         help_text="Total tool calls the orchestrator used. Useful for spotting runaway loops."
+    )
+
+
+class _WebPathReachResponseSerializer(serializers.Serializer):
+    path = serializers.CharField(help_text="URL path (matched against properties.$pathname).")
+    pageviews = serializers.IntegerField(help_text="Total $pageview events on this path in the window.")
+    unique_visitors = serializers.IntegerField(help_text="Distinct persons who viewed this path in the window.")
+    sessions = serializers.IntegerField(help_text="Distinct sessions in which this path was viewed.")
+    has_data = serializers.BooleanField(help_text="False when no pageviews were recorded for this path in the window.")
+    matched_from = serializers.ChoiceField(
+        choices=["diff_literal", "llm_tool"],
+        help_text=(
+            "How this path was identified: 'diff_literal' (regex match on string literals in the diff) "
+            "or 'llm_tool' (model inferred it from framework conventions)."
+        ),
     )
 
 
@@ -327,6 +342,13 @@ class PRImpactResponseSerializer(serializers.Serializer):
         help_text=(
             "Flag keys and event names that share filename tokens with this PR's files. "
             "Not literal references — surfaced as 'you may also care about these' suggestions."
+        ),
+    )
+    web_paths = _WebPathReachResponseSerializer(
+        many=True,
+        help_text=(
+            "URL paths from the diff with pageview reach. Built from string literals found in "
+            "added/context lines plus paths the LLM inferred from framework conventions."
         ),
     )
     changed_files = serializers.ListField(

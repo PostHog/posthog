@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 # Bump this when PRImpactReport / nested contracts change shape, so old
 # pickled blobs aren't unpickled against an incompatible schema.
-_CACHE_VERSION = "v3"
+_CACHE_VERSION = "v4"
 _CACHE_TTL_SECONDS = 24 * 60 * 60
 
 

@@ -31,6 +31,7 @@ from ..logic.issue_refs import find_referencing_issues
 from ..logic.known_keys import fetch_team_event_names, fetch_team_flag_keys
 from ..logic.llm_orchestrator import run_orchestrator
 from ..logic.related_signals import find_related_signals
+from ..logic.web_paths import compute_pageview_reach, extract_url_paths_from_diff
 from .contracts import EventReference, FlagReference, PRImpactReport, PRImpactRequest
 
 if TYPE_CHECKING:
@@ -157,6 +158,10 @@ def compute_pr_impact(team: "Team", request: PRImpactRequest) -> PRImpactReport:
         exclude_event_names=set(event_terms),
     )
 
+    # --- Web analytics: URL paths in the diff -------------------------------
+    path_candidates = extract_url_paths_from_diff(request.diff_text)
+    web_paths = compute_pageview_reach(team, path_candidates, request.lookback_days)
+
     # --- LLM synthesis: tool-use loop over the deterministic results --------
     # Soft-fail: missing API key or transport errors return None and the rest
     # of the report renders without the AI section.
@@ -174,6 +179,7 @@ def compute_pr_impact(team: "Team", request: PRImpactRequest) -> PRImpactReport:
         related_signals=related_signals,
         dashboard_references=dashboard_references,
         issue_references=issue_references,
+        web_paths=web_paths,
     )
 
     return PRImpactReport(
@@ -187,6 +193,7 @@ def compute_pr_impact(team: "Team", request: PRImpactRequest) -> PRImpactReport:
         dashboard_references=tuple(dashboard_references),
         issue_references=tuple(issue_references),
         related_signals=tuple(related_signals),
+        web_paths=tuple(web_paths),
         changed_files=tuple(changed_files),
         known_flag_count=len(known_flag_keys),
         known_event_count=len(known_event_names),

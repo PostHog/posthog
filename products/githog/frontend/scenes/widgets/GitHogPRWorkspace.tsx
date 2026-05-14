@@ -46,6 +46,7 @@ import {
     gitHogPullRequestRiskScoreLogic,
 } from '../gitHogPullRequestRiskScoreLogic'
 import { GitHogAgentChatWidget, PRChatContext } from './GitHogAgentChatWidget'
+import { GitHogImpactWidget } from './GitHogImpactWidget'
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
 //
@@ -99,6 +100,12 @@ const WIDGET_DEFS: Record<WidgetType, { label: string; description: string; defa
     },
     stats: { label: 'Stats', description: 'Additions, deletions, and commits', defaultW: 4, defaultH: 3 },
     reviewers: { label: 'Reviewers', description: 'Review status per reviewer', defaultW: 4, defaultH: 4 },
+    impact: {
+        label: 'Impact',
+        description: 'Users, sessions, and surfaces this PR touches — measured from PostHog activity',
+        defaultW: 8,
+        defaultH: 8,
+    },
 }
 
 // Grid configuration shared with the persisted layout shape on the backend.
@@ -769,6 +776,8 @@ function GitHogPRWorkspaceInner({
                 return <StatsWidget pr={pr} />
             case 'reviewers':
                 return <ReviewersWidget />
+            case 'impact':
+                return <GitHogImpactWidget owner={owner} name={repoName} number={number} />
             default:
                 return null
         }

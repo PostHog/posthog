@@ -171,6 +171,28 @@ class LLMAnalysis:
 
 
 @dataclass(frozen=True)
+class WebPathReach:
+    """Pageview reach for a URL path implicated by this PR.
+
+    Paths come from two sources, distinguished by ``matched_from``:
+      - ``"diff_literal"``: a string literal like ``"/pricing"`` appeared in
+        added/context lines of the diff.
+      - ``"llm_tool"``: the LLM identified the path from reading the diff
+        (framework-aware: Next.js routing, Express routes, etc.) and pulled
+        reach via a tool call.
+
+    Counts come from ``$pageview`` events grouped by ``properties.$pathname``.
+    """
+
+    path: str
+    pageviews: int
+    unique_visitors: int
+    sessions: int
+    has_data: bool
+    matched_from: str
+
+
+@dataclass(frozen=True)
 class IssueReference:
     """An Error Tracking issue whose recent events implicate code in this PR.
 
@@ -218,6 +240,7 @@ class PRImpactReport:
     dashboard_references: tuple[DashboardReference, ...] = field(default_factory=tuple)
     issue_references: tuple[IssueReference, ...] = field(default_factory=tuple)
     related_signals: tuple[RelatedSignal, ...] = field(default_factory=tuple)
+    web_paths: tuple[WebPathReach, ...] = field(default_factory=tuple)
     # Surfaced so the empty state can say *what* was searched, not just "no matches."
     changed_files: tuple[str, ...] = field(default_factory=tuple)
     known_flag_count: int = 0

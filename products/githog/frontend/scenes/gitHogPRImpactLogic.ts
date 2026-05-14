@@ -57,9 +57,18 @@ export interface DashboardReference {
 }
 
 export interface LLMPick {
-    kind: 'flag' | 'event' | 'dashboard' | 'issue'
+    kind: 'flag' | 'event' | 'dashboard' | 'issue' | 'page'
     key: string
     reason: string
+}
+
+export interface WebPathReach {
+    path: string
+    pageviews: number
+    unique_visitors: number
+    sessions: number
+    has_data: boolean
+    matched_from: 'diff_literal' | 'llm_tool'
 }
 
 export interface AffectedEstimate {
@@ -115,6 +124,7 @@ export interface PRImpactReport {
     dashboard_references: DashboardReference[]
     issue_references: IssueReference[]
     related_signals: RelatedSignal[]
+    web_paths: WebPathReach[]
     changed_files: string[]
     known_flag_count: number
     known_event_count: number
