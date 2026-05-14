@@ -113,11 +113,15 @@ def _is_https(url: str) -> bool:
 
 
 def _is_valid_posthog_code_callback_url(url: str) -> bool:
-    """Validate that a PostHog Code callback URL is safe to redirect to (prevents open redirect)."""
+    """Validate that a PostHog Code callback URL is safe to redirect to (prevents open redirect).
+
+    Accepts the `posthog-code://` deep link (packaged app) and `http://localhost` (dev build,
+    per RFC 8252 §7.3 — OAuth 2.0 for Native Apps). `array://` is the legacy scheme.
+    """
     parsed = urlparse(url)
     if parsed.scheme in ("array", "posthog-code"):
         return True
-    if is_dev_mode() and parsed.scheme == "http" and parsed.hostname == "localhost":
+    if parsed.scheme == "http" and parsed.hostname == "localhost":
         return True
     return False
 

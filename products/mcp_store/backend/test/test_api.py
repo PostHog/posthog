@@ -22,6 +22,8 @@ class TestIsValidPosthogCodeCallbackUrl(TestCase):
             ("array_scheme", "array://callback", True),
             ("twig_scheme", "twig://oauth/callback", False),
             ("posthog_code_scheme", "posthog-code://oauth/callback", True),
+            ("http_localhost_with_port", "http://localhost:8238/callback", True),
+            ("http_localhost_no_port", "http://localhost/callback", True),
             ("https_rejected", "https://evil.com/redirect", False),
             ("http_rejected", "http://example.com/callback", False),
             ("javascript_rejected", "javascript:alert(1)", False),
