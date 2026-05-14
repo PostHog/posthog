@@ -12,6 +12,7 @@ import type {
     DeploymentActionResponseApi,
     DeploymentApi,
     DeploymentCreateInputApi,
+    DeploymentLogsResponseApi,
     DeploymentProjectApi,
     DeploymentProjectCreateApi,
     DeploymentProjectRefreshResponseApi,
@@ -281,8 +282,8 @@ export const deploymentProjectsDeploymentsLogsRetrieve = async (
     deploymentProjectId: string,
     id: string,
     options?: RequestInit
-): Promise<DeploymentActionResponseApi> => {
-    return apiMutator<DeploymentActionResponseApi>(
+): Promise<DeploymentLogsResponseApi> => {
+    return apiMutator<DeploymentLogsResponseApi>(
         getDeploymentProjectsDeploymentsLogsRetrieveUrl(projectId, deploymentProjectId, id),
         {
             ...options,

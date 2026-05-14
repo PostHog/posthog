@@ -360,6 +360,46 @@ export interface PaginatedDeploymentEventListApi {
     results: DeploymentEventApi[]
 }
 
+/**
+ * One line of build output emitted by the build worker as a `$log` event.
+ */
+export interface DeploymentLogEntryApi {
+    /** When the line was emitted by the build worker. */
+    timestamp: string
+    /**
+     * Log level: "info" | "warn" | "error". Null if the event did not carry one.
+     * @nullable
+     */
+    level: string | null
+    /**
+     * Pipeline step: "clone" | "install" | "build" | "publish". Null if the event did not carry one.
+     * @nullable
+     */
+    step: string | null
+    /**
+     * The log line itself (a single line of stdout or stderr).
+     * @nullable
+     */
+    line: string | null
+    /**
+     * Set on the last line of a step; null on all other lines.
+     * @nullable
+     */
+    exit_code: number | null
+}
+
+/**
+ * Response shape for GET /deployments/{id}/logs/.
+ */
+export interface DeploymentLogsResponseApi {
+    /** Log lines for the deployment, oldest first. */
+    results: DeploymentLogEntryApi[]
+    /** True if the row limit was hit and older lines may exist beyond this page. */
+    has_more: boolean
+    /** The hard cap applied by the server. */
+    row_limit: number
+}
+
 export interface DeploymentProjectWriteApi {
     /**
      * Human-readable project name shown in the UI.
