@@ -60,10 +60,9 @@ class MCPSession:
     distinct_id_count: int
     tools_used: list[str]
     mcp_client_name: str
-    person_id: str
+    distinct_id: str
     person_email: str
     person_name: str
-    distinct_id: str
 
 
 @dataclass(frozen=True)

@@ -1,5 +1,3 @@
-from typing import Any
-
 from django.db.models import QuerySet
 
 from posthog.hogql import ast
@@ -7,11 +5,13 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models.person import Person
+from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.mcp_analytics.backend.facade import contracts, enums
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPSession
 
 MCP_TOOL_CALL_EVENT = "mcp_tool_call"
 
@@ -31,79 +31,56 @@ ORDER BY timestamp ASC
 LIMIT 500
 """
 
-_MCP_SESSIONS_SQL = """
-SELECT
-    properties.$session_id AS session_id,
-    count() AS event_count,
-    min(timestamp) AS first_seen,
-    max(timestamp) AS last_seen,
-    count(DISTINCT distinct_id) AS distinct_id_count,
-    arrayDistinct(groupArray(properties.$mcp_tool_name)) AS tools_used,
-    argMax(properties.$mcp_client_name, timestamp) AS mcp_client_name,
-    argMax(person_id, timestamp) AS person_id,
-    argMax(toString(person.properties.email), timestamp) AS person_email,
-    argMax(toString(person.properties.name), timestamp) AS person_name,
-    argMax(distinct_id, timestamp) AS last_distinct_id
-FROM events
-WHERE event = {event}
-    AND properties.$session_id IS NOT NULL
-    AND properties.$session_id != ''
-GROUP BY session_id
-ORDER BY last_seen DESC
-LIMIT {limit}
-OFFSET {offset}
-"""
-
 
 def list_submissions(team: Team, kind: enums.SubmissionKind) -> QuerySet[MCPAnalyticsSubmission]:
     return MCPAnalyticsSubmission.objects.filter(team=team, kind=kind).order_by("-created_at")
 
 
 def list_mcp_sessions(team: Team, limit: int, offset: int) -> list[contracts.MCPSession]:
-    query = parse_select(
-        _MCP_SESSIONS_SQL,
-        placeholders={
-            "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
-            "limit": ast.Constant(value=limit),
-            "offset": ast.Constant(value=offset),
-        },
+    """Read the denormalized session metadata that the Temporal backfill maintains.
+
+    Person email/name are resolved on the fly by joining MCPSession.distinct_id to
+    the Person model (routed through personhog), matching how SessionRecording
+    handles it. event_count is approximated by the size of tools_used since the
+    new table does not carry a per-call counter.
+    """
+    rows = list(MCPSession.objects.filter(team=team).order_by("-session_end")[offset : offset + limit])
+    persons_by_distinct_id = _resolve_persons(team.id, rows)
+    return [_to_session_contract(row, persons_by_distinct_id) for row in rows]
+
+
+def _resolve_persons(team_id: int, rows: list[MCPSession]) -> dict[str, Person]:
+    distinct_ids = list({row.distinct_id for row in rows if row.distinct_id})
+    if not distinct_ids:
+        return {}
+    return get_persons_mapped_by_distinct_id(team_id, distinct_ids)
+
+
+def _person_display(person: Person | None) -> dict[str, str]:
+    if person is None:
+        return {"email": "", "name": ""}
+    props = person.properties or {}
+    return {
+        "email": str(props.get("email") or ""),
+        "name": str(props.get("name") or ""),
+    }
+
+
+def _to_session_contract(row: MCPSession, persons_by_distinct_id: dict[str, Person]) -> contracts.MCPSession:
+    person_display = _person_display(persons_by_distinct_id.get(row.distinct_id))
+    tools_used = list(row.tools_used or [])
+    return contracts.MCPSession(
+        session_id=row.session_id,
+        event_count=len(tools_used),
+        first_seen=row.session_start,
+        last_seen=row.session_end,
+        distinct_id_count=0,
+        tools_used=tools_used,
+        mcp_client_name=row.mcp_client_name or "",
+        distinct_id=row.distinct_id or "",
+        person_email=person_display["email"],
+        person_name=person_display["name"],
     )
-    with tags_context(product=Product.MCP, feature=Feature.QUERY, team_id=team.id):
-        response = execute_hogql_query(query=query, team=team)
-    return [
-        contracts.MCPSession(
-            session_id=row[0] or "",
-            event_count=int(row[1] or 0),
-            first_seen=row[2],
-            last_seen=row[3],
-            distinct_id_count=int(row[4] or 0),
-            tools_used=[tool for tool in (row[5] or []) if tool],
-            mcp_client_name=row[6] or "",
-            person_id=_clean_person_id(row[7]),
-            person_email=_clean_person_property(row[8]),
-            person_name=_clean_person_property(row[9]),
-            distinct_id=row[10] or "",
-        )
-        for row in (response.results or [])
-    ]
-
-
-_ANONYMOUS_PERSON_ID = "00000000-0000-0000-0000-000000000000"
-
-
-def _clean_person_id(value: Any) -> str:
-    if value is None:
-        return ""
-    value_str = str(value)
-    return "" if value_str == _ANONYMOUS_PERSON_ID else value_str
-
-
-def _clean_person_property(value: Any) -> str:
-    if value is None:
-        return ""
-    text = str(value)
-    # HogQL returns the literal string 'null' when the property is missing
-    return "" if text in ("", "null") else text
 
 
 def list_mcp_tool_calls(team: Team, session_id: str) -> list[contracts.MCPToolCall]:

@@ -6,6 +6,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandParser
 
 from posthog.models.event.util import create_event
+from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
@@ -111,36 +112,45 @@ class Command(BaseCommand):
         now = datetime.now(tz=UTC)
         total_events = 0
 
-        # Create the identified personas and remember each one's person_id so
-        # we can stamp it on every event tied to that persona.
-        persona_person_ids: dict[str, str] = {}
+        # Create the identified personas. We write each one to BOTH Postgres
+        # (Person + PersonDistinctId) and ClickHouse (via create_person) so the
+        # distinct_id -> Person lookup in list_mcp_sessions can resolve name/email.
         for persona in IDENTIFIED_PERSONAS:
-            person_uuid = create_person(
+            properties = {
+                "email": persona["email"],
+                "name": persona["name"],
+                "role": persona["role"],
+            }
+            existing_distinct = PersonDistinctId.objects.filter(team=team, distinct_id=persona["distinct_id"]).first()
+            if existing_distinct:
+                person = existing_distinct.person
+                person.properties = properties
+                person.is_identified = True
+                person.save(update_fields=["properties", "is_identified"])
+            else:
+                person = Person.objects.create(team=team, properties=properties, is_identified=True)
+                PersonDistinctId.objects.create(team=team, distinct_id=persona["distinct_id"], person=person)
+            person_uuid = str(person.uuid)
+            create_person(
                 team_id=team.id,
+                uuid=person_uuid,
                 version=0,
                 is_identified=True,
-                properties={
-                    "email": persona["email"],
-                    "name": persona["name"],
-                    "role": persona["role"],
-                },
+                properties=properties,
             )
             create_person_distinct_id(
                 team_id=team.id,
                 distinct_id=persona["distinct_id"],
                 person_id=person_uuid,
             )
-            persona_person_ids[persona["distinct_id"]] = person_uuid
 
         for session_idx in range(session_count):
             session_id = str(uuid7())
             if rng.random() < IDENTIFIED_PROBABILITY:
                 persona = rng.choice(IDENTIFIED_PERSONAS)
                 distinct_id = persona["distinct_id"]
-                person_id: uuid.UUID | None = uuid.UUID(persona_person_ids[distinct_id])
             else:
                 distinct_id = f"anon_{uuid.uuid4().hex[:8]}"
-                person_id = None
             client_name = rng.choice(CLIENT_NAMES)
             calls = rng.randint(min_calls, max_calls)
             # Spread the session across a 5-minute window, anchored a random number of hours in the past.
@@ -162,7 +172,6 @@ class Command(BaseCommand):
                     event="mcp_tool_call",
                     team=team,
                     distinct_id=distinct_id,
-                    person_id=person_id,
                     timestamp=timestamp,
                     properties={
                         "$session_id": session_id,
