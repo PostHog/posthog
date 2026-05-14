@@ -41489,14 +41489,6 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
-    /**
-     * A search term.
-     */
-    search?: string;
     };
 
     export type EarlyAccessFeatureListParams = {

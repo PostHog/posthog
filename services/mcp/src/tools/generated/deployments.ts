@@ -75,8 +75,6 @@ const deploymentsEvents = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
-                ordering: params.ordering,
-                search: params.search,
             },
         })
         return await withPostHogUrl(context, result, '/deployments')

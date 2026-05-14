@@ -354,7 +354,7 @@ class DeploymentViewSet(
         return Response(self.get_serializer(deployment).data, status=status.HTTP_200_OK)
 
     @extend_schema(responses={status.HTTP_200_OK: DeploymentEventSerializer(many=True)})
-    @action(detail=True, methods=["get"])
+    @action(detail=True, methods=["get"], filter_backends=[])
     def events(self, request: Request, **kwargs: Any) -> Response:
         source = self.get_object()
         qs = DeploymentEvent.all_teams.filter(
