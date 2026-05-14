@@ -13,7 +13,8 @@
 
 set -euo pipefail
 
-FOLDER="${1:-${HOME}/repos/replace-temporal/demo}"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+FOLDER="${1:-${REPO_ROOT}/products/orchestra/backend/demo}"
 POSTHOG_URL="${POSTHOG_URL:-http://localhost:8010}"
 POSTHOG_TEAM_ID="${POSTHOG_TEAM_ID:-1}"
 

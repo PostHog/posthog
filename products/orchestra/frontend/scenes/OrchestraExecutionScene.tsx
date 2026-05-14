@@ -182,6 +182,30 @@ function TraceTimeline({
     )
 }
 
+function LiveTimeline({
+    executionStartedAt,
+    eventColumns,
+}: {
+    executionStartedAt: string
+    eventColumns: LemonTableColumns<OrchestraEvent>
+}): JSX.Element {
+    const { timelineEvents, timelineFinishedAt } = useValues(orchestraExecutionLogic)
+
+    return (
+        <>
+            <h3 className="mb-2">Trace</h3>
+            <TraceTimeline
+                events={timelineEvents}
+                executionStartedAt={executionStartedAt}
+                executionFinishedAt={timelineFinishedAt}
+            />
+
+            <h3 className="mb-2 mt-6">Event timeline</h3>
+            <LemonTable columns={eventColumns} dataSource={timelineEvents} emptyState="No events" size="small" />
+        </>
+    )
+}
+
 export const scene: SceneExport = {
     component: OrchestraExecutionScene,
     logic: orchestraExecutionLogic,
@@ -324,20 +348,7 @@ function OrchestraExecutionScene(): JSX.Element {
                 </div>
             )}
 
-            <h3 className="mb-2">Trace</h3>
-            <TraceTimeline
-                events={execution.events || []}
-                executionStartedAt={execution.started_at}
-                executionFinishedAt={execution.finished_at}
-            />
-
-            <h3 className="mb-2 mt-6">Event timeline</h3>
-            <LemonTable
-                columns={eventColumns}
-                dataSource={execution.events || []}
-                emptyState="No events"
-                size="small"
-            />
+            <LiveTimeline executionStartedAt={execution.started_at} eventColumns={eventColumns} />
         </SceneContent>
     )
 }

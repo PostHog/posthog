@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import inspect
 import socket
 import asyncio
+import inspect
 import logging
 import traceback
 from datetime import timedelta
@@ -265,20 +265,31 @@ class Worker:
 
 
 def _coerce_input(fn: Any, raw: Any, *, param_index: int = 0) -> Any:
-    """If the parameter at `param_index` is annotated with a class and `raw` is a
-    dict, construct that class from the dict (works with attrs, dataclasses, and
-    plain __init__(**kwargs) classes)."""
+    """Coerce a JSON-deserialized dict into the shape the function expects.
+
+    Three cases:
+    1. Single param annotated with a structured class (attrs/dataclass) → construct it.
+    2. Multiple params whose names match the dict keys → unpack as **kwargs.
+    3. Single param whose name matches a dict key → extract that single value.
+    """
     if not isinstance(raw, dict):
         return raw
     sig = inspect.signature(fn)
-    params = list(sig.parameters.values())
-    if len(params) <= param_index:
+    params = list(sig.parameters.values())[param_index:]
+    if not params:
         return raw
-    annotation = params[param_index].annotation
-    if annotation is inspect.Parameter.empty:
-        return raw
-    if isinstance(annotation, type) and annotation not in (dict, str, int, float, bool, list):
+    annotation = params[0].annotation
+    if (
+        annotation is not inspect.Parameter.empty
+        and isinstance(annotation, type)
+        and annotation not in (dict, str, int, float, bool, list)
+    ):
         return annotation(**raw)
+    param_names = {p.name for p in params}
+    if raw.keys() <= param_names:
+        if len(params) == 1 and len(raw) == 1:
+            return next(iter(raw.values()))
+        return raw
     return raw
 
 

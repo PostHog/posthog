@@ -1,4 +1,7 @@
-from products.orchestra.backend.engine import ExecutionContext, execution, step
+try:
+    from orchestra_engine import ExecutionContext, execution, step
+except ImportError:
+    from products.orchestra.backend.engine import ExecutionContext, execution, step
 
 
 @step

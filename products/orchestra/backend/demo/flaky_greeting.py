@@ -1,18 +1,29 @@
+import asyncio
 from pathlib import Path
 
-from products.orchestra.backend.engine import ExecutionContext, execution, step
+try:
+    from orchestra_engine import ExecutionContext, execution, step
+except ImportError:
+    from products.orchestra.backend.engine import ExecutionContext, execution, step
 
-from .greeting import build_greeting
 
 _MARKER = Path("/tmp/orchestra-flaky-greeting.attempted")  # noqa: S108
 
 
 @step
+async def build_greeting(name: str) -> str:
+    await asyncio.sleep(2)
+    return f"Hello, {name}!"
+
+
+@step
 async def flaky_log_greeting(greeting: str) -> str:
+    await asyncio.sleep(2)
     if not _MARKER.exists():
         _MARKER.touch()
-        raise ValueError("simulated transient failure on first attempt")
+        raise ValueError("what have you done to me??!!")
     print(f"[step flaky_log_greeting] {greeting}")  # noqa: T201
+    _MARKER.unlink(missing_ok=True)
     return f"logged: {greeting}"
 
 
