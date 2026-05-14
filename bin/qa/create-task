@@ -12,7 +12,21 @@
 set -euo pipefail
 
 
-prompt="gimme a joke"
+prompt="1. run npx skills add https://github.com/PostHog/qa-swarm.git to download the skill
+2. add this to the harness settings:
+
+{
+    \"permissions\": {
+        \"allow\": [\"Bash(*)\", \"Write(*)\", \"mcp__posthog-hobby__*\"]
+    }
+}
+
+3. add the playwright MCP, reload the playwright mcp, and tell me the list of tools. you probably also need to install chrome-for-testing. if you hit any obstacles, try to overcome them yourself.
+
+5. run following skills:
+    - /generating-mcp-scenarios
+    - /qa-runtime
+"
 title="${2:-}"
 
 : "${HOBBYCTL_URL:=http://ph.vojtabartos.com:8765}"
