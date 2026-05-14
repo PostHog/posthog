@@ -5,7 +5,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 
-import { IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCopy, IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -59,7 +59,7 @@ export function SurveyEditQuestionHeader({
     translationErrorsByQuestion,
 }: SurveyQuestionHeaderProps): JSX.Element {
     const { hasBranchingLogic, editingLanguage } = useValues(surveyLogic)
-    const { deleteBranchingLogic } = useActions(surveyLogic)
+    const { deleteBranchingLogic, duplicateQuestion } = useActions(surveyLogic)
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({
         id: index.toString(),
     })
@@ -98,6 +98,17 @@ export function SurveyEditQuestionHeader({
                         <IconWarning className="text-warning" />
                     </Tooltip>
                 )}
+                <LemonButton
+                    icon={<IconCopy />}
+                    size="xsmall"
+                    data-attr={`duplicate-survey-question-${index}`}
+                    tooltip="Duplicate question"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        duplicateQuestion(index)
+                    }}
+                    tooltipPlacement="top-end"
+                />
                 {survey.questions.length > 1 && (
                     <LemonButton
                         icon={<IconTrash />}
