@@ -54,10 +54,14 @@ def launch_detect_flows_task(
     domain: str,
 ) -> "Task":
     """Create and run a sandboxed agent task that proposes test flows."""
+    from products.agentic_tests.backend.models import AgenticTest
     from products.tasks.backend.models import Task
 
     prompt_text = _PROMPT_PATH.read_text()
-    description = f"{prompt_text}\n\nThe product is deployed at: {domain}"
+    existing_tests_xml = _format_existing_tests(
+        AgenticTest.objects.filter(team=team).values("name", "target_url", "prompt", "status")
+    )
+    description = f"{prompt_text}\n\nThe product is deployed at: {domain}\n\n{existing_tests_xml}"
 
     task = Task.create_and_run(
         team=team,
@@ -71,6 +75,23 @@ def launch_detect_flows_task(
         output_schema=DetectFlowsOutput,
     )
     return task
+
+
+def _format_existing_tests(tests: list[dict[str, str]]) -> str:
+    """Format existing tests as XML for the agent prompt."""
+    items = list(tests)
+    if not items:
+        return "<existing_tests>None — this is the first detection run.</existing_tests>"
+
+    lines = ["<existing_tests>"]
+    for t in items:
+        lines.append(f'  <test status="{t["status"]}">')
+        lines.append(f"    <name>{t['name']}</name>")
+        lines.append(f"    <target_url>{t['target_url']}</target_url>")
+        lines.append(f"    <prompt>{t['prompt'][:200]}</prompt>")
+        lines.append("  </test>")
+    lines.append("</existing_tests>")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
