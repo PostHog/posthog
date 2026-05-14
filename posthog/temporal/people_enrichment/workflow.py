@@ -45,8 +45,14 @@ class PeopleEnrichmentInputs:
 
 @dataclasses.dataclass
 class EnrichChunkInputs:
+    """Inputs for a single chunk activity.
+
+    No `offset` field: the workflow stamps `$enriched_at` on every person it
+    attempts (match, no-match, *and* error — see `enrich_chunk` below), so the
+    candidate set strictly shrinks across chunks. Each chunk just asks for the
+    next `chunk_size` rows of the still-unattempted set."""
+
     team_id: int
-    offset: int
     chunk_size: int
     reenrich: bool
 
@@ -230,20 +236,27 @@ def _enrich_one_sync(
     from posthog.temporal.people_enrichment.pdl_client import PDLClient
 
     pdl_data: dict[str, typing.Any] | None = None
-    try:
-        pdl_client = PDLClient()
-        if email:
-            pdl_data = pdl_client.enrich_by_email(email)
-        if pdl_data is None and name:
-            company = _company_from_email(email)
-            if company:
-                pdl_data = pdl_client.enrich_by_name_and_company(name, company)
-        if pdl_data is not None:
-            return person_id, _extract_pdl_fields(pdl_data), SOURCE_PDL, None
-    except Exception as e:
-        # If PDL itself errors, keep going to the CoreSignal fallback rather than
-        # marking the whole row as failed — we still want a chance to enrich.
-        LOGGER.warning("PDL lookup failed, falling back to CoreSignal", person_id=person_id, error=str(e))
+    # Explicit guard mirrors the CoreSignal path below: if the provider isn't
+    # configured we just skip it rather than letting `PDLClient()` raise and
+    # be caught by the broad `except`, which would (a) spam the logs on every
+    # row when only CoreSignal is configured, and (b) make a missing key look
+    # indistinguishable from a real provider error to the caller.
+    if settings.PDL_API_KEY:
+        try:
+            pdl_client = PDLClient()
+            if email:
+                pdl_data = pdl_client.enrich_by_email(email)
+            if pdl_data is None and name:
+                company = _company_from_email(email)
+                if company:
+                    pdl_data = pdl_client.enrich_by_name_and_company(name, company)
+            if pdl_data is not None:
+                return person_id, _extract_pdl_fields(pdl_data), SOURCE_PDL, None
+        except Exception as e:
+            # If PDL itself errors at runtime, keep going to the CoreSignal
+            # fallback rather than marking the whole row as failed — we still
+            # want a chance to enrich.
+            LOGGER.warning("PDL lookup failed, falling back to CoreSignal", person_id=person_id, error=str(e))
 
     # Fallback: CoreSignal. Prefer the explicit `name` property; fall back to a
     # guess derived from the email local-part. When the email is on a non-freemail
@@ -280,12 +293,19 @@ def _enrich_one_sync(
 
 
 @activity.defn
-async def count_targets_activity(team_id: int) -> int:
-    """Count persons in the team tagged for PDL enrichment."""
+async def count_targets_activity(team_id: int, reenrich: bool = False) -> int:
+    """Count persons in the team tagged for enrichment.
+
+    Mirrors `_load_page`'s filter so the `estimated_chunks` log line is honest:
+    without `reenrich`, already-enriched persons are excluded from both the
+    chunk loader and this count."""
     close_old_connections()
     from posthog.models import Person
 
-    return await sync_to_async(Person.objects.filter(team_id=team_id, properties__has_key=ENRICHMENT_TAG).count)()
+    qs = Person.objects.filter(team_id=team_id, properties__has_key=ENRICHMENT_TAG)
+    if not reenrich:
+        qs = qs.exclude(properties__has_key=ENRICHED_AT_KEY)
+    return await sync_to_async(qs.count)()
 
 
 def _build_capture_client(team_id: int) -> typing.Any | None:
@@ -323,7 +343,7 @@ async def enrich_chunk(inputs: EnrichChunkInputs) -> dict[str, typing.Any]:
     from management commands and tests in addition to the wrapping activity.
     """
     close_old_connections()
-    logger = LOGGER.bind(team_id=inputs.team_id, offset=inputs.offset)
+    logger = LOGGER.bind(team_id=inputs.team_id)
 
     from posthog.models import Person
 
@@ -331,10 +351,10 @@ async def enrich_chunk(inputs: EnrichChunkInputs) -> dict[str, typing.Any]:
         qs = Person.objects.filter(team_id=inputs.team_id, properties__has_key=ENRICHMENT_TAG)
         if not inputs.reenrich:
             qs = qs.exclude(properties__has_key=ENRICHED_AT_KEY)
-        # `ENRICHED_AT_KEY` is stamped on every person we attempt (match or no-match)
-        # below, so the candidate set strictly shrinks across chunks. That lets us
-        # pin offset to 0 and rely on filter shrinkage for progress.
-        qs = qs.order_by("id")[inputs.offset : inputs.offset + inputs.chunk_size]
+        # `ENRICHED_AT_KEY` is stamped on every person we attempt (match, no-match,
+        # or error) below, so the candidate set strictly shrinks across chunks.
+        # That lets us take rows from the start of the ordered set each time.
+        qs = qs.order_by("id")[: inputs.chunk_size]
         rows: list[tuple[int, str, str | None, str | None]] = []
         for p in qs:
             props = p.properties or {}
@@ -368,7 +388,7 @@ async def enrich_chunk(inputs: EnrichChunkInputs) -> dict[str, typing.Any]:
     no_match_count = 0
     errors: list[str] = []
     by_source: dict[str, int] = {}
-    now_iso = dt.datetime.utcnow().isoformat() + "Z"
+    now_iso = dt.datetime.now(dt.UTC).isoformat()
 
     def _persist(person_id: int, fields: dict[str, typing.Any] | None) -> None:
         person = Person.objects.get(pk=person_id)
@@ -406,6 +426,11 @@ async def enrich_chunk(inputs: EnrichChunkInputs) -> dict[str, typing.Any]:
     for person_id, distinct_id, fields, source, err in results:
         if err is not None:
             errors.append(f"person {person_id}: {err}")
+            # Stamp `$enriched_at` even on error so the candidate set still
+            # shrinks across chunks. Without this, a chunk whose persons all
+            # produce persistent errors (e.g. CoreSignal timeouts) would loop
+            # forever — the workflow exits only when `processed < chunk_size`.
+            await sync_to_async(_persist)(person_id, None)
             continue
         if fields is None:
             no_match_count += 1
@@ -462,30 +487,35 @@ class PeopleEnrichmentWorkflow(PostHogWorkflow):
         logger = LOGGER.bind(team_id=inputs.team_id)
         logger.info("Starting people enrichment workflow", chunk_size=inputs.chunk_size)
 
+        # Termination of the chunk loop relies on the candidate set shrinking
+        # as we stamp `$enriched_at`. When `reenrich=True` we skip that filter
+        # in `_load_page`, so the same rows would be returned forever; the
+        # caller must cap iteration explicitly via `max_chunks`.
+        if inputs.reenrich and inputs.max_chunks is None:
+            raise ValueError("reenrich=True requires `max_chunks` to be set — otherwise the loop never terminates")
+
         total = await workflow.execute_activity(
             count_targets_activity,
-            inputs.team_id,
+            args=[inputs.team_id, inputs.reenrich],
             start_to_close_timeout=dt.timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
         estimated_chunks = math.ceil(total / inputs.chunk_size) if total else 0
         logger.info("Found enrichment targets", total=total, estimated_chunks=estimated_chunks)
 
-        offset = 0
-        chunk_number = 0
+        chunks_completed = 0
         totals = {"processed": 0, "enriched": 0, "no_match": 0, "errors": 0}
         by_source: dict[str, int] = {}
         sample_errors: list[str] = []
 
         while True:
-            if inputs.max_chunks is not None and chunk_number >= inputs.max_chunks:
+            if inputs.max_chunks is not None and chunks_completed >= inputs.max_chunks:
                 break
 
             result = await workflow.execute_activity(
                 enrich_people_chunk_activity,
                 EnrichChunkInputs(
                     team_id=inputs.team_id,
-                    offset=offset,
                     chunk_size=inputs.chunk_size,
                     reenrich=inputs.reenrich,
                 ),
@@ -505,15 +535,15 @@ class PeopleEnrichmentWorkflow(PostHogWorkflow):
             for source, count in (result.get("by_source") or {}).items():
                 by_source[source] = by_source.get(source, 0) + count
 
+            # The chunk just ran, whether it returned a short page or a full one.
+            chunks_completed += 1
+
             if processed < inputs.chunk_size:
                 break
 
-            # offset stays pinned at 0 — candidate set shrinks via ENRICHED_AT_KEY stamping
-            chunk_number += 1
-
         return {
             "team_id": inputs.team_id,
-            "chunks_processed": chunk_number + 1,
+            "chunks_processed": chunks_completed,
             **totals,
             "by_source": by_source,
             "sample_errors": sample_errors,

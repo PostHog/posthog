@@ -54,7 +54,7 @@ class TestTemplatePersonEnrichment(BaseHogFunctionTemplateTest):
 
     def test_emits_set_with_curated_fields_on_match(self):
         self.fetch_responses = {
-            "https://api.peopledatalabs.com/v5/person/enrich?email=abhischek@posthog.com&min_likelihood=4&api_key=PDL_KEY": GOOD_PDL_RESPONSE,
+            "https://api.peopledatalabs.com/v5/person/enrich?email=abhischek@posthog.com&min_likelihood=4": GOOD_PDL_RESPONSE,
         }
         self.run_function(inputs=self._inputs())
 
@@ -63,8 +63,9 @@ class TestTemplatePersonEnrichment(BaseHogFunctionTemplateTest):
         url, options = fetch_calls[0]
         assert url.startswith(PDL_URL_PREFIX)
         assert "email=abhischek@posthog.com" in url
-        assert "api_key=PDL_KEY" in url
-        assert options == {"method": "GET"}
+        # API key must be in the header, not the URL query string.
+        assert "api_key=" not in url
+        assert options == {"method": "GET", "headers": {"X-Api-Key": "PDL_KEY"}}
 
         capture_calls = self.get_mock_posthog_capture_calls()
         assert len(capture_calls) == 1
@@ -84,7 +85,7 @@ class TestTemplatePersonEnrichment(BaseHogFunctionTemplateTest):
 
     def test_no_match_when_pdl_404s(self):
         self.fetch_responses = {
-            "https://api.peopledatalabs.com/v5/person/enrich?email=abhischek@posthog.com&min_likelihood=4&api_key=PDL_KEY": {
+            "https://api.peopledatalabs.com/v5/person/enrich?email=abhischek@posthog.com&min_likelihood=4": {
                 "status": 404,
                 "body": {},
             },
@@ -94,7 +95,7 @@ class TestTemplatePersonEnrichment(BaseHogFunctionTemplateTest):
 
     def test_exits_cleanly_on_pdl_402(self):
         self.fetch_responses = {
-            "https://api.peopledatalabs.com/v5/person/enrich?email=abhischek@posthog.com&min_likelihood=4&api_key=PDL_KEY": {
+            "https://api.peopledatalabs.com/v5/person/enrich?email=abhischek@posthog.com&min_likelihood=4": {
                 "status": 402,
                 "body": {},
             },

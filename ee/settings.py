@@ -142,9 +142,10 @@ SALESFORCE_SECURITY_TOKEN = get_from_env("SF_SECURITY_TOKEN", "", type_cast=str)
 HARMONIC_API_KEY = get_from_env("HARMONIC_API_KEY", "", type_cast=str)
 HARMONIC_BASE_URL = get_from_env("HARMONIC_BASE_URL", "https://api.harmonic.ai", type_cast=str)
 
-# People Data Labs (PDL) API for person enrichment
+# People Data Labs (PDL) API for person enrichment. Only the API key is
+# configurable — the SDK pins the endpoint, so a `PDL_BASE_URL` override would
+# be ignored downstream.
 PDL_API_KEY = get_from_env("PDL_API_KEY", "", type_cast=str)
-PDL_BASE_URL = get_from_env("PDL_BASE_URL", "https://api.peopledatalabs.com/v5", type_cast=str)
 
 # CoreSignal API for person enrichment (fallback when PDL has no match)
 CORESIGNAL_API_KEY = get_from_env("CORESIGNAL_API_KEY", "", type_cast=str)

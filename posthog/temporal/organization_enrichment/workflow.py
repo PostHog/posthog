@@ -194,7 +194,10 @@ async def enrich_organization_chunk(inputs: EnrichOrganizationChunkInputs) -> di
         if fields is None:
             no_match_count += 1
             continue
-        _emit(target, fields)
+        # `_emit` issues two synchronous HTTP calls via the PostHog SDK
+        # (`sync_mode=True`). Running it directly here would block the asyncio
+        # event loop for ~2 round-trips per matched org; offload to a thread.
+        await asyncio.to_thread(_emit, target, fields)
         enriched_count += 1
 
     if capture_client is not None:

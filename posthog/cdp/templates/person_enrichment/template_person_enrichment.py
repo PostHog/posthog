@@ -60,8 +60,12 @@ if (empty(pdl_api_key)) {
     return false
 }
 
-let pdl_url := f'https://api.peopledatalabs.com/v5/person/enrich?email={email}&min_likelihood=4&api_key={pdl_api_key}'
-let response := fetch(pdl_url, {'method': 'GET'})
+// Pass the API key as a header rather than a query parameter. Query strings
+// appear verbatim in server-side access logs on both sides of the connection,
+// so embedding the credential there is a needless exposure surface. The email
+// has to stay in the URL — PDL's `/person/enrich` requires it there.
+let pdl_url := f'https://api.peopledatalabs.com/v5/person/enrich?email={email}&min_likelihood=4'
+let response := fetch(pdl_url, {'method': 'GET', 'headers': {'X-Api-Key': pdl_api_key}})
 
 if (response.status == 404) {
     print('PDL no match for', email)
