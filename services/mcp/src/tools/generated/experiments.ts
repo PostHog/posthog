@@ -453,8 +453,7 @@ const experimentSavedMetricsDestroy = (): ToolBase<typeof ExperimentSavedMetrics
             method: 'DELETE',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/${encodeURIComponent(String(params.id))}/`,
         })
-        const filtered = pickResponseFields(result, ['id', 'name']) as typeof result
-        return filtered
+        return result
     },
 })
 
