@@ -295,13 +295,18 @@ export function WhenStep(): JSX.Element {
 
             <LemonCollapse
                 embedded
+                defaultActiveKey={seenSurveyWaitPeriodInDays != null ? 'wait-period' : undefined}
                 panels={[
                     {
                         key: 'wait-period',
                         header: (
                             <span>
                                 Wait period across all surveys{' '}
-                                <span className="text-muted font-normal">(optional)</span>
+                                <span className="text-muted font-normal">
+                                    {seenSurveyWaitPeriodInDays != null
+                                        ? `(${seenSurveyWaitPeriodInDays} days)`
+                                        : '(optional)'}
+                                </span>
                             </span>
                         ),
                         content: (
