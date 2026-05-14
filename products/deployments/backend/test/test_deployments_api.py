@@ -150,9 +150,12 @@ class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         body = response.json()
         # Null adapter assigns a {team_id}-{slug} name; serializer surfaces
-        # the cloudflare_project_name as a read-only field.
+        # the cloudflare_project_name as a read-only field. The subdomain
+        # mirrors whatever the adapter returned (Null = `{name}.pages.dev`)
+        # — provisioning persists the adapter's value rather than a
+        # hardcoded pattern so two teams with the same slug don't collide.
         self.assertIn(f"{self.team.id}-site", body["cloudflare_project_name"])
-        self.assertEqual(body["subdomain"], "site.posthog-app.com")
+        self.assertEqual(body["subdomain"], f"{self.team.id}-site.pages.dev")
         self.assertIsNotNone(body["cloudflare_ready_at"])
 
     def test_destroy_is_soft_delete(self) -> None:

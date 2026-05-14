@@ -122,11 +122,6 @@ class InternalDeploymentTransitionsViewSet(viewsets.ViewSet):
 
     @extend_schema(exclude=True)
     def transitions(self, request: Request, deployment_id: str, *args: Any, **kwargs: Any) -> Response:
-        # Ensure the row exists before we hit the service — gives a
-        # clean 404 instead of letting Deployment.DoesNotExist bubble
-        # out of update_status as a 500.
-        self._get_deployment(deployment_id)
-
         body = InternalTransitionInputSerializer(data=request.data)
         body.is_valid(raise_exception=True)
 
@@ -134,6 +129,11 @@ class InternalDeploymentTransitionsViewSet(viewsets.ViewSet):
         error_step_raw = body.validated_data.get("error_step")
         error_step = ErrorStep(error_step_raw) if error_step_raw else None
 
+        # `update_status.execute` does its own `SELECT FOR UPDATE` on the
+        # row, so we catch the missing-row case here instead of pre-fetching
+        # (which would just be a wasted query and still race the worker that
+        # deletes the row between the two reads). `Deployment.DoesNotExist`
+        # otherwise bubbles up as a 500.
         try:
             deployment = update_status.execute(
                 update_status.UpdateStatusInput(
@@ -147,6 +147,8 @@ class InternalDeploymentTransitionsViewSet(viewsets.ViewSet):
                     finished_at=body.validated_data.get("finished_at"),
                 )
             )
+        except Deployment.DoesNotExist as exc:
+            raise NotFound(f"Deployment {deployment_id} not found.") from exc
         except InvalidStatusTransition as exc:
             logger.warning(
                 "internal_deployments.invalid_transition",

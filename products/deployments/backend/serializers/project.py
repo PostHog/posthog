@@ -24,7 +24,11 @@ class DeploymentProjectSerializer(serializers.ModelSerializer):
     name = serializers.CharField(max_length=200, help_text="Human-readable project name shown in the UI.")
     slug = serializers.SlugField(
         max_length=80,
-        help_text="URL-safe handle. Becomes the subdomain `{slug}.posthog-app.com`. Must be unique per team.",
+        help_text=(
+            "URL-safe handle. Combined with the team id to form the Cloudflare project name; "
+            "the actual subdomain comes from Cloudflare and is returned in the read-only "
+            "`subdomain` field. Must be unique per team."
+        ),
     )
     repo_url = serializers.URLField(
         max_length=1024,

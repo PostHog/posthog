@@ -16,7 +16,7 @@ export interface DeploymentProjectApi {
      */
     name: string
     /**
-     * URL-safe handle. Becomes the subdomain `{slug}.posthog-app.com`. Must be unique per team.
+     * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
      * @maxLength 80
      * @pattern ^[-a-zA-Z0-9_]+$
      */
@@ -323,7 +323,7 @@ export interface PatchedDeploymentProjectApi {
      */
     name?: string
     /**
-     * URL-safe handle. Becomes the subdomain `{slug}.posthog-app.com`. Must be unique per team.
+     * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
      * @maxLength 80
      * @pattern ^[-a-zA-Z0-9_]+$
      */

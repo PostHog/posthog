@@ -53,7 +53,13 @@ def execute(
         production_branch=payload.default_branch,
     )
 
-    # 2) Narrow atomic block — local row only.
+    # 2) Narrow atomic block — local row only. Persist whatever the adapter
+    # actually published the project at, not a hardcoded pattern: the slug
+    # uniqueness constraint is per-team, so two different teams choosing
+    # slug "myapp" would collide on a hardcoded `{slug}.posthog-app.com`,
+    # and the value flows into the `$deployment` PostHog event so any
+    # divergence pollutes analytics. The real adapter (when it lands) is
+    # the source of truth for the actual subdomain.
     with transaction.atomic():
         project = DeploymentProject.objects.create(
             team_id=payload.team_id,
@@ -68,7 +74,7 @@ def execute(
             framework=payload.framework,
             inject_posthog_snippet=payload.inject_posthog_snippet,
             cloudflare_project_name=cf_project.name,
-            subdomain=f"{payload.slug}.posthog-app.com",
+            subdomain=cf_project.subdomain,
             cloudflare_ready_at=timezone.now(),
         )
     return project

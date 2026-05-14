@@ -43,7 +43,9 @@ export const DeploymentProjectsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(deploymentProjectsCreateBodySlugMax)
         .regex(deploymentProjectsCreateBodySlugRegExp)
-        .describe('URL-safe handle. Becomes the subdomain `{slug}.posthog-app.com`. Must be unique per team.'),
+        .describe(
+            'URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.'
+        ),
     repo_url: zod
         .url()
         .max(deploymentProjectsCreateBodyRepoUrlMax)
@@ -146,7 +148,9 @@ export const DeploymentProjectsUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(deploymentProjectsUpdateBodySlugMax)
         .regex(deploymentProjectsUpdateBodySlugRegExp)
-        .describe('URL-safe handle. Becomes the subdomain `{slug}.posthog-app.com`. Must be unique per team.'),
+        .describe(
+            'URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.'
+        ),
     repo_url: zod
         .url()
         .max(deploymentProjectsUpdateBodyRepoUrlMax)
@@ -222,7 +226,9 @@ export const DeploymentProjectsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(deploymentProjectsPartialUpdateBodySlugMax)
         .regex(deploymentProjectsPartialUpdateBodySlugRegExp)
         .optional()
-        .describe('URL-safe handle. Becomes the subdomain `{slug}.posthog-app.com`. Must be unique per team.'),
+        .describe(
+            'URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.'
+        ),
     repo_url: zod
         .url()
         .max(deploymentProjectsPartialUpdateBodyRepoUrlMax)
