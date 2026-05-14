@@ -11,7 +11,7 @@ The feature flag gate (`DeploymentsAccessPermission`) is mocked via
 from __future__ import annotations
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -21,6 +21,7 @@ from rest_framework import status
 from posthog.models.integration import Integration
 from posthog.models.utils import uuid7
 
+from products.deployments.backend.adapters.github import GitHubBranch, GitHubRepository
 from products.deployments.backend.models import Deployment, DeploymentProject
 from products.deployments.backend.test._helpers import DeploymentsTeamScopedTestMixin
 
@@ -40,6 +41,16 @@ class _BaseDeploymentsAPITest(DeploymentsTeamScopedTestMixin, APIBaseTest):
 
 
 class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
+    def _github_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GITHUB.value,
+            integration_id="12345",
+            config={"account": {"name": "PostHog", "type": "Organization"}},
+            sensitive_config={"access_token": "ghs_test"},
+            errors="",
+        )
+
     def test_list_returns_empty_when_no_projects(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/deployment_projects/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -157,6 +168,93 @@ class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
         self.assertIn(f"{self.team.id}-site", body["cloudflare_project_name"])
         self.assertEqual(body["subdomain"], f"{self.team.id}-site.pages.dev")
         self.assertIsNotNone(body["cloudflare_ready_at"])
+
+    @patch("products.deployments.backend.api.deployment_projects.get_github_adapter")
+    def test_create_project_uses_existing_github_integration(self, mock_get_github_adapter: MagicMock) -> None:
+        integration = self._github_integration()
+        adapter = mock_get_github_adapter.return_value
+        adapter.get_repository_by_id.return_value = GitHubRepository(
+            id=42,
+            full_name="PostHog/posthog",
+            default_branch="master",
+            html_url="https://github.com/PostHog/posthog",
+        )
+        adapter.get_branch.return_value = GitHubBranch(name="master", sha="abc123")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/",
+            {
+                "name": "Site",
+                "slug": "site",
+                "github_integration_id": integration.id,
+                "github_repo_id": 42,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        body = response.json()
+        self.assertEqual(body["github_integration_id"], integration.id)
+        self.assertEqual(body["github_repo_id"], 42)
+        self.assertEqual(body["repo_url"], "https://github.com/PostHog/posthog")
+        self.assertEqual(body["default_branch"], "master")
+        project = DeploymentProject.all_teams.get(team_id=self.team.id, github_repo_id=42)
+        self.assertEqual(project.github_integration_id, integration.id)
+
+    def test_create_project_rejects_non_project_github_integration(self) -> None:
+        other_team = self.organization.teams.create(name="Other team")
+        integration = Integration.objects.create(
+            team=other_team,
+            kind=Integration.IntegrationKind.GITHUB.value,
+            integration_id="12345",
+            config={},
+            sensitive_config={"access_token": "ghs_test"},
+            errors="",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/",
+            {
+                "name": "Site",
+                "slug": "site",
+                "github_integration_id": integration.id,
+                "github_repo_id": 42,
+                "default_branch": "master",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("products.deployments.backend.api.deployment_projects.get_github_adapter")
+    def test_refresh_project_returns_current_branch_sha(self, mock_get_github_adapter: MagicMock) -> None:
+        integration = self._github_integration()
+        project = DeploymentProject.objects.create(
+            team_id=self.team.id,
+            name="Site",
+            slug="site",
+            repo_url="https://github.com/PostHog/posthog",
+            github_integration_id=integration.id,
+            github_repo_id=42,
+            default_branch="master",
+        )
+        adapter = mock_get_github_adapter.return_value
+        adapter.get_repository_by_id.return_value = GitHubRepository(
+            id=42,
+            full_name="PostHog/posthog",
+            default_branch="main",
+            html_url="https://github.com/PostHog/posthog",
+        )
+        adapter.get_branch.return_value = GitHubBranch(name="master", sha="new-sha")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/deployment_projects/{project.id}/refresh/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()
+        self.assertEqual(body["default_branch"], "master")
+        self.assertEqual(body["commit_sha"], "new-sha")
+        project.refresh_from_db()
+        self.assertEqual(project.default_branch, "master")
 
     def test_destroy_is_soft_delete(self) -> None:
         project = DeploymentProject.objects.create(

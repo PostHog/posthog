@@ -9,9 +9,9 @@ worse — the HTTP response has already been written by the time the
 callback fires, so the 502 path becomes unreachable.
 
 If the Cloudflare call fails, no local row exists; the orphaned-CF-project
-risk is zero (there isn't one). If the local insert later fails (rare;
-the partial unique constraint can't fire here), the orphaned CF project
-gets reaped by a periodic cleanup task (deferred to v2).
+risk is zero (there isn't one). If the local insert later loses a uniqueness
+race, the orphaned CF project gets reaped by a periodic cleanup task
+(deferred to v2).
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ class ProvisionInput:
     repo_url: str
     default_branch: str
     github_integration_id: int | None
+    github_repo_id: int | None
     build_command: str | None
     output_dir: str
     framework: str | None
@@ -69,6 +70,7 @@ def execute(
             repo_url=payload.repo_url,
             default_branch=payload.default_branch,
             github_integration_id=payload.github_integration_id,
+            github_repo_id=payload.github_repo_id,
             build_command=payload.build_command,
             output_dir=payload.output_dir,
             framework=payload.framework,
