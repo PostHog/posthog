@@ -4,7 +4,8 @@ from typing import Literal
 from django.utils import timezone
 
 from posthog.models import OAuthAccessToken, OAuthApplication
-from posthog.models.utils import generate_random_oauth_access_token
+from posthog.models.oauth import OAuthRefreshToken
+from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS
 from posthog.utils import get_instance_region
 
@@ -84,11 +85,11 @@ def create_oauth_access_token_for_user(
     user,
     team_id: int,
     *,
+    app: OAuthApplication,
     scopes: PosthogMcpScopes = "read_only",
     include_internal_scopes: bool = True,
 ) -> str:
     resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
-    app = get_array_app()
     token_value = generate_random_oauth_access_token(None)
 
     OAuthAccessToken.objects.create(
@@ -101,3 +102,41 @@ def create_oauth_access_token_for_user(
     )
 
     return token_value
+
+
+def create_oauth_access_and_refresh_tokens_for_user(
+    user,
+    team_id: int,
+    *,
+    app: OAuthApplication,
+    scopes: PosthogMcpScopes = "read_only",
+    include_internal_scopes: bool = True,
+) -> tuple[str, str, int]:
+    """Mint a linked OAuth (access, refresh) pair scoped to a specific team.
+
+    The refresh token lets the caller renew the access token via the standard
+    /oauth/token grant flow without re-running the lookup. Returns
+    (access_token, refresh_token, expires_in_seconds).
+    """
+    resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
+    access_value = generate_random_oauth_access_token(None)
+    refresh_value = generate_random_oauth_refresh_token(None)
+    expires_at = timezone.now() + timedelta(seconds=TOKEN_EXPIRATION_SECONDS)
+
+    access_token = OAuthAccessToken.objects.create(
+        user=user,
+        application=app,
+        token=access_value,
+        expires=expires_at,
+        scope=" ".join(resolved),
+        scoped_teams=[team_id],
+    )
+    OAuthRefreshToken.objects.create(
+        user=user,
+        application=app,
+        token=refresh_value,
+        access_token=access_token,
+        scoped_teams=[team_id],
+    )
+
+    return access_value, refresh_value, TOKEN_EXPIRATION_SECONDS

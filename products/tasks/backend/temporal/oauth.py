@@ -1,9 +1,11 @@
+from posthog.models import OAuthApplication
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
     ARRAY_APP_CLIENT_ID_US,
     PosthogMcpScopes,
     create_oauth_access_token_for_user as _create_oauth_access_token_for_user,
+    get_array_app,
 )
 
 from products.tasks.backend.models import Task
@@ -30,12 +32,14 @@ def create_oauth_access_token(task: Task, *, scopes: PosthogMcpScopes = "read_on
             cause=RuntimeError(f"Task {task.id} missing created_by field"),
         )
 
-    return create_oauth_access_token_for_user(task.created_by, task.team_id, scopes=scopes)
+    return create_oauth_access_token_for_user(task.created_by, task.team_id, app=get_array_app(), scopes=scopes)
 
 
-def create_oauth_access_token_for_user(user, team_id: int, *, scopes: PosthogMcpScopes = "read_only") -> str:
+def create_oauth_access_token_for_user(
+    user, team_id: int, *, app: OAuthApplication, scopes: PosthogMcpScopes = "read_only"
+) -> str:
     """Create an OAuth access token for the Array app, scoped to a specific team."""
     try:
-        return _create_oauth_access_token_for_user(user, team_id, scopes=scopes)
+        return _create_oauth_access_token_for_user(user, team_id, app=app, scopes=scopes)
     except RuntimeError as err:
         raise OAuthTokenError(str(err), {"team_id": team_id}, cause=err) from err
