@@ -1,8 +1,7 @@
-// @ts-expect-error — asciichart ships no type declarations
-import asciichart from 'asciichart'
 import chalk from 'chalk'
 import { highlight } from 'cli-highlight'
 import Table from 'cli-table3'
+import { createRequire } from 'node:module'
 
 import {
     buildLabelRow,
@@ -20,6 +19,37 @@ import {
 type TableColumn = {
     header: string
     render: (item: JsonRecord) => string
+}
+
+type AsciiChart = {
+    blue: string
+    green: string
+    yellow: string
+    magenta: string
+    cyan: string
+    red: string
+    plot: (
+        series: number[] | number[][],
+        options: { height: number; colors: string[]; format: (value: number) => string }
+    ) => string
+}
+
+const require = createRequire(import.meta.url)
+let cachedAsciichart: AsciiChart | null | undefined
+
+function getAsciichart(): AsciiChart | undefined {
+    if (cachedAsciichart !== undefined) {
+        return cachedAsciichart ?? undefined
+    }
+
+    try {
+        const module = require('asciichart') as AsciiChart | { default: AsciiChart }
+        cachedAsciichart = 'default' in module ? module.default : module
+    } catch {
+        cachedAsciichart = null
+    }
+
+    return cachedAsciichart ?? undefined
 }
 
 function getListItems(result: unknown): JsonRecord[] {
@@ -708,16 +738,24 @@ function printKnownList(toolName: string, result: unknown): boolean {
 // asciichart wants raw SGR strings on its `colors` config; chalk 5 doesn't
 // expose `.open`, so we keep two parallel constants — one for asciichart, one
 // for legend bullets. Same ordering in both.
-const CHART_COLORS = [
-    { ansi: asciichart.blue, fn: chalk.blue },
-    { ansi: asciichart.green, fn: chalk.green },
-    { ansi: asciichart.yellow, fn: chalk.yellow },
-    { ansi: asciichart.magenta, fn: chalk.magenta },
-    { ansi: asciichart.cyan, fn: chalk.cyan },
-    { ansi: asciichart.red, fn: chalk.red },
-]
+function getChartColors(asciichart: AsciiChart): Array<{ ansi: string; fn: (text: string) => string }> {
+    return [
+        { ansi: asciichart.blue, fn: chalk.blue },
+        { ansi: asciichart.green, fn: chalk.green },
+        { ansi: asciichart.yellow, fn: chalk.yellow },
+        { ansi: asciichart.magenta, fn: chalk.magenta },
+        { ansi: asciichart.cyan, fn: chalk.cyan },
+        { ansi: asciichart.red, fn: chalk.red },
+    ]
+}
 
 function plotTrendsSeries(series: ChartSeries[]): void {
+    const asciichart = getAsciichart()
+    if (!asciichart) {
+        console.log(chalk.gray('Chart rendering is unavailable because asciichart is not installed.'))
+        return
+    }
+
     if (series.length === 0) {
         console.log(chalk.gray('Not enough data points to plot.'))
         return
@@ -741,9 +779,10 @@ function plotTrendsSeries(series: ChartSeries[]): void {
         )
     )
 
+    const chartColors = getChartColors(asciichart)
     const chart = asciichart.plot(numericSeries.length === 1 ? numericSeries[0] : numericSeries, {
         height: 12,
-        colors: numericSeries.map((_, i) => CHART_COLORS[i % CHART_COLORS.length].ansi),
+        colors: numericSeries.map((_, i) => chartColors[i % chartColors.length].ansi),
         format: (x: number) => formatYValue(x).padStart(5, ' '),
     })
 
@@ -752,7 +791,7 @@ function plotTrendsSeries(series: ChartSeries[]): void {
     console.log('')
 
     series.forEach((s, i) => {
-        const { fn: color } = CHART_COLORS[i % CHART_COLORS.length]
+        const { fn: color } = chartColors[i % chartColors.length]
         const action = isRecord(s.action) ? s.action : null
         const name = stringify(s.label) || (action ? stringify(action.name) : '') || `Series ${i + 1}`
         const total = typeof s.count === 'number' ? chalk.gray(`  total: ${s.count}`) : ''
