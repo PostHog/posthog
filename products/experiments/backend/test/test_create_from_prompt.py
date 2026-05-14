@@ -75,6 +75,8 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         experiment = Experiment.objects.get(pk=body["id"])
         self.assertEqual(experiment.team_id, self.team.id)
         self.assertTrue(experiment.is_draft)
+        assert experiment.parameters is not None
+        assert experiment.metrics is not None
 
         # parameters.prompt_metadata round-trips
         prompt_metadata = experiment.parameters["prompt_metadata"]
@@ -125,6 +127,8 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
 
         experiment = Experiment.objects.get(pk=response.json()["id"])
+        assert experiment.parameters is not None
+        assert experiment.metrics is not None
         self.assertEqual(experiment.parameters["prompt_metadata"]["templates"], templates)
 
         # One metric per template, in the same order, each scoped to the prompt.
