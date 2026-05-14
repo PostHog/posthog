@@ -106,3 +106,6 @@ PANDADOC_API_KEY = get_from_env("PANDADOC_API_KEY", "")
 PANDADOC_WEBHOOK_SECRET = get_from_env("PANDADOC_WEBHOOK_SECRET", "")
 PANDADOC_BAA_TEMPLATE_ID = get_from_env("PANDADOC_BAA_TEMPLATE_ID", "")
 PANDADOC_DPA_TEMPLATE_ID = get_from_env("PANDADOC_DPA_TEMPLATE_ID", "")
+
+# Social referrals — Shopify discount for the referring user/org when a referee's first event lands
+SOCIAL_REFERRAL_SHOPIFY_ACCESS_TOKEN = get_from_env("SOCIAL_REFERRAL_SHOPIFY_ACCESS_TOKEN", "")

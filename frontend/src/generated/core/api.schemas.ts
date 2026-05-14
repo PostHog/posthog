@@ -2150,9 +2150,18 @@ export interface PatchedProjectBackwardCompatApi {
 }
 
 /**
- * Map of invited organization UUID (string) to `{"first_event_sent": boolean}`.
+ * Map of invited organization UUID (string) to referral progress (`first_event_sent`, `signed_up_at`, `signed_up_user_id`, `shopify_discount_codes`, etc.).
  */
 export type SocialReferralApiRefereeState = { [key: string]: unknown }
+
+export interface SocialReferralShopifyDiscountCodeRecordApi {
+    /** Discount code string as created in Shopify Admin. */
+    code: string
+    /** ISO 8601 datetime when the code was created. */
+    issued_at: string
+    /** Shopify price rule id this code was created under. */
+    price_rule_id: string
+}
 
 export interface SocialReferralRefereeInviteApi {
     /** UUID of the organization that signed up via this referral link. */
@@ -2161,21 +2170,38 @@ export interface SocialReferralRefereeInviteApi {
     organization_name: string
     /** Whether this organization has sent its first ingested event. */
     first_event_sent: boolean
+    /**
+     * ISO 8601 datetime when this organization was first attributed at signup, if recorded.
+     * @nullable
+     */
+    signed_up_at?: string | null
+    /**
+     * Primary key of the user who signed up the invited organization; null if unknown or cleared.
+     * @nullable
+     */
+    signed_up_user_id?: number | null
+    /**
+     * Resolved full name or email of signed_up_user_id when that user still exists; null if missing.
+     * @nullable
+     */
+    signed_up_user_display_name?: string | null
+    /** Shopify discount codes issued for this invited organization (append-only; multiple allowed). */
+    readonly shopify_discount_codes: readonly SocialReferralShopifyDiscountCodeRecordApi[]
 }
 
 export interface SocialReferralApi {
     readonly id: string
     readonly organization: string
     readonly user: number
-    /** Map of invited organization UUID (string) to `{"first_event_sent": boolean}`. */
+    /** Map of invited organization UUID (string) to referral progress (`first_event_sent`, `signed_up_at`, `signed_up_user_id`, `shopify_discount_codes`, etc.). */
     referee_state?: SocialReferralApiRefereeState
-    /** Invited organizations from referee_state with names resolved from the Organization table. */
+    /** Invited organizations from referee_state with organization and signup-user display names resolved. */
     readonly referee_invites: readonly SocialReferralRefereeInviteApi[]
     readonly created_at: string
 }
 
 /**
- * Map of invited organization UUID (string) to `{"first_event_sent": boolean}`.
+ * Map of invited organization UUID (string) to referral progress (`first_event_sent`, `signed_up_at`, `signed_up_user_id`, `shopify_discount_codes`, etc.).
  */
 export type PatchedSocialReferralApiRefereeState = { [key: string]: unknown }
 
@@ -2183,9 +2209,9 @@ export interface PatchedSocialReferralApi {
     readonly id?: string
     readonly organization?: string
     readonly user?: number
-    /** Map of invited organization UUID (string) to `{"first_event_sent": boolean}`. */
+    /** Map of invited organization UUID (string) to referral progress (`first_event_sent`, `signed_up_at`, `signed_up_user_id`, `shopify_discount_codes`, etc.). */
     referee_state?: PatchedSocialReferralApiRefereeState
-    /** Invited organizations from referee_state with names resolved from the Organization table. */
+    /** Invited organizations from referee_state with organization and signup-user display names resolved. */
     readonly referee_invites?: readonly SocialReferralRefereeInviteApi[]
     readonly created_at?: string
 }

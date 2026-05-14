@@ -27,4 +27,5 @@ class TestSocialReferralAPI(APIBaseTest):
         self.assertIsNone(invites[0]["signed_up_at"])
         self.assertIsNone(invites[0]["signed_up_user_id"])
         self.assertIsNone(invites[0]["signed_up_user_display_name"])
+        self.assertEqual(invites[0]["shopify_discount_codes"], [])
         self.assertEqual(invites[0]["organization_id"], str(invited.id))
