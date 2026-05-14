@@ -13,6 +13,7 @@ interface StatusPagePreviewProps {
     ongoingIncidents?: Incident[]
     recentIncidents?: Incident[]
     placeholder?: string
+    isPublic?: boolean
 }
 
 export function StatusPagePreview({
@@ -22,6 +23,7 @@ export function StatusPagePreview({
     ongoingIncidents = [],
     recentIncidents = [],
     placeholder = 'Add monitors from the left to see them here.',
+    isPublic = false,
 }: StatusPagePreviewProps): JSX.Element {
     const overallStatus = computeOverallStatus(monitors)
     const monitorNameById = new Map(monitors.map((m) => [m.id, m.name]))
@@ -39,7 +41,9 @@ export function StatusPagePreview({
 
             {ongoingIncidents.length > 0 && (
                 <section className="flex flex-col gap-2">
-                    <h2 className="text-sm font-semibold text-primary m-0">Ongoing declared incidents</h2>
+                    <h2 className="text-sm font-semibold text-primary m-0">
+                        {isPublic ? 'Ongoing incidents' : 'Ongoing declared incidents'}
+                    </h2>
                     <ul className="flex flex-col gap-2">
                         {ongoingIncidents.map((incident) => (
                             <li key={incident.id}>
@@ -68,22 +72,48 @@ export function StatusPagePreview({
             )}
 
             {recentIncidents.length > 0 && (
-                <section className="flex flex-col gap-2">
-                    <h2 className="text-sm font-semibold text-primary m-0">Recently resolved</h2>
-                    <ul className="flex flex-col gap-2">
-                        {recentIncidents.map((incident) => (
-                            <li key={incident.id}>
-                                <PublicIncidentRow
-                                    incident={incident}
-                                    monitorName={monitorNameById.get(incident.monitor_id)}
-                                />
-                            </li>
-                        ))}
-                    </ul>
+                <section className="flex flex-col gap-3">
+                    <h2 className="text-sm font-semibold text-primary m-0">Past incidents</h2>
+                    {groupIncidentsByDay(recentIncidents).map(({ day, label, incidents }) => (
+                        <div key={day} className="flex flex-col gap-2">
+                            <div className="text-xs font-medium text-secondary uppercase tracking-wide">{label}</div>
+                            <ul className="flex flex-col gap-2">
+                                {incidents.map((incident) => (
+                                    <li key={incident.id}>
+                                        <PublicIncidentRow
+                                            incident={incident}
+                                            monitorName={monitorNameById.get(incident.monitor_id)}
+                                        />
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ))}
                 </section>
             )}
         </div>
     )
+}
+
+function groupIncidentsByDay(incidents: Incident[]): { day: string; label: string; incidents: Incident[] }[] {
+    const groups = new Map<string, Incident[]>()
+    for (const incident of incidents) {
+        const anchor = incident.resolved_at ?? incident.started_at
+        const day = dayjs(anchor).format('YYYY-MM-DD')
+        const existing = groups.get(day)
+        if (existing) {
+            existing.push(incident)
+        } else {
+            groups.set(day, [incident])
+        }
+    }
+    return Array.from(groups.entries())
+        .sort(([a], [b]) => (a < b ? 1 : a > b ? -1 : 0))
+        .map(([day, dayIncidents]) => ({
+            day,
+            label: dayjs(day).format('MMM D, YYYY'),
+            incidents: dayIncidents,
+        }))
 }
 
 function PublicIncidentRow({ incident, monitorName }: { incident: Incident; monitorName?: string }): JSX.Element {
