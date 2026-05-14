@@ -20,14 +20,14 @@
   - [ ] Test that deployment MCP tools are presented when the `deployments` feature flag is on.
   - [ ] Test fail-closed behavior if feature-flag evaluation fails.
 
-- [ ] Add a deploy API/tool stub
-  - [ ] Add or keep a stub deploy API path that the frontend can wire a deploy button to before real deployment execution is available.
-  - [ ] Include optional `branch` input.
-  - [ ] Expose/configure the stub through MCP as the deploy tool.
-  - [ ] Require `deployment:write` scope.
-  - [ ] Mark it `readOnly: false`, `destructive: false`, and `idempotent: false`.
-  - [ ] Gate it behind the `deployments` feature flag.
-  - [ ] Consider attaching the deployment detail UI app to the stubbed/created deployment response once the response shape is settled.
+- [x] Add a deploy API/tool endpoint
+  - [x] Add a deploy API path that the frontend can wire a deploy button to before execution is fully available.
+  - [x] Include optional `branch` input.
+  - [x] Expose/configure the endpoint through MCP as the deploy tool.
+  - [x] Require `deployment:write` scope.
+  - [x] Mark it `readOnly: false`, `destructive: false`, and `idempotent: false`.
+  - [x] Gate it behind the `deployments` feature flag.
+  - [x] Return only the created deployment id.
 
 - [x] Fix deployment list MCP/OpenAPI params
   - [x] Expose the supported `status` query param.

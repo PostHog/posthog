@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.db.models import Exists, OuterRef
+from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -35,6 +36,8 @@ from ..serializers.deployment import (
     DeploymentActionResponseSerializer,
     DeploymentConflictResponseSerializer,
     DeploymentCreateInputSerializer,
+    DeploymentDeployInputSerializer,
+    DeploymentDeployResponseSerializer,
 )
 from ..services import cancel, create_deployment, redeploy, refresh_preview, rollback
 from .deployment_projects import DeploymentsAccessPermission
@@ -173,6 +176,29 @@ class DeploymentViewSet(
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return super().list(request, *args, **kwargs)
+
+    @extend_schema(
+        request=DeploymentDeployInputSerializer,
+        responses={status.HTTP_201_CREATED: DeploymentDeployResponseSerializer},
+    )
+    @action(detail=False, methods=["post"])
+    def deploy(self, request: Request, **kwargs: Any) -> Response:
+        body = DeploymentDeployInputSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        project = DeploymentProject.all_teams.get(id=self.deployment_project_id, team_id=self.team_id)
+        deployment = Deployment.objects.create(
+            project=project,
+            team_id=self.team_id,
+            triggered_by_user_id=request.user.id if request.user.is_authenticated else None,
+            trigger_kind=Deployment.TriggerKind.MANUAL.value,
+            status=Deployment.Status.ERROR.value,
+            repo_url=project.repo_url,
+            branch=body.validated_data.get("branch") or project.default_branch,
+            error_step=Deployment.ErrorStep.DISPATCH.value,
+            error_message="Deploy execution is not available yet.",
+            finished_at=timezone.now(),
+        )
+        return Response({"deployment_id": str(deployment.id)}, status=status.HTTP_201_CREATED)
 
     # ---- Create -------------------------------------------------------
 
