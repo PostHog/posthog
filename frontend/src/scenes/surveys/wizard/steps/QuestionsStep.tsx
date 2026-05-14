@@ -516,7 +516,7 @@ interface QuestionsStepProps {
 
 export function QuestionsStep({ editingLanguage, setEditingLanguage }: QuestionsStepProps): JSX.Element {
     const { survey } = useValues(surveyLogic)
-    const { setSurveyValue } = useActions(surveyLogic)
+    const { setSurveyValue, moveQuestion, removeQuestion } = useActions(surveyLogic)
     const { selectedTemplate } = useValues(surveyWizardLogic)
     const { restoreDefaultQuestions } = useActions(surveyWizardLogic)
 
@@ -534,8 +534,7 @@ export function QuestionsStep({ editingLanguage, setEditingLanguage }: Questions
     }
 
     const deleteQuestion = (index: number): void => {
-        const newQuestions = questions.filter((_, i) => i !== index)
-        setSurveyValue('questions', newQuestions)
+        removeQuestion(index)
     }
 
     const addQuestion = (type: SurveyQuestionType): void => {
@@ -572,11 +571,7 @@ export function QuestionsStep({ editingLanguage, setEditingLanguage }: Questions
         if (over && active.id !== over.id) {
             const oldIndex = sortedItemIds.indexOf(active.id.toString())
             const newIndex = sortedItemIds.indexOf(over.id.toString())
-
-            const newQuestions = [...questions]
-            const [removed] = newQuestions.splice(oldIndex, 1)
-            newQuestions.splice(newIndex, 0, removed)
-            setSurveyValue('questions', newQuestions)
+            moveQuestion(oldIndex, newIndex)
         }
     }
 
