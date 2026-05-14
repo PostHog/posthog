@@ -231,11 +231,13 @@ def _routing_entropy(tool_counts: dict[str, int]) -> float:
     Single-tool clusters return 0.
     """
     total = sum(tool_counts.values())
-    if total <= 0 or len(tool_counts) <= 1:
+    if total <= 0:
         return 0.0
     probabilities = [count / total for count in tool_counts.values() if count > 0]
+    if len(probabilities) <= 1:
+        return 0.0
     entropy = -sum(p * math.log(p) for p in probabilities)
-    return entropy / math.log(len(tool_counts))
+    return entropy / math.log(len(probabilities))
 
 
 def _medoid_index(embeddings: np.ndarray, indices: list[int]) -> int:

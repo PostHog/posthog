@@ -179,16 +179,21 @@ class TestMCPAnalyticsPresentation(APIBaseTest):
         assert data["clusters"][0]["label"] == "check feature flag rollout"
         assert data["computed_with"]["n_clusters"] == 1
 
-    def test_intent_clusters_recompute_enqueues_task(self) -> None:
-        with patch("products.mcp_analytics.backend.facade.api.trigger_intent_cluster_recompute") as mock_trigger:
+    def test_intent_clusters_recompute_enqueues_task_and_returns_computing(self) -> None:
+        # Mock only the Celery dispatch so the synchronous COMPUTING write
+        # still runs. The 202 body should reflect the new state, not the
+        # stale pre-trigger state.
+        with patch("products.mcp_analytics.backend.tasks.tasks.compute_intent_clusters.delay") as mock_delay:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
             )
 
         assert response.status_code == status.HTTP_202_ACCEPTED
-        mock_trigger.assert_called_once()
-        # First arg is the team, second is the request user.
-        assert mock_trigger.call_args.args[0].id == self.team.id
+        assert response.json()["status"] == "computing"
+        mock_delay.assert_called_once_with(self.team.id, self.user.id)
+        snapshot = MCPIntentClusterSnapshot.objects.get(team=self.team)
+        assert snapshot.status == MCPIntentClusterSnapshot.Status.COMPUTING
+        assert snapshot.last_computed_by_id == self.user.id
 
     def test_feedback_list_is_team_scoped(self) -> None:
         MCPAnalyticsSubmission.objects.create(

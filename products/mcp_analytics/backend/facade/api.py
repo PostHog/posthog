@@ -65,7 +65,19 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
 
     Returns immediately. Use ``get_intent_cluster_snapshot`` to poll status.
     """
-    # Import here to avoid loading Celery at module import time.
+    # Imports here to avoid loading Celery at module import time.
+    from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
     from products.mcp_analytics.backend.tasks.tasks import compute_intent_clusters
 
+    # Flip to COMPUTING before enqueuing so the 202 response and any
+    # immediate poll see consistent state. The task re-asserts COMPUTING
+    # on pickup; both writes are idempotent.
+    MCPIntentClusterSnapshot.objects.update_or_create(
+        team=team,
+        defaults={
+            "status": MCPIntentClusterSnapshot.Status.COMPUTING,
+            "error_message": "",
+            "last_computed_by": user,
+        },
+    )
     compute_intent_clusters.delay(team.id, user.id if user else None)
