@@ -51,7 +51,10 @@ class TurnRequest(BaseModel):
     """What the frontend POSTs each turn of a topic's mini-chat."""
 
     topic: str = Field(
-        description='Which topic this mini-chat is about. Currently always "idea" (the ideation step).',
+        description=(
+            "Which topic this mini-chat is about. Ideation runs a sequence of these — "
+            '"idea", "audience", "problem", "alternatives", "why_now", "business_model".'
+        ),
     )
     goal: str = Field(
         description=(

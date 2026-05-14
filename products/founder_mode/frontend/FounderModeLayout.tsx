@@ -5,7 +5,14 @@ import { Button, cn, Spinner } from '@posthog/quill'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { cofounderFlowLogic, FounderMode, STEP_ORDER, StepKey } from './cofounderFlowLogic'
+import {
+    cofounderFlowLogic,
+    FounderMode,
+    IDEATION_TOPICS,
+    IdeationTopic,
+    STEP_ORDER,
+    StepKey,
+} from './cofounderFlowLogic'
 import { founderValidationLogic, ValidationReport } from './components/founderValidationLogic'
 import { Step2 } from './components/Step2'
 import { Step3 } from './components/Step3'
@@ -288,44 +295,122 @@ function IntroStep({ isActive }: { isActive: boolean }): JSX.Element {
 }
 
 /**
- * Ideation step — a topic-scoped mini-chat. The heading is the cofounder's opening question;
- * the founder answers, and the cofounder either probes for more (the thread emerges) or is
- * satisfied and the flow advances. If the founder nails it in one shot, this looks and
- * behaves exactly like the old one-shot textarea.
+ * Ideation step (step 1) — a SEQUENCE of topic-scoped mini-chats, one per big question (see
+ * IDEATION_TOPICS). Topics up to and including the current one render as stacked cards; each
+ * is its own back-and-forth with the cofounder. A topic auto-advances once the cofounder is
+ * satisfied; the last topic doesn't — once every topic is crystallized, the founder clicks
+ * "Continue to validation".
  */
 function IdeaStep({ isActive }: { isActive: boolean }): JSX.Element {
-    const { draft, ideaSubmitting, ideaError, ideaMessages } = useValues(cofounderFlowLogic)
+    const { ideaTopicIndex, ideationComplete } = useValues(cofounderFlowLogic)
+    const { proceedToValidation, startFresh } = useActions(cofounderFlowLogic)
+
+    return (
+        <div className="flex flex-col gap-5">
+            <div className="flex items-center justify-between gap-3">
+                <ModeToggle disabled={!isActive} />
+                <button
+                    type="button"
+                    onClick={startFresh}
+                    disabled={!isActive}
+                    className="text-xs text-text-secondary hover:text-danger disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shrink-0"
+                >
+                    Start fresh
+                </button>
+            </div>
+            {IDEATION_TOPICS.map((topic, idx) => {
+                if (idx > ideaTopicIndex) {
+                    return null
+                }
+                const isCurrent = idx === ideaTopicIndex
+                return (
+                    <IdeaTopicChat
+                        key={topic.key}
+                        topic={topic}
+                        index={idx}
+                        isCurrent={isCurrent}
+                        isActive={isActive && isCurrent}
+                    />
+                )
+            })}
+            {ideationComplete && (
+                <div className="mt-1">
+                    <Button variant="primary" size="sm" onClick={proceedToValidation} disabled={!isActive}>
+                        Continue to validation →
+                    </Button>
+                </div>
+            )}
+        </div>
+    )
+}
+
+/**
+ * One big question's mini-chat within ideation. Past topics render muted and read-only with
+ * a crystallized summary; the current topic renders the live chat (thread + input).
+ */
+function IdeaTopicChat({
+    topic,
+    index,
+    isCurrent,
+    isActive,
+}: {
+    topic: IdeationTopic
+    index: number
+    isCurrent: boolean
+    isActive: boolean
+}): JSX.Element {
+    const { draft, ideaSubmitting, ideaError, ideaMessages, crystallizedByTopic } = useValues(cofounderFlowLogic)
     const { setDraft, sendIdeaAnswer, resetIdeaChat } = useActions(cofounderFlowLogic)
     const ref = React.useRef<HTMLTextAreaElement>(null)
+    const cardRef = React.useRef<HTMLDivElement>(null)
     React.useEffect(() => {
         if (isActive) {
             ref.current?.focus()
         }
     }, [isActive])
+    React.useEffect(() => {
+        if (isCurrent) {
+            cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+    }, [isCurrent])
 
-    const hasThread = ideaMessages.length > 0
+    const messages = ideaMessages[topic.key] ?? []
+    const hasThread = messages.length > 0
+    const crystallized = crystallizedByTopic[topic.key]
+    const isDone = !!crystallized
     const canSend = isActive && !!draft.trim() && !ideaSubmitting
 
     return (
-        <div>
+        <div
+            ref={cardRef}
+            className={cn(
+                'rounded-lg border p-4 transition-opacity',
+                isDone && !isCurrent ? 'border-border bg-bg-3000/40 opacity-80' : 'border-border-bold/40 bg-white'
+            )}
+        >
             <div className="flex items-baseline justify-between gap-3 mb-3">
-                <h2 className="text-2xl font-semibold">So what's your idea?</h2>
-                {hasThread && (
+                <h3 className="text-lg font-semibold flex items-baseline gap-2">
+                    <span className="text-text-tertiary text-sm tabular-nums">
+                        {index + 1}/{IDEATION_TOPICS.length}
+                    </span>
+                    {topic.heading}
+                    {isDone && <span className="text-success text-sm">✓</span>}
+                </h3>
+                {hasThread && isCurrent && (
                     <button
                         type="button"
-                        onClick={resetIdeaChat}
-                        disabled={!isActive || ideaSubmitting}
+                        onClick={() => resetIdeaChat(topic.key)}
+                        disabled={ideaSubmitting}
                         className="text-xs text-text-secondary hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shrink-0"
                     >
                         ↻ Start over
                     </button>
                 )}
             </div>
-            <ModeToggle disabled={!isActive} />
 
             {hasThread && (
                 <div className="flex flex-col gap-3 mb-4">
-                    {ideaMessages.map((m, i) => {
+                    {messages.map((m, i) => {
                         const gif = m.author === 'agent' ? reactionGifUrl(m.reactionKey) : null
                         return (
                             <div
@@ -355,34 +440,87 @@ function IdeaStep({ isActive }: { isActive: boolean }): JSX.Element {
                             </div>
                         )
                     })}
-                    {ideaSubmitting && (
+                    {isCurrent && ideaSubmitting && (
                         <div className="text-sm text-text-secondary self-start px-3 py-2">JT is thinking…</div>
                     )}
                 </div>
             )}
 
-            <textarea
-                ref={ref}
-                className="w-full border border-border-bold/40 rounded-md p-3 text-sm bg-white focus:outline-none focus:border-text-primary min-h-[140px] resize-none disabled:opacity-60 disabled:bg-bg-3000"
-                placeholder={hasThread ? 'Answer JT…' : 'Pitch me in a few sentences.'}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                        e.preventDefault()
-                        if (canSend) {
-                            sendIdeaAnswer(draft)
-                        }
-                    }
-                }}
-                disabled={!isActive || ideaSubmitting}
-            />
-            {ideaError && <p className="text-danger text-sm mt-2">{ideaError}</p>}
-            <div className="mt-4">
-                <Button variant="primary" size="sm" onClick={() => sendIdeaAnswer(draft)} disabled={!canSend}>
-                    {ideaSubmitting ? 'Sending…' : hasThread ? 'Send' : 'Send it'}
-                </Button>
+            {isDone ? (
+                <IdeaTopicSummary topic={topic} crystallized={crystallized} />
+            ) : isCurrent ? (
+                <>
+                    <textarea
+                        ref={ref}
+                        className="w-full border border-border-bold/40 rounded-md p-3 text-sm bg-white focus:outline-none focus:border-text-primary min-h-[120px] resize-none disabled:opacity-60 disabled:bg-bg-3000"
+                        placeholder={hasThread ? 'Answer JT…' : topic.placeholder}
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                                e.preventDefault()
+                                if (canSend) {
+                                    sendIdeaAnswer(topic.key, draft)
+                                }
+                            }
+                        }}
+                        disabled={!isActive || ideaSubmitting}
+                    />
+                    {ideaError && <p className="text-danger text-sm mt-2">{ideaError}</p>}
+                    <div className="mt-3">
+                        <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={() => sendIdeaAnswer(topic.key, draft)}
+                            disabled={!canSend}
+                        >
+                            {ideaSubmitting ? 'Sending…' : hasThread ? 'Send' : 'Send it'}
+                        </Button>
+                    </div>
+                </>
+            ) : null}
+        </div>
+    )
+}
+
+// Recap of what the cofounder crystallized for a finished ideation topic. Read-only by
+// default; the founder can flip it into edit mode to tweak the synthesized prose in place.
+function IdeaTopicSummary({
+    topic,
+    crystallized,
+}: {
+    topic: IdeationTopic
+    crystallized: Record<string, string>
+}): JSX.Element {
+    const { editingTopics } = useValues(cofounderFlowLogic)
+    const { toggleTopicEditing, setCrystallizedField } = useActions(cofounderFlowLogic)
+    const isEditing = !!editingTopics[topic.key]
+
+    return (
+        <div className="flex flex-col gap-2 rounded-md bg-bg-3000/60 p-3">
+            <div className="flex justify-end -mt-1 -mr-1">
+                <button
+                    type="button"
+                    onClick={() => toggleTopicEditing(topic.key)}
+                    className="text-xs text-text-secondary hover:text-text-primary cursor-pointer"
+                >
+                    {isEditing ? 'Done' : '✎ Edit'}
+                </button>
             </div>
+            {Object.entries(crystallized).map(([key, val]) => (
+                <div key={key}>
+                    <div className="text-xs uppercase tracking-wide text-text-tertiary">{key.replace(/_/g, ' ')}</div>
+                    {isEditing ? (
+                        <textarea
+                            className="w-full border border-border-bold/40 rounded-md p-2 text-sm bg-white focus:outline-none focus:border-text-primary min-h-[72px] resize-none"
+                            value={val}
+                            onChange={(e) => setCrystallizedField(topic.key, key, e.target.value)}
+                        />
+                    ) : (
+                        <div className="text-sm text-text-primary whitespace-pre-wrap">{val}</div>
+                    )}
+                </div>
+            ))}
         </div>
     )
 }
