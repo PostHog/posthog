@@ -2,6 +2,7 @@ import os
 import asyncio
 from datetime import timedelta
 
+from django.db import connection
 from django.utils import timezone
 
 import structlog
@@ -15,6 +16,14 @@ from posthog.temporal.mcp_analytics.summarize_session_intents.types import Summa
 from products.mcp_analytics.backend.models import MCPSession
 
 logger = structlog.get_logger(__name__)
+
+# PostHog's own team — summarised ahead of everyone else so internal dogfooding
+# is never starved by external traffic.
+_PRIORITY_TEAM_ID = 2
+
+# Per-team cap for non-priority teams in a single batch. Stops one team from
+# monopolising the global LLM budget by emitting many unique conversation ids.
+_PER_TEAM_CAP = 10
 
 SYSTEM_PROMPT = (
     "You summarise what an AI agent was trying to accomplish during a single MCP session. "
@@ -71,16 +80,46 @@ def _summarize_intents_sync(intents: list[str]) -> str | None:
     return content.strip()
 
 
+_PENDING_SESSIONS_SQL = """
+WITH ranked AS (
+    SELECT
+        team_id,
+        session_id,
+        session_end,
+        ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY session_end DESC) AS rn,
+        (team_id = %(priority_team_id)s) AS is_priority
+    FROM posthog_mcp_session
+    WHERE intent IS NULL AND session_end < %(cutoff)s
+)
+SELECT team_id, session_id
+FROM ranked
+WHERE is_priority OR rn <= %(per_team_cap)s
+ORDER BY is_priority DESC, session_end DESC
+LIMIT %(batch_size)s
+"""
+
+
 @database_sync_to_async
 def _take_pending_sessions(batch_size: int, idle_minutes: int) -> list[tuple[int, str]]:
     """Pick sessions that are eligible for summarisation.
 
     Eligible = intent is unset AND last event landed more than idle_minutes ago,
     so we don't summarise sessions that may still be receiving tool calls.
+    Priority team rows come first; other teams are capped per batch so one noisy
+    team can't monopolise the LLM budget.
     """
     cutoff = timezone.now() - timedelta(minutes=idle_minutes)
-    rows = MCPSession.objects.filter(intent__isnull=True, session_end__lt=cutoff).order_by("-session_end")[:batch_size]
-    return [(row.team_id, row.session_id) for row in rows]
+    with connection.cursor() as cursor:
+        cursor.execute(
+            _PENDING_SESSIONS_SQL,
+            {
+                "priority_team_id": _PRIORITY_TEAM_ID,
+                "cutoff": cutoff,
+                "per_team_cap": _PER_TEAM_CAP,
+                "batch_size": batch_size,
+            },
+        )
+        return [(int(team_id), session_id) for team_id, session_id in cursor.fetchall()]
 
 
 @database_sync_to_async
