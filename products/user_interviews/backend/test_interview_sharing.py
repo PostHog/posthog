@@ -11,12 +11,14 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
+from products.user_interviews.backend.webhooks import EMBEDDING_CONTENT_MAX_BYTES
 
 
 class _FeatureFlagEnabledMixin(APIBaseTest):
@@ -342,6 +344,124 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(second.json()["status"], "duplicate")
         self.assertEqual(first.json()["interview_id"], second.json()["interview_id"])
         self.assertEqual(UserInterview.objects.filter(team=self.team).count(), 1)
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.webhooks.emit_embedding_request")
+    def test_webhook_emits_transcript_and_summary_embeddings(self, mock_emit):
+        share = self._create_share()
+        self.client.logout()
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+        interview = UserInterview.objects.get(team=self.team)
+        assert share.interviewee_context is not None
+        topic = share.interviewee_context.topic
+
+        emitted = {kwargs["document_type"]: kwargs for _, kwargs in mock_emit.call_args_list}
+        self.assertEqual(set(emitted), {"transcript", "summary"})
+
+        for document_type, expected_content in (("transcript", "Hi! ..."), ("summary", "User talked about replay.")):
+            kwargs = emitted[document_type]
+            self.assertEqual(kwargs["content"], expected_content)
+            self.assertEqual(kwargs["team_id"], self.team.id)
+            self.assertEqual(kwargs["product"], "user_interviews")
+            self.assertEqual(kwargs["rendering"], "plain")
+            self.assertEqual(kwargs["document_id"], str(interview.id))
+            self.assertEqual(kwargs["models"], ["text-embedding-3-small-1536", "text-embedding-3-large-3072"])
+            self.assertEqual(
+                kwargs["metadata"],
+                {"topic_id": str(topic.id), "interviewee_identifier": "alex@example.com"},
+            )
+
+    @parameterized.expand(
+        [
+            ("transcript_only", "Hi! ...", "", {"transcript"}),
+            ("summary_only", "", "User talked about replay.", {"summary"}),
+            ("both_empty", "", "", set()),
+        ]
+    )
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.webhooks.emit_embedding_request")
+    def test_webhook_skips_empty_content(self, _name, transcript, summary, expected_types, mock_emit):
+        share = self._create_share()
+        self.client.logout()
+        payload = self._end_of_call_payload(share.access_token)
+        payload["message"]["transcript"] = transcript
+        payload["message"]["summary"] = summary
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._signed_post("topsecret", payload)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+        emitted_types = {kwargs["document_type"] for _, kwargs in mock_emit.call_args_list}
+        self.assertEqual(emitted_types, expected_types)
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.webhooks.emit_embedding_request")
+    def test_webhook_does_not_re_emit_on_duplicate(self, mock_emit):
+        share = self._create_share()
+        self.client.logout()
+        payload = self._end_of_call_payload(share.access_token, call_id="call_dup")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self._signed_post("topsecret", payload)
+        first_emitted_types = {kwargs["document_type"] for _, kwargs in mock_emit.call_args_list}
+        self.assertEqual(first_emitted_types, {"transcript", "summary"})
+        first_call_count = mock_emit.call_count
+
+        with self.captureOnCommitCallbacks(execute=True):
+            second = self._signed_post("topsecret", payload)
+        self.assertEqual(second.json()["status"], "duplicate")
+        self.assertEqual(mock_emit.call_count, first_call_count)
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.webhooks.emit_embedding_request", side_effect=RuntimeError("kafka down"))
+    def test_webhook_succeeds_when_embedding_emit_fails(self, _mock_emit):
+        share = self._create_share()
+        self.client.logout()
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(UserInterview.objects.filter(team=self.team).count(), 1)
+
+    @parameterized.expand(
+        [
+            ("transcript_only", True, False),
+            ("summary_only", False, True),
+            ("both", True, True),
+        ]
+    )
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.webhooks.emit_embedding_request")
+    def test_webhook_truncates_oversized_content_before_emit(
+        self, _name, oversize_transcript, oversize_summary, mock_emit
+    ):
+        share = self._create_share()
+        self.client.logout()
+        payload = self._end_of_call_payload(share.access_token)
+        original_transcript = payload["message"]["transcript"]
+        original_summary = payload["message"]["summary"]
+        if oversize_transcript:
+            payload["message"]["transcript"] = "a" * (EMBEDDING_CONTENT_MAX_BYTES + 1000)
+        if oversize_summary:
+            payload["message"]["summary"] = "b" * (EMBEDDING_CONTENT_MAX_BYTES + 500)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._signed_post("topsecret", payload)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+        emitted = {kwargs["document_type"]: kwargs for _, kwargs in mock_emit.call_args_list}
+
+        for document_type, was_oversized, original in (
+            ("transcript", oversize_transcript, original_transcript),
+            ("summary", oversize_summary, original_summary),
+        ):
+            content_bytes = emitted[document_type]["content"].encode("utf-8")
+            if was_oversized:
+                self.assertEqual(len(content_bytes), EMBEDDING_CONTENT_MAX_BYTES)
+            else:
+                self.assertEqual(emitted[document_type]["content"], original)
 
 
 class TestSendInterviewInvites(_FeatureFlagEnabledMixin):

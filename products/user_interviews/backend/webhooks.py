@@ -26,12 +26,67 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import EmbeddingModelName
+
+from posthog.api.embedding_worker import emit_embedding_request
 from posthog.constants import AvailableFeature
 from posthog.models.sharing_configuration import SharingConfiguration
 
-from .models import UserInterview
+from .models import UserInterview, UserInterviewTopic
 
 logger = structlog.get_logger(__name__)
+
+
+_EMBEDDING_MODELS = [m.value for m in EmbeddingModelName]
+
+# TODO: figure out a better story for transcripts that exceed our Kafka envelope
+# than head-truncation. Options: (a) chunk + emit multiple documents per type, or
+# (b) push large content to object storage and embed a reference. Truncation is a
+# stop-gap so a 90-minute interview doesn't silently lose its embeddings entirely.
+EMBEDDING_CONTENT_MAX_BYTES = 750_000
+
+
+def _emit_interview_embeddings(interview: UserInterview, topic: UserInterviewTopic) -> None:
+    """Emit transcript and summary as two separate embedding documents so each can be
+    searched independently. Failures are logged but never propagated: Vapi retries are
+    idempotent on call.id, so a re-delivery would skip creation and never re-emit —
+    making a thrown exception here strictly worse than a degraded but acknowledged row."""
+    metadata = {
+        "topic_id": str(topic.id),
+        "interviewee_identifier": interview.interviewee_identifier,
+    }
+    for document_type, content in (("transcript", interview.transcript), ("summary", interview.summary)):
+        if not content or not content.strip():
+            continue
+        content_bytes = content.encode("utf-8")
+        if len(content_bytes) > EMBEDDING_CONTENT_MAX_BYTES:
+            logger.warning(
+                "user_interviews_embedding_content_truncated",
+                team_id=interview.team_id,
+                interview_id=str(interview.id),
+                document_type=document_type,
+                original_bytes=len(content_bytes),
+                truncated_to_bytes=EMBEDDING_CONTENT_MAX_BYTES,
+            )
+            content = content_bytes[:EMBEDDING_CONTENT_MAX_BYTES].decode("utf-8", errors="ignore")
+        try:
+            emit_embedding_request(
+                content=content,
+                team_id=interview.team_id,
+                product="user_interviews",
+                document_type=document_type,
+                rendering="plain",
+                document_id=str(interview.id),
+                models=_EMBEDDING_MODELS,
+                metadata=metadata,
+            )
+        except Exception:
+            logger.exception(
+                "user_interviews_embedding_emit_failed",
+                team_id=interview.team_id,
+                interview_id=str(interview.id),
+                document_type=document_type,
+            )
 
 
 def _verify_signature(secret: str, raw_body: bytes, provided_signature: str | None) -> bool:
@@ -212,6 +267,7 @@ def vapi_webhook(request: Request) -> Response:
             call_metadata=call,
             created_by=topic.created_by,
         )
+        transaction.on_commit(lambda: _emit_interview_embeddings(interview, topic))
 
     logger.info(
         "user_interviews_vapi_webhook_stored",
