@@ -338,19 +338,55 @@ function AgentWidget({
     return <GitHogAgentChatWidget context={context} />
 }
 
-function StepList({ steps, emptyLabel }: { steps: GitHogDataFlowStep[]; emptyLabel: string }): JSX.Element {
+function StepList({
+    steps,
+    emptyLabel,
+    addedIds,
+    onItemClick,
+}: {
+    steps: GitHogDataFlowStep[]
+    emptyLabel: string
+    addedIds?: Set<string>
+    onItemClick?: (step: GitHogDataFlowStep) => void
+}): JSX.Element {
     if (steps.length === 0) {
         return <p className="text-secondary text-sm italic my-0">{emptyLabel}</p>
     }
     return (
         <ol className="flex flex-col gap-2 my-0 pl-5">
-            {steps.map((step, idx) => (
-                <li key={`${step.title}-${idx}`} className="text-sm">
-                    <div className="font-semibold">{step.title}</div>
-                    {step.file && <div className="font-mono text-xs text-muted">{step.file}</div>}
-                    {step.detail && <div className="text-sm text-secondary">{step.detail}</div>}
-                </li>
-            ))}
+            {steps.map((step, idx) => {
+                const isAdded = !!(step.id && addedIds?.has(step.id))
+                const clickable = isAdded && !!onItemClick
+                return (
+                    <li
+                        key={`${step.id || step.title}-${idx}`}
+                        className={
+                            isAdded
+                                ? `text-sm rounded px-2 py-1 -mx-2 border-l-2 ${
+                                      clickable ? 'cursor-pointer hover:bg-fill-highlight-50' : ''
+                                  }`
+                                : 'text-sm'
+                        }
+                        style={
+                            isAdded
+                                ? { background: 'rgba(34, 197, 94, 0.08)', borderColor: 'rgb(34, 197, 94)' }
+                                : undefined
+                        }
+                        onClick={clickable ? () => onItemClick(step) : undefined}
+                    >
+                        <div className="flex items-center gap-2">
+                            <span className="font-semibold">{step.title}</span>
+                            {isAdded && (
+                                <LemonTag type="success" size="small">
+                                    Added
+                                </LemonTag>
+                            )}
+                        </div>
+                        {step.file && <div className="font-mono text-xs text-muted">{step.file}</div>}
+                        {step.detail && <div className="text-sm text-secondary">{step.detail}</div>}
+                    </li>
+                )
+            })}
         </ol>
     )
 }
@@ -409,6 +445,33 @@ function DataFlowWidgetForPR({
         [filesByName]
     )
 
+    // Steps share the same id space as flow graph nodes (LLM is instructed to reuse
+    // ids across before/after). Compute the set of "after" step ids that didn't
+    // exist in "before" so the list view can highlight + open the same modal.
+    const addedStepIds = useMemo(() => {
+        if (!dataFlow) {
+            return new Set<string>()
+        }
+        const beforeIds = new Set(dataFlow.steps_before.map((s) => s.id).filter(Boolean))
+        return new Set(dataFlow.steps_after.map((s) => s.id).filter((id) => id && !beforeIds.has(id)))
+    }, [dataFlow])
+
+    const handleStepClick = useCallback(
+        (step: GitHogDataFlowStep) => {
+            const file = step.file ? filesByName.get(step.file) : undefined
+            // Synthesize a FlowNode so the existing modal can render it unchanged.
+            const node: GitHogFlowNode = {
+                id: step.id,
+                label: step.title,
+                file: step.file,
+                detail: step.detail,
+                kind: 'step',
+            }
+            setSelected({ node, diff: 'added', file })
+        },
+        [filesByName]
+    )
+
     const renderBody = (): JSX.Element => {
         if (dataFlowLoading && !dataFlow) {
             return (
@@ -430,7 +493,12 @@ function DataFlowWidgetForPR({
                     </div>
                     <div className="flex flex-col gap-2 min-w-0">
                         <div className="text-xs uppercase tracking-wide text-muted">After</div>
-                        <StepList steps={dataFlow.steps_after} emptyLabel="No new flow." />
+                        <StepList
+                            steps={dataFlow.steps_after}
+                            emptyLabel="No new flow."
+                            addedIds={addedStepIds}
+                            onItemClick={handleStepClick}
+                        />
                     </div>
                 </div>
             )
