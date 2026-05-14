@@ -618,43 +618,53 @@ class TestSubscriptionTemporal(APILicensedTest):
         else:
             assert expected_fragment in response.json()["detail"]
 
-    def test_cannot_create_second_active_hourly_subscription_in_org(self):
+    @parameterized.expand(
+        [
+            ("create_below_cap", 4, status.HTTP_201_CREATED),
+            ("create_at_cap", 5, status.HTTP_400_BAD_REQUEST),
+            ("create_over_cap_grandfathered", 7, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_hourly_subscription_create_respects_org_cap(
+        self,
+        _name: str,
+        existing_active: int,
+        expected_status: int,
+    ):
+        self._seed_active_hourly_subscriptions(existing_active)
+
         with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
-            first = self._create_subscription(frequency="hourly", title="first hourly")
-            assert first.status_code == status.HTTP_201_CREATED
+            response = self._create_subscription(frequency="hourly", title="new hourly")
 
-            second = self._create_subscription(frequency="hourly", title="second hourly")
-
-        assert second.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Only one active hourly subscription" in str(second.json())
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert "up to 5 active hourly subscriptions" in str(response.json())
 
     def test_can_replace_hourly_subscription_after_disable(self):
-        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
-            first = self._create_subscription(frequency="hourly", title="first hourly")
-            assert first.status_code == status.HTTP_201_CREATED
+        seeded = self._seed_active_hourly_subscriptions(5)
 
-            # Disable the first hourly subscription — it should free up the org slot.
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
+            # Disable one of the seeded hourly subscriptions — it should free up an org slot.
             patch_response = self.client.patch(
-                f"/api/projects/{self.team.id}/subscriptions/{first.json()['id']}",
+                f"/api/projects/{self.team.id}/subscriptions/{seeded[0].id}",
                 {"enabled": False},
             )
             assert patch_response.status_code == status.HTTP_200_OK
 
-            second = self._create_subscription(frequency="hourly", title="second hourly")
+            response = self._create_subscription(frequency="hourly", title="replacement hourly")
 
-        assert second.status_code == status.HTTP_201_CREATED
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_hourly_cap_hit_emits_telemetry(self):
         cache.clear()
+        self._seed_active_hourly_subscriptions(5)
+
         with (
             patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True),
             patch("ee.api.subscription.posthoganalytics.capture") as mock_capture,
         ):
-            first = self._create_subscription(frequency="hourly", title="first hourly")
-            assert first.status_code == status.HTTP_201_CREATED
-
-            second = self._create_subscription(frequency="hourly", title="second hourly")
-            assert second.status_code == status.HTTP_400_BAD_REQUEST
+            response = self._create_subscription(frequency="hourly", title="cap-buster hourly")
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         cap_hit_calls = [
             c for c in mock_capture.call_args_list if c.kwargs.get("event") == "subscription_hourly_cap_hit"
@@ -663,6 +673,8 @@ class TestSubscriptionTemporal(APILicensedTest):
         props = cap_hit_calls[0].kwargs["properties"]
         assert props["organization_id"] == str(self.organization.id)
         assert props["is_create"] is True
+        assert props["active_count"] == 5
+        assert props["limit"] == 5
 
     def _seed_active_summary_subscriptions(self, count: int) -> list[Subscription]:
         # Build raw rows so we can place an org over its tier cap to exercise
@@ -679,6 +691,24 @@ class TestSubscriptionTemporal(APILicensedTest):
                 title=f"existing {i}",
                 created_by=self.user,
                 summary_enabled=True,
+            )
+            for i in range(count)
+        ]
+
+    def _seed_active_hourly_subscriptions(self, count: int) -> list[Subscription]:
+        # Build raw rows so we can place an org at or above the hourly cap
+        # without going through the enforced API.
+        return [
+            Subscription.objects.create(
+                team=self.team,
+                insight=self.insight,
+                target_type="email",
+                target_value=f"existing-hourly-{i}@posthog.com",
+                frequency="hourly",
+                interval=1,
+                start_date=datetime(2022, 1, 1, tzinfo=UTC),
+                title=f"existing hourly {i}",
+                created_by=self.user,
             )
             for i in range(count)
         ]
