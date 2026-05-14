@@ -27,10 +27,29 @@ Injected globals (do NOT import any of these — they're already in scope):
 Entrypoint: a top-level `function App() { ... }`. Not exported, not arrow. Prefix the
 file with `// @ts-nocheck` and a biome-ignore comment. The runtime calls App().
 
-Data layer: `useApi("query", [hogql], [hogql])` returns `{ data, loading, error, refetch }`.
-Rows live at `data.results` (shape: `unknown[][]`). One `useApi` per unique HogQL string;
-if multiple cards share a query, share the ref and use a per-card `transform(rows)` to
-pick columns. Wrap queries in `useMemo` so dep arrays are stable.
+Data layer — call shape and ARG ORDER MATTER:
+
+  useApi("query", [<HogQL string>], [<HogQL string>])
+
+- Arg 1: endpoint name `"query"`.
+- Arg 2: the API call args. `args[0]` MUST be the HogQL string itself (the SELECT …).
+- Arg 3: the React deps array. Pass the SAME HogQL string so the call stays bound to
+  its query and re-renders don't fire stale calls.
+
+Always bind the HogQL to a stable variable first, then pass that same variable into
+both the args list and the deps list. Do NOT inline a template literal at the call
+site — reference identity matters and an inline literal is recreated every render,
+which breaks the data fetch and produces empty-query 400s server-side:
+
+  const totalPageviewsQuery = useMemo(
+      () => "SELECT count() AS total FROM events WHERE event = '$pageview' AND timestamp >= now() - interval 7 day",
+      []
+  )
+  const totalPageviews = useApi("query", [totalPageviewsQuery], [totalPageviewsQuery])
+
+Returns `{ data, loading, error, refetch }`. Rows live at `data.results`
+(shape: `unknown[][]`). One `useApi` per unique HogQL string; if multiple cards share
+a query, share the ref and use a per-card `transform(rows)` to pick columns.
 
 No async at module scope. No top-level await. No fetch. No external URLs except
 `<a href>` links.
