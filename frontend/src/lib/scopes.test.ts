@@ -20,16 +20,6 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             const expected = API_SCOPES.map(({ key }) => `${key}:read`).sort()
             expect([...preset.scopes].sort()).toEqual(expected)
         })
-
-        it('contains no :write scopes', () => {
-            const preset = findPreset('read_only_access')
-            expect(preset.scopes.filter((s) => s.endsWith(':write'))).toEqual([])
-        })
-
-        it('does not use the wildcard scope', () => {
-            const preset = findPreset('read_only_access')
-            expect(preset.scopes).not.toContain('*')
-        })
     })
 
     describe('all_access', () => {
