@@ -174,6 +174,12 @@ async function main() {
                         },
                         async (argv) => {
                             const params = buildCommandParams(argv)
+                            // `insights view` needs the computed `result` to render a chart.
+                            // The bare GET only returns metadata, so default to a blocking
+                            // refresh — users can still override with `--refresh async`.
+                            if (subcommand.mcp_tool === 'insight-get' && params.refresh === undefined) {
+                                params.refresh = 'blocking'
+                            }
                             await executeGeneratedTool(argv, subcommand.mcp_tool, params)
                         }
                     )
