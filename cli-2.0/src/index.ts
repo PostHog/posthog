@@ -41,9 +41,15 @@ async function main() {
             type: 'string',
             describe: 'PostHog project ID to use for this command instead of the stored project',
         })
-        .demandCommand(1, 'You need at least one command before moving on')
+        .demandCommand(1, 'NO_COMMAND')
         .fail((msg, err, yargs) => {
             if (err) throw err
+            // Bare invocations (`ph`, `ph insights`) should print help and exit 0,
+            // matching `gh`'s friendly behavior instead of treating it as a usage error.
+            if (msg === 'NO_COMMAND' || msg === 'NO_SUBCOMMAND') {
+                yargs.showHelp('log')
+                process.exit(0)
+            }
             console.error(chalk.red(msg))
             console.error(yargs.help())
             process.exit(1)
@@ -152,7 +158,7 @@ async function main() {
             commandSpec,
             command.description,
             (yargs) => {
-                let subCommands = yargs.demandCommand(1, 'You need to specify a subcommand')
+                let subCommands = yargs.demandCommand(1, 'NO_SUBCOMMAND')
 
                 // Add each subcommand
                 for (const [subcommandName, subcommand] of Object.entries(command.subcommands)) {
