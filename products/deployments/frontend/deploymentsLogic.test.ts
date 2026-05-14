@@ -49,6 +49,7 @@ const makeDeployment = (id: string, overrides: Partial<DeploymentApi> = {}): Dep
     error_message: '',
     error_step: '',
     cloudflare_deployment_id: '',
+    temporal_workflow_id: '',
     is_current: false,
     duration_seconds: 90,
     ...overrides,
@@ -195,7 +196,7 @@ describe('deploymentsLogic', () => {
         }).toFinishAllListeners()
 
         expect(redeploySpy).toHaveBeenCalled()
-        const calledReq = redeploySpy.mock.calls[0][0] as { params: Record<string, string> }
+        const calledReq = (redeploySpy.mock.calls[0] as unknown as [{ params: Record<string, string> }])[0]
         expect(calledReq.params.project_id).toEqual(projectA.id)
         expect(calledReq.params.id).toEqual('project-1-d1')
     })
@@ -219,7 +220,7 @@ describe('deploymentsLogic', () => {
         }).toFinishAllListeners()
 
         expect(rollbackSpy).toHaveBeenCalled()
-        const calledReq = rollbackSpy.mock.calls[0][0] as { params: Record<string, string> }
+        const calledReq = (rollbackSpy.mock.calls[0] as unknown as [{ params: Record<string, string> }])[0]
         expect(calledReq.params.project_id).toEqual(projectA.id)
         expect(calledReq.params.id).toEqual('project-1-d1')
     })

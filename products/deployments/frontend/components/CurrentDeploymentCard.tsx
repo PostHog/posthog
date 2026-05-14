@@ -14,7 +14,7 @@ export function CurrentDeploymentCard({ deployment: d }: { deployment: Deploymen
         <LemonCard hoverEffect={false} className="overflow-hidden">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <DeploymentPreviewImage
-                    src={d.preview_image_url}
+                    src={d.preview_image_url ?? ''}
                     alt={`Preview of ${d.commit_message || d.id}`}
                     className="aspect-video md:aspect-auto md:h-full"
                     failed={d.status === 'error'}

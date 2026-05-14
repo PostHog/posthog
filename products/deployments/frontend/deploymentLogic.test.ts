@@ -53,6 +53,7 @@ const deployments: DeploymentApi[] = [
         error_message: '',
         error_step: '',
         cloudflare_deployment_id: 'cf-1',
+        temporal_workflow_id: '',
         is_current: true,
         duration_seconds: 90,
     },

@@ -59,6 +59,7 @@ const makeDeployment = (id: string, overrides: Partial<DeploymentApi> = {}): Dep
     error_message: '',
     error_step: '',
     cloudflare_deployment_id: '',
+    temporal_workflow_id: '',
     is_current: false,
     duration_seconds: 90,
     ...overrides,
@@ -86,7 +87,7 @@ const buildingDeployment = makeDeployment('d-building', {
     status: 'building',
     commit_message: 'chore: bump posthog-js to 1.220.0',
     finished_at: null,
-    duration_seconds: null,
+    duration_seconds: 0,
     deployment_url: '',
 })
 
