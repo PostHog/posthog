@@ -112,161 +112,49 @@ than roughly $1 in tokens.
 # otherwise interpret as named fields. The description-pass prompt above has no
 # JSON examples so it stays on the ``{team_id}`` + ``.format()`` convention.
 CATALOG_METRIC_PROPOSAL_SYSTEM_PROMPT = """\
-You are running inside a sandbox tasked with proposing the **business-level
-metrics** that matter to team <<TEAM_ID>>, based on what they already track
-in PostHog.
+You are running in a sandbox for PostHog team <<TEAM_ID>>. Your job is to
+propose high-level business metrics from the team's saved dashboards and
+insights — call `catalog-metrics-create` once per metric. Stop after.
 
-## Goal: high-level metrics only
+## Steps
 
-Propose 5-15 metrics covering the AARRR lifecycle (Acquisition, Activation,
-Retention, Referral, Revenue). Examples of the *kind* of metric you should
-write:
+1. `dashboards-get-all` → list of dashboards. Pick the top 5-10 by
+   `last_accessed_at`.
+2. For each, `dashboard-get` → returns the insights inside. Each insight has
+   a `query` field — that's the metric definition you'll lift verbatim.
+3. For each insight that represents a single business-level number (MRR,
+   DAU, conversion rate, retention, revenue, …), call
+   `catalog-metrics-create` with:
+     - `name`: short snake_case slug derived from the insight name
+     - `description`: 1-2 sentences. What it measures.
+     - `definition`: lift the insight's `query.source` if it's an
+       `InsightVizNode`, else the `query.series[0]` if it's a multi-series
+       trend, else the `query` itself for HogQLQuery.
+     - `confidence`: 1.0 (you saw it on a real dashboard)
+     - `generator_model`: `claude-opus-4-7`
+4. Skip insights that are funnels, paths, retention curves, lifecycle,
+   stickiness — those aren't single-number metrics. Also skip raw event
+   counts (`$pageview` total etc.).
+5. Stop when you've written every business-level insight from the
+   dashboards. 5-15 metrics total is the sweet spot.
 
-  - MRR / ARR / new revenue, churned revenue
-  - DAU / WAU / MAU, stickiness ratio
-  - Signup conversion rate (started → completed)
-  - Activation rate (signed up → performed key action within N days)
-  - Day-7 / Day-30 retention curve
-  - Trial-to-paid conversion
-  - Referral signups (invited by existing user)
-  - Net revenue retention (NRR), gross revenue churn
-  - LTV, payback period — if the data supports it
+## Definition shapes
 
-**Do NOT propose low-level metrics.** Skip:
-  - Raw event counts ("total pageviews", "total clicks")
-  - Single-column aggregates with no business meaning
-  - Per-property breakdowns of an existing metric (those are dimensions,
-    not metrics)
-  - Operational metrics (API latency, error rates) unless the team
-    clearly tracks them as a north-star
+`catalog-metrics-create.definition` accepts exactly one of:
 
-Aim for the list a CFO + Head of Product would want on one page.
+  - `{"kind": "EventsNode", "event": "<name>", "math": "...", ...}`
+  - `{"kind": "DataWarehouseNode", "id": "<table>", "math": "sum", ...}`
+  - `{"kind": "HogQLQuery", "query": "SELECT ..."}`
 
-## Finding what the team actually cares about
+The Zod schema enforces this — just lift the shape directly from the
+insight's query.
 
-Strongest signal: dashboards that more than one person views. People build
-many dashboards; only a few become reference points. Use these tools:
+## Don't do
 
-  - `dashboards-get-all` → list dashboards. Sort by `last_accessed_at`
-    desc; the top 10-20 are your candidate pool.
-  - `dashboard-get` → fetch a single dashboard's insights and their queries.
-    The queries inside popular dashboards are the metric candidates.
-  - `insights-list` → list insights with `last_viewed_at`. Cross-reference
-    with dashboards: an insight that's both on a popular dashboard *and*
-    has a recent last_viewed_at is a high-confidence metric.
-  - `activity-log-list` / `advanced-activity-logs-list` (scope:
-    activity_log:read) → who edited which dashboard/insight recently.
-    Filter `scope="Dashboard"` to see which dashboards have ongoing
-    activity (proxy for "team still cares about this").
-  - `execute-sql` against the `app_metrics` HogQL table — the granular
-    view-tracking events. Example query for "dashboards viewed by >1
-    distinct user in the last 30 days":
-
-      SELECT instance_id, count(DISTINCT app_source_id) AS viewers
-        FROM app_metrics
-       WHERE team_id = <<TEAM_ID>>
-         AND app_source = 'metalytics'
-         AND metric_name = 'viewed'
-         AND timestamp > now() - INTERVAL 30 DAY
-       GROUP BY instance_id
-      HAVING viewers > 1
-       ORDER BY viewers DESC;
-
-    `instance_id` is the dashboard or insight short_id. Resolve to a name
-    via `dashboards-get-all` / `insights-list`.
-
-  - `execute-sql` against `system.tables` / `system.columns` — to ground
-    your metric definitions in what tables actually exist and what their
-    columns mean. Use the descriptions Phase 2 just wrote.
-
-If the team has fewer than 3 multi-viewer dashboards, fall back to:
-"propose the standard AARRR metrics that the team *could* track given
-the events you see in `system.tables` (e.g., the `events` table's event
-definitions, any warehouse tables like `stripe_charges`)."
-
-## Writing metrics
-
-Use **one** MCP tool: `catalog-metrics-create`. Each call writes both a
-CatalogMetric row and a CatalogNode(kind=metric) in one atomic
-transaction. Idempotent on `(team, name)` — re-calling with the same name
-updates description and definition.
-
-Required fields:
-
-  - `name` — short snake_case slug, stable across runs. Examples:
-    `monthly_recurring_revenue`, `signup_conversion_rate`,
-    `day_7_retention`, `daily_active_users`.
-  - `description` — 1–2 sentences. What the metric measures, when to use
-    it, any caveats. Reference the source dashboard if relevant.
-  - `definition` — exactly one of three discriminated shapes (the tool's
-    Zod schema enforces this; pick the shape that fits):
-
-    Event-based metric (preferred for most AARRR — direct event count
-    with math + filters):
-
-      {
-        "kind": "EventsNode",
-        "event": "<event_name>",
-        "math": "<dau|wau|mau|weekly_active|monthly_active|total|unique_users|sum|avg|...>",
-        "math_property": "<property_name>",   // for sum/avg/etc.
-        "properties": [
-          {"key": "<property>", "operator": "<exact|icontains|gt|...>", "value": "<value>", "type": "event"}
-        ]
-      }
-
-    Warehouse-table aggregate (for revenue / Stripe data — sums or counts
-    over a warehouse table):
-
-      {
-        "kind": "DataWarehouseNode",
-        "id": "<table_name>",
-        "id_field": "<pk_column>",
-        "distinct_id_field": "<user_id_column>",
-        "timestamp_field": "<timestamp_column>",
-        "math": "sum",
-        "math_property": "<numeric_column>"
-      }
-
-    Raw HogQL (for metrics that don't fit the above — ratios, formulas,
-    multi-step funnels expressed as a single SELECT):
-
-      {
-        "kind": "HogQLQuery",
-        "query": "SELECT countIf(event = 'signup_completed') / countIf(event = 'signup_started') AS conversion FROM events WHERE timestamp > now() - INTERVAL 30 DAY"
-      }
-
-  - `confidence` — 0..1. Use 1.0 when the metric is taken directly from a
-    popular saved insight; 0.7 when you derived it from event names and
-    descriptions but didn't see a saved chart; lower otherwise.
-  - `generator_model` — pass the model identifier (e.g. `claude-opus-4-7`).
-
-## What good looks like
-
-A small, opinionated list. The team should look at the catalog metric
-list and say "yes, that's what we measure" — not "wait, that's just a
-random pageview count".
-
-Bad:
-  - `total_pageviews` with `{"kind":"EventsNode","event":"$pageview","math":"total"}` ❌
-    This is an event, not a metric.
-
-Good:
-  - `daily_active_users` →
-    `{"kind":"EventsNode","event":"$pageview","math":"dau"}` ✓
-    (only if DAU is on a popular dashboard, otherwise skip)
-  - `signup_conversion_rate` →
-    `{"kind":"HogQLQuery","query":"SELECT countIf(event='signup_completed') / countIf(event='signup_started') ..."}` ✓
-  - `monthly_recurring_revenue` →
-    `{"kind":"DataWarehouseNode","id":"stripe_subscriptions","math":"sum","math_property":"mrr_amount", ...}` ✓
-
-## Stopping
-
-Stop when you've written 5–15 metrics that cover the AARRR funnel as
-well as the team's signals permit. Quality over quantity — it's fine to
-write 5 strong metrics and stop, rather than pad to 15 with weak ones.
-
-A single team run shouldn't cost more than roughly $1 in tokens.
-
-Heartbeat by progressing — every successful `catalog-metrics-create` call
-counts as progress to the Temporal workflow watching you.
+- Don't query `events` (it's the raw fact log, slow).
+- Don't query data you don't need — you just need dashboards + their
+  insights. No `system.tables`, no `event-definitions-list` unless an
+  insight references an event you genuinely need to verify.
+- Don't repeat queries you already ran.
+- Don't keep exploring after you have the data. Write the metrics and stop.
 """
