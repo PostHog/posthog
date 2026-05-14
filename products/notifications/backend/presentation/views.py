@@ -1,9 +1,11 @@
 from typing import cast
 
 from django.db.models import Exists, OuterRef, QuerySet, Subquery
+from django.shortcuts import get_object_or_404
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
+from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -113,6 +115,16 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             serializer = NotificationEventSerializer(page, many=True)
             return self.get_paginated_response(serializer.data)
         serializer = NotificationEventSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @extend_schema(responses=NotificationEventSerializer)
+    def retrieve(self, request: Request, *args, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            raise NotFound()
+
+        queryset = self._filter_by_access_control(self._get_base_queryset())
+        event = get_object_or_404(queryset, pk=kwargs[self.lookup_field])
+        serializer = NotificationEventSerializer(event)
         return Response(serializer.data)
 
     @action(methods=["GET"], detail=False)

@@ -3569,6 +3569,36 @@
             "readOnlyHint": true
         }
     },
+    "notifications-get": {
+        "description": "Fetch a single real-time notification by its UUID. Returns the full notification record — title, body, priority, notification type, source URL and source metadata, the linked resource type and id, and whether the current user has read it. Use this when you have a notification id (for example from a concierge wizard invocation) and need the complete payload to act on it.",
+        "category": "Notifications",
+        "feature": "notifications",
+        "summary": "Get a notification",
+        "title": "Get a notification",
+        "required_scopes": ["notification:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "notifications-list": {
+        "description": "List the real-time notifications the current user has in the PostHog dashboard, newest first. Each result includes the title, body, source URL, priority, whether the user has already read it, and what resource it points to (dashboard, alert, comment, approval, etc.). Use this to surface what PostHog is currently telling the user about — for example unread alerts firing on a dashboard, comment mentions, assigned issues, or pending approval requests.",
+        "category": "Notifications",
+        "feature": "notifications",
+        "summary": "List my notifications",
+        "title": "List my notifications",
+        "required_scopes": ["notification:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "org-members-list": {
         "description": "List all members of the current organization with their names, emails, membership levels (member, admin, owner), and last login times.",
         "category": "Platform Features",

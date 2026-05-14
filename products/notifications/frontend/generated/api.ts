@@ -8,7 +8,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { NotificationsListParams, PaginatedNotificationEventListApi } from './api.schemas'
+import type { NotificationEventApi, NotificationsListParams, PaginatedNotificationEventListApi } from './api.schemas'
 
 export const getNotificationsListUrl = (projectId: string, params?: NotificationsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -32,6 +32,21 @@ export const notificationsList = async (
     options?: RequestInit
 ): Promise<PaginatedNotificationEventListApi> => {
     return apiMutator<PaginatedNotificationEventListApi>(getNotificationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotificationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/notifications/${id}/`
+}
+
+export const notificationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<NotificationEventApi> => {
+    return apiMutator<NotificationEventApi>(getNotificationsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

@@ -94,6 +94,8 @@ def register_all_admin():
     from products.links.backend.models import Link
     from products.mcp_store.backend.admin import MCPServerTemplateAdmin
     from products.mcp_store.backend.models import MCPServerTemplate
+    from products.notifications.backend.admin import NotificationEventAdmin
+    from products.notifications.backend.models import NotificationEvent
     from products.signals.backend.admin import SignalReportAdmin
     from products.signals.backend.models import SignalReport
     from products.surveys.backend.models import Survey
@@ -175,6 +177,8 @@ def register_all_admin():
     admin.site.register(UserProductList, UserProductListAdmin)
 
     admin.site.register(MCPServerTemplate, MCPServerTemplateAdmin)
+
+    admin.site.register(NotificationEvent, NotificationEventAdmin)
 
 
 # :KRUDGE: OAuth models live in the `posthog` app, so by default they appear
