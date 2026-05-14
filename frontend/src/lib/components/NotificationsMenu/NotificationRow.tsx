@@ -1,8 +1,11 @@
+import { useState } from 'react'
+
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { ConciergeModal } from 'lib/components/ConciergeModal/ConciergeModal'
 import { getNotificationIcon } from 'lib/components/NotificationsMenu/notificationToasts'
 import { dayjs } from 'lib/dayjs'
 import { IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
@@ -51,16 +54,19 @@ export function NotificationRow({
 }): JSX.Element {
     const { navigateToNotification, toggleRead } = useActions(sidePanelNotificationsLogic)
     const { projectNameForNotification, sourcePathForNotification } = useValues(sidePanelNotificationsLogic)
+    const [expanded, setExpanded] = useState(false)
+    const [conciergeOpen, setConciergeOpen] = useState(false)
 
     const otherProjectName = projectNameForNotification(notification)
     const isConcierge = notification.notification_type === 'concierge'
 
     const hasNavigationTarget = !!sourcePathForNotification(notification)
-    // TODO(concierge): When notification_type === 'concierge', open ConciergeModal
-    // instead of navigating. Import ConciergeModal from 'lib/components/ConciergeModal/ConciergeModal'
-    // and manage open/close state here. The modal component is ready at that path.
     const handleNavigate = (e: React.MouseEvent): void => {
         e.stopPropagation()
+        if (isConcierge) {
+            setConciergeOpen(true)
+            return
+        }
         if (hasNavigationTarget) {
             navigateToNotification(notification)
             onNavigate?.()
@@ -77,6 +83,13 @@ export function NotificationRow({
             className={`flex gap-2.5 p-2 rounded transition-colors ${isConcierge ? 'items-center' : 'items-start'} ${
                 notification.read ? 'hover:bg-fill-highlight-100' : 'bg-fill-highlight-50 hover:bg-fill-highlight-100'
             }`}
+            onClick={() => {
+                if (isConcierge) {
+                    setConciergeOpen(true)
+                } else if (notification.body) {
+                    setExpanded(!expanded)
+                }
+            }}
         >
             <div className={`shrink-0 ${isConcierge ? '' : 'mt-0.5'}`}>
                 {getNotificationIcon(notification.notification_type)}
@@ -127,6 +140,14 @@ export function NotificationRow({
                     </div>
                 )}
             </div>
+            {isConcierge && (
+                <ConciergeModal
+                    isOpen={conciergeOpen}
+                    onClose={() => setConciergeOpen(false)}
+                    title={notification.title}
+                    body={notification.body}
+                />
+            )}
         </div>
     )
 }

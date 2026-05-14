@@ -167,6 +167,7 @@ class UserAdmin(DjangoUserAdmin):
                     {
                         "body": form.cleaned_data["body"],
                         "call_to_action": form.cleaned_data["call_to_action"],
+                        "notification_style": form.cleaned_data["notification_style"],
                     }
                 )
 
