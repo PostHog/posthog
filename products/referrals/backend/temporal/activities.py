@@ -175,7 +175,8 @@ async def run_twitter_referral_research_activity(
         test_text = (
             "you didn't ask for this DM. we didn't ask to be loved on twitter. here we are. posthog.com/pyramide"
         )
-        summary = await send_referral_dms([(test_handle, test_text)])
+        # TODO: Disabled temporary to avoid spamming
+        # summary = await send_referral_dms([(test_handle, test_text)])
         logger.info(
             "twitter referral dm summary (single-recipient override): sent=%d failed_lookup=%d failed_send=%d",
             summary.sent,
