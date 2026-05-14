@@ -38,7 +38,7 @@ async function main(): Promise<void> {
         logger.warn('REDIS_URL not set; using in-memory bus (single-process only — not safe for production)')
     }
 
-    const app = buildServer({ queue, bus, resolver, domainSuffix: config.domainSuffix })
+    const app = buildServer({ queue, bus, resolver, repository, domainSuffix: config.domainSuffix })
 
     const server = app.listen(config.port, () => {
         logger.info('agent-ingress listening', { port: config.port })

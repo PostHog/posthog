@@ -16,10 +16,22 @@ export interface SessionExecutor {
     runTurn(input: ExecutorTurnInput): Promise<ExecutorTurnOutput>
 }
 
+export interface ExecutorJobContext {
+    readonly sessionId: string
+    readonly teamId: number
+    /** Null only on legacy/orphan jobs without a bound application — real executors should fail those. */
+    readonly applicationId: string | null
+    readonly revisionId: string | null
+    /** Decrypted application env. Used by the executor to load bundles, resolve secrets, etc. */
+    readonly secrets: Record<string, string>
+}
+
 export interface ExecutorTurnInput {
     readonly state: SessionState
     /** Latest /send/:id messages flushed into state.pendingInputs. */
     readonly newInputs: readonly { content: string; at: string }[]
+    /** Job identity + decrypted secrets — the executor needs these to fetch the bundle and run the SDK. */
+    readonly job: ExecutorJobContext
 }
 
 export type ExecutorTurnOutput =

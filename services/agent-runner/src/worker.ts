@@ -89,6 +89,13 @@ export class RunnerWorker {
             const outcome = await this.executor.runTurn({
                 state,
                 newInputs: newInputs.map((m) => ({ content: m.content, at: m.at })),
+                job: {
+                    sessionId: job.id,
+                    teamId: job.teamId,
+                    applicationId: job.applicationId,
+                    revisionId: job.revisionId,
+                    secrets,
+                },
             })
 
             await this.publish(job.id, { type: 'turn_completed', at: new Date().toISOString() })

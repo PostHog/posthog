@@ -1,6 +1,6 @@
 import { request as httpRequest } from 'node:http'
 
-import { InMemorySessionBus, SessionQueueManager } from '@posthog/agent-core'
+import { ApplicationsRepository, InMemorySessionBus, ResolvedRevision, SessionQueueManager } from '@posthog/agent-core'
 
 import { RevisionResolver } from './resolver'
 import { ServerDeps, buildServer } from './server'
@@ -13,10 +13,33 @@ import { ServerDeps, buildServer } from './server'
 describe('agent-ingress /listen SSE flow', () => {
     it('streams subscribed events as SSE frames', async () => {
         const bus = new InMemorySessionBus()
+        const resolver = {
+            resolveDomain: async () =>
+                ({
+                    applicationId: 'b1f3d6e4-4c2a-4b0e-9d5a-1c9f7e1d8a01',
+                    applicationSlug: 'analytics-bot',
+                    teamId: 7,
+                    revisionId: 'b1f3d6e4-4c2a-4b0e-9d5a-1c9f7e1d8a02',
+                    revisionState: 'ready',
+                    bundleS3Key: 's3://bundles/abc',
+                    bundleSha256: 'abcd',
+                    topLevelConfig: {},
+                    parsedManifest: null,
+                    auth: { mode: 'public' },
+                }) as ResolvedRevision,
+            resolveApplication: async () => null,
+            invalidate: () => undefined,
+        } as unknown as RevisionResolver
+        const repository = {
+            decryptEnv: async () => ({}),
+            verifyTeamSecret: async () => true,
+        } as unknown as ApplicationsRepository
+
         const deps: ServerDeps = {
             queue: {} as unknown as SessionQueueManager,
             bus,
-            resolver: {} as unknown as RevisionResolver,
+            resolver,
+            repository,
             domainSuffix: '.agents.posthog.com',
         }
         const app = buildServer(deps)
@@ -25,7 +48,6 @@ describe('agent-ingress /listen SSE flow', () => {
         await new Promise<void>((resolve, reject) => {
             try {
                 app.listen(0, () => {
-                    // ultimate-express adds address() at runtime — the Express type doesn't expose it.
                     port = (app as unknown as { address(): { port: number } }).address().port
                     resolve()
                 })
@@ -42,6 +64,7 @@ describe('agent-ingress /listen SSE flow', () => {
                         port,
                         path: '/listen/abc',
                         method: 'GET',
+                        headers: { 'x-original-host': 'analytics-bot.agents.posthog.com' },
                     },
                     (res) => {
                         expect(res.statusCode).toBe(200)
@@ -62,8 +85,6 @@ describe('agent-ingress /listen SSE flow', () => {
                     }
                 )
                 req.on('error', (err) => {
-                    // destroy() emits ECONNRESET on the request — ignore that case
-                    // because we triggered the close ourselves.
                     if ((err as NodeJS.ErrnoException).code === 'ECONNRESET') {
                         return
                     }
@@ -71,8 +92,6 @@ describe('agent-ingress /listen SSE flow', () => {
                 })
                 req.end()
 
-                // Publish a few events once the subscription should be established.
-                // Small delay so the `subscribeEvents` listener is wired before we publish.
                 setTimeout(() => {
                     void bus.publishEvent('abc', { type: 'turn_started', at: '2026-05-14T00:00:00Z' })
                     void bus.publishEvent('abc', { type: 'turn_completed', at: '2026-05-14T00:00:01Z' })

@@ -21,6 +21,7 @@
     },
     "dependencies": {
         "@posthog/agent-core": "workspace:*",
+        "@repo/ass-server": "link:../../../agent-stack/packages/ass-server",
         "lru-cache": "^11.0.0",
         "ultimate-express": "^2.0.9",
         "zod": "^4.3.6"
