@@ -336,6 +336,7 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
     ):
         leased = try_lease_sendblue_prewarmed_sandbox(
             run_id=ctx.run_id,
+            team_id=ctx.team_id,
             origin_product=ctx.origin_product,
             repository=prepared.repository,
             environment_variables=prepared.environment_variables,

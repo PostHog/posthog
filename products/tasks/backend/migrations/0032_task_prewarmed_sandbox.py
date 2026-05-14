@@ -92,11 +92,17 @@ class Migration(migrations.Migration):
                         to="tasks.taskrun",
                     ),
                 ),
+                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
             options={
                 "db_table": "posthog_task_prewarmed_sandbox",
                 "indexes": [
+                    models.Index(fields=["team", "pool_key", "status"], name="task_prewarmed_team_pool_idx"),
                     models.Index(fields=["pool_key", "status"], name="task_prewarmed_pool_status_idx"),
+                    models.Index(
+                        fields=["team", "origin_product", "repository", "status"],
+                        name="task_prewarmed_team_origin_idx",
+                    ),
                     models.Index(
                         fields=["origin_product", "repository", "status"], name="task_prewarmed_origin_repo_idx"
                     ),

@@ -32,6 +32,11 @@ from products.tasks.backend.services.sandbox import (
 pytestmark = pytest.mark.django_db
 
 
+@pytest.fixture(autouse=True)
+def clean_prewarmed_sandboxes() -> None:
+    TaskPrewarmedSandbox.objects.all().delete()
+
+
 class FakeSandbox:
     def __init__(self, sandbox_id: str = "sb-test", status: SandboxStatus = SandboxStatus.RUNNING):
         self.id = sandbox_id
@@ -83,11 +88,13 @@ def _config(**overrides: Any) -> SendbluePrewarmedPoolConfig:
         ttl_seconds=overrides.get("ttl_seconds", 3600),
         max_create_batch=overrides.get("max_create_batch", 5),
         modal_docker_default_app_name=overrides.get("modal_docker_default_app_name"),
+        team_id=overrides.get("team_id", _team().id),
     )
 
 
 def _available_entry(config: SendbluePrewarmedPoolConfig, sandbox_id: str = "sb-available") -> TaskPrewarmedSandbox:
     return TaskPrewarmedSandbox.objects.create(
+        team_id=config.team_id,
         pool_key=config.pool_key,
         origin_product=Task.OriginProduct.SENDBLUE,
         repository=config.repository,
@@ -109,6 +116,7 @@ def test_sendblue_prewarmed_pool_config_reads_feature_flag_payload() -> None:
         patch(
             "products.tasks.backend.services.prewarmed_sandbox_pool.posthoganalytics.get_feature_flag_payload",
             return_value={
+                "team_id": 7,
                 "target_available": 3,
                 "repository": "PostHog/PostHog",
                 "ttl_seconds": 1800,
@@ -125,6 +133,7 @@ def test_sendblue_prewarmed_pool_config_reads_feature_flag_payload() -> None:
     assert config.ttl_seconds == 1800
     assert config.max_create_batch == 2
     assert config.modal_docker_default_app_name == "posthog-sandbox-modal-docker-default-alessandro"
+    assert config.team_id == 7
     feature_enabled.assert_called_once_with(
         SEND_BLUE_POOL_FEATURE_FLAG,
         SEND_BLUE_POOL_DISTINCT_ID,
@@ -205,9 +214,9 @@ def test_reconcile_disables_pool_by_terminating_available_sandboxes() -> None:
 
 
 def test_try_lease_sendblue_prewarmed_sandbox_marks_entry_leased_and_injects_environment() -> None:
-    config = _config()
-    entry = _available_entry(config, sandbox_id="sb-lease")
     task_run = _task_run()
+    config = _config(team_id=task_run.team_id)
+    entry = _available_entry(config, sandbox_id="sb-lease")
     sandbox = FakeSandbox("sb-lease")
 
     with (
@@ -220,6 +229,7 @@ def test_try_lease_sendblue_prewarmed_sandbox_marks_entry_leased_and_injects_env
 
         leased = try_lease_sendblue_prewarmed_sandbox(
             run_id=str(task_run.id),
+            team_id=task_run.team_id,
             origin_product=Task.OriginProduct.SENDBLUE,
             repository="PostHog/PostHog",
             environment_variables={"ALPHA": "one", "BETA": "two"},
@@ -251,6 +261,7 @@ def test_try_lease_sendblue_prewarmed_sandbox_ignores_non_sendblue_tasks() -> No
 
         leased = try_lease_sendblue_prewarmed_sandbox(
             run_id=str(_task_run().id),
+            team_id=entry.team_id,
             origin_product=Task.OriginProduct.USER_CREATED,
             repository=SENDBLUE_TASK_REPOSITORY,
             environment_variables={},
@@ -263,9 +274,9 @@ def test_try_lease_sendblue_prewarmed_sandbox_ignores_non_sendblue_tasks() -> No
 
 
 def test_try_lease_sendblue_prewarmed_sandbox_marks_bad_entry_failed_and_falls_back() -> None:
-    config = _config()
-    entry = _available_entry(config, sandbox_id="sb-stopped")
     task_run = _task_run()
+    config = _config(team_id=task_run.team_id)
+    entry = _available_entry(config, sandbox_id="sb-stopped")
     sandbox = FakeSandbox("sb-stopped", status=SandboxStatus.SHUTDOWN)
 
     with (
@@ -278,6 +289,7 @@ def test_try_lease_sendblue_prewarmed_sandbox_marks_bad_entry_failed_and_falls_b
 
         leased = try_lease_sendblue_prewarmed_sandbox(
             run_id=str(task_run.id),
+            team_id=task_run.team_id,
             origin_product=Task.OriginProduct.SENDBLUE,
             repository=SENDBLUE_TASK_REPOSITORY,
             environment_variables={},

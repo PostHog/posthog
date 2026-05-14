@@ -1023,6 +1023,7 @@ class TaskPrewarmedSandbox(models.Model):
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     pool_key = models.CharField(max_length=255, db_index=True)
     origin_product = models.CharField(max_length=20, choices=Task.OriginProduct)
     repository = models.CharField(max_length=255)
@@ -1048,7 +1049,11 @@ class TaskPrewarmedSandbox(models.Model):
     class Meta:
         db_table = "posthog_task_prewarmed_sandbox"
         indexes = [
+            models.Index(fields=["team", "pool_key", "status"], name="task_prewarmed_team_pool_idx"),
             models.Index(fields=["pool_key", "status"], name="task_prewarmed_pool_status_idx"),
+            models.Index(
+                fields=["team", "origin_product", "repository", "status"], name="task_prewarmed_team_origin_idx"
+            ),
             models.Index(fields=["origin_product", "repository", "status"], name="task_prewarmed_origin_repo_idx"),
         ]
 

@@ -1179,7 +1179,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["interaction_origin"] == "sendblue"
         assert task_run.state["pending_user_message"] == "hello from sms"
         mock_workflow.assert_called_once()
-        mock_reconcile.assert_called_once()
+        mock_reconcile.assert_called_once_with(task.team_id)
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_rejects_invalid_initial_permission_mode(self, mock_workflow):

@@ -804,7 +804,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             try:
                 from posthog.tasks.tasks import reconcile_sendblue_prewarmed_sandbox_pool
 
-                reconcile_sendblue_prewarmed_sandbox_pool.delay()
+                reconcile_sendblue_prewarmed_sandbox_pool.delay(task.team_id)
             except Exception:
                 logger.exception("Failed to enqueue Sendblue prewarmed sandbox pool reconciliation")
 

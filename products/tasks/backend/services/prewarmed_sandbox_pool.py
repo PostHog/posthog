@@ -43,6 +43,7 @@ class SendbluePrewarmedPoolConfig:
     ttl_seconds: int
     max_create_batch: int
     modal_docker_default_app_name: str | None
+    team_id: int | None
 
     @property
     def pool_key(self) -> str:
@@ -57,7 +58,7 @@ class LeasedPrewarmedSandbox:
     connect_token: str | None
 
 
-def get_sendblue_prewarmed_pool_config() -> SendbluePrewarmedPoolConfig:
+def get_sendblue_prewarmed_pool_config(*, team_id: int | None = None) -> SendbluePrewarmedPoolConfig:
     enabled = bool(
         posthoganalytics.feature_enabled(
             SEND_BLUE_POOL_FEATURE_FLAG,
@@ -84,21 +85,24 @@ def get_sendblue_prewarmed_pool_config() -> SendbluePrewarmedPoolConfig:
             maximum=MAX_CREATE_BATCH,
         ),
         modal_docker_default_app_name=_modal_docker_default_app_name_from_payload(payload),
+        team_id=team_id if team_id is not None else _team_id_from_payload(payload),
     )
 
 
 def try_lease_sendblue_prewarmed_sandbox(
     *,
     run_id: str,
+    team_id: int,
     origin_product: str | None,
     repository: str | None,
     environment_variables: dict[str, str],
 ) -> LeasedPrewarmedSandbox | None:
-    config = get_sendblue_prewarmed_pool_config()
+    config = get_sendblue_prewarmed_pool_config(team_id=team_id)
     normalized_repository = (repository or "").lower()
     if (
         not config.enabled
         or config.target_available <= 0
+        or config.team_id is None
         or origin_product != Task.OriginProduct.SENDBLUE
         or normalized_repository != config.repository
     ):
@@ -147,8 +151,18 @@ def try_lease_sendblue_prewarmed_sandbox(
         return None
 
 
-def reconcile_sendblue_prewarmed_sandbox_pool() -> dict[str, int | bool | str]:
-    config = get_sendblue_prewarmed_pool_config()
+def reconcile_sendblue_prewarmed_sandbox_pool(*, team_id: int | None = None) -> dict[str, int | bool | str]:
+    config = get_sendblue_prewarmed_pool_config(team_id=team_id)
+    if config.team_id is None:
+        return {
+            "enabled": config.enabled,
+            "created": 0,
+            "cleaned": 0,
+            "terminated": 0,
+            "target_available": config.target_available,
+            "repository": config.repository,
+            "missing_team_id": True,
+        }
 
     cleaned = cleanup_expired_sendblue_prewarmed_sandboxes(config=config)
     if not config.enabled or config.target_available <= 0:
@@ -169,7 +183,8 @@ def reconcile_sendblue_prewarmed_sandbox_pool() -> dict[str, int | bool | str]:
         entry = _reserve_provisioning_entry(config=config)
         if entry is None:
             break
-        _provision_entry(entry=entry, config=config)
+        if not _provision_entry(entry=entry, config=config):
+            break
         created += 1
 
     return {
@@ -187,6 +202,7 @@ def cleanup_expired_sendblue_prewarmed_sandboxes(*, config: SendbluePrewarmedPoo
     now = timezone.now()
     expired = list(
         TaskPrewarmedSandbox.objects.filter(
+            team_id=config.team_id,
             pool_key=config.pool_key,
             status__in=[TaskPrewarmedSandbox.Status.AVAILABLE, TaskPrewarmedSandbox.Status.PROVISIONING],
             expires_at__lte=now,
@@ -201,6 +217,7 @@ def terminate_available_sendblue_prewarmed_sandboxes(*, config: SendbluePrewarme
     config = config or get_sendblue_prewarmed_pool_config()
     entries = list(
         TaskPrewarmedSandbox.objects.filter(
+            team_id=config.team_id,
             pool_key=config.pool_key,
             status__in=[TaskPrewarmedSandbox.Status.AVAILABLE, TaskPrewarmedSandbox.Status.PROVISIONING],
         )[:100]
@@ -240,6 +257,15 @@ def _modal_docker_default_app_name_from_payload(payload: dict[str, Any]) -> str 
     return None
 
 
+def _team_id_from_payload(payload: dict[str, Any]) -> int | None:
+    value = payload.get("team_id") or payload.get("project_id")
+    if isinstance(value, int) and value > 0:
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
 def _modal_app_name_for_provider(config: SendbluePrewarmedPoolConfig) -> str | None:
     provider = getattr(settings, "SANDBOX_PROVIDER", None)
     if provider and provider.upper() == "MODAL_DOCKER":
@@ -256,6 +282,7 @@ def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int
 def _available_or_provisioning_count(*, config: SendbluePrewarmedPoolConfig) -> int:
     now = timezone.now()
     return TaskPrewarmedSandbox.objects.filter(
+        team_id=config.team_id,
         pool_key=config.pool_key,
         status__in=[TaskPrewarmedSandbox.Status.AVAILABLE, TaskPrewarmedSandbox.Status.PROVISIONING],
         expires_at__gt=now,
@@ -268,6 +295,7 @@ def _reserve_provisioning_entry(*, config: SendbluePrewarmedPoolConfig) -> TaskP
             return None
 
         return TaskPrewarmedSandbox.objects.create(
+            team_id=config.team_id,
             pool_key=config.pool_key,
             origin_product=Task.OriginProduct.SENDBLUE,
             repository=config.repository,
@@ -279,7 +307,7 @@ def _reserve_provisioning_entry(*, config: SendbluePrewarmedPoolConfig) -> TaskP
         )
 
 
-def _provision_entry(*, entry: TaskPrewarmedSandbox, config: SendbluePrewarmedPoolConfig) -> None:
+def _provision_entry(*, entry: TaskPrewarmedSandbox, config: SendbluePrewarmedPoolConfig) -> bool:
     sandbox = None
     try:
         sandbox = Sandbox.create(
@@ -291,6 +319,7 @@ def _provision_entry(*, entry: TaskPrewarmedSandbox, config: SendbluePrewarmedPo
                 metadata={
                     "pool_key": config.pool_key,
                     "pool_entry_id": str(entry.id),
+                    "team_id": str(config.team_id),
                     "origin_product": Task.OriginProduct.SENDBLUE,
                     "repository": config.repository,
                 },
@@ -305,6 +334,7 @@ def _provision_entry(*, entry: TaskPrewarmedSandbox, config: SendbluePrewarmedPo
         entry.warmed_at = timezone.now()
         entry.last_error = None
         entry.save(update_fields=["sandbox_id", "status", "warmed_at", "last_error", "updated_at"])
+        return True
     except Exception as err:
         if sandbox is not None:
             try:
@@ -312,6 +342,7 @@ def _provision_entry(*, entry: TaskPrewarmedSandbox, config: SendbluePrewarmedPo
             except Exception:
                 logger.exception("Failed to destroy failed prewarmed sandbox", extra={"sandbox_id": sandbox.id})
         _mark_entry_failed(entry, str(err))
+        return False
 
 
 def _lease_available_entry(
@@ -324,6 +355,7 @@ def _lease_available_entry(
         entry = (
             TaskPrewarmedSandbox.objects.select_for_update(skip_locked=True)
             .filter(
+                team_id=config.team_id,
                 pool_key=config.pool_key,
                 status=TaskPrewarmedSandbox.Status.AVAILABLE,
                 expires_at__gt=now,

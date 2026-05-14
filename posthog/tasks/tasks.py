@@ -713,13 +713,13 @@ def capture_task_run_state_metrics() -> None:
 
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
-def reconcile_sendblue_prewarmed_sandbox_pool() -> None:
+def reconcile_sendblue_prewarmed_sandbox_pool(team_id: int | None = None) -> None:
     from products.tasks.backend.services.prewarmed_sandbox_pool import (
         reconcile_sendblue_prewarmed_sandbox_pool as reconcile_pool,
     )
 
     try:
-        result = reconcile_pool()
+        result = reconcile_pool(team_id=team_id)
         logger.info("reconcile_sendblue_prewarmed_sandbox_pool", **result)
     except Exception as err:
         logger.exception("reconcile_sendblue_prewarmed_sandbox_pool_failed", exception=err)
