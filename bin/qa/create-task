@@ -33,11 +33,9 @@ prompt="The branch under QA is \`$branch\` from the $repository repository.
     }
 }
 
-3. add the playwright MCP, reload the playwright mcp, and tell me the list of tools. you probably also need to install chrome-for-testing. if you hit any obstacles, try to overcome them yourself. You do not need to restart MCP or claude code to access the tools. You should try invoking them, keep try until that works.
+3. run following skill /generating-mcp-scenarios
+4. if any issues are found, share the results as a PR comment to keep everyone updated and commit fixes.
 
-4. run following skills:
-    - /generating-mcp-scenarios
-    - /qa-runtime
 "
 
 : "${HOBBYCTL_URL:=http://ph.vojtabartos.com:8765}"
