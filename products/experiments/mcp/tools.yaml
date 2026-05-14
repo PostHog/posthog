@@ -412,19 +412,124 @@ tools:
         ui_app: experiment
     experiment-saved-metrics-create:
         operation: experiment_saved_metrics_create
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_saved_metric:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create shared experiment metric
+        description: >
+            Create a reusable shared metric (also called "saved metric") that can be attached to multiple experiments.
+            Requires name (unique per project, case-insensitive) and query (an ExperimentMetric JSON with metric_type of
+            'mean', 'funnel', 'ratio', or 'retention'). Optional: description, tags.
+
+
+            The query shape mirrors per-experiment metrics — load the configuring-experiment-analytics skill before
+            constructing one, and call read-data-schema to confirm any event names referenced. Legacy kinds
+            (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics — always use
+            kind='ExperimentMetric'.
+
+
+            To attach a created shared metric to an experiment, call experiment-update with saved_metrics_ids: each item
+            has 'id' (the shared metric ID returned here) and 'metadata' with 'type' ('primary' or 'secondary').
     experiment-saved-metrics-destroy:
         operation: experiment_saved_metrics_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_saved_metric:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete shared experiment metric
+        description: >
+            Delete a shared metric by ID. REQUIRES EXPLICIT USER CONFIRMATION — always confirm by name before deleting,
+            and warn the user that any experiments currently using this shared metric will lose access to it. Use
+            experiment-saved-metrics-list to find the ID first if you don't have it.
+        param_overrides:
+            id:
+                cast: string-int
+        response:
+            include:
+                - id
+                - name
     experiment-saved-metrics-list:
         operation: experiment_saved_metrics_list
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_saved_metric:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List shared experiment metrics
+        description: >
+            List all shared (saved) experiment metrics in the current project. Shared metrics are reusable metric
+            definitions that can be attached to multiple experiments — distinct from per-experiment metrics, which live
+            inline on a single experiment and can be inspected via experiment-get.
+
+
+            Returns paginated results with each metric's id, name, description, query JSON, created_by, created_at,
+            updated_at, and tags. Use experiment-saved-metrics-retrieve for the full query of a single metric, or use
+            this listing to resolve a metric by name.
+        param_overrides:
+            limit:
+                cast: string-int
+            offset:
+                cast: string-int
+        response:
+            include:
+                - id
+                - name
+                - description
+                - query
+                - created_at
+                - updated_at
+                - tags
     experiment-saved-metrics-partial-update:
         operation: experiment_saved_metrics_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_saved_metric:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update shared experiment metric
+        description: >
+            Partially update a shared metric by ID. Only name, description, and query can be changed — other fields are
+            rejected. Editing a shared metric affects every experiment that has it attached, so REQUIRES EXPLICIT USER
+            CONFIRMATION before changing query or name on a metric attached to running experiments.
+
+
+            Legacy-format saved metrics (kind=ExperimentTrendsQuery / ExperimentFunnelsQuery) cannot be updated — the
+            user must create a new shared metric using kind='ExperimentMetric'.
+        param_overrides:
+            id:
+                cast: string-int
     experiment-saved-metrics-retrieve:
         operation: experiment_saved_metrics_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_saved_metric:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get shared experiment metric
+        description: >
+            Get a single shared (saved) experiment metric by ID. Returns the full metric including its query JSON
+            (metric_type, source events/properties, filters, math, etc.) — use this when validating a shared metric
+            against user-stated acceptance criteria or when explaining what a metric measures.
+
+
+            If you don't have the ID, call experiment-saved-metrics-list first to resolve by name.
+        param_overrides:
+            id:
+                cast: string-int
     experiment-saved-metrics-update:
         operation: experiment_saved_metrics_update
         enabled: false
