@@ -3,6 +3,7 @@ import React, { CSSProperties } from 'react'
 import {
     IconApp,
     IconApps,
+    IconBatteryCharge,
     IconBook,
     IconBug,
     IconCircleDashed,
@@ -84,6 +85,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     llm_analytics: {
         icon: <IconLlmAnalytics />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
+    },
+    mcp_analytics: {
+        icon: <IconBatteryCharge />,
+        iconColor: ['var(--color-product-mcp-analytics-light)'],
     },
     product_analytics: {
         icon: <IconGraph />,

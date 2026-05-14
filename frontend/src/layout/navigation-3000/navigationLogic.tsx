@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import React from 'react'
 
 import {
+    IconBatteryCharge,
     IconChat,
     IconCursorClick,
     IconDashboard,
@@ -614,7 +615,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             ? {
                                   identifier: 'MCPAnalytics',
                                   label: 'MCP analytics',
-                                  icon: <IconLlmAnalytics />,
+                                  icon: <IconBatteryCharge />,
                                   to: urls.mcpAnalyticsDashboard(),
                                   tooltipDocLink: 'https://posthog.com/docs/mcp-analytics/installation',
                               }

@@ -54,7 +54,7 @@ export function MCPAnalyticsScene(): JSX.Element {
             <SceneTitleSection
                 name="MCP analytics"
                 description={TAB_DESCRIPTIONS[activeTab]}
-                resourceType={{ type: 'llm_analytics' }}
+                resourceType={{ type: 'mcp_analytics' }}
                 actions={
                     <LemonButton to={DEFAULT_DOCS_URL} type="secondary" targetBlank size="small">
                         Documentation

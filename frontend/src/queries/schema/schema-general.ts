@@ -3160,6 +3160,7 @@ export type FileSystemIconType =
     | 'default_icon_type'
     | 'dashboard'
     | 'llm_analytics'
+    | 'mcp_analytics'
     | 'product_analytics'
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
