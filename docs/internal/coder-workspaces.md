@@ -20,6 +20,7 @@ Spin up a fresh devbox that runs a coding agent against a prompt, without taking
 
 ```bash
 hogli devbox:task "fix CI on PR #1234"
+hogli devbox:task "fix CI on PR #1234" --template posthog-microvm  # use a different template
 cat prompt.txt | hogli devbox:task       # or pipe the prompt via stdin
 ```
 
@@ -47,6 +48,16 @@ hogli devbox:share bob-box --list           # see who has access
 ```
 
 Once shared, the teammate can target your workspace with `@user[/label]` syntax (e.g. `hogli devbox:ssh @bob/bob-box`).
+
+**Choosing a workspace template** —
+Both `devbox:start` and `devbox:task` accept a `-t` / `--template` flag to select the Coder workspace template. The default is `posthog-linux`. To use a different template:
+
+```bash
+hogli devbox:start --template posthog-microvm
+hogli devbox:task "fix CI" --template posthog-microvm
+```
+
+Unknown template names are rejected by Coder. Parameters that don't apply to the chosen template are automatically dropped and retried.
 
 ## Prerequisites
 
