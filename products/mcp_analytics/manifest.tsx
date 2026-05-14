@@ -23,12 +23,20 @@ export const manifest: ProductManifest = {
             description: 'Capture user intent and behaviour patterns to understand what AI users need from your tools.',
             iconType: 'llm_analytics',
         },
+        MCPAnalyticsToolDetail: {
+            import: () => import('./frontend/MCPAnalyticsToolDetail'),
+            projectBased: true,
+            name: 'MCP tool',
+            layout: 'app-container',
+            iconType: 'llm_analytics',
+        },
     },
     routes: {
         // Define routes here
         '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
         '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
         '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
+        '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
         '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
     },
     redirects: {},
@@ -37,6 +45,7 @@ export const manifest: ProductManifest = {
         mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
         mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
         mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
+        mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
         mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
     },
     fileSystemTypes: {},
