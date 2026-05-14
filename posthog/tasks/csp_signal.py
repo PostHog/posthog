@@ -32,6 +32,10 @@ CSP_SIGNAL_TASK_SOFT_TIME_LIMIT_SECONDS = 15
 CSP_SIGNAL_TASK_TIME_LIMIT_SECONDS = 30
 CSP_SIGNAL_DAILY_COUNT_KEY_PREFIX = "csp_signal_daily_count"
 CSP_SIGNAL_DAILY_COUNT_TTL_SECONDS = 60 * 60 * 25  # 25h, safe margin past UTC midnight
+# Cap on the length of any single attacker-controlled CSP field before it lands in the signal
+# description / extra / fingerprint input. Bounds Celery payload size and request-thread CPU
+# regardless of how large the browser-supplied value is.
+CSP_SIGNAL_FIELD_MAX_LENGTH = 2048
 
 CSP_SIGNAL_DROPPED_COUNTER = Counter(
     "csp_signal_dropped_total",
@@ -60,7 +64,12 @@ def _record_dropped(team_id: int, n: int, reason: str) -> None:
 
 
 def _stringify(value: object) -> str:
-    return "" if value is None else str(value)
+    if value is None:
+        return ""
+    s = str(value)
+    if len(s) > CSP_SIGNAL_FIELD_MAX_LENGTH:
+        return s[:CSP_SIGNAL_FIELD_MAX_LENGTH]
+    return s
 
 
 def _csp_property(properties: dict, key: str) -> Any:
@@ -146,7 +155,12 @@ def _build_description(properties: dict) -> str:
 def _build_extra(properties: dict) -> dict:
     def get_str(key: str) -> str | None:
         value = _csp_property(properties, key)
-        return None if value is None else str(value)
+        if value is None:
+            return None
+        s = str(value)
+        if len(s) > CSP_SIGNAL_FIELD_MAX_LENGTH:
+            return s[:CSP_SIGNAL_FIELD_MAX_LENGTH]
+        return s
 
     def get_number(key: str) -> float | None:
         value = _csp_property(properties, key)

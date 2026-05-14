@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.tasks.csp_signal import (
     CSP_SIGNAL_DEDUP_TTL_SECONDS,
+    CSP_SIGNAL_FIELD_MAX_LENGTH,
     _build_description,
     _build_extra,
     _daily_count_key,
@@ -112,6 +113,21 @@ class TestCSPSignalDescription(BaseTest):
     def test_extra_payload_rejects_non_finite_numbers(self, _name: str, value: str) -> None:
         extra = _build_extra(_csp_properties(**{"$csp_line_number": value}))
         assert extra["line_number"] is None
+
+
+class TestCSPSignalFieldLengthCap(BaseTest):
+    def test_oversized_field_is_truncated_in_extra(self) -> None:
+        huge = "x" * (CSP_SIGNAL_FIELD_MAX_LENGTH * 4)
+        extra = _build_extra(_csp_properties(**{"$csp_blocked_url": huge}))
+        assert extra["blocked_url"] is not None
+        assert len(extra["blocked_url"]) == CSP_SIGNAL_FIELD_MAX_LENGTH
+
+    def test_oversized_field_is_truncated_in_description(self) -> None:
+        huge = "x" * (CSP_SIGNAL_FIELD_MAX_LENGTH * 4)
+        description = _build_description(_csp_properties(**{"$csp_blocked_url": huge}))
+        # description embeds the blocked_url once; total description length is bounded by
+        # cap × number_of_fields + the constant template text.
+        assert len(description) < (CSP_SIGNAL_FIELD_MAX_LENGTH * 10)
 
 
 class TestCSPSignalFingerprintRobustness(BaseTest):
