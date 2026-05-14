@@ -178,9 +178,10 @@ export function remapBranchingIndices(questions: SurveyQuestion[], indexMap: (nu
             'responseValues' in question.branching &&
             question.branching.responseValues
         ) {
+            const originalEntries = Object.entries(question.branching.responseValues)
             const nextResponseValues: Record<string, number | SurveyQuestionBranchingType> = {}
             let changed = false
-            for (const [response, target] of Object.entries(question.branching.responseValues)) {
+            for (const [response, target] of originalEntries) {
                 if (typeof target === 'number') {
                     const remapped = remapIndex(target)
                     if (remapped === null) {
@@ -198,6 +199,13 @@ export function remapBranchingIndices(questions: SurveyQuestion[], indexMap: (nu
             }
             if (!changed) {
                 return question
+            }
+            // If we had mappings before and none survived, drop the whole branching block
+            // so the question falls back to default routing (rather than keeping a
+            // dangling ResponseBased config with empty rules).
+            if (originalEntries.length > 0 && Object.keys(nextResponseValues).length === 0) {
+                const { branching, ...rest } = question
+                return rest as SurveyQuestion
             }
             return {
                 ...question,

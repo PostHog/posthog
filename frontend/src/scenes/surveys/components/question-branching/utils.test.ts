@@ -290,32 +290,28 @@ describe('branching utils', () => {
     })
 
     describe('buildReorderIndexMap', () => {
-        it('shifts indices when moving a question forward (oldIndex < newIndex)', () => {
-            // Move index 0 to index 2 in a 4-element array: [A,B,C,D] -> [B,C,A,D]
-            expect(buildReorderIndexMap(4, 0, 2)).toEqual([2, 0, 1, 3])
-        })
-
-        it('shifts indices when moving a question backward (oldIndex > newIndex)', () => {
-            // Move index 3 to index 1: [A,B,C,D] -> [A,D,B,C]
-            expect(buildReorderIndexMap(4, 3, 1)).toEqual([0, 2, 3, 1])
-        })
-
-        it('is identity when oldIndex === newIndex', () => {
-            expect(buildReorderIndexMap(3, 1, 1)).toEqual([0, 1, 2])
+        it.each([
+            // Move forward: [A,B,C,D] -> [B,C,A,D]
+            ['forward (oldIndex < newIndex)', 4, 0, 2, [2, 0, 1, 3]],
+            // Move backward: [A,B,C,D] -> [A,D,B,C]
+            ['backward (oldIndex > newIndex)', 4, 3, 1, [0, 2, 3, 1]],
+            // No-op when oldIndex === newIndex
+            ['identity when oldIndex === newIndex', 3, 1, 1, [0, 1, 2]],
+            // Swap last two
+            ['adjacent swap forward', 3, 1, 2, [0, 2, 1]],
+        ])('builds the index map for %s', (_label, length, oldIndex, newIndex, expected) => {
+            expect(buildReorderIndexMap(length, oldIndex, newIndex)).toEqual(expected)
         })
     })
 
     describe('buildDeleteIndexMap', () => {
-        it('returns null for the deleted index and shifts later items left', () => {
-            expect(buildDeleteIndexMap(4, 1)).toEqual([0, null, 1, 2])
-        })
-
-        it('handles deletion at the start', () => {
-            expect(buildDeleteIndexMap(3, 0)).toEqual([null, 0, 1])
-        })
-
-        it('handles deletion at the end', () => {
-            expect(buildDeleteIndexMap(3, 2)).toEqual([0, 1, null])
+        it.each([
+            ['middle deletion', 4, 1, [0, null, 1, 2]],
+            ['deletion at the start', 3, 0, [null, 0, 1]],
+            ['deletion at the end', 3, 2, [0, 1, null]],
+            ['single-item array', 1, 0, [null]],
+        ])('builds the index map for %s', (_label, length, deletedIndex, expected) => {
+            expect(buildDeleteIndexMap(length, deletedIndex)).toEqual(expected)
         })
     })
 
@@ -384,6 +380,26 @@ describe('branching utils', () => {
             const filtered = [original[0]]
             const indexMap = buildDeleteIndexMap(2, 1)
             const result = remapBranchingIndices(filtered, indexMap)
+            expect(result[0].branching).toBeUndefined()
+        })
+
+        it('drops the entire ResponseBased branching when every numeric target was deleted', () => {
+            // Q0 routes detractors -> 1 and passives -> 2; both targets are then deleted.
+            const original = [
+                ratingQuestionAt({
+                    type: SurveyQuestionBranchingType.ResponseBased,
+                    responseValues: { detractors: 1, passives: 2 },
+                }),
+                plainOpenQuestion,
+                plainOpenQuestion,
+            ]
+            // Delete index 1, then index 2 ... easier to just build the indexMap manually:
+            // both 1 and 2 are removed, only Q0 survives at index 0.
+            const filtered = [original[0]]
+            const indexMap = [0, null, null]
+            const result = remapBranchingIndices(filtered, indexMap)
+            // No surviving rules — fall back to default (no branching) rather than
+            // an empty ResponseBased shell.
             expect(result[0].branching).toBeUndefined()
         })
 
