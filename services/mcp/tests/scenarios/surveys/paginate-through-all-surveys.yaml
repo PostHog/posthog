@@ -1,0 +1,30 @@
+name: paginate-through-all-surveys
+description: >
+    User wants to see all their surveys by paginating through the full list.
+    With the new pagination (limit=3), this exercises multiple page fetches
+    and will reveal any errors that occur during deep pagination.
+domain: surveys
+tools_in_scope:
+    - surveys-get-all
+
+prompt: |
+    I know we have a lot of surveys — probably around 20 or more. Can you
+    paginate through the full list and tell me how many surveys we have
+    in total? I want to make sure we can see every single one. List their
+    names as you go.
+
+success_criteria:
+    - First call to surveys-get-all returns results with pagination metadata
+    - Subsequent paginated calls (using offset) continue to return results
+    - All pages complete without server errors
+    - The total number of surveys listed matches the count from the first response
+
+generated_from:
+    pr: 58472
+    commit: 89dc53b4a27
+    changed_files:
+        - products/surveys/backend/api/survey.py
+tags:
+    - pagination
+    - surveys
+    - regression

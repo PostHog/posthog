@@ -1,0 +1,29 @@
+name: list-surveys-basic
+description: >
+    User asks to see their surveys. Verifies the list endpoint returns
+    surveys with pagination metadata and that individual surveys can
+    be retrieved by ID from the list results.
+domain: surveys
+tools_in_scope:
+    - surveys-get-all
+    - survey-get
+
+prompt: |
+    Can you show me all the surveys we have set up? I'd like to see
+    what's there and then get the details on the first one in the list.
+
+success_criteria:
+    - surveys-get-all returns a response with a count field and results array
+    - At least one survey is returned in the results
+    - survey-get with the first survey's ID returns the full survey details
+    - The retrieved survey's name matches the one from the list
+
+generated_from:
+    pr: 58472
+    commit: 89dc53b4a27
+    changed_files:
+        - products/surveys/backend/api/survey.py
+tags:
+    - crud
+    - surveys
+    - pagination

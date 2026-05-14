@@ -1,0 +1,32 @@
+name: create-and-list-survey
+description: >
+    User creates a new survey and then verifies it appears in the survey
+    list. Tests the create-then-list workflow to ensure newly created
+    surveys are visible through the paginated list endpoint.
+domain: surveys
+tools_in_scope:
+    - survey-create
+    - surveys-get-all
+    - survey-get
+
+prompt: |
+    Create a simple NPS survey called "Q2 2026 NPS" with one rating
+    question asking "How likely are you to recommend us to a friend?"
+    on a scale of 1-10. Don't launch it yet, just save it as a draft.
+    Then list our surveys and confirm the new one shows up.
+
+success_criteria:
+    - survey-create returns successfully with an ID
+    - The created survey has the correct name and question configuration
+    - surveys-get-all includes the newly created survey (search by name or paginate to find it)
+    - The survey is in draft state (no start_date)
+
+generated_from:
+    pr: 58472
+    commit: 89dc53b4a27
+    changed_files:
+        - products/surveys/backend/api/survey.py
+tags:
+    - crud
+    - surveys
+    - pagination

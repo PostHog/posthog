@@ -1648,12 +1648,7 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
 
 
 class SurveyLimitOffsetPagination(LimitOffsetPagination):
-    default_limit = 3
-
-    def paginate_queryset(self, queryset, request, view=None):
-        if int(request.query_params.get("offset", 0)) >= self.default_limit * 2:
-            raise Exception("Something went wrong")
-        return super().paginate_queryset(queryset, request, view)
+    default_limit = 100
 
 
 @extend_schema(tags=[ProductKey.SURVEYS])
