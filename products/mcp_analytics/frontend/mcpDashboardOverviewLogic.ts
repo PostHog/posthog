@@ -70,6 +70,20 @@ ORDER BY total_calls DESC
 LIMIT 50
 `
 
+const HARNESS_ROWS_QUERY = hogql`
+SELECT
+    toString(properties.$mcp_client_name) AS client,
+    count() AS total_calls,
+    countIf(toBool(properties.$mcp_is_error)) AS errors,
+    countDistinctIf(toString(properties.$session_id), toString(properties.$session_id) != '') AS sessions
+FROM events
+WHERE event = 'mcp_tool_call'
+    AND timestamp >= now() - INTERVAL ${hogql.raw(String(LOOKBACK_DAYS))} DAY
+    AND properties.$mcp_client_name IS NOT NULL
+    AND properties.$mcp_client_name != ''
+GROUP BY client
+`
+
 interface BucketRow {
     bucket: string
     sessions: number
@@ -102,6 +116,22 @@ export interface ToolRow {
     p95_duration_ms: number
 }
 
+export interface HarnessRawRow {
+    client: string
+    total_calls: number
+    errors: number
+    sessions: number
+}
+
+export interface HarnessRow {
+    category: string
+    total_calls: number
+    errors: number
+    error_rate_pct: number
+    sessions: number
+    raw_clients: string[]
+}
+
 export interface SessionRow {
     session_id: string
     tool_calls: number
@@ -126,6 +156,80 @@ const EMPTY_KPIS: KPIData = {
     toolCalls: { ...EMPTY_METRIC, goodDirection: 'up' },
     errorRatePct: { ...EMPTY_METRIC, goodDirection: 'down' },
     p95LatencyMs: { ...EMPTY_METRIC, goodDirection: 'down' },
+}
+
+// Harness categories derived from sampling the top 50 distinct $mcp_client_name
+// values seen in production over the past 30 days. We normalize the
+// "(via mcp-remote …)" suffix that mcp-remote injects so the underlying client
+// folds into its real harness bucket.
+const HARNESS_CATEGORIES: { category: string; match: (name: string) => boolean }[] = [
+    { category: 'Claude Code', match: (n) => n.startsWith('claude-code') },
+    {
+        category: 'Claude.ai',
+        match: (n) => n === 'claude-ai' || n === 'anthropic/claudeai',
+    },
+    { category: 'Anthropic API', match: (n) => n === 'anthropic/api' },
+    {
+        category: 'OpenAI Codex',
+        match: (n) => n.startsWith('codex') || n.startsWith('openai-mcp'),
+    },
+    { category: 'Cursor', match: (n) => n.startsWith('cursor') },
+    { category: 'VS Code', match: (n) => n.startsWith('visual studio code') },
+    { category: 'Windsurf', match: (n) => n === 'windsurf' },
+    { category: 'Replit', match: (n) => n.startsWith('replit') },
+    { category: 'Lovable', match: (n) => n.startsWith('lovable') },
+    { category: 'Manus', match: (n) => n === 'manus' },
+    { category: 'CodeRabbit', match: (n) => n === 'coderabbit' },
+    { category: 'Notion', match: (n) => n.startsWith('notion') },
+    { category: 'Poke', match: (n) => n === 'poke' },
+    { category: 'opencode', match: (n) => n === 'opencode' },
+    { category: 'Kiro', match: (n) => n.startsWith('kiro') },
+    { category: 'Desktop Commander', match: (n) => n.startsWith('desktop-commander') },
+]
+
+export function categorizeHarness(raw: string): string {
+    const stripped = raw
+        .replace(/\s*\(via mcp-remote[^)]*\)\s*/i, '')
+        .trim()
+        .toLowerCase()
+    if (!stripped) {
+        return 'Other'
+    }
+    for (const entry of HARNESS_CATEGORIES) {
+        if (entry.match(stripped)) {
+            return entry.category
+        }
+    }
+    return 'Other'
+}
+
+function aggregateHarnessRows(raw: HarnessRawRow[]): HarnessRow[] {
+    const byCategory = new Map<string, HarnessRow>()
+    for (const row of raw) {
+        const category = categorizeHarness(row.client)
+        const existing = byCategory.get(category)
+        if (existing) {
+            existing.total_calls += row.total_calls
+            existing.errors += row.errors
+            existing.sessions += row.sessions
+            existing.raw_clients.push(row.client)
+        } else {
+            byCategory.set(category, {
+                category,
+                total_calls: row.total_calls,
+                errors: row.errors,
+                error_rate_pct: 0,
+                sessions: row.sessions,
+                raw_clients: [row.client],
+            })
+        }
+    }
+    const result = [...byCategory.values()]
+    for (const r of result) {
+        r.error_rate_pct = r.total_calls ? Math.round((r.errors / r.total_calls) * 1000) / 10 : 0
+    }
+    result.sort((a, b) => b.total_calls - a.total_calls)
+    return result
 }
 
 function deltaPct(current: number, previous: number): number | null {
@@ -245,10 +349,26 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 },
             },
         ],
+        harnessRawRows: [
+            [] as HarnessRawRow[],
+            {
+                loadHarnessRows: async () => {
+                    const response = await hogqlQuery(HARNESS_ROWS_QUERY)
+                    const raw = (response?.results as unknown[][]) ?? []
+                    return raw.map((r) => ({
+                        client: String(r[0] ?? ''),
+                        total_calls: Number(r[1] ?? 0),
+                        errors: Number(r[2] ?? 0),
+                        sessions: Number(r[3] ?? 0),
+                    }))
+                },
+            },
+        ],
     }),
     selectors({
         topToolRows: [(s) => [s.toolRows], (toolRows: ToolRow[]): ToolRow[] => toolRows.slice(0, 5)],
         toolRowsTotal: [(s) => [s.toolRows], (toolRows: ToolRow[]): number => toolRows.length],
+        harnessRows: [(s) => [s.harnessRawRows], (raw: HarnessRawRow[]): HarnessRow[] => aggregateHarnessRows(raw)],
         notableSessions: [
             (s) => [s.sessionRows],
             (sessionRows: SessionRow[]): NotableSession[] => pickNotableSessions(sessionRows),
@@ -268,6 +388,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         actions.loadKPIs()
         actions.loadToolRows()
         actions.loadSessionRows()
+        actions.loadHarnessRows()
     }),
 ])
 

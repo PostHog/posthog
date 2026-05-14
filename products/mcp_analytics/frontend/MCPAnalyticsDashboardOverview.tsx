@@ -6,7 +6,7 @@ import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { KPIMetric, NotableSession, ToolRow, mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
+import { HarnessRow, KPIMetric, NotableSession, ToolRow, mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
 
 type TileColor = 'blue' | 'red' | 'green'
 
@@ -122,6 +122,8 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         toolRowsTotal,
         notableSessions,
         sessionRowsLoading,
+        harnessRows,
+        harnessRawRowsLoading,
     } = useValues(mcpDashboardOverviewLogic)
 
     const tiles: TileSpec[] = [
@@ -179,6 +181,9 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             </Block>
             <Block kicker="Tool quality" question="Which tools are the weak links?">
                 <ToolReliabilityMatrix rows={topToolRows} loading={toolRowsLoading} totalTools={toolRowsTotal} />
+            </Block>
+            <Block kicker="Surface" question="Which harnesses are calling the MCP?">
+                <HarnessBreakdown rows={harnessRows} loading={harnessRawRowsLoading} />
             </Block>
             <Block kicker="Triage" question="Which sessions should I look at?">
                 <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
@@ -272,7 +277,7 @@ function ToolRowItem({ row, maxVolume, isLast }: { row: ToolRow; maxVolume: numb
             }}
         >
             <Link
-                to={`${urls.mcpAnalyticsToolQuality()}?tool=${encodeURIComponent(row.tool)}`}
+                to={urls.mcpAnalyticsTool(row.tool)}
                 className={`truncate font-mono text-xs ${nameClass}`}
                 title={row.tool}
             >
@@ -341,6 +346,77 @@ function ToolReliabilityMatrix({
                         View all {totalTools} tools ↗
                     </Link>
                 </div>
+            )}
+        </Card>
+    )
+}
+
+const HARNESS_GRID_TEMPLATE = '160px 1fr 56px 56px'
+
+function HarnessBreakdown({ rows, loading }: { rows: HarnessRow[]; loading: boolean }): JSX.Element {
+    const maxCalls = rows.length ? Math.max(...rows.map((r) => r.total_calls)) : 0
+    const totalCalls = rows.reduce((acc, r) => acc + r.total_calls, 0)
+
+    return (
+        <Card>
+            <div
+                className="grid items-center gap-2.5 pb-1.5 text-[11px] text-secondary"
+                style={{
+                    gridTemplateColumns: HARNESS_GRID_TEMPLATE,
+                    borderBottom: '0.5px solid var(--color-border-secondary)',
+                }}
+            >
+                <span>Harness</span>
+                <span>
+                    <span className="text-[#185FA5]">Calls</span>
+                    <span className="mx-1">·</span>
+                    <span className="text-[#A32D2D]">errors</span>
+                </span>
+                <span>Err</span>
+                <span className="text-right">Share</span>
+            </div>
+            {loading && rows.length === 0 ? (
+                <div className="space-y-2 py-3">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                        <LemonSkeleton key={i} className="h-3.5 w-full" />
+                    ))}
+                </div>
+            ) : rows.length === 0 ? (
+                <div className="py-6 text-center text-[12px] text-secondary">No harness data yet.</div>
+            ) : (
+                rows.map((row, i) => {
+                    const callsPct = maxCalls ? (row.total_calls / maxCalls) * 100 : 0
+                    const errorsPct = maxCalls ? (row.errors / maxCalls) * 100 : 0
+                    const successPct = Math.max(callsPct - errorsPct, 0)
+                    const share = totalCalls ? (row.total_calls / totalCalls) * 100 : 0
+                    const tooltip = row.raw_clients.slice(0, 8).join(', ')
+                    return (
+                        <div
+                            key={row.category}
+                            className="grid items-center gap-2.5 py-1.5"
+                            style={{
+                                gridTemplateColumns: HARNESS_GRID_TEMPLATE,
+                                borderBottom:
+                                    i === rows.length - 1 ? 'none' : '0.5px solid var(--color-border-tertiary)',
+                            }}
+                        >
+                            <span className="truncate text-xs text-primary" title={tooltip}>
+                                {row.category}
+                            </span>
+                            <div
+                                className="relative flex h-[14px] overflow-hidden rounded-[3px] bg-surface-secondary"
+                                title={`${row.total_calls} calls · ${row.errors} errors · ${row.sessions} sessions`}
+                            >
+                                <div className="h-full bg-[#B5D4F4]" style={{ width: `${successPct}%` }} />
+                                <div className="h-full bg-[#F09595]" style={{ width: `${errorsPct}%` }} />
+                            </div>
+                            <ErrorRatePill pct={row.error_rate_pct} />
+                            <span className="text-right font-mono text-xs text-primary">
+                                {share.toFixed(share >= 10 ? 0 : 1)}%
+                            </span>
+                        </div>
+                    )
+                })
             )}
         </Card>
     )
