@@ -10,6 +10,7 @@ from asgiref.sync import async_to_sync
 from celery import shared_task
 from prometheus_client import Counter
 
+from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 
@@ -206,6 +207,7 @@ def enqueue_csp_violation_signals(team_id: int, properties_list: list[dict]) -> 
     soft_time_limit=CSP_SIGNAL_TASK_SOFT_TIME_LIMIT_SECONDS,
     time_limit=CSP_SIGNAL_TASK_TIME_LIMIT_SECONDS,
 )
+@with_team_scope()
 def emit_csp_violation_signals_task(team_id: int, signals: list[dict]) -> None:
     from products.signals.backend.api import emit_signal
 

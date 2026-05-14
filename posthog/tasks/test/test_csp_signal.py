@@ -285,11 +285,16 @@ class TestCSPSignalTask(BaseTest):
             assert c.kwargs["team"].id == self.team.id
 
     @patch("products.signals.backend.api.emit_signal")
-    def test_task_swallows_missing_team(self, mock_emit_signal: MagicMock) -> None:
-        emit_csp_violation_signals_task(
-            team_id=999_999_999,
-            signals=[{"source_id": "csp:a", "description": "d", "extra": {}}],
-        )
+    def test_task_raises_when_team_missing(self, mock_emit_signal: MagicMock) -> None:
+        import pytest
+
+        from posthog.models.scoping.manager import TeamScopeError
+
+        with pytest.raises(TeamScopeError):
+            emit_csp_violation_signals_task(
+                team_id=999_999_999,
+                signals=[{"source_id": "csp:a", "description": "d", "extra": {}}],
+            )
         mock_emit_signal.assert_not_called()
 
     @patch("products.signals.backend.api.emit_signal")
