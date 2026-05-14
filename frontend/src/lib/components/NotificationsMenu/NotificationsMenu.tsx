@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { IconNotification } from '@posthog/icons'
 
+import { FloatingConcierge } from 'lib/components/ConciergeModal/FloatingConcierge'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
@@ -14,7 +15,7 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element => {
     const { activePanelIdentifier, isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { setActivePanelIdentifier, showLayoutPanel, closePanel } = useActions(panelLayoutLogic)
-    const { inAppUnreadCount } = useValues(sidePanelNotificationsLogic)
+    const { inAppUnreadCount, hasUnreadConcierge } = useValues(sidePanelNotificationsLogic)
     const [badgePulse, setBadgePulse] = useState(false)
     const prevCountRef = useRef(inAppUnreadCount)
 
@@ -39,33 +40,36 @@ export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }):
     }
 
     return (
-        <ButtonPrimitive
-            tooltip={iconOnly ? 'Notifications' : undefined}
-            tooltipPlacement="right"
-            tooltipCloseDelayMs={0}
-            iconOnly={iconOnly}
-            menuItem={!iconOnly}
-            active={isActive}
-            onClick={handleClick}
-            className="group"
-            data-attr="notifications-menu-button"
-        >
-            <span
-                className={cn(
-                    'flex text-secondary group-hover:text-primary transition-transform duration-300',
-                    badgePulse ? 'scale-125' : 'scale-100'
-                )}
+        <>
+            {hasUnreadConcierge && <FloatingConcierge />}
+            <ButtonPrimitive
+                tooltip={iconOnly ? 'Notifications' : undefined}
+                tooltipPlacement="right"
+                tooltipCloseDelayMs={0}
+                iconOnly={iconOnly}
+                menuItem={!iconOnly}
+                active={isActive}
+                onClick={handleClick}
+                className="group"
+                data-attr="notifications-menu-button"
             >
-                <IconWithCount count={inAppUnreadCount} size="xsmall">
-                    <IconNotification className="size-4.5" />
-                </IconWithCount>
-            </span>
-            {!iconOnly && (
-                <>
-                    <span className="-ml-[2px]">Notifications</span>
-                    <MenuOpenIndicator direction="right" />
-                </>
-            )}
-        </ButtonPrimitive>
+                <span
+                    className={cn(
+                        'flex text-secondary group-hover:text-primary transition-transform duration-300',
+                        badgePulse ? 'scale-125' : 'scale-100'
+                    )}
+                >
+                    <IconWithCount count={inAppUnreadCount} size="xsmall">
+                        <IconNotification className="size-4.5" />
+                    </IconWithCount>
+                </span>
+                {!iconOnly && (
+                    <>
+                        <span className="-ml-[2px]">Notifications</span>
+                        <MenuOpenIndicator direction="right" />
+                    </>
+                )}
+            </ButtonPrimitive>
+        </>
     )
 }

@@ -501,6 +501,16 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
         ],
         hasNotifications: [(s) => [s.notifications], (notifications) => !!notifications.length],
+        hasUnreadConcierge: [
+            (s) => [s.inAppNotifications],
+            (inAppNotifications): boolean =>
+                inAppNotifications.some((n) => n.notification_type === 'concierge' && !n.read),
+        ],
+        firstUnreadConcierge: [
+            (s) => [s.inAppNotifications],
+            (inAppNotifications): InAppNotification | null =>
+                inAppNotifications.find((n) => n.notification_type === 'concierge' && !n.read) ?? null,
+        ],
         unreadCount: [
             (s) => [s.realTimeNotificationsEnabled, s.legacyNotifications, s.inAppUnreadCount],
             (realTimeEnabled, legacyNotifications, inAppUnreadCount): number => {
