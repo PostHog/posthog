@@ -174,6 +174,15 @@ devbox:
     devbox:task:
         click: hogli_commands.devbox.cli:devbox_task
         description: Run a background agent task on a fresh devbox
+    devbox:secret:list:
+        click: hogli_commands.devbox.cli:devbox_secret_list
+        description: List your Coder user secrets
+    devbox:secret:set:
+        click: hogli_commands.devbox.cli:devbox_secret_set
+        description: Create or replace a Coder user secret
+    devbox:secret:rm:
+        click: hogli_commands.devbox.cli:devbox_secret_rm
+        description: Delete a Coder user secret
 devenv:
     dev:setup:
         click: hogli_commands.devenv.cli:dev_setup
