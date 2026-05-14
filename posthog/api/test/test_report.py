@@ -523,10 +523,12 @@ class TestCspReport(BaseTest):
         warning_calls = [c for c in mock_logger.warning.call_args_list if c[0][0] == "csp_signal_team_cache_miss"]
         assert len(warning_calls) == 1
 
-    @patch("posthog.api.report.capture_internal")
+    @patch("posthog.api.report.capture_batch_internal")
     @patch("posthog.api.report.enqueue_csp_violation_signals")
-    def test_csp_signal_called_once_with_full_batch(self, mock_enqueue, mock_capture):
-        mock_capture.return_value = MagicMock(status_code=204)
+    def test_csp_signal_called_once_with_full_batch(self, mock_enqueue, mock_capture_batch):
+        future = MagicMock()
+        future.result.return_value = MagicMock(status_code=204)
+        mock_capture_batch.return_value = [future, future]
         from posthog.models.team import set_team_in_cache
 
         set_team_in_cache(self.team.api_token, self.team)
