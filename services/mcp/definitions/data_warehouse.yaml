@@ -204,6 +204,27 @@ tools:
     query-tab-state-user-retrieve:
         operation: query_tab_state_user_retrieve
         enabled: false
+    tenant-query-config-create:
+        operation: tenant_query_config_create
+        enabled: false
+    tenant-query-config-load-create:
+        operation: tenant_query_config_load_create
+        enabled: false
+    tenant-query-create:
+        operation: tenant_query_create
+        enabled: false
+    tenant-query-errors-summary-create:
+        operation: tenant_query_errors_summary_create
+        enabled: false
+    tenant-query-execution-create:
+        operation: tenant_query_execution_create
+        enabled: false
+    tenant-query-executions-create:
+        operation: tenant_query_executions_create
+        enabled: false
+    tenant-query-usage-summary-create:
+        operation: tenant_query_usage_summary_create
+        enabled: false
     warehouse-dag-list:
         operation: warehouse_dag_list
         enabled: false
