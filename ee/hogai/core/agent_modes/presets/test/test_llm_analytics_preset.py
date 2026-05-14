@@ -19,6 +19,10 @@ class TestLLMAnalyticsAgentToolkit(BaseTest):
         tool_class_names = [tool_class.__name__ for tool_class in tool_classes]
 
         self.assertIn("SearchLLMTracesTool", tool_class_names)
+        self.assertIn("RunHogEvalTestTool", tool_class_names)
+        self.assertIn("CreateLLMSkillTool", tool_class_names)
+        self.assertIn("UpdateLLMSkillTool", tool_class_names)
+        self.assertIn("ArchiveLLMSkillTool", tool_class_names)
 
     def test_toolkit_has_trajectory_examples(self):
         self.assertIsNotNone(LLMAnalyticsAgentToolkit.POSITIVE_TODO_EXAMPLES)

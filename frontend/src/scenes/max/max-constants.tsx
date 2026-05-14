@@ -135,6 +135,9 @@ export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
     'list_data',
     'search',
     'switch_mode',
+    'list_llm_skills',
+    'get_llm_skill',
+    'get_llm_skill_file',
 ]
 
 export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
@@ -1030,6 +1033,88 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Tested evaluation code'
             }
             return 'Testing evaluation code...'
+        },
+    },
+    list_llm_skills: {
+        name: 'List shared skills',
+        description: 'List shared agent skills stored for this team',
+        icon: <IconBook />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Listed shared skills'
+            }
+            return 'Listing shared skills...'
+        },
+    },
+    get_llm_skill: {
+        name: 'Load shared skill',
+        description: 'Fetch a shared skill body and file manifest',
+        icon: <IconBook />,
+        displayFormatter: (toolCall) => {
+            const name = toolCall.args?.skill_name
+            const suffix = typeof name === 'string' && name ? ` "${name}"` : ''
+            if (toolCall.status === 'completed') {
+                return `Loaded shared skill${suffix}`
+            }
+            return `Loading shared skill${suffix}...`
+        },
+    },
+    get_llm_skill_file: {
+        name: 'Load shared skill file',
+        description: 'Fetch a bundled file from a shared skill',
+        icon: <IconBook />,
+        displayFormatter: (toolCall) => {
+            const path = toolCall.args?.file_path
+            const suffix = typeof path === 'string' && path ? ` "${path}"` : ''
+            if (toolCall.status === 'completed') {
+                return `Loaded skill file${suffix}`
+            }
+            return `Loading skill file${suffix}...`
+        },
+    },
+    create_llm_skill: {
+        name: 'Create shared skill',
+        description: 'Save a workflow as a shared agent skill',
+        product: Scene.LLMAnalytics,
+        icon: <IconBook />,
+        modes: [AgentMode.LLMAnalytics],
+        displayFormatter: (toolCall) => {
+            const name = toolCall.args?.name
+            const suffix = typeof name === 'string' && name ? ` "${name}"` : ''
+            if (toolCall.status === 'completed') {
+                return `Created shared skill${suffix}`
+            }
+            return `Creating shared skill${suffix}...`
+        },
+    },
+    update_llm_skill: {
+        name: 'Update shared skill',
+        description: 'Publish a new version of an existing shared skill',
+        product: Scene.LLMAnalytics,
+        icon: <IconBook />,
+        modes: [AgentMode.LLMAnalytics],
+        displayFormatter: (toolCall) => {
+            const name = toolCall.args?.skill_name
+            const suffix = typeof name === 'string' && name ? ` "${name}"` : ''
+            if (toolCall.status === 'completed') {
+                return `Updated shared skill${suffix}`
+            }
+            return `Updating shared skill${suffix}...`
+        },
+    },
+    archive_llm_skill: {
+        name: 'Archive shared skill',
+        description: 'Archive a shared agent skill',
+        product: Scene.LLMAnalytics,
+        icon: <IconBook />,
+        modes: [AgentMode.LLMAnalytics],
+        displayFormatter: (toolCall) => {
+            const name = toolCall.args?.skill_name
+            const suffix = typeof name === 'string' && name ? ` "${name}"` : ''
+            if (toolCall.status === 'completed') {
+                return `Archived shared skill${suffix}`
+            }
+            return `Archiving shared skill${suffix}...`
         },
     },
 }
