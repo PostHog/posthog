@@ -27,6 +27,7 @@ from .run_evaluation import (
     RunEvaluationWorkflow,
     SendEvaluationDisabledEmailInputs,
     SendTrialUsageEmailInputs,
+    _source_event_has_real_user_context,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     execute_hog_eval_activity,
@@ -1275,6 +1276,92 @@ class TestExtractEventTools:
 
     def test_returns_none_when_property_missing(self):
         assert extract_event_tools({}) is None
+
+
+class TestSourceEventHasRealUserContext:
+    """Gate for the eval-signal pipeline: only emit signals on events that
+    originated from a real end user, not internal LLM-to-LLM classifier
+    traces (signals safety filter, session-summary workflow, etc.)."""
+
+    @parameterized.expand(
+        [
+            (
+                "session_id_present",
+                {
+                    "distinct_id": "anon-uuid",
+                    "properties": {"$session_id": "sess-123", "$ai_trace_id": "anon-uuid"},
+                },
+                True,
+            ),
+            (
+                "real_distinct_id_no_session",
+                {
+                    "distinct_id": "user-abc",
+                    "properties": {"$ai_trace_id": "trace-xyz"},
+                },
+                True,
+            ),
+            (
+                "sdk_fallback_distinct_id_matches_trace_id",
+                {
+                    "distinct_id": "trace-xyz",
+                    "properties": {"$ai_trace_id": "trace-xyz"},
+                },
+                False,
+            ),
+            (
+                "process_person_profile_false",
+                {
+                    "distinct_id": "user-abc",
+                    "properties": {"$ai_trace_id": "trace-xyz", "$process_person_profile": False},
+                },
+                False,
+            ),
+            (
+                "no_distinct_id_no_session",
+                {
+                    "distinct_id": "",
+                    "properties": {"$ai_trace_id": "trace-xyz"},
+                },
+                False,
+            ),
+            (
+                "session_id_wins_over_sdk_fallback",
+                {
+                    "distinct_id": "trace-xyz",
+                    "properties": {
+                        "$session_id": "sess-456",
+                        "$ai_trace_id": "trace-xyz",
+                        "$process_person_profile": False,
+                    },
+                },
+                True,
+            ),
+            (
+                "blank_session_id_falls_through",
+                {
+                    "distinct_id": "trace-xyz",
+                    "properties": {"$session_id": "   ", "$ai_trace_id": "trace-xyz"},
+                },
+                False,
+            ),
+            (
+                "properties_as_json_string",
+                {
+                    "distinct_id": "user-abc",
+                    "properties": json.dumps({"$session_id": "sess-789"}),
+                },
+                True,
+            ),
+            (
+                "missing_properties_dict",
+                {"distinct_id": "user-abc"},
+                True,
+            ),
+        ]
+    )
+    def test_gate(self, _name: str, event_data: dict[str, Any], expected: bool) -> None:
+        assert _source_event_has_real_user_context(event_data) is expected
 
 
 class TestJudgePromptAssembly:

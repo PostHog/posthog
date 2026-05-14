@@ -499,6 +499,41 @@ def _is_errored_trace(properties: dict[str, Any]) -> bool:
     return False
 
 
+def _source_event_has_real_user_context(event_data: dict[str, Any]) -> bool:
+    """Return True when the source $ai_generation event came from a real end user.
+
+    Internal PostHog pipelines (signals safety filter, session-summary workflow, etc.) emit
+    $ai_generation via the AI SDK wrappers without passing `posthog_distinct_id` or a session id.
+    In that case the SDK auto-assigns a UUID `distinct_id` that matches `$ai_trace_id` and sets
+    `$process_person_profile=False`. A "user frustration" style judge that runs over these
+    events will confabulate a frustrated user out of LLM-to-LLM classifier traces, so we gate
+    signal emission on a real-user marker.
+    """
+    properties = event_data.get("properties") or {}
+    if isinstance(properties, str):
+        try:
+            properties = json.loads(properties)
+        except (ValueError, TypeError):
+            return False
+
+    session_id = (properties.get("$session_id") or "").strip()
+    if session_id:
+        return True
+
+    distinct_id = (event_data.get("distinct_id") or "").strip()
+    if not distinct_id:
+        return False
+
+    ai_trace_id = (properties.get("$ai_trace_id") or "").strip()
+    if distinct_id == ai_trace_id:
+        return False
+
+    if properties.get("$process_person_profile") is False:
+        return False
+
+    return True
+
+
 def _build_errored_trace_result(allows_na: bool) -> LLMJudgeResult:
     """Result returned when the source trace errored — skips the LLM call entirely.
 
@@ -1310,52 +1345,60 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             if isinstance(properties, str):
                 properties = json.loads(properties)
 
-            signal_inputs = EmitEvalSignalInputs(
-                team_id=evaluation["team_id"],
-                evaluation_id=evaluation["id"],
-                evaluation_name=evaluation.get("name", "Unknown evaluation"),
-                evaluation_prompt=(evaluation.get("evaluation_config") or {}).get("prompt", ""),
-                event_uuid=event_uuid,
-                event_type=inputs.event_data.get("event", ""),
-                trace_id=properties.get("$ai_trace_id", ""),
-                reasoning=result.get("reasoning", ""),
-                model=result.get("model", ""),
-                provider=result.get("provider", ""),
-            )
+            if not _source_event_has_real_user_context(inputs.event_data):
+                temporalio.workflow.logger.info(
+                    "Skipping eval signal: source event lacks real user context",
+                    evaluation_id=evaluation["id"],
+                    team_id=evaluation["team_id"],
+                    event_uuid=event_uuid,
+                )
+            else:
+                signal_inputs = EmitEvalSignalInputs(
+                    team_id=evaluation["team_id"],
+                    evaluation_id=evaluation["id"],
+                    evaluation_name=evaluation.get("name", "Unknown evaluation"),
+                    evaluation_prompt=(evaluation.get("evaluation_config") or {}).get("prompt", ""),
+                    event_uuid=event_uuid,
+                    event_type=inputs.event_data.get("event", ""),
+                    trace_id=properties.get("$ai_trace_id", ""),
+                    reasoning=result.get("reasoning", ""),
+                    model=result.get("model", ""),
+                    provider=result.get("provider", ""),
+                )
 
-            if temporalio.workflow.patched("emit-eval-signal-v2"):
-                try:
-                    await temporalio.workflow.start_child_workflow(
-                        EmitEvalSignalWorkflow.run,
-                        signal_inputs,
-                        id=f"emit-eval-signal-{evaluation['team_id']}-{evaluation['id']}-{event_uuid}",
-                        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                        parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                        execution_timeout=timedelta(minutes=5),
-                    )
-                except Exception:
-                    # Don't fail the workflow if signal emission fails
-                    temporalio.workflow.logger.exception(
-                        "Failed to start eval signal workflow",
-                        evaluation_id=evaluation["id"],
-                        team_id=evaluation["team_id"],
-                    )
-            elif temporalio.workflow.patched("emit-eval-signal-v1"):
-                # Legacy path for in-flight v1 workflows — remove once all v1 executions complete
-                try:
-                    await temporalio.workflow.execute_activity(
-                        emit_eval_signal_activity,
-                        signal_inputs,
-                        schedule_to_close_timeout=timedelta(seconds=120),
-                        retry_policy=RetryPolicy(maximum_attempts=2),
-                    )
-                except Exception:
-                    temporalio.workflow.logger.exception(
-                        "Failed to emit eval signal",
-                        evaluation_id=evaluation["id"],
-                        team_id=evaluation["team_id"],
-                    )
+                if temporalio.workflow.patched("emit-eval-signal-v2"):
+                    try:
+                        await temporalio.workflow.start_child_workflow(
+                            EmitEvalSignalWorkflow.run,
+                            signal_inputs,
+                            id=f"emit-eval-signal-{evaluation['team_id']}-{evaluation['id']}-{event_uuid}",
+                            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                            parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                            execution_timeout=timedelta(minutes=5),
+                        )
+                    except Exception:
+                        # Don't fail the workflow if signal emission fails
+                        temporalio.workflow.logger.exception(
+                            "Failed to start eval signal workflow",
+                            evaluation_id=evaluation["id"],
+                            team_id=evaluation["team_id"],
+                        )
+                elif temporalio.workflow.patched("emit-eval-signal-v1"):
+                    # Legacy path for in-flight v1 workflows — remove once all v1 executions complete
+                    try:
+                        await temporalio.workflow.execute_activity(
+                            emit_eval_signal_activity,
+                            signal_inputs,
+                            schedule_to_close_timeout=timedelta(seconds=120),
+                            retry_policy=RetryPolicy(maximum_attempts=2),
+                        )
+                    except Exception:
+                        temporalio.workflow.logger.exception(
+                            "Failed to emit eval signal",
+                            evaluation_id=evaluation["id"],
+                            team_id=evaluation["team_id"],
+                        )
 
         workflow_result: WorkflowResult = {
             "verdict": result["verdict"],
