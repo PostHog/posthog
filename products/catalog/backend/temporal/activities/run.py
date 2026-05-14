@@ -27,6 +27,7 @@ class TraversalCounts:
     columns: int = 0
     relationships: int = 0
     descriptions: int = 0
+    metrics: int = 0
 
 
 @dataclass
@@ -85,6 +86,7 @@ def _complete_traversal_run_sync(args: CompleteRunArgs) -> None:
         columns_processed=args.counts.columns,
         relationships_proposed=args.counts.relationships,
         descriptions_generated=args.counts.descriptions,
+        metrics_proposed=args.counts.metrics,
     )
 
 

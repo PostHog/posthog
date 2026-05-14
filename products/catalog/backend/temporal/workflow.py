@@ -27,6 +27,10 @@ from products.catalog.backend.temporal.activities.enumerate import (
     enumerate_saved_queries,
     enumerate_warehouse_tables,
 )
+from products.catalog.backend.temporal.activities.metric_proposal import (
+    count_metrics_for_run,
+    spawn_catalog_metric_proposal_task,
+)
 from products.catalog.backend.temporal.activities.propose import propose_saved_query_lineage, propose_warehouse_joins
 from products.catalog.backend.temporal.activities.run import (
     CompleteRunArgs,
@@ -39,6 +43,9 @@ from products.catalog.backend.temporal.activities.run import (
 )
 from products.catalog.backend.temporal.activities.upsert import UpsertNodeBatchArgs, upsert_node_batch
 from products.catalog.backend.temporal.constants import (
+    AGENT_METRIC_SPAWN_ACTIVITY_TIMEOUT,
+    AGENT_METRIC_WAIT_ACTIVITY_TIMEOUT,
+    AGENT_METRIC_WAIT_HEARTBEAT_TIMEOUT,
     AGENT_SPAWN_ACTIVITY_TIMEOUT,
     AGENT_WAIT_ACTIVITY_TIMEOUT,
     AGENT_WAIT_HEARTBEAT_TIMEOUT,
@@ -74,6 +81,7 @@ class CatalogTraversalResult:
     columns: int = 0
     relationships: int = 0
     descriptions: int = 0
+    metrics: int = 0
 
 
 @workflow.defn(name=WORKFLOW_NAME)
@@ -187,6 +195,36 @@ class CatalogTraversalWorkflow(PostHogWorkflow):
                 retry_policy=DEFAULT_RETRY_POLICY,
             )
 
+            # --- Agentic phase: metric-proposal pass ---
+            # Runs after descriptions land so the metric agent can read them
+            # while reasoning. It walks dashboards / insights / activity log /
+            # app_metrics to surface AARRR-level metrics the team already
+            # tracks, and writes each via catalog-metrics-create.
+            # `wait_for_task_run_completion` is generic over agent passes; we
+            # reuse the same activity used by the description pass above.
+            metric_pass_started_at = workflow.now().isoformat()
+            metric_task_run_id = await workflow.execute_activity(
+                spawn_catalog_metric_proposal_task,
+                inputs.team_id,
+                start_to_close_timeout=AGENT_METRIC_SPAWN_ACTIVITY_TIMEOUT,
+                retry_policy=DEFAULT_RETRY_POLICY,
+            )
+            metric_status = await workflow.execute_activity(
+                wait_for_task_run_completion,
+                metric_task_run_id,
+                start_to_close_timeout=AGENT_METRIC_WAIT_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=AGENT_METRIC_WAIT_HEARTBEAT_TIMEOUT,
+                retry_policy=DEFAULT_RETRY_POLICY,
+            )
+            if metric_status != "completed":
+                raise RuntimeError(f"Catalog metric-proposal task ended in non-COMPLETED status: {metric_status}")
+            counts.metrics = await workflow.execute_activity(
+                count_metrics_for_run,
+                args=[inputs.team_id, metric_pass_started_at],
+                start_to_close_timeout=RUN_LIFECYCLE_ACTIVITY_TIMEOUT,
+                retry_policy=DEFAULT_RETRY_POLICY,
+            )
+
             await workflow.execute_activity(
                 complete_traversal_run,
                 CompleteRunArgs(run_id=run_id, counts=counts),
@@ -214,4 +252,5 @@ class CatalogTraversalWorkflow(PostHogWorkflow):
             columns=counts.columns,
             relationships=counts.relationships,
             descriptions=counts.descriptions,
+            metrics=counts.metrics,
         )

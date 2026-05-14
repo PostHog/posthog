@@ -9,6 +9,10 @@ from products.catalog.backend.temporal.activities.enumerate import (
     enumerate_saved_queries,
     enumerate_warehouse_tables,
 )
+from products.catalog.backend.temporal.activities.metric_proposal import (
+    count_metrics_for_run,
+    spawn_catalog_metric_proposal_task,
+)
 from products.catalog.backend.temporal.activities.propose import propose_saved_query_lineage, propose_warehouse_joins
 from products.catalog.backend.temporal.activities.run import (
     complete_traversal_run,
@@ -28,6 +32,7 @@ __all__ = [
     "UpsertNodeBatchArgs",
     "complete_traversal_run",
     "count_descriptions_for_run",
+    "count_metrics_for_run",
     "create_traversal_run",
     "enumerate_saved_queries",
     "enumerate_warehouse_tables",
@@ -35,6 +40,7 @@ __all__ = [
     "propose_saved_query_lineage",
     "propose_warehouse_joins",
     "spawn_catalog_agent_task",
+    "spawn_catalog_metric_proposal_task",
     "upsert_node_batch",
     "wait_for_task_run_completion",
 ]

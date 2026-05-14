@@ -153,6 +153,7 @@ class CatalogTraversalRun(UUIDModel):
     columns_processed = models.IntegerField(default=0)
     relationships_proposed = models.IntegerField(default=0)
     descriptions_generated = models.IntegerField(default=0)
+    metrics_proposed = models.IntegerField(default=0)
 
     generator_model = models.CharField(max_length=64, null=True, blank=True)
     config = models.JSONField(default=dict, blank=True)

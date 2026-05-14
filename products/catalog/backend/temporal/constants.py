@@ -58,3 +58,11 @@ AGENT_SPAWN_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 # workflow's except clause runs fail_traversal_run.
 AGENT_WAIT_ACTIVITY_TIMEOUT = timedelta(minutes=30)
 AGENT_WAIT_HEARTBEAT_TIMEOUT = timedelta(minutes=2)
+
+# Agent metric-proposal-pass activities. Same shape as the description pass,
+# kept distinct so timeout tuning can diverge as we learn how long the metric
+# agent takes in practice (it walks dashboards + insights rather than schema,
+# so the access pattern is different).
+AGENT_METRIC_SPAWN_ACTIVITY_TIMEOUT = timedelta(seconds=60)
+AGENT_METRIC_WAIT_ACTIVITY_TIMEOUT = timedelta(minutes=30)
+AGENT_METRIC_WAIT_HEARTBEAT_TIMEOUT = timedelta(minutes=2)
