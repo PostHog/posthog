@@ -7587,6 +7587,37 @@ export namespace Schemas {
       value: string;
     }
 
+    export interface ComposeTicket {
+      /** Recipient email address. */
+      recipient_email: string;
+      /**
+         * PostHog distinct_id to link the ticket to a person. Falls back to recipient_email.
+         * @maxLength 400
+         */
+      recipient_distinct_id?: string;
+      /**
+         * Email subject line.
+         * @maxLength 500
+         */
+      email_subject?: string;
+      /** ID of the EmailChannel to send from. */
+      email_config_id: string;
+      /**
+         * Message content in markdown.
+         * @maxLength 5000
+         */
+      message: string;
+      /** TipTap rich content JSON for formatted messages. */
+      rich_content?: unknown;
+    }
+
+    export interface ComposeTicketResponse {
+      /** Created ticket UUID. */
+      id: string;
+      /** Human-readable ticket number. */
+      ticket_number: number;
+    }
+
     /**
      * * `won` - won
     * `lost` - lost
