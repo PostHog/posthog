@@ -1379,12 +1379,17 @@ export type TrendsFilter = {
     /** @default false */
     showAlertThresholdLines?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
+    // The aggregation-axis description below is duplicated, intentionally and divergently, on
+    // `AssistantTrendsFilter` in schema-assistant-queries.ts. The assistant copy is deliberately
+    // more cautious ("do not use unless absolutely sure") because Max picks formats without explicit
+    // query context; this copy is more prescriptive because MCP callers know the units up front.
+    // Keep both in sync when the format set changes, but treat their wording as audience-specific.
     /**
      * Y-axis value formatter. Picks a human-friendly unit per value at render time without changing the underlying series values.
      *
      * - `numeric` (default): raw numbers, e.g. `1,234`.
-     * - `duration`: values are in seconds; rendered as friendly units per value (`1.5s`, `2m 12s`, `1h 4m`). Use this whenever the series is in seconds (latency, session length, time-to-event) instead of dividing in `formula` to force minutes or hours.
-     * - `duration_ms`: values are in milliseconds; rendered as friendly units (`850ms`, `2.0s`, `1m 4.0s`).
+     * - `duration`: values are in seconds; rendered as friendly units per value (`45s`, `2m 12s`, `1h 4m`). Use this whenever the series is in seconds (latency, session length, time-to-event) instead of dividing in `formula` to force minutes or hours.
+     * - `duration_ms`: values are in milliseconds; rendered as friendly units (`850ms`, `1.5s`, `1m 4s`).
      * - `percentage`: values are already in the 0-100 range; appends `%`.
      * - `percentage_scaled`: values are a 0-1 ratio; multiplied and rendered as `%`.
      * - `currency`: values are in the project's base currency (set in project settings, defaults to USD); rendered with that currency symbol. For values pinned to a specific currency regardless of project base (e.g. `$ai_total_cost_usd` is always USD), use `aggregationAxisPrefix` instead.

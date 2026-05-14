@@ -6,8 +6,9 @@ description: >
   is about to add a `formula` purely to convert units (e.g. dividing seconds
   by 60 to display minutes), when a `math_property` is a duration, currency,
   ratio, or large count, or whenever the user mentions "format the y-axis",
-  "duration", "seconds", "minutes", "hours", "percentage", "currency",
-  "decimals", "axis label", or "axis unit" in the context of a graph insight.
+  "duration", "seconds", "minutes", "hours", "milliseconds", "ms",
+  "percentage", "currency", "decimals", "axis label", or "axis unit" in the
+  context of a graph insight.
 ---
 
 # Formatting insight axes
@@ -32,15 +33,15 @@ correct for further math, breakdowns, and alerts.
 
 Set `trendsFilter.aggregationAxisFormat` on the TrendsQuery:
 
-| Value               | Use when the series is...                | Renders as                   |
-| ------------------- | ---------------------------------------- | ---------------------------- |
-| `numeric` (default) | a plain count                            | `1,234`                      |
-| `duration`          | **seconds** (any scale)                  | `1.5s`, `2m 12s`, `1h 4m`    |
-| `duration_ms`       | **milliseconds**                         | `850ms`, `2.0s`, `1m 4.0s`   |
-| `percentage`        | already 0-100                            | `47.3%`                      |
-| `percentage_scaled` | a ratio 0-1                              | `47.3%`                      |
-| `currency`          | money in the **project's base currency** | rendered with project symbol |
-| `short`             | large counts you want compacted          | `1.2K`, `3.4M`               |
+| Value               | Use when the series is...                | Renders as                  |
+| ------------------- | ---------------------------------------- | --------------------------- |
+| `numeric` (default) | a plain count                            | `1,234`                     |
+| `duration`          | **seconds** (any scale)                  | `45s`, `2m 12s`, `1h 4m`    |
+| `duration_ms`       | **milliseconds**                         | `850ms`, `1.5s`, `1m 4s`    |
+| `percentage`        | already 0-100                            | `47.3%`                     |
+| `percentage_scaled` | a ratio 0-1                              | `47.3%`                     |
+| `currency`          | money in the **project's base currency** | `$1,234.56` (or local code) |
+| `short`             | large counts you want compacted          | `1.2K`, `3.4M`              |
 
 Companion fields on `trendsFilter`:
 
@@ -63,24 +64,28 @@ If the values are pinned to a specific currency regardless of project (e.g.
 data. Using `format: "currency"` here would render USD values with `€` on a
 EUR project.
 
-## When seconds appear, offer the choice
+## When the series is in seconds
 
 If the series is in seconds (latency, session length, time-to-first-event,
-processing time, page load, etc.) and the user has not already specified a
-unit, default to `aggregationAxisFormat: "duration"`. If the user explicitly
-asked for "minutes" or "hours" as a fixed unit:
+processing time, page load, etc.), silently default to
+`aggregationAxisFormat: "duration"`. Do not stop to ask — the formatter is
+non-destructive (the underlying values stay in seconds either way, only the
+labels change), so picking it is always at least as good as raw seconds.
 
-> "I can show this with PostHog's `duration` formatter, which auto-picks
-> seconds / minutes / hours per value — values like `90s` render as `1m 30s`
-> and `5400s` render as `1h 30m`. Or I can fix the y-axis to minutes by
-> dividing by 60. Which do you prefer?"
+Only confirm with the user when they have **explicitly** named a fixed unit
+they want pinned ("show this in minutes", "graph the average in hours"):
 
-Default to `duration` unless the user wants the fixed unit. The series stays
-in seconds either way — only the display changes.
+> "I can pin the y-axis to minutes by dividing the series by 60, or use
+> PostHog's `duration` formatter which auto-picks seconds / minutes / hours
+> per value — `90s` renders as `1m 30s` and `5400s` as `1h 30m`. Which would
+> you prefer?"
+
+In one-shot MCP contexts where no user is in the loop, just pick `duration`
+and move on.
 
 ## Examples
 
-### Latency — duration over time
+### Latency — duration in milliseconds
 
 ```json
 {
@@ -144,6 +149,19 @@ in seconds either way — only the display changes.
 
 ```json
 {
+  "kind": "TrendsQuery",
+  "series": [
+    {
+      "kind": "EventsNode",
+      "event": "checkout_completed",
+      "math": "dau"
+    },
+    {
+      "kind": "EventsNode",
+      "event": "checkout_started",
+      "math": "dau"
+    }
+  ],
   "trendsFilter": {
     "formula": "A / B",
     "aggregationAxisFormat": "percentage_scaled",
@@ -154,8 +172,9 @@ in seconds either way — only the display changes.
 
 ## Updating an existing insight
 
-If you find a saved insight that already uses the `formula`/`postfix`
-anti-pattern, offer to fix it with `posthog:insight-update` — drop the
-divide-by-N, drop the `aggregationAxisPostfix`, and set the matching
-`aggregationAxisFormat`. The series values stay the same, only the labels
-change.
+If you are updating an insight and notice it already uses the
+`formula`/`postfix` anti-pattern, fix it in the same `posthog:insight-update`
+call — drop the divide-by-N, drop the `aggregationAxisPostfix`, and set the
+matching `aggregationAxisFormat`. The series values stay the same, only the
+labels change. Do not go scanning unrelated insights for this pattern —
+fix only the ones you are already touching.
