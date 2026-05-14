@@ -356,7 +356,10 @@ export const SETTINGS_MAP: SettingSection[] = [
         group: 'PostHog Code',
         groupTitle: (
             <>
-                PostHog Code <LemonTag type="highlight">NEW</LemonTag>
+                PostHog Code{' '}
+                <LemonTag type="highlight" className="ml-1">
+                    NEW
+                </LemonTag>
             </>
         ),
         flag: 'TASKS',
