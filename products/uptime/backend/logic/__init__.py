@@ -562,6 +562,8 @@ def create_incident(
     name: str,
     description: str = "",
     started_at: datetime | None = None,
+    resolved_at: datetime | None = None,
+    resolution_note: str = "",
 ) -> Incident:
     # Confirm the monitor exists in this team before creating the incident — the FK alone would
     # accept any monitor_id since the manager auto-scopes.
@@ -572,6 +574,8 @@ def create_incident(
         name=name,
         description=description,
         started_at=started_at or timezone.now(),
+        resolved_at=resolved_at,
+        resolution_note=resolution_note,
     )
 
 
@@ -669,6 +673,52 @@ def list_public_incidents_for_monitors(*, monitor_ids: list[UUID]) -> tuple[list
         .order_by("-resolved_at")[:RESOLVED_INCIDENT_PUBLIC_LIMIT]
     )
     return ongoing, recent
+
+
+OUTAGE_DEFAULT_DAYS = 7
+
+
+def list_outages_for_monitor(*, team_id: int, monitor_id: UUID, days: int = OUTAGE_DEFAULT_DAYS) -> list[dict]:
+    """Detect outages from raw pings: a contiguous run of failures bounded by the first
+    success that follows. An open run (no trailing success) is an ongoing outage."""
+    tag_queries(product=Product.UPTIME, team_id=team_id, feature=Feature.UPTIME_PINGS, name="list_outages_for_monitor")
+    rows = sync_execute(
+        """
+        SELECT timestamp, status_code, outcome
+        FROM uptime_pings
+        WHERE team_id = %(team_id)s
+          AND monitor_id = %(monitor_id)s
+          AND timestamp > now() - INTERVAL %(days)s DAY
+        ORDER BY timestamp ASC
+        """,
+        {"team_id": team_id, "monitor_id": str(monitor_id), "days": days},
+    )
+
+    outages: list[dict] = []
+    current: dict | None = None
+    for row in rows:
+        timestamp, status_code, outcome = row[0], row[1], row[2]
+        if outcome == PingOutcome.FAILURE.value:
+            if current is None:
+                current = {
+                    "started_at": timestamp,
+                    "resolved_at": None,
+                    "fail_count": 1,
+                    "last_status_code": int(status_code) if status_code else None,
+                }
+            else:
+                current["fail_count"] += 1
+                if status_code:
+                    current["last_status_code"] = int(status_code)
+        elif current is not None:
+            current["resolved_at"] = timestamp
+            outages.append(current)
+            current = None
+    if current is not None:
+        outages.append(current)
+
+    outages.sort(key=lambda o: (o["resolved_at"] is not None, -o["started_at"].timestamp()))
+    return [{"monitor_id": monitor_id, **o} for o in outages]
 
 
 def list_recent_pings(*, team_id: int, monitor_id: UUID, limit: int = 50) -> list[dict]:

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconArrowLeft, IconGraph, IconPencil, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
+import { IconArrowLeft, IconGraph, IconPencil, IconPlay, IconPlus, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
     LemonCard,
@@ -27,7 +27,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { IncidentTile } from './IncidentTile'
 import { uptimeMonitorSceneLogic } from './uptimeMonitorSceneLogic'
-import { DailyBucket, DailyStatus, Incident, MonitorStatus, Ping } from './uptimeSceneLogic'
+import { DailyBucket, DailyStatus, Incident, MonitorStatus, Outage, Ping } from './uptimeSceneLogic'
 
 export const scene: SceneExport = {
     component: UptimeMonitorScene,
@@ -35,13 +35,14 @@ export const scene: SceneExport = {
 }
 
 export function UptimeMonitorScene(): JSX.Element {
-    const { summary, summaryLoading, pings, pingsLoading, incidents, incidentsLoading } =
+    const { summary, summaryLoading, pings, pingsLoading, incidents, incidentsLoading, outages, outagesLoading } =
         useValues(uptimeMonitorSceneLogic)
     const {
         pingNow,
         setEditModalOpen,
         deleteMonitor,
         openCreateIncident,
+        declareIncidentFromOutage,
         startEditingIncident,
         promptResolveIncident,
         reopenIncident,
@@ -164,7 +165,7 @@ export function UptimeMonitorScene(): JSX.Element {
                 <StatusTimeline buckets={summary.daily_buckets} />
             </LemonCard>
 
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid gap-4 lg:grid-cols-3">
                 <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
                     <div className="font-semibold">Recent pings</div>
                     <LemonTable
@@ -201,6 +202,18 @@ export function UptimeMonitorScene(): JSX.Element {
                 </LemonCard>
                 <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
                     <div className="flex items-center justify-between">
+                        <div className="font-semibold">Outages</div>
+                        <span className="text-xs text-secondary">Last 7 days</span>
+                    </div>
+                    <OutagesList
+                        outages={outages}
+                        loading={outagesLoading}
+                        monitorUrl={summary.url}
+                        onDeclare={declareIncidentFromOutage}
+                    />
+                </LemonCard>
+                <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
+                    <div className="flex items-center justify-between">
                         <div className="font-semibold">Declared incidents</div>
                         {incidents.length > 0 && (
                             <LemonButton type="primary" size="small" icon={<IconPlus />} onClick={openCreateIncident}>
@@ -221,6 +234,102 @@ export function UptimeMonitorScene(): JSX.Element {
             </div>
             <IncidentModal />
         </SceneContent>
+    )
+}
+
+function OutagesList({
+    outages,
+    loading,
+    monitorUrl,
+    onDeclare,
+}: {
+    outages: Outage[]
+    loading: boolean
+    monitorUrl: string
+    onDeclare: (outage: Outage) => void
+}): JSX.Element {
+    if (loading && outages.length === 0) {
+        return <LemonSkeleton className="h-24 w-full" />
+    }
+
+    if (outages.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+                <div className="text-sm text-secondary max-w-xs">
+                    No outages detected in the last 7 days. All clear.
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex flex-col gap-3">
+            {outages.map((outage) => (
+                <OutageTile
+                    key={`${outage.started_at}-${outage.resolved_at ?? 'ongoing'}`}
+                    outage={outage}
+                    monitorUrl={monitorUrl}
+                    onDeclare={() => onDeclare(outage)}
+                />
+            ))}
+        </div>
+    )
+}
+
+function OutageTile({
+    outage,
+    monitorUrl,
+    onDeclare,
+}: {
+    outage: Outage
+    monitorUrl: string
+    onDeclare: () => void
+}): JSX.Element {
+    const ongoing = outage.resolved_at === null
+    const end = outage.resolved_at ? dayjs(outage.resolved_at) : dayjs()
+    const durationLabel = formatDuration(dayjs(outage.started_at), end)
+    const host = hostFromUrl(monitorUrl)
+    const dateRange = buildOutageDateRange(outage)
+    const logsUrl = `${urls.logs()}?dateRange=${encodeURIComponent(JSON.stringify(dateRange))}${
+        host ? `&searchTerm=${encodeURIComponent(host)}` : ''
+    }`
+    const errorsUrl = urls.errorTracking({ dateRange })
+
+    return (
+        <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-3">
+            <div className="flex items-center justify-between gap-2 min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
+                    <span
+                        className={cn(
+                            'inline-block w-2.5 h-2.5 rounded-full shrink-0',
+                            ongoing ? 'bg-danger animate-pulse' : 'bg-success'
+                        )}
+                        aria-hidden
+                    />
+                    <div className="font-semibold truncate">
+                        {ongoing ? `Ongoing · ${durationLabel}` : durationLabel}
+                    </div>
+                </div>
+                <span className="text-[11px] text-secondary shrink-0">
+                    {outage.fail_count} failed{outage.last_status_code ? ` · ${outage.last_status_code}` : ''}
+                </span>
+            </div>
+            <div className="text-[11px] text-secondary">
+                Started {dayjs(outage.started_at).fromNow()}
+                {outage.resolved_at && ` · resolved ${dayjs(outage.resolved_at).fromNow()}`}
+            </div>
+            <div className="flex flex-wrap gap-1 mt-1">
+                <LemonButton size="xsmall" type="secondary" to={logsUrl} targetBlank>
+                    Logs
+                </LemonButton>
+                <LemonButton size="xsmall" type="secondary" to={errorsUrl} targetBlank icon={<IconWarning />}>
+                    Issues
+                </LemonButton>
+                <LemonButton size="xsmall" type="primary" onClick={onDeclare}>
+                    Declare incident
+                </LemonButton>
+            </div>
+        </LemonCard>
     )
 }
 
@@ -273,17 +382,27 @@ function IncidentsList({
 }
 
 function IncidentModal(): JSX.Element {
-    const { incidentModalState, isIncidentFormSubmitting, editingIncident } = useValues(uptimeMonitorSceneLogic)
+    const { incidentModalState, isIncidentFormSubmitting, editingIncident, outagePrefill } =
+        useValues(uptimeMonitorSceneLogic)
     const { setIncidentFormValue, submitIncidentForm, closeIncidentModal } = useActions(uptimeMonitorSceneLogic)
 
     const isCreate = incidentModalState === 'new'
-    const showResolutionField = !isCreate && editingIncident?.resolved_at != null
+    const isResolvedPrefill = isCreate && outagePrefill?.resolved_at != null
+    const isOngoingPrefill = isCreate && outagePrefill !== null && outagePrefill.resolved_at === null
+    const showResolutionField = isResolvedPrefill || (!isCreate && editingIncident?.resolved_at != null)
+    const title = isCreate
+        ? outagePrefill
+            ? isResolvedPrefill
+                ? 'Declare resolved incident from outage'
+                : 'Declare ongoing incident from outage'
+            : 'Declare incident'
+        : 'Edit declared incident'
 
     return (
         <LemonModal
             isOpen={incidentModalState !== null}
             onClose={closeIncidentModal}
-            title={isCreate ? 'Declare incident' : 'Edit declared incident'}
+            title={title}
             footer={
                 <LemonButton type="primary" loading={isIncidentFormSubmitting} onClick={() => submitIncidentForm()}>
                     {isCreate ? 'Create' : 'Save'}
@@ -291,8 +410,27 @@ function IncidentModal(): JSX.Element {
             }
         >
             <Form logic={uptimeMonitorSceneLogic} formKey="incidentForm" className="deprecated-space-y-4">
+                {outagePrefill && (
+                    <div className="flex flex-col gap-1 p-3 rounded bg-surface-secondary text-xs">
+                        <div>
+                            <span className="font-semibold">Started:</span>{' '}
+                            {dayjs(outagePrefill.started_at).format('MMM D, YYYY HH:mm:ss')}
+                        </div>
+                        {outagePrefill.resolved_at ? (
+                            <div>
+                                <span className="font-semibold">Resolved:</span>{' '}
+                                {dayjs(outagePrefill.resolved_at).format('MMM D, YYYY HH:mm:ss')}
+                            </div>
+                        ) : (
+                            <div className="text-danger">Still ongoing</div>
+                        )}
+                    </div>
+                )}
                 <LemonField name="name" label="Name">
-                    <LemonInput placeholder="API outage" onChange={(v) => setIncidentFormValue('name', v)} />
+                    <LemonInput
+                        placeholder={isOngoingPrefill ? 'Ongoing outage' : 'API outage'}
+                        onChange={(v) => setIncidentFormValue('name', v)}
+                    />
                 </LemonField>
                 <LemonField name="description" label="Description">
                     <LemonTextArea
@@ -452,4 +590,40 @@ function toneToTextClass(tone: 'success' | 'danger' | 'muted'): string {
         case 'muted':
             return 'text-secondary'
     }
+}
+
+function formatDuration(start: dayjs.Dayjs, end: dayjs.Dayjs): string {
+    const seconds = Math.max(1, end.diff(start, 'second'))
+    if (seconds < 60) {
+        return `${seconds}s`
+    }
+    const minutes = Math.floor(seconds / 60)
+    const remainder = seconds % 60
+    if (minutes < 60) {
+        return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`
+    }
+    const hours = Math.floor(minutes / 60)
+    const rmin = minutes % 60
+    if (hours < 24) {
+        return rmin ? `${hours}h ${rmin}m` : `${hours}h`
+    }
+    const days = Math.floor(hours / 24)
+    const rhr = hours % 24
+    return rhr ? `${days}d ${rhr}h` : `${days}d`
+}
+
+function hostFromUrl(url: string): string | null {
+    try {
+        return new URL(url).hostname
+    } catch {
+        return null
+    }
+}
+
+function buildOutageDateRange(outage: Outage): { date_from: string; date_to: string } {
+    // Pad each side by 5 minutes so the related logs/issues window catches the trigger and recovery.
+    const pad = 5 * 60 * 1000
+    const start = new Date(new Date(outage.started_at).getTime() - pad).toISOString()
+    const end = new Date((outage.resolved_at ? new Date(outage.resolved_at).getTime() : Date.now()) + pad).toISOString()
+    return { date_from: start, date_to: end }
 }

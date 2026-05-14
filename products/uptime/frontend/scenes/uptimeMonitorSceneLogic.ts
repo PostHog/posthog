@@ -13,7 +13,12 @@ import { Breadcrumb } from '~/types'
 
 import { openResolveIncidentDialog } from './incidentActions'
 import type { uptimeMonitorSceneLogicType } from './uptimeMonitorSceneLogicType'
-import { Incident, Monitor, MonitorSummary, Ping } from './uptimeSceneLogic'
+import { Incident, Monitor, MonitorSummary, Outage, Ping } from './uptimeSceneLogic'
+
+type OutagePrefill = {
+    started_at: string
+    resolved_at: string | null
+}
 
 export const uptimeMonitorSceneLogic = kea<uptimeMonitorSceneLogicType>([
     path(['products', 'uptime', 'frontend', 'scenes', 'uptimeMonitorSceneLogic']),
@@ -28,6 +33,7 @@ export const uptimeMonitorSceneLogic = kea<uptimeMonitorSceneLogicType>([
         setEditModalOpen: (open: boolean) => ({ open }),
         deleteMonitor: true,
         openCreateIncident: true,
+        declareIncidentFromOutage: (outage: Outage) => ({ outage }),
         startEditingIncident: (incident: Incident) => ({ incident }),
         closeIncidentModal: true,
         promptResolveIncident: (incident: Incident) => ({ incident }),
@@ -54,8 +60,21 @@ export const uptimeMonitorSceneLogic = kea<uptimeMonitorSceneLogicType>([
             null as null | 'new' | string,
             {
                 openCreateIncident: () => 'new',
+                declareIncidentFromOutage: () => 'new',
                 startEditingIncident: (_, { incident }) => incident.id,
                 closeIncidentModal: () => null,
+            },
+        ],
+        outagePrefill: [
+            null as OutagePrefill | null,
+            {
+                openCreateIncident: () => null,
+                declareIncidentFromOutage: (_, { outage }) => ({
+                    started_at: outage.started_at,
+                    resolved_at: outage.resolved_at,
+                }),
+                closeIncidentModal: () => null,
+                startEditingIncident: () => null,
             },
         ],
     }),
@@ -109,6 +128,19 @@ export const uptimeMonitorSceneLogic = kea<uptimeMonitorSceneLogicType>([
                 },
             },
         ],
+        outages: [
+            [] as Outage[],
+            {
+                loadOutages: async () => {
+                    if (!values.monitorId) {
+                        return []
+                    }
+                    return await api.get<Outage[]>(
+                        `api/projects/${values.currentProjectId}/uptime/monitors/${values.monitorId}/outages/`
+                    )
+                },
+            },
+        ],
     })),
 
     forms(({ values, actions }) => ({
@@ -139,9 +171,9 @@ export const uptimeMonitorSceneLogic = kea<uptimeMonitorSceneLogicType>([
             },
             errors: ({ name, resolution_note }) => ({
                 name: !name ? 'Name is required' : null,
-                // Required only when editing a resolved incident — the field isn't shown otherwise.
                 resolution_note:
-                    values.editingIncident?.resolved_at && !resolution_note?.trim()
+                    (values.editingIncident?.resolved_at || values.outagePrefill?.resolved_at) &&
+                    !resolution_note?.trim()
                         ? 'A resolution note is required'
                         : null,
             }),
@@ -151,11 +183,20 @@ export const uptimeMonitorSceneLogic = kea<uptimeMonitorSceneLogicType>([
                 }
                 const state = values.incidentModalState
                 if (state === 'new') {
-                    await api.create<Incident>(`api/projects/${values.currentProjectId}/uptime/incidents/`, {
+                    const prefill = values.outagePrefill
+                    const payload: Record<string, string> = {
                         monitor_id: values.monitorId,
                         name,
                         description,
-                    })
+                    }
+                    if (prefill) {
+                        payload.started_at = prefill.started_at
+                        if (prefill.resolved_at) {
+                            payload.resolved_at = prefill.resolved_at
+                            payload.resolution_note = resolution_note
+                        }
+                    }
+                    await api.create<Incident>(`api/projects/${values.currentProjectId}/uptime/incidents/`, payload)
                     lemonToast.success('Declared incident')
                 } else if (state) {
                     const payload: Record<string, string> = { name, description }
@@ -180,6 +221,7 @@ export const uptimeMonitorSceneLogic = kea<uptimeMonitorSceneLogicType>([
                 actions.loadSummary()
                 actions.loadPings()
                 actions.loadIncidents()
+                actions.loadOutages()
             }
         },
         loadSummarySuccess: ({ summary }) => {
@@ -206,7 +248,14 @@ export const uptimeMonitorSceneLogic = kea<uptimeMonitorSceneLogicType>([
             router.actions.push(urls.uptime())
         },
         openCreateIncident: () => {
-            actions.setIncidentFormValues({ name: '', description: '' })
+            actions.setIncidentFormValues({ name: '', description: '', resolution_note: '' })
+        },
+        declareIncidentFromOutage: ({ outage }) => {
+            const suggested =
+                outage.resolved_at === null
+                    ? 'Ongoing outage'
+                    : `Outage on ${new Date(outage.started_at).toLocaleString()}`
+            actions.setIncidentFormValues({ name: suggested, description: '', resolution_note: '' })
         },
         startEditingIncident: ({ incident }) => {
             actions.setIncidentFormValues({
@@ -282,6 +331,7 @@ export const uptimeMonitorSceneLogic = kea<uptimeMonitorSceneLogicType>([
             actions.loadSummary()
             actions.loadPings()
             actions.loadIncidents()
+            actions.loadOutages()
         }
     }),
 ])

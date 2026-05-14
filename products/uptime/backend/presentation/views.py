@@ -21,6 +21,7 @@ from .serializers import (
     IncidentSerializer,
     MonitorSerializer,
     MonitorSummarySerializer,
+    OutageSerializer,
     PingSerializer,
     PublicStatusPageSerializer,
     ReorderMonitorsSerializer,
@@ -96,6 +97,24 @@ class MonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def pings(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         pings = api.list_recent_pings(team_id=self.team_id, monitor_id=pk)
         return Response(PingSerializer(pings, many=True).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="days",
+                type=int,
+                required=False,
+                description="Look-back window in days. Defaults to 7.",
+            ),
+        ],
+        responses={200: OutageSerializer(many=True)},
+        description="Outages computed from raw pings: ongoing first, then most recently started resolved outages.",
+    )
+    @action(detail=True, methods=["get"], url_path="outages")
+    def outages(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        days = int(request.query_params.get("days", 7))
+        outages = api.list_outages_for_monitor(team_id=self.team_id, monitor_id=UUID(str(pk)), days=days)
+        return Response(OutageSerializer(outages, many=True).data)
 
     @extend_schema(
         request=None,
@@ -217,6 +236,8 @@ class IncidentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     name=serializer.validated_data["name"],
                     description=serializer.validated_data.get("description", ""),
                     started_at=serializer.validated_data.get("started_at"),
+                    resolved_at=serializer.validated_data.get("resolved_at"),
+                    resolution_note=serializer.validated_data.get("resolution_note", ""),
                 )
             )
         except Exception as exc:

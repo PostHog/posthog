@@ -6,6 +6,7 @@ from ..facade.contracts import (
     IncidentDTO,
     MonitorDTO,
     MonitorSummaryDTO,
+    OutageDTO,
     PingDTO,
     PublicStatusPageDTO,
     StatusPageDTO,
@@ -69,6 +70,11 @@ class PingSerializer(DataclassSerializer):
         dataclass = PingDTO
 
 
+class OutageSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = OutageDTO
+
+
 class StatusPageSerializer(DataclassSerializer):
     class Meta:
         dataclass = StatusPageDTO
@@ -94,6 +100,23 @@ class CreateIncidentSerializer(serializers.Serializer):
         required=False,
         help_text="When the incident started. Defaults to the time the incident was created.",
     )
+    resolved_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="When the incident was resolved. Omit or null for an ongoing incident.",
+    )
+    resolution_note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Resolution note. Required when resolved_at is set.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("resolved_at") and not attrs.get("resolution_note", "").strip():
+            raise serializers.ValidationError(
+                {"resolution_note": "A resolution note is required when resolved_at is set."}
+            )
+        return attrs
 
 
 class UpdateIncidentSerializer(serializers.Serializer):

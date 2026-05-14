@@ -82,6 +82,14 @@ export interface Incident {
     updated_at: string
 }
 
+export interface Outage {
+    monitor_id: string
+    started_at: string
+    resolved_at: string | null
+    fail_count: number
+    last_status_code: number | null
+}
+
 export type UptimeSceneActiveTab = 'monitors' | 'incidents' | 'alerts' | 'status_pages'
 
 const DEFAULT_ACTIVE_TAB: UptimeSceneActiveTab = 'monitors'

@@ -131,6 +131,17 @@ class CreateIncidentInput:
     name: str
     description: str = ""
     started_at: datetime | None = None
+    resolved_at: datetime | None = None
+    resolution_note: str = ""
+
+
+@dataclass(frozen=True)
+class OutageDTO:
+    monitor_id: UUID
+    started_at: datetime
+    resolved_at: datetime | None
+    fail_count: int
+    last_status_code: int | None
 
 
 @dataclass(frozen=True)

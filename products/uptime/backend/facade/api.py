@@ -212,8 +212,24 @@ def create_incident(input: contracts.CreateIncidentInput) -> contracts.IncidentD
             name=input.name,
             description=input.description,
             started_at=input.started_at,
+            resolved_at=input.resolved_at,
+            resolution_note=input.resolution_note,
         )
     )
+
+
+def list_outages_for_monitor(*, team_id: int, monitor_id: UUID, days: int = 7) -> list[contracts.OutageDTO]:
+    rows = logic.list_outages_for_monitor(team_id=team_id, monitor_id=monitor_id, days=days)
+    return [
+        contracts.OutageDTO(
+            monitor_id=row["monitor_id"],
+            started_at=row["started_at"],
+            resolved_at=row["resolved_at"],
+            fail_count=row["fail_count"],
+            last_status_code=row["last_status_code"],
+        )
+        for row in rows
+    ]
 
 
 def update_incident(input: contracts.UpdateIncidentInput) -> contracts.IncidentDTO:
