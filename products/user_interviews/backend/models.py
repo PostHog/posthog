@@ -54,3 +54,23 @@ class UserInterviewTopic(UUIDTModel, CreatedMetaFields):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class IntervieweeContext(UUIDTModel, CreatedMetaFields):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    topic = models.ForeignKey(
+        UserInterviewTopic,
+        on_delete=models.CASCADE,
+        related_name="interviewee_contexts",
+    )
+    interviewee_identifier = models.CharField(max_length=400)
+    agent_context = models.TextField()
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["topic", "interviewee_identifier"],
+                name="unique_interviewee_per_topic",
+            ),
+        ]

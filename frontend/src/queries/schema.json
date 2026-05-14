@@ -17559,20 +17559,7 @@
             "type": "object"
         },
         "ExperimentMetric": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/ExperimentMeanMetric"
-                },
-                {
-                    "$ref": "#/definitions/ExperimentFunnelMetric"
-                },
-                {
-                    "$ref": "#/definitions/ExperimentRatioMetric"
-                },
-                {
-                    "$ref": "#/definitions/ExperimentRetentionMetric"
-                }
-            ]
+            "$ref": "#/definitions/ExperimentMetricUnion"
         },
         "ExperimentMetricBaseProperties": {
             "additionalProperties": false,
@@ -17741,6 +17728,27 @@
                     "$ref": "#/definitions/ExperimentRetentionMetricTypeProps"
                 }
             ]
+        },
+        "ExperimentMetricUnion": {
+            "discriminator": {
+                "propertyName": "metric_type"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/ExperimentMeanMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentFunnelMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRatioMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRetentionMetric"
+                }
+            ],
+            "required": ["metric_type"],
+            "type": "object"
         },
         "ExperimentParameters": {
             "additionalProperties": false,

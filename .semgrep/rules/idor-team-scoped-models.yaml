@@ -92,6 +92,8 @@ rules:
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
                               |Deployment
+                              |DeploymentEvent
+                              |DeploymentProject
                               |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
@@ -142,6 +144,7 @@ rules:
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
+                              |IntervieweeContext
                               |KnowledgeChunk
                               |KnowledgeDocument
                               |KnowledgeSource
@@ -310,6 +313,8 @@ rules:
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
                         |Deployment
+                        |DeploymentEvent
+                        |DeploymentProject
                         |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping
@@ -360,6 +365,7 @@ rules:
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
+                        |IntervieweeContext
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeSource

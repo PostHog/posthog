@@ -1840,6 +1840,30 @@
             "label": "MCP duration (ms)",
             "type": "Numeric"
         },
+        "$mcp_exec_inner_tool_names": {
+            "description": "Array of every inner tool name available to the agent at the time of a tools/list request. Stored as a JSON array \u2014 filter with `contains` against a single tool name (e.g. 'execute-sql'). Only stamped on mcp_tools_list events when running in single-exec mode (in multi-tool mode the SDK's $mcp_listed_tool_names already carries the catalog). Lets you compute zombie tools by diffing against $mcp_exec_tool_call_name from mcp_tool_call events.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP exec inner tool catalog"
+        },
+        "$mcp_exec_tool_call_description": {
+            "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so the SDK's $mcp_tool_description is the dispatcher's static text on every call. This property carries the description of the inner tool the agent was actually invoking via 'call <tool> ...' \u2014 derived server-side by parsing the exec command and looking the inner tool up in our catalog. Only present when an exec call targets a recognized inner tool.",
+            "examples": [
+                "Run a HogQL/SQL query against PostHog.",
+                "List feature flags in the project."
+            ],
+            "label": "MCP exec inner tool description"
+        },
+        "$mcp_exec_tool_call_name": {
+            "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so by itself it doesn't tell you which inner tool the agent was actually invoking. This property carries the inner tool's name \u2014 derived server-side by parsing the exec command's `call <tool> ...` form and looking it up in our catalog. Use it for breakdowns / funnels that should pivot on the real tool rather than the dispatcher. Only present when an exec call targets a recognized inner tool.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP exec inner tool name"
+        },
         "$mcp_intent": {
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or \u2014 if none was supplied \u2014 from an intentFallback the MCP server provides.",
             "examples": [
@@ -1889,6 +1913,14 @@
                 "posthog_mcp_analytics"
             ],
             "label": "MCP source"
+        },
+        "$mcp_tool_description": {
+            "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do \u2014 descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
+            "examples": [
+                "Run a HogQL/SQL query against PostHog.",
+                "Fetch the trace referenced by an LLM analytics URL."
+            ],
+            "label": "MCP tool description"
         },
         "$mcp_tool_name": {
             "description": "The name of the MCP tool that was invoked. Only present on mcp_tool_call.",
@@ -5640,6 +5672,30 @@
             "label": "MCP duration (ms)",
             "type": "Numeric"
         },
+        "$mcp_exec_inner_tool_names": {
+            "description": "Array of every inner tool name available to the agent at the time of a tools/list request. Stored as a JSON array \u2014 filter with `contains` against a single tool name (e.g. 'execute-sql'). Only stamped on mcp_tools_list events when running in single-exec mode (in multi-tool mode the SDK's $mcp_listed_tool_names already carries the catalog). Lets you compute zombie tools by diffing against $mcp_exec_tool_call_name from mcp_tool_call events.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP exec inner tool catalog"
+        },
+        "$mcp_exec_tool_call_description": {
+            "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so the SDK's $mcp_tool_description is the dispatcher's static text on every call. This property carries the description of the inner tool the agent was actually invoking via 'call <tool> ...' \u2014 derived server-side by parsing the exec command and looking the inner tool up in our catalog. Only present when an exec call targets a recognized inner tool.",
+            "examples": [
+                "Run a HogQL/SQL query against PostHog.",
+                "List feature flags in the project."
+            ],
+            "label": "MCP exec inner tool description"
+        },
+        "$mcp_exec_tool_call_name": {
+            "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so by itself it doesn't tell you which inner tool the agent was actually invoking. This property carries the inner tool's name \u2014 derived server-side by parsing the exec command's `call <tool> ...` form and looking it up in our catalog. Use it for breakdowns / funnels that should pivot on the real tool rather than the dispatcher. Only present when an exec call targets a recognized inner tool.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP exec inner tool name"
+        },
         "$mcp_intent": {
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or \u2014 if none was supplied \u2014 from an intentFallback the MCP server provides.",
             "examples": [
@@ -5689,6 +5745,14 @@
                 "posthog_mcp_analytics"
             ],
             "label": "MCP source"
+        },
+        "$mcp_tool_description": {
+            "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do \u2014 descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
+            "examples": [
+                "Run a HogQL/SQL query against PostHog.",
+                "Fetch the trace referenced by an LLM analytics URL."
+            ],
+            "label": "MCP tool description"
         },
         "$mcp_tool_name": {
             "description": "The name of the MCP tool that was invoked. Only present on mcp_tool_call.",

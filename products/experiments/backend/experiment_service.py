@@ -165,24 +165,83 @@ class ExperimentService:
                     "'key' to 'control'."
                 )
 
-    @staticmethod
-    def validate_experiment_exposure_criteria(exposure_criteria: dict | None) -> None:
-        """Validate experiment exposure criteria payloads."""
-        if not exposure_criteria:
+    EXPOSURE_CONFIG_KINDS = ("ExperimentEventExposureConfig", "ActionsNode")
+
+    EXPOSURE_CONFIG_HINT = (
+        "Expected either an event-based config like "
+        "{'kind': 'ExperimentEventExposureConfig', 'event': '<event_name>', 'properties': []} "
+        "or an action-based config like {'kind': 'ActionsNode', 'id': <action_id>}."
+    )
+
+    # Cap user-supplied values reflected into validation error messages so a large
+    # or sensitive payload cannot bloat responses, logs, or error tracking. repr()
+    # already escapes control characters, so the only remaining concern is length.
+    _ERROR_VALUE_MAX_LEN = 80
+
+    @classmethod
+    def _safe_repr(cls, value: object) -> str:
+        rendered = repr(value)
+        if len(rendered) > cls._ERROR_VALUE_MAX_LEN:
+            return rendered[: cls._ERROR_VALUE_MAX_LEN] + "...(truncated)"
+        return rendered
+
+    @classmethod
+    def validate_experiment_exposure_criteria(cls, exposure_criteria: object) -> None:
+        """Validate experiment exposure criteria payloads.
+
+        Accepts `object` because the input arrives from a DRF `JSONField`, which
+        can deserialize to any JSON shape. The validator narrows defensively.
+        """
+        if exposure_criteria is None:
             return
 
-        if "filterTestAccounts" in exposure_criteria and not isinstance(exposure_criteria["filterTestAccounts"], bool):
-            raise ValidationError("filterTestAccounts must be a boolean")
+        if not isinstance(exposure_criteria, dict):
+            raise ValidationError(
+                f"exposure_criteria must be an object, got {type(exposure_criteria).__name__}. "
+                "Expected shape: {'filterTestAccounts': <bool>, 'exposure_config': <object>}."
+            )
+
+        if "filterTestAccounts" in exposure_criteria:
+            filter_test_accounts = exposure_criteria["filterTestAccounts"]
+            if not isinstance(filter_test_accounts, bool):
+                raise ValidationError(
+                    f"exposure_criteria.filterTestAccounts must be a boolean, got "
+                    f"{type(filter_test_accounts).__name__}: {cls._safe_repr(filter_test_accounts)}."
+                )
 
         if "exposure_config" in exposure_criteria:
             exposure_config = exposure_criteria["exposure_config"]
+
+            if not isinstance(exposure_config, dict):
+                raise ValidationError(
+                    f"exposure_criteria.exposure_config must be an object, got "
+                    f"{type(exposure_config).__name__}. {cls.EXPOSURE_CONFIG_HINT}"
+                )
+
+            # `kind` is optional; missing kind defaults to ExperimentEventExposureConfig
+            # to mirror the pydantic Literal default on that model.
+            kind = exposure_config.get("kind", "ExperimentEventExposureConfig")
+            if kind not in cls.EXPOSURE_CONFIG_KINDS:
+                raise ValidationError(
+                    f"exposure_criteria.exposure_config.kind must be one of "
+                    f"{list(cls.EXPOSURE_CONFIG_KINDS)}, got {cls._safe_repr(kind)}. "
+                    f"{cls.EXPOSURE_CONFIG_HINT}"
+                )
+
+            model_cls = ActionsNode if kind == "ActionsNode" else ExperimentEventExposureConfig
             try:
-                if exposure_config.get("kind") == "ActionsNode":
-                    ActionsNode.model_validate(exposure_config)
-                else:
-                    ExperimentEventExposureConfig.model_validate(exposure_config)
-            except Exception:
-                raise ValidationError("Invalid exposure criteria")
+                model_cls.model_validate(exposure_config)
+            except pydantic.ValidationError as e:
+                # Surface only the field locations and error types from pydantic — not the
+                # echoed `input` and `url` fields, which would reflect arbitrary user data
+                # back into the response.
+                safe_errors = [
+                    {"loc": err.get("loc"), "type": err.get("type"), "msg": err.get("msg")} for err in e.errors()
+                ]
+                raise ValidationError(
+                    f"Invalid exposure_criteria.exposure_config (kind={cls._safe_repr(kind)}): "
+                    f"{safe_errors}. {cls.EXPOSURE_CONFIG_HINT}"
+                )
 
     @classmethod
     def validate_experiment_metrics(cls, metrics: list | None) -> None:

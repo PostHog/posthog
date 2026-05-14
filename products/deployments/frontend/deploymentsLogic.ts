@@ -2,11 +2,9 @@ import { actions, afterMount, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import type { deploymentsLogicType } from './deploymentsLogicType'
-import { deploymentsList } from './generated/api'
 import type { DeploymentApi } from './generated/api.schemas'
 
 export interface DeploymentsFilters {
@@ -38,12 +36,10 @@ export const deploymentsLogic = kea<deploymentsLogicType>([
             [] as DeploymentApi[],
             {
                 loadDeployments: async () => {
-                    const projectId = teamLogic.values.currentTeamId
-                    if (!projectId) {
-                        return []
-                    }
-                    const response = await deploymentsList(String(projectId))
-                    return response.results || []
+                    // Deployments are now nested under DeploymentProject; the list scene
+                    // owned by the Frontend stream will pick a project and call
+                    // `deploymentProjectsDeploymentsList(projectId, deploymentProjectId)`.
+                    return []
                 },
             },
         ],

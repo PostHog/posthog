@@ -114,6 +114,74 @@ export const UserInterviewTopicsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Ordered list of questions the voice agent should work through during the interview.'),
 })
 
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const userInterviewTopicsIntervieweesCreateBodyIntervieweeIdentifierMax = 400
+
+export const userInterviewTopicsIntervieweesCreateBodyAgentContextMax = 10000
+
+export const UserInterviewTopicsIntervieweesCreateBody = /* @__PURE__ */ zod.object({
+    interviewee_identifier: zod
+        .string()
+        .max(userInterviewTopicsIntervieweesCreateBodyIntervieweeIdentifierMax)
+        .describe(
+            "Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids."
+        ),
+    agent_context: zod
+        .string()
+        .max(userInterviewTopicsIntervieweesCreateBodyAgentContextMax)
+        .describe(
+            "Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'."
+        ),
+})
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const userInterviewTopicsIntervieweesUpdateBodyIntervieweeIdentifierMax = 400
+
+export const userInterviewTopicsIntervieweesUpdateBodyAgentContextMax = 10000
+
+export const UserInterviewTopicsIntervieweesUpdateBody = /* @__PURE__ */ zod.object({
+    interviewee_identifier: zod
+        .string()
+        .max(userInterviewTopicsIntervieweesUpdateBodyIntervieweeIdentifierMax)
+        .describe(
+            "Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids."
+        ),
+    agent_context: zod
+        .string()
+        .max(userInterviewTopicsIntervieweesUpdateBodyAgentContextMax)
+        .describe(
+            "Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'."
+        ),
+})
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const userInterviewTopicsIntervieweesPartialUpdateBodyIntervieweeIdentifierMax = 400
+
+export const userInterviewTopicsIntervieweesPartialUpdateBodyAgentContextMax = 10000
+
+export const UserInterviewTopicsIntervieweesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    interviewee_identifier: zod
+        .string()
+        .max(userInterviewTopicsIntervieweesPartialUpdateBodyIntervieweeIdentifierMax)
+        .optional()
+        .describe(
+            "Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids."
+        ),
+    agent_context: zod
+        .string()
+        .max(userInterviewTopicsIntervieweesPartialUpdateBodyAgentContextMax)
+        .optional()
+        .describe(
+            "Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'."
+        ),
+})
+
 export const userInterviewsCreateBodyIntervieweeEmailsItemMax = 254
 
 export const UserInterviewsCreateBody = /* @__PURE__ */ zod.object({

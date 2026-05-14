@@ -27,7 +27,6 @@ DEFAULT_TEMPLATE = "posthog-linux"
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
-CLAUDE_OAUTH_PARAMETER = "claude_oauth_token"
 GIT_NAME_PARAMETER = "git_name"
 GIT_EMAIL_PARAMETER = "git_email"
 DOTFILES_URI_PARAMETER = "dotfiles_uri"
@@ -85,6 +84,38 @@ def get_coder_url() -> str:
 def _normalize_version(version: str) -> str:
     """Strip leading ``v`` and semver build metadata (``+hash``)."""
     return version.lstrip("v").split("+")[0]
+
+
+# Coder server version that introduced user secrets (Early Access).
+USER_SECRETS_MIN_VERSION = (2, 33)
+
+
+def _version_tuple(version: str) -> tuple[int, ...]:
+    """Parse a normalized semver string into an int tuple for ordered comparison.
+
+    Trailing pre-release segments (``-rc1``) are dropped from each component so
+    ``2.33.0-rc1`` compares equal to ``2.33.0`` for the gate we care about.
+    """
+    parts: list[int] = []
+    for segment in version.split("."):
+        digits = segment.split("-", 1)[0]
+        if not digits.isdigit():
+            break
+        parts.append(int(digits))
+    return tuple(parts)
+
+
+def server_supports_user_secrets() -> bool:
+    """Return whether the configured Coder server is >= 2.33.
+
+    Returns ``False`` (graceful) if the server version cannot be determined,
+    so callers can skip secret-related steps without aborting setup.
+    """
+    try:
+        version = get_server_version()
+    except RuntimeError:
+        return False
+    return _version_tuple(version) >= USER_SECRETS_MIN_VERSION
 
 
 def get_server_version() -> str:
@@ -559,7 +590,12 @@ def print_setup_summary() -> None:
     click.echo("  hogli devbox:setup --configure-git-identity")
     click.echo("  hogli devbox:setup --configure-git-signing")
     click.echo("  hogli devbox:setup --configure-dotfiles")
-    click.echo("  hogli devbox:setup --configure-claude")
+    click.echo("  hogli devbox:setup --configure-claude  (manage CLAUDE_CODE_OAUTH_TOKEN as a Coder user secret)")
+    click.echo()
+    click.echo("To manage other workspace secrets (GH_TOKEN, AWS creds, etc):")
+    click.echo("  hogli devbox:secret:list")
+    click.echo("  hogli devbox:secret:set NAME")
+    click.echo("  hogli devbox:secret:rm NAME")
 
 
 def _first_non_empty_string(*values: Any) -> str | None:
@@ -711,7 +747,6 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
 def create_workspace(
     name: str,
     disk_size: int,
-    claude_oauth_token: str | None = None,
     git_name: str | None = None,
     git_email: str | None = None,
     dotfiles_uri: str | None = None,
@@ -732,8 +767,6 @@ def create_workspace(
         "disk_size": str(disk_size),
         "repo": repo,
     }
-    if claude_oauth_token:
-        parameters[CLAUDE_OAUTH_PARAMETER] = claude_oauth_token
     if git_name:
         parameters[GIT_NAME_PARAMETER] = git_name
     if git_email:
@@ -809,34 +842,41 @@ def update_workspace_parameters(name: str, parameters: dict[str, str]) -> None:
         raise SystemExit(result.returncode)
 
 
-def upsert_user_secret(name: str, value: str, *, env_var: str | None = None) -> None:
+def upsert_user_secret(
+    name: str,
+    value: str,
+    *,
+    env_name: str | None = None,
+    description: str | None = None,
+) -> None:
     """Idempotently set a per-user Coder secret. Requires server >= 2.33.
 
-    Tries ``coder secret create`` first; falls back to ``coder secret update``
-    when the secret already exists. The secret value is piped through stdin so
-    it never appears in process args or shell history. ``env_var`` is the
-    workspace-side environment variable target; passing ``None`` leaves the
-    secret with whatever target it already has (only meaningful on update).
+    Pipes ``value`` via stdin so it never appears in argv, process listings,
+    or shell history. Tries ``coder secret create`` first; falls back to
+    ``coder secret update`` when the secret already exists. Raises
+    ``SystemExit`` (with stderr surfaced) on failure, so callers do not have
+    to branch on a return code. ``env_name`` is the workspace-side
+    environment variable the secret will be exported as; ``description`` is
+    informational.
     """
-    flags = ["--env", env_var] if env_var else []
-    payload = subprocess.run(
-        _resolve_coder(["coder", "secret", "create", name, *flags]),
-        input=value,
-        text=True,
-        capture_output=True,
-    )
-    if payload.returncode == 0:
-        return
+    flags: list[str] = []
+    if env_name is not None:
+        flags += ["--env", env_name]
+    if description is not None:
+        flags += ["--description", description]
 
-    payload = subprocess.run(
-        _resolve_coder(["coder", "secret", "update", name, *flags]),
-        input=value,
-        text=True,
-        capture_output=True,
-    )
-    if payload.returncode != 0:
-        click.echo(payload.stderr or payload.stdout, err=True)
-        raise SystemExit(payload.returncode)
+    for verb in ("create", "update"):
+        payload = subprocess.run(
+            _resolve_coder(["coder", "secret", verb, name, *flags]),
+            input=value,
+            text=True,
+            capture_output=True,
+        )
+        if payload.returncode == 0:
+            return
+
+    click.echo(payload.stderr or payload.stdout, err=True)
+    raise SystemExit(payload.returncode)
 
 
 def user_secret_exists(name: str) -> bool:
@@ -935,6 +975,48 @@ def open_web_ide(name: str) -> None:
     """Open code-server for the workspace."""
     username = get_username()
     webbrowser.open(f"{get_coder_url()}/@{username}/{name}/apps/code-server")
+
+
+# ---------------------------------------------------------------------------
+# Coder user secrets
+# ---------------------------------------------------------------------------
+
+CLAUDE_CODE_OAUTH_ENV = "CLAUDE_CODE_OAUTH_TOKEN"
+
+
+def list_user_secrets() -> list[dict[str, Any]] | None:
+    """Return user secrets via ``coder secret list -o json``.
+
+    Returns ``None`` when the CLI rejects the command (older server / missing
+    feature flag) so callers can distinguish "no secrets" from "unsupported".
+    """
+    result = _run(["coder", "secret", "list", "--output", "json"], capture_output=True)
+    if result.returncode != 0:
+        return None
+    try:
+        secrets = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        return None
+    return secrets if isinstance(secrets, list) else []
+
+
+def get_user_secret(name: str) -> dict[str, Any] | None:
+    """Return a single secret payload by name, or ``None`` if not present."""
+    secrets = list_user_secrets() or []
+    for secret in secrets:
+        if isinstance(secret, dict) and secret.get("name") == name:
+            return secret
+    return None
+
+
+def has_claude_oauth_secret() -> bool:
+    """Return whether a Coder user secret named ``CLAUDE_CODE_OAUTH_TOKEN`` exists."""
+    return get_user_secret(CLAUDE_CODE_OAUTH_ENV) is not None
+
+
+def delete_user_secret(name: str) -> subprocess.CompletedProcess[str]:
+    """Delete a Coder user secret by name."""
+    return _run(["coder", "secret", "delete", name, "--yes"], capture_output=True)
 
 
 # ---------------------------------------------------------------------------
