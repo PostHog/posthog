@@ -75,3 +75,9 @@ class MCPToolCall:
     is_error: bool
     error_message: str
     duration_ms: int | None
+
+
+@dataclass(frozen=True)
+class MCPToolCallList:
+    tool_calls: list[MCPToolCall]
+    truncated: bool

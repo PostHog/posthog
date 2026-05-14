@@ -12,13 +12,13 @@ import type {
     MCPAnalyticsSubmissionApi,
     MCPFeedbackCreateApi,
     MCPMissingCapabilityCreateApi,
+    MCPToolCallListResponseApi,
     McpAnalyticsFeedbackListParams,
     McpAnalyticsMissingCapabilitiesListParams,
     McpAnalyticsSessionsListParams,
     McpAnalyticsSessionsToolCallsParams,
     PaginatedMCPAnalyticsSubmissionListApi,
     PaginatedMCPSessionListApi,
-    PaginatedMCPToolCallListApi,
 } from './api.schemas'
 
 export const getMcpAnalyticsFeedbackListUrl = (projectId: string, params?: McpAnalyticsFeedbackListParams) => {
@@ -178,15 +178,15 @@ export const getMcpAnalyticsSessionsToolCallsUrl = (
 }
 
 /**
- * List all mcp_tool_call events that belong to a given $session_id, in chronological order.
+ * List mcp_tool_call events that belong to a given $session_id, in chronological order. Bounded by an optional date_from / date_to window (defaults to the last 30 days) so the ClickHouse scan stays partition-pruned. Capped at 500 rows per response — when more matching events exist the response sets truncated=true.
  */
 export const mcpAnalyticsSessionsToolCalls = async (
     projectId: string,
     id: string,
     params?: McpAnalyticsSessionsToolCallsParams,
     options?: RequestInit
-): Promise<PaginatedMCPToolCallListApi> => {
-    return apiMutator<PaginatedMCPToolCallListApi>(getMcpAnalyticsSessionsToolCallsUrl(projectId, id, params), {
+): Promise<MCPToolCallListResponseApi> => {
+    return apiMutator<MCPToolCallListResponseApi>(getMcpAnalyticsSessionsToolCallsUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

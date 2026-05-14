@@ -245,13 +245,11 @@ export interface MCPToolCallApi {
     readonly duration_ms: number | null
 }
 
-export interface PaginatedMCPToolCallListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: MCPToolCallApi[]
+export interface MCPToolCallListResponseApi {
+    /** Tool calls for the requested session in chronological order, capped at 500 per response. */
+    readonly results: readonly MCPToolCallApi[]
+    /** True when more matching events existed than the 500-row cap can return; use the date_from / date_to query params to narrow the window and surface every event. */
+    readonly truncated: boolean
 }
 
 export type McpAnalyticsFeedbackListParams = {
@@ -289,11 +287,11 @@ export type McpAnalyticsSessionsListParams = {
 
 export type McpAnalyticsSessionsToolCallsParams = {
     /**
-     * Number of results to return per page.
+     * ISO 8601 lower bound for the event timestamp. Pass the parent session's first_seen (minus a small buffer) for the tightest window. Defaults to 30 days ago.
      */
-    limit?: number
+    date_from?: string
     /**
-     * The initial index from which to return the results.
+     * ISO 8601 upper bound for the event timestamp. Pass the parent session's last_seen (plus a small buffer) for the tightest window. Defaults to tomorrow.
      */
-    offset?: number
+    date_to?: string
 }

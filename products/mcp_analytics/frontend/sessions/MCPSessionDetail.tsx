@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconBolt, IconClock, IconSparkles, IconUser, IconWarning } from '@posthog/icons'
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { humanFriendlyDuration, midEllipsis } from 'lib/utils'
@@ -19,7 +19,7 @@ function MetaBadge({ icon, label }: { icon: React.ReactNode; label: React.ReactN
 }
 
 export function MCPSessionDetail(): JSX.Element {
-    const { selectedSession, toolCalls, toolCallsLoading } = useValues(mcpSessionsLogic)
+    const { selectedSession, toolCalls, toolCallsLoading, toolCallsTruncated } = useValues(mcpSessionsLogic)
 
     if (!selectedSession) {
         return (
@@ -96,6 +96,11 @@ export function MCPSessionDetail(): JSX.Element {
             <hr className="border-t border-primary -mx-3" />
 
             <section className="flex flex-col gap-2">
+                {toolCallsTruncated ? (
+                    <LemonBanner type="warning">
+                        Showing the first 500 tool calls in this window. Narrow the date range to surface every event.
+                    </LemonBanner>
+                ) : null}
                 {toolCallsLoading && toolCalls.length === 0 ? (
                     <div className="flex flex-col gap-2">
                         {[0, 1, 2].map((i) => (

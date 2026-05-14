@@ -139,6 +139,21 @@ class MCPToolCallSerializer(serializers.Serializer):
     )
 
 
+class MCPToolCallListResponseSerializer(serializers.Serializer):
+    results = MCPToolCallSerializer(
+        many=True,
+        read_only=True,
+        help_text="Tool calls for the requested session in chronological order, capped at 500 per response.",
+    )
+    truncated = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when more matching events existed than the 500-row cap can return; "
+            "use the date_from / date_to query params to narrow the window and surface every event."
+        ),
+    )
+
+
 class MCPSessionSerializer(serializers.Serializer):
     session_id = serializers.CharField(
         read_only=True, help_text="PostHog $session_id grouping all mcp_tool_call events."

@@ -1,10 +1,14 @@
+from datetime import datetime
 from typing import Any, cast
 
 from django.db.models import QuerySet
+from django.utils.dateparse import parse_datetime
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -25,8 +29,18 @@ from .serializers import (
     MCPFeedbackCreateSerializer,
     MCPMissingCapabilityCreateSerializer,
     MCPSessionSerializer,
+    MCPToolCallListResponseSerializer,
     MCPToolCallSerializer,
 )
+
+
+def _parse_iso_datetime_param(value: str | None, param_name: str) -> datetime | None:
+    if not value:
+        return None
+    parsed = parse_datetime(value)
+    if parsed is None:
+        raise ValidationError({param_name: f"Expected an ISO 8601 datetime, got {value!r}."})
+    return parsed
 
 
 class MCPAnalyticsPagination(LimitOffsetPagination):
@@ -136,14 +150,48 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="mcp_analytics_sessions_tool_calls",
-        description="List all mcp_tool_call events that belong to a given $session_id, in chronological order.",
-        responses={200: MCPToolCallSerializer(many=True)},
+        description=(
+            "List mcp_tool_call events that belong to a given $session_id, in chronological order. "
+            "Bounded by an optional date_from / date_to window (defaults to the last 30 days) so the "
+            "ClickHouse scan stays partition-pruned. Capped at 500 rows per response — when more "
+            "matching events exist the response sets truncated=true."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.DATETIME,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "ISO 8601 lower bound for the event timestamp. Pass the parent session's first_seen "
+                    "(minus a small buffer) for the tightest window. Defaults to 30 days ago."
+                ),
+            ),
+            OpenApiParameter(
+                name="date_to",
+                type=OpenApiTypes.DATETIME,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "ISO 8601 upper bound for the event timestamp. Pass the parent session's last_seen "
+                    "(plus a small buffer) for the tightest window. Defaults to tomorrow."
+                ),
+            ),
+        ],
+        responses={200: MCPToolCallListResponseSerializer},
     )
     @action(detail=True, methods=["get"], url_path="tool_calls")
     def tool_calls(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
-        tool_calls = api.list_mcp_tool_calls(self.team, session_id=str(pk or ""))
-        serializer = MCPToolCallSerializer(tool_calls, many=True)
-        return Response({"results": serializer.data})
+        date_from = _parse_iso_datetime_param(request.query_params.get("date_from"), "date_from")
+        date_to = _parse_iso_datetime_param(request.query_params.get("date_to"), "date_to")
+        result = api.list_mcp_tool_calls(
+            self.team,
+            session_id=str(pk or ""),
+            date_from=date_from,
+            date_to=date_to,
+        )
+        serializer = MCPToolCallSerializer(result.tool_calls, many=True)
+        return Response({"results": serializer.data, "truncated": result.truncated})
 
 
 class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):

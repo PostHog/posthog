@@ -153,7 +153,7 @@
             "path": "MCP analytics",
             "category": "AI engineering",
             "iconType": null,
-            "type": null,
+            "type": "mcp_analytics",
             "intents": ["llm_analytics"]
         },
         { "path": "Metrics", "category": "Unreleased", "iconType": "metrics", "type": null, "intents": ["metrics"] },

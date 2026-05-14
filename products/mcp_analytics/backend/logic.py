@@ -20,6 +20,7 @@ MCP_TOOL_CALL_EVENT = "mcp_tool_call"
 # load can't trigger a full-history scan of `events` on the shared ClickHouse
 # cluster. Tune this when real customer traffic exposes a need for longer windows.
 MCP_SESSIONS_DEFAULT_LOOKBACK_DAYS = 30
+MCP_TOOL_CALLS_RESULT_LIMIT = 500
 
 _MCP_TOOL_CALLS_SQL = """
 SELECT
@@ -33,8 +34,10 @@ SELECT
 FROM events
 WHERE event = {event}
     AND properties.$session_id = {session_id}
+    AND timestamp >= {date_from}
+    AND timestamp <= {date_to}
 ORDER BY timestamp ASC
-LIMIT 500
+LIMIT {limit}
 """
 
 _MCP_SESSIONS_SQL = """
@@ -115,28 +118,52 @@ def _clean_person_property(value: Any) -> str:
     return "" if text in ("", "null") else text
 
 
-def list_mcp_tool_calls(team: Team, session_id: str) -> list[contracts.MCPToolCall]:
+def list_mcp_tool_calls(
+    team: Team,
+    session_id: str,
+    date_from: dt.datetime | None = None,
+    date_to: dt.datetime | None = None,
+) -> contracts.MCPToolCallList:
+    # Default to the same lookback the sessions list uses so we never have a session
+    # in the list whose tool-calls fall outside the window. Callers (the frontend
+    # session-detail view) can pin a tighter range using the parent session's
+    # first_seen / last_seen timestamps.
+    if date_from is None:
+        date_from = dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=MCP_SESSIONS_DEFAULT_LOOKBACK_DAYS)
+    if date_to is None:
+        date_to = dt.datetime.now(tz=dt.UTC) + dt.timedelta(days=1)
+    # Fetch one extra row so we can detect (and surface) silent truncation.
+    fetch_limit = MCP_TOOL_CALLS_RESULT_LIMIT + 1
     query = parse_select(
         _MCP_TOOL_CALLS_SQL,
         placeholders={
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
             "session_id": ast.Constant(value=session_id),
+            "date_from": ast.Constant(value=date_from),
+            "date_to": ast.Constant(value=date_to),
+            "limit": ast.Constant(value=fetch_limit),
         },
     )
     with tags_context(product=Product.MCP, feature=Feature.QUERY, team_id=team.id):
         response = execute_hogql_query(query=query, team=team)
-    return [
-        contracts.MCPToolCall(
-            event_id=str(row[0]) if row[0] else "",
-            timestamp=row[1],
-            tool_name=row[2] or "",
-            intent=row[3] or "",
-            is_error=str(row[4]).lower() in ("true", "1"),
-            error_message=row[5] or "",
-            duration_ms=_parse_int(row[6]),
-        )
-        for row in (response.results or [])
-    ]
+    rows = response.results or []
+    truncated = len(rows) > MCP_TOOL_CALLS_RESULT_LIMIT
+    rows = rows[:MCP_TOOL_CALLS_RESULT_LIMIT]
+    return contracts.MCPToolCallList(
+        tool_calls=[
+            contracts.MCPToolCall(
+                event_id=str(row[0]) if row[0] else "",
+                timestamp=row[1],
+                tool_name=row[2] or "",
+                intent=row[3] or "",
+                is_error=str(row[4]).lower() in ("true", "1"),
+                error_message=row[5] or "",
+                duration_ms=_parse_int(row[6]),
+            )
+            for row in rows
+        ],
+        truncated=truncated,
+    )
 
 
 def _parse_int(value: str | int | None) -> int | None:

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -52,5 +54,10 @@ def list_mcp_sessions(team: Team, limit: int, offset: int) -> list[contracts.MCP
     return logic.list_mcp_sessions(team, limit=limit, offset=offset)
 
 
-def list_mcp_tool_calls(team: Team, session_id: str) -> list[contracts.MCPToolCall]:
-    return logic.list_mcp_tool_calls(team, session_id=session_id)
+def list_mcp_tool_calls(
+    team: Team,
+    session_id: str,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> contracts.MCPToolCallList:
+    return logic.list_mcp_tool_calls(team, session_id=session_id, date_from=date_from, date_to=date_to)

@@ -1,10 +1,11 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { mcpAnalyticsSessionsList, mcpAnalyticsSessionsToolCalls } from '../generated/api'
-import type { MCPSessionApi, MCPToolCallApi } from '../generated/api.schemas'
+import type { McpAnalyticsSessionsToolCallsParams, MCPSessionApi, MCPToolCallApi } from '../generated/api.schemas'
 import type { mcpSessionsLogicType } from './mcpSessionsLogicType'
 
 export interface MCPSessionsFilters {
@@ -23,8 +24,9 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
     actions({
         setFilters: (filters: Partial<MCPSessionsFilters>) => ({ filters }),
         selectSession: (sessionId: string | null) => ({ sessionId }),
+        setToolCallsTruncated: (truncated: boolean) => ({ truncated }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         allSessions: [
             [] as MCPSessionApi[],
             {
@@ -42,9 +44,24 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             {
                 loadToolCalls: async (sessionId: string) => {
                     if (!values.currentProjectId || !sessionId) {
+                        actions.setToolCallsTruncated(false)
                         return []
                     }
-                    const response = await mcpAnalyticsSessionsToolCalls(String(values.currentProjectId), sessionId)
+                    // Pin the date window to the parent session's first_seen / last_seen
+                    // (± 1 day for clock skew) so ClickHouse can prune partitions instead
+                    // of scanning the full `events` table for a given $session_id.
+                    const session = values.selectedSession
+                    const params: McpAnalyticsSessionsToolCallsParams = {}
+                    if (session) {
+                        params.date_from = dayjs(session.first_seen).subtract(1, 'day').toISOString()
+                        params.date_to = dayjs(session.last_seen).add(1, 'day').toISOString()
+                    }
+                    const response = await mcpAnalyticsSessionsToolCalls(
+                        String(values.currentProjectId),
+                        sessionId,
+                        params
+                    )
+                    actions.setToolCallsTruncated(response.truncated ?? false)
                     return [...(response.results ?? [])]
                 },
             },
@@ -61,6 +78,13 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             null as string | null,
             {
                 selectSession: (_, { sessionId }) => sessionId,
+            },
+        ],
+        toolCallsTruncated: [
+            false,
+            {
+                setToolCallsTruncated: (_, { truncated }) => truncated,
+                selectSession: () => false,
             },
         ],
     }),

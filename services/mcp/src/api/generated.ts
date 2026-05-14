@@ -19785,6 +19785,13 @@ export namespace Schemas {
       readonly duration_ms: number | null;
     }
 
+    export interface MCPToolCallListResponse {
+      /** Tool calls for the requested session in chronological order, capped at 500 per response. */
+      readonly results: readonly MCPToolCall[];
+      /** True when more matching events existed than the 500-row cap can return; use the date_from / date_to query params to narrow the window and surface every event. */
+      readonly truncated: boolean;
+    }
+
     export interface MarkToleratedInput {
       snapshot_id: string;
     }
@@ -21474,15 +21481,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MCPSession[];
-    }
-
-    export interface PaginatedMCPToolCallList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: MCPToolCall[];
     }
 
     export interface PaginatedMaterializedColumnSlotList {
@@ -38748,13 +38746,13 @@ export namespace Schemas {
 
     export type McpAnalyticsSessionsToolCallsParams = {
     /**
-     * Number of results to return per page.
+     * ISO 8601 lower bound for the event timestamp. Pass the parent session's first_seen (minus a small buffer) for the tightest window. Defaults to 30 days ago.
      */
-    limit?: number;
+    date_from?: string;
     /**
-     * The initial index from which to return the results.
+     * ISO 8601 upper bound for the event timestamp. Pass the parent session's last_seen (plus a small buffer) for the tightest window. Defaults to tomorrow.
      */
-    offset?: number;
+    date_to?: string;
     };
 
     export type McpServerInstallationsListParams = {
