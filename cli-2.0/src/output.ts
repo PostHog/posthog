@@ -5,14 +5,19 @@ import { run as runJq } from 'node-jq'
 import { createRequire } from 'node:module'
 
 import {
+    bucketAverage,
+    bucketLabels,
     buildLabelRow,
     CHARTABLE_INSIGHT_TOOLS,
     type ChartSeries,
     formatYValue,
     getInsightType,
+    getPostHogHex,
+    hexToAnsi,
     isChartSeries,
     isRecord,
     type JsonRecord,
+    maxRenderablePoints,
     pickStep,
     stringify,
     widenSeries,
@@ -830,86 +835,17 @@ function printKnownList(toolName: string, result: unknown): boolean {
     return true
 }
 
-// asciichart wants raw SGR strings on its `colors` config; chalk 5 doesn't
-// expose `.open`, so we keep two parallel constants — one for asciichart, one
-// for legend bullets. Same ordering in both.
-// PostHog's exact color palette (from frontend/src/styles/base.scss)
-const POSTHOG_COLORS = [
-    '#1d4aff', // data-color-1
-    '#621da6', // data-color-2  
-    '#42827e', // data-color-3
-    '#ce7c00', // data-color-4
-    '#de4916', // data-color-5
-    '#8b0014', // data-color-6
-    '#b64b94', // data-color-7
-    '#487968', // data-color-8
-    '#8b4513', // data-color-9
-    '#4682b4', // data-color-10
-    '#191970', // data-color-11
-    '#008b8b', // data-color-12
-    '#b8860b', // data-color-13
-    '#ff6347', // data-color-14
-    '#30d5c8', // data-color-15
-]
-
 function hexToTerminalColor(hex: string): { ansi: string; fn: (text: string) => string } {
-    // Map PostHog hex colors to closest terminal colors
-    const colorMap: Record<string, { ansi: string; fn: (text: string) => string }> = {
-        '#1d4aff': { ansi: '\x1b[34m', fn: chalk.blue },        // blue
-        '#621da6': { ansi: '\x1b[35m', fn: chalk.magenta },     // magenta
-        '#42827e': { ansi: '\x1b[36m', fn: chalk.cyan },        // cyan
-        '#ce7c00': { ansi: '\x1b[33m', fn: chalk.yellow },      // yellow
-        '#de4916': { ansi: '\x1b[31m', fn: chalk.red },         // red
-        '#8b0014': { ansi: '\x1b[91m', fn: chalk.redBright },   // bright red
-        '#b64b94': { ansi: '\x1b[95m', fn: chalk.magentaBright }, // bright magenta
-        '#487968': { ansi: '\x1b[32m', fn: chalk.green },       // green
-        '#8b4513': { ansi: '\x1b[93m', fn: chalk.yellowBright }, // bright yellow
-        '#4682b4': { ansi: '\x1b[94m', fn: chalk.blueBright },  // bright blue
-        '#191970': { ansi: '\x1b[34m', fn: chalk.blue },        // blue
-        '#008b8b': { ansi: '\x1b[96m', fn: chalk.cyanBright },  // bright cyan
-        '#b8860b': { ansi: '\x1b[33m', fn: chalk.yellow },      // yellow
-        '#ff6347': { ansi: '\x1b[91m', fn: chalk.redBright },   // bright red
-        '#30d5c8': { ansi: '\x1b[96m', fn: chalk.cyanBright },  // bright cyan
-    }
-    
-    return colorMap[hex] || { ansi: '\x1b[37m', fn: chalk.white }
+    return { ansi: hexToAnsi(hex), fn: chalk.hex(hex) }
 }
 
-function hexToChartsciiColor(hex: string): string {
-    // Map PostHog hex colors to supported chartscii color names
-    const colorMap: Record<string, string> = {
-        '#1d4aff': 'blue',      // blue
-        '#621da6': 'blue',      // magenta -> blue (closest)
-        '#42827e': 'cyan',      // cyan
-        '#ce7c00': 'yellow',    // yellow
-        '#de4916': 'red',       // red
-        '#8b0014': 'red',       // bright red -> red
-        '#b64b94': 'red',       // bright magenta -> red (closest)
-        '#487968': 'green',     // green
-        '#8b4513': 'yellow',    // bright yellow -> yellow
-        '#4682b4': 'blue',      // bright blue -> blue
-        '#191970': 'blue',      // blue
-        '#008b8b': 'cyan',      // bright cyan -> cyan
-        '#b8860b': 'yellow',    // yellow
-        '#ff6347': 'red',       // bright red -> red
-        '#30d5c8': 'cyan',      // bright cyan -> cyan
-    }
-    
-    return colorMap[hex] || 'white'
-}
-
-function getPostHogColor(index: number): { 
-    hex: string; 
-    terminal: { ansi: string; fn: (text: string) => string };
-    chartscii: string;
+function getPostHogColor(index: number): {
+    hex: string
+    terminal: { ansi: string; fn: (text: string) => string }
+    chartscii: string
 } {
-    const colorIndex = (index % 15) + 1
-    const hex = POSTHOG_COLORS[colorIndex - 1]
-    return {
-        hex,
-        terminal: hexToTerminalColor(hex),
-        chartscii: hexToChartsciiColor(hex)
-    }
+    const hex = getPostHogHex(index)
+    return { hex, terminal: hexToTerminalColor(hex), chartscii: hex }
 }
 
 function getChartColors(asciichart: AsciiChart): Array<{ ansi: string; fn: (text: string) => string }> {
@@ -935,7 +871,7 @@ function plotBarChart(series: ChartSeries[]): void {
         return
     }
     
-    const termWidth = Math.max(60, Math.min(process.stdout.columns ?? 100, 120))
+    const termWidth = Math.max(60, Math.min(process.stdout.columns ?? 120, 200))
     
     series.forEach((s, seriesIndex) => {
         const data = s.data.map((v) => Number(v) || 0)
@@ -960,11 +896,14 @@ function plotBarChart(series: ChartSeries[]): void {
         try {
             // Create individual colored charts for each bar
             const maxValue = Math.max(...data)
-            const chartWidth = Math.min(termWidth - 20, 60)
-            
+
             // Find the width needed for all value labels
             const valueLabels = data.map(v => formatYValue(v))
             const maxLabelWidth = Math.max(...valueLabels.map(label => label.length))
+
+            // Reserve room for the value label gutter (maxLabelWidth + ` ╢` separator).
+            // No inner cap — the terminal width is already clamped above.
+            const chartWidth = Math.max(20, termWidth - (maxLabelWidth + 3))
             
             data.forEach((value, index) => {
                 if (value === 0) return
@@ -1040,32 +979,26 @@ function plotTrendsSeries(series: ChartSeries[]): void {
         return
     }
 
-    const termWidth = Math.max(60, Math.min(process.stdout.columns ?? 100, 200))
-    const step = pickStep(points, termWidth)
+    const termWidth = Math.max(60, Math.min(process.stdout.columns ?? 120, 240))
 
-    const numericSeries = series.map((s) =>
-        widenSeries(
-            s.data.slice(0, points).map((v) => Number(v) || 0),
-            step
-        )
-    )
+    // Truncate every series to the same length, then downsample if there are
+    // more points than horizontal cells — without this, hourly 720-point series
+    // render at 720 columns wide and overflow the terminal.
+    const maxPoints = maxRenderablePoints(termWidth)
+    const truncated = series.map((s) => s.data.slice(0, points).map((v) => Number(v) || 0))
+    const downsampled = truncated.map((data) => bucketAverage(data, maxPoints))
+    const renderedPoints = downsampled[0].length
+    const renderedLabels = bucketLabels(series[0].labels.slice(0, points), maxPoints)
 
-    // Calculate colors using PostHog's exact color assignment logic
-    // Based on getTrendDatasetPosition and getTrendResultCustomizationColorToken from frontend
+    const step = pickStep(renderedPoints, termWidth)
+    const numericSeries = downsampled.map((data) => widenSeries(data, step))
+
+    // Replicate the web app's getTrendDatasetPosition: prefer the explicit
+    // seriesIndex/colorIndex carried on the series, otherwise fall back to the
+    // dataset position so each series keeps a stable slot in the 15-color palette.
     const seriesColors = series.map((s, i) => {
-        // Replicate PostHog's getTrendDatasetPosition logic:
-        // dataset.seriesIndex ?? dataset.colorIndex ?? dataset.index
         const datasetPosition = (s as any).seriesIndex ?? (s as any).colorIndex ?? i
-        
-        // PostHog uses 15 preset colors (preset-1 through preset-15)
-        // The formula is: (datasetPosition % themeLength) + 1
-        const colorIndex = (datasetPosition % 15) + 1
-        
-        // Get the exact PostHog color
-        const posthogHex = POSTHOG_COLORS[colorIndex - 1]  // Convert to 0-based index
-        
-        // Map to terminal colors
-        return hexToTerminalColor(posthogHex)
+        return hexToTerminalColor(getPostHogHex(datasetPosition))
     })
 
     const chart = asciichart.plot(numericSeries.length === 1 ? numericSeries[0] : numericSeries, {
@@ -1075,7 +1008,7 @@ function plotTrendsSeries(series: ChartSeries[]): void {
     })
 
     console.log(chart)
-    console.log(buildLabelRow(series[0].labels.slice(0, points), step))
+    console.log(buildLabelRow(renderedLabels, step))
     console.log('')
 
     series.forEach((s, i) => {
