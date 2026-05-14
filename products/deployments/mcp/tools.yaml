@@ -16,8 +16,44 @@ ui_apps:
         detail_tool: deployments-get
         item_name_field: commit_message
 tools:
+    # ---- Deployment projects (parent resource) -------------------------------
+    deployment-projects-list:
+        operation: deployment_projects_list
+        enabled: true
+        feature_flag: deployments
+        scopes:
+            - deployment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List deployment projects
+        description: >
+            List deployment projects (the parent container of individual deployments) for
+            a team. Each project carries the source repo, GitHub integration, Cloudflare
+            Pages metadata, and a pointer to the currently-live deployment. Mirrors
+            Vercel's `list_projects` for the deployment domain.
+    deployment-projects-get:
+        operation: deployment_projects_retrieve
+        enabled: true
+        feature_flag: deployments
+        scopes:
+            - deployment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get deployment project
+        description: >
+            Get a single deployment project by id. Returns full metadata including
+            github_integration id, cloudflare_project_name, subdomain, and the id of the
+            currently-live deployment.
+
+    # ---- Deployments (nested under a project) --------------------------------
     deployments-list:
-        operation: deployments_list
+        operation: deployment_projects_deployments_list
         enabled: true
         feature_flag: deployments
         scopes:
@@ -29,14 +65,15 @@ tools:
         list: true
         title: List deployments
         description: >
-            List deployments for a project. Returns deployments with status, commit metadata,
-            duration, author, source repo, deployment URL, and timestamps. Use this to find
-            recent builds, identify the currently-live deployment, debug a failed deploy, or
-            diff what shipped between two points in time. Default ordering is most-recent
-            first. Pair with `deployments-logs` to investigate failures.
+            List deployments for a deployment project. Returns deployments with status,
+            commit metadata, duration, author, source repo, deployment URL, preview image,
+            and timestamps. Supports `status` (comma-separated filter), `author`,
+            `search`, and `ordering`. Default ordering is `-created_at`; cancelled
+            deployments are hidden by default (mirrors Vercel). Mirrors Vercel's
+            `list_deployments`.
         ui_app: deployment-list
     deployments-get:
-        operation: deployments_retrieve
+        operation: deployment_projects_deployments_retrieve
         enabled: true
         feature_flag: deployments
         scopes:
@@ -48,14 +85,31 @@ tools:
         enrich_url: '{id}'
         title: Get deployment
         description: >
-            Get a single deployment by id. Returns full metadata including commit message and
-            SHA, status, started/finished timestamps, duration, source repo URL, branch,
-            deployment URL, preview image, trigger kind (git/redeploy/rollback/seed), and the
-            parent deployment id when triggered by a redeploy or rollback. Mirrors Vercel's
+            Get a single deployment by id. Returns full metadata including commit message
+            and SHA, status, started/finished timestamps, duration, source repo URL,
+            branch, deployment URL, preview image, trigger kind, parent deployment id,
+            and (when status=error) `error_message` + `error_step`. Mirrors Vercel's
             `get_deployment`.
         ui_app: deployment
+    deployments-events:
+        operation: deployment_projects_deployments_events_list
+        enabled: true
+        feature_flag: deployments
+        scopes:
+            - deployment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Get deployment events
+        description: >
+            Return the state-machine event log for a deployment. Each event has
+            `event_type` (e.g. `status_changed`, `preview_captured`, `dispatched`),
+            `payload` (shape varies by event_type), and `occurred_at`. Use this to
+            trace exactly what happened during a deploy — especially failures.
     deployments-logs:
-        operation: deployments_logs_retrieve
+        operation: deployment_projects_deployments_logs_retrieve
         enabled: true
         feature_flag: deployments
         scopes:
@@ -66,16 +120,35 @@ tools:
             idempotent: true
         title: Get deployment logs
         description: >
-            Retrieve build and runtime logs for a specific deployment by id. Returns log
-            entries with timestamp, level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use
-            to debug a failed build, investigate runtime errors, or trace what happened
-            during a deploy. Supports `search` (case-insensitive substring), `level` (comma-
-            separated filter), `after`/`before` (ISO timestamps), and `limit` (1-500).
-            Mirrors Vercel's `get_deployment_build_logs` + `get_runtime_logs(deploymentId)`.
-            Empty until log ingestion writes entries with `log_source = "deployment"`.
+            Retrieve build / runtime logs for a specific deployment. Mirrors Vercel's
+            `get_deployment_build_logs` + `get_runtime_logs(deploymentId)`. NOTE: the
+            backend endpoint is currently a stub returning an empty response — the real
+            implementation queries `$log` PostHog events tagged with `deployment_id`
+            once the HogQL bridge lands.
+
+    # ---- Mutating actions — scaffolded but disabled by default ---------------
+    # Vercel's MCP intentionally keeps redeploy / rollback out of MCP (they go via
+    # the CLI / dashboard). We mirror that here. Backend implementations are now
+    # real (PR #58460); flip `enabled: true` per-tool when we want to expose them.
+    deployments-create:
+        operation: deployment_projects_deployments_create
+        # TODO(deployments-v1): consider enabling once we have agent guardrails.
+        enabled: false
+        feature_flag: deployments
+        scopes:
+            - deployment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create deployment
+        description: >
+            Start a new deployment for a project from a specific commit. Returns 201 on
+            success, 409 if a deployment is already in flight, or 502 on upstream GitHub /
+            workflow dispatch failure.
     deployments-redeploy:
-        operation: deployments_redeploy_create
-        # TODO(deployments-v1): enable once the backend action returns 201 instead of 501.
+        operation: deployment_projects_deployments_redeploy_create
+        # TODO(deployments-v1): enable when we want agents to redeploy on demand.
         enabled: false
         feature_flag: deployments
         scopes:
@@ -87,10 +160,10 @@ tools:
         title: Redeploy
         description: >
             Trigger a redeploy from the commit of an existing deployment. Creates a new
-            deployment with `trigger_kind = "redeploy"` that walks through the build pipeline.
+            deployment with `trigger_kind = "redeploy"`.
     deployments-rollback:
-        operation: deployments_rollback_create
-        # TODO(deployments-v1): enable once the backend action returns 201 instead of 501.
+        operation: deployment_projects_deployments_rollback_create
+        # TODO(deployments-v1): enable with caution — this changes the currently-live row.
         enabled: false
         feature_flag: deployments
         scopes:
@@ -101,11 +174,26 @@ tools:
             idempotent: false
         title: Rollback
         description: >
-            Roll back to a previous deployment, making it the currently-live one. Creates a
-            new deployment with `trigger_kind = "rollback"` pointing at the target.
+            Roll back to a previous deployment, making it the currently-live one. Creates
+            a new deployment with `trigger_kind = "rollback"` pointing at the target.
+    deployments-cancel:
+        operation: deployment_projects_deployments_cancel_create
+        # TODO(deployments-v1): enable once we trust agents to cancel an in-flight deploy.
+        enabled: false
+        feature_flag: deployments
+        scopes:
+            - deployment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Cancel deployment
+        description: >
+            Signal cancellation to an in-flight deployment's worker. Marks the row
+            cancelled even when no worker is running.
     deployments-refresh-preview:
-        operation: deployments_refresh_preview_create
-        # TODO(deployments-v1): enable once the backend action returns 201 instead of 501.
+        operation: deployment_projects_deployments_refresh_preview_create
+        # TODO(deployments-v1): enable when stable.
         enabled: false
         feature_flag: deployments
         scopes:

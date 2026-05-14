@@ -58,6 +58,8 @@ const failedDeployment: DeploymentData = {
     preview_image_url: '',
     trigger_kind: 'git',
     triggered_by_deployment: null,
+    error_step: 'build',
+    error_message: 'TypeError: cannot read property of undefined in src/utils.ts',
 }
 
 const buildingDeployment: DeploymentData = {
