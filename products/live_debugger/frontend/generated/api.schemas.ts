@@ -325,7 +325,7 @@ export interface LiveDebuggerSessionEntryListItemApi {
 }
 
 /**
- * Full session with its ordered entries timeline.
+ * Full session with its ordered entries timeline and the programs it owns.
  */
 export interface LiveDebuggerSessionApi {
     readonly id: string
@@ -346,6 +346,7 @@ export interface LiveDebuggerSessionApi {
      */
     readonly closed_at: string | null
     readonly entries: readonly LiveDebuggerSessionEntryListItemApi[]
+    readonly programs: readonly LiveDebuggerProgramApi[]
 }
 
 export interface CloseSessionRequestApi {

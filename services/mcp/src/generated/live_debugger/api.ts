@@ -46,7 +46,7 @@ export const LiveDebuggerSessionsCreateBody = /* @__PURE__ */ zod
         title: zod.string().describe('Short human-readable name for the investigation.'),
         description: zod.string().optional().describe('What the agent is trying to figure out.'),
     })
-    .describe('Full session with its ordered entries timeline.')
+    .describe('Full session with its ordered entries timeline and the programs it owns.')
 
 /**
  * Retrieve a single session with its full ordered entries timeline.

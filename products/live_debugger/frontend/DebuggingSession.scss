@@ -1,0 +1,694 @@
+// Notebook view for a live-debugger debugging session.
+// Adapted from the design at docs/superpowers/specs/2026-05-14-debugging-sessions-design.md
+// while honoring PostHog's existing color tokens, fonts, and components.
+
+$accent: var(--color-product-live-debugger-light, #ee5c1a);
+$accent-bg: color-mix(in oklab, #{$accent} 12%, transparent);
+$program: oklch(0.55 0.14 250deg);
+$program-bg: oklch(0.95 0.03 250deg / 50%);
+
+.debugging-session {
+    max-width: 940px;
+    padding: 24px 0 96px;
+    margin: 0 auto;
+}
+
+// ─── header ─────────────────────────────────────────────────────────────────────
+
+.ds-header {
+    margin-bottom: 32px;
+}
+
+.ds-eyebrow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 14px;
+}
+
+.ds-pill {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    height: 22px;
+    padding: 0 9px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 999px;
+
+    &--mono {
+        font-family: var(--font-mono);
+    }
+
+    &--open {
+        color: $accent;
+        background: $accent-bg;
+        border-color: color-mix(in oklab, #{$accent} 30%, var(--color-border-primary));
+
+        .ds-pill__dot {
+            background: $accent;
+        }
+    }
+
+    &--closed {
+        color: var(--success);
+        background: color-mix(in oklab, var(--success) 12%, transparent);
+        border-color: color-mix(in oklab, var(--success) 30%, var(--color-border-primary));
+
+        .ds-pill__dot {
+            background: var(--success);
+        }
+    }
+
+    &__dot {
+        width: 6px;
+        height: 6px;
+        background: var(--color-text-tertiary);
+        border-radius: 50%;
+    }
+}
+
+.ds-title {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    margin: 0 0 14px;
+    font-size: 32px;
+    font-weight: 600;
+    line-height: 1.15;
+    color: var(--color-text-primary);
+    text-wrap: pretty;
+    letter-spacing: -0.015em;
+
+    &__icon {
+        display: inline-flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 38px;
+        height: 38px;
+        margin-top: 4px;
+        color: $accent;
+        background: $accent-bg;
+        border: 1px solid color-mix(in oklab, #{$accent} 20%, var(--color-border-primary));
+        border-radius: 9px;
+
+        svg {
+            width: 20px;
+            height: 20px;
+        }
+    }
+}
+
+.ds-description {
+    max-width: 720px;
+    margin: 0 0 20px;
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--color-text-secondary);
+    text-wrap: pretty;
+}
+
+.ds-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 12px 0;
+    font-size: 12.5px;
+    color: var(--color-text-secondary);
+    border-top: 1px solid var(--color-border-primary);
+    border-bottom: 1px solid var(--color-border-primary);
+
+    > div {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+        padding: 0 18px;
+        border-right: 1px solid var(--color-border-primary);
+
+        &:first-child {
+            padding-left: 0;
+        }
+
+        &:last-child {
+            border-right: none;
+        }
+    }
+
+    &__k {
+        font-size: 11px;
+        color: var(--color-text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+
+    &__v {
+        font-weight: 500;
+        color: var(--color-text-primary);
+
+        &--mono {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 400;
+        }
+    }
+
+    &__sub {
+        font-weight: 400;
+        color: var(--color-text-secondary);
+    }
+}
+
+// ─── timeline ───────────────────────────────────────────────────────────────────
+
+.timeline {
+    position: relative;
+    padding-left: 28px;
+}
+
+.timeline::before {
+    position: absolute;
+    top: 6px;
+    bottom: 6px;
+    left: 7px;
+    width: 1px;
+    content: '';
+    background: var(--color-border-primary);
+}
+
+.tl-empty {
+    padding: 8px 0;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.tl-entry {
+    position: relative;
+    margin-bottom: 18px;
+
+    &::before {
+        position: absolute;
+        top: 14px;
+        left: -25px;
+        width: 9px;
+        height: 9px;
+        content: '';
+        background: var(--color-bg-primary);
+        border: 2px solid var(--color-border-secondary);
+        border-radius: 50%;
+    }
+
+    &--program::before {
+        background: $program-bg;
+        border-color: $program;
+    }
+
+    &--note::before {
+        border-color: var(--color-text-tertiary);
+    }
+
+    &--conclusion::before {
+        background: color-mix(in oklab, var(--success) 18%, transparent);
+        border-color: var(--success);
+    }
+
+    &--event::before {
+        background: $accent-bg;
+        border-color: $accent;
+    }
+
+    &--system {
+        margin: -4px 0 14px;
+
+        &::before {
+            left: -24px;
+            width: 7px;
+            height: 7px;
+            background: var(--color-bg-primary);
+            border-color: var(--color-border-secondary);
+        }
+    }
+
+    &__head {
+        display: flex;
+        gap: 10px;
+        align-items: baseline;
+        margin-bottom: 6px;
+        font-size: 12px;
+        color: var(--color-text-secondary);
+    }
+
+    &__label {
+        font-weight: 600;
+        color: var(--color-text-primary);
+        letter-spacing: 0.01em;
+    }
+
+    &--program .tl-entry__label {
+        color: $program;
+    }
+
+    &--event .tl-entry__label {
+        color: $accent;
+    }
+
+    &--conclusion .tl-entry__label {
+        color: var(--success);
+    }
+
+    &__when {
+        font-variant-numeric: tabular-nums;
+        color: var(--color-text-secondary);
+
+        &--system {
+            margin-left: auto;
+        }
+    }
+
+    &__action {
+        padding: 0;
+        margin-left: auto;
+        font-size: 12px;
+        font-weight: 500;
+        color: $accent;
+        cursor: pointer;
+        background: none;
+        border: none;
+
+        &:hover {
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+    }
+
+    &__system-text {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--color-text-tertiary);
+
+        em {
+            font-style: normal;
+            color: var(--color-text-secondary);
+        }
+    }
+}
+
+// ─── shared card ────────────────────────────────────────────────────────────────
+
+.tl-card {
+    padding: 14px 18px;
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 10px;
+
+    &__title {
+        margin: 0 0 6px;
+        font-size: 16px;
+        font-weight: 600;
+        line-height: 1.35;
+        color: var(--color-text-primary);
+        letter-spacing: -0.005em;
+    }
+
+    &__sub {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin: 0 0 10px;
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        color: var(--color-text-secondary);
+    }
+
+    &__sub-id {
+        color: var(--color-text-primary);
+    }
+
+    &__sub-sep {
+        color: var(--color-border-secondary);
+    }
+
+    &__sub-status {
+        text-transform: lowercase;
+
+        &::before {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            margin-right: 5px;
+            vertical-align: 1px;
+            content: '';
+            background: var(--color-text-tertiary);
+            border-radius: 50%;
+        }
+
+        &--installed::before {
+            background: var(--success);
+        }
+    }
+}
+
+// ─── note prose ─────────────────────────────────────────────────────────────────
+
+// Wraps LemonMarkdown output. LemonMarkdown supplies its own block element styling
+// (paragraphs, lists, headings, fenced code via CodeSnippet); we only adjust the
+// inline tone so it sits comfortably inside a timeline card.
+.tl-prose {
+    font-size: 14.5px;
+    line-height: 1.65;
+    color: var(--color-text-secondary);
+
+    p,
+    ul,
+    ol,
+    blockquote,
+    pre {
+        margin: 0 0 10px;
+    }
+
+    p:last-child,
+    ul:last-child,
+    ol:last-child,
+    blockquote:last-child,
+    pre:last-child {
+        margin-bottom: 0;
+    }
+
+    strong {
+        color: var(--color-text-primary);
+    }
+
+    // Inline code only — LemonMarkdown renders fenced blocks via CodeSnippet,
+    // so this selector hits the inline variant only.
+    code:not(pre code) {
+        padding: 1px 5px;
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        color: var(--color-text-primary);
+        background: var(--color-bg-3000);
+        border: 1px solid var(--color-border-primary);
+        border-radius: 4px;
+    }
+
+    a {
+        color: var(--color-product-live-debugger-light);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+}
+
+// ─── hogtrace source highlighting ───────────────────────────────────────────────
+
+.hg-source {
+    padding: 11px 14px;
+    margin: 8px 0 0;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--color-text-secondary);
+    white-space: pre;
+    background: var(--color-bg-3000);
+    border: 1px solid color-mix(in oklab, #{$accent} 18%, var(--color-border-primary));
+    border-radius: 8px;
+}
+
+.hg-k {
+    font-weight: 600;
+    color: $accent;
+} // fn / capture / sample / predicate
+.hg-p {
+    color: $program;
+} // module path
+.hg-ev {
+    font-weight: 600;
+    color: var(--success);
+} // :entry :exit
+.hg-d {
+    font-weight: 600;
+    color: $program;
+} // $req.x
+.hg-s {
+    color: var(--success);
+} // string literal
+.hg-num {
+    color: $program;
+} // number literal
+.hg-a {
+    color: var(--color-text-primary);
+} // identifiers
+.hg-n {
+    color: var(--color-text-tertiary);
+} // punctuation
+
+// ─── event highlight card ───────────────────────────────────────────────────────
+
+.event-card {
+    overflow: hidden;
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 10px;
+}
+
+.event-head {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 18px;
+
+    &__title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+        line-height: 1.4;
+        color: var(--color-text-primary);
+    }
+
+    &__count {
+        flex-shrink: 0;
+        padding: 2px 9px;
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        font-weight: 500;
+        color: $accent;
+        background: $accent-bg;
+        border: 1px solid color-mix(in oklab, #{$accent} 20%, var(--color-border-primary));
+        border-radius: 999px;
+    }
+}
+
+.event-summary {
+    padding: 0 18px 14px;
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--color-text-secondary);
+    border-bottom: 1px solid var(--color-border-primary);
+}
+
+.hit {
+    border-top: 1px solid var(--color-border-primary);
+
+    &-head {
+        display: grid;
+        grid-template-columns: 110px 1fr auto;
+        gap: 14px;
+        align-items: center;
+        padding: 11px 18px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--color-text-secondary);
+        background: color-mix(in oklab, var(--color-bg-3000) 50%, transparent);
+
+        &__ts {
+            font-weight: 500;
+            font-variant-numeric: tabular-nums;
+            color: var(--color-text-primary);
+        }
+
+        &__fn {
+            overflow: hidden;
+            color: var(--color-text-primary);
+            text-overflow: ellipsis;
+            white-space: nowrap;
+
+            &-dim {
+                color: var(--color-text-tertiary);
+            }
+
+            &-leaf {
+                font-weight: 600;
+                color: $program;
+            }
+        }
+
+        &__thread {
+            font-size: 11px;
+            color: var(--color-text-tertiary);
+        }
+    }
+
+    &-body {
+        padding: 12px 18px 14px;
+    }
+
+    &-section {
+        margin: 0 0 6px;
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--color-text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+    }
+
+    &-section + .hit-section {
+        margin-top: 14px;
+    }
+
+    &-source {
+        padding: 8px 12px;
+        margin: 0;
+        overflow-x: auto;
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        line-height: 1.55;
+        color: var(--color-text-primary);
+        white-space: pre;
+        background: var(--color-bg-3000);
+        border: 1px solid var(--color-border-primary);
+        border-radius: 6px;
+    }
+
+    &-source-pending {
+        padding: 6px 0 0;
+        margin: 0;
+        font-size: 13px;
+        font-style: italic;
+        color: var(--color-text-tertiary);
+    }
+
+    &-actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-top: 12px;
+
+        &__link {
+            padding: 0;
+            font-size: 12.5px;
+            font-weight: 500;
+            color: $accent;
+            cursor: pointer;
+            background: none;
+            border: none;
+
+            &:hover {
+                text-decoration: underline;
+                text-underline-offset: 2px;
+            }
+        }
+    }
+
+    &-probe-reveal {
+        padding: 0 18px 14px;
+        background: color-mix(in oklab, var(--color-bg-3000) 50%, transparent);
+        border-top: 1px solid var(--color-border-primary);
+
+        .hit-section {
+            padding-top: 12px;
+        }
+    }
+}
+
+.locals {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    margin-top: 4px;
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 6px;
+
+    &__row {
+        display: contents;
+    }
+
+    &__row:last-child .locals__k,
+    &__row:last-child .locals__v {
+        border-bottom: none;
+    }
+
+    &__k {
+        padding: 7px 12px;
+        color: var(--color-text-secondary);
+        background: var(--color-bg-3000);
+        border-right: 1px solid var(--color-border-primary);
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__v {
+        padding: 7px 12px;
+        color: var(--color-text-primary);
+        word-break: break-all;
+        border-bottom: 1px solid var(--color-border-primary);
+
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+        }
+
+        &--str {
+            color: var(--success);
+
+            &::before,
+            &::after {
+                color: var(--color-text-tertiary);
+                content: '"';
+            }
+        }
+
+        &--num {
+            color: $program;
+        }
+    }
+}
+
+// ─── composer ───────────────────────────────────────────────────────────────────
+
+.ds-composer {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 14px 18px;
+    margin-top: 26px;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    background: var(--color-bg-primary);
+    border: 1px dashed var(--color-border-secondary);
+    border-radius: 10px;
+
+    &__add {
+        display: inline-flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        font-family: var(--font-mono);
+        font-size: 14px;
+        color: var(--color-text-secondary);
+        background: var(--color-bg-3000);
+        border-radius: 50%;
+    }
+
+    &__hint {
+        flex: 1;
+    }
+}

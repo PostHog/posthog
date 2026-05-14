@@ -711,14 +711,15 @@ class LiveDebuggerSessionEntryListItemSerializer(serializers.ModelSerializer):
 
 
 class LiveDebuggerSessionSerializer(serializers.ModelSerializer):
-    """Full session with its ordered entries timeline."""
+    """Full session with its ordered entries timeline and the programs it owns."""
 
     entries = LiveDebuggerSessionEntryListItemSerializer(many=True, read_only=True)
+    programs = LiveDebuggerProgramSerializer(many=True, read_only=True)
 
     class Meta:
         model = LiveDebuggerSession
-        fields = ["id", "title", "description", "status", "created_at", "closed_at", "entries"]
-        read_only_fields = ["id", "status", "created_at", "closed_at", "entries"]
+        fields = ["id", "title", "description", "status", "created_at", "closed_at", "entries", "programs"]
+        read_only_fields = ["id", "status", "created_at", "closed_at", "entries", "programs"]
         extra_kwargs = {
             "title": {"help_text": "Short human-readable name for the investigation."},
             "description": {"help_text": "What the agent is trying to figure out."},
@@ -726,6 +727,13 @@ class LiveDebuggerSessionSerializer(serializers.ModelSerializer):
             "created_at": {"help_text": "When the session was started."},
             "closed_at": {"help_text": "When the session was closed (null while open)."},
             "entries": {"help_text": "Ordered list of entries in this session, oldest first."},
+            "programs": {
+                "help_text": (
+                    "All programs (installed + uninstalled) that belong to this session, "
+                    "including their full hogtrace source. Used by the notebook view to "
+                    "render program_install/program_uninstall entries inline."
+                ),
+            },
         }
 
     def create(self, validated_data: dict) -> LiveDebuggerSession:
@@ -841,7 +849,8 @@ class LiveDebuggerSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.order_by("-created_at")
         if self.action == "retrieve":
             queryset = queryset.prefetch_related(
-                Prefetch("entries", queryset=LiveDebuggerSessionEntry.objects.order_by("created_at"))
+                Prefetch("entries", queryset=LiveDebuggerSessionEntry.objects.order_by("created_at")),
+                Prefetch("programs", queryset=LiveDebuggerProgram.objects.order_by("created_at")),
             )
         return queryset
 

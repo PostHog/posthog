@@ -19308,7 +19308,7 @@ export namespace Schemas {
     }
 
     /**
-     * Full session with its ordered entries timeline.
+     * Full session with its ordered entries timeline and the programs it owns.
      */
     export interface LiveDebuggerSession {
       readonly id: string;
@@ -19329,6 +19329,7 @@ export namespace Schemas {
          */
       readonly closed_at: string | null;
       readonly entries: readonly LiveDebuggerSessionEntryListItem[];
+      readonly programs: readonly LiveDebuggerProgram[];
     }
 
     /**

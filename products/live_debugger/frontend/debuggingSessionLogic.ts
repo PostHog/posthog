@@ -25,11 +25,6 @@ export const debuggingSessionLogic = kea<debuggingSessionLogicType>([
 
     actions({
         closeSession: (conclusionMarkdown: string | null) => ({ conclusionMarkdown }),
-        loadEventsForHighlight: (entryId: string, programId: string, uuids: string[]) => ({
-            entryId,
-            programId,
-            uuids,
-        }),
     }),
 
     loaders(({ props, values }) => ({
@@ -41,34 +36,42 @@ export const debuggingSessionLogic = kea<debuggingSessionLogicType>([
                 },
             },
         ],
-        highlightedEvents: [
-            {} as Record<string, ProgramEventApi[]>,
+        // Flat map of event UUID -> probe event, populated by fetching program_events for every
+        // program in the session. The notebook's EventHighlightEntry uses this to render highlighted
+        // event payloads inline. Refreshes after every session reload.
+        eventsByUuid: [
+            {} as Record<string, ProgramEventApi>,
             {
-                loadEventsForHighlight: async ({
-                    entryId,
-                    programId,
-                    uuids,
-                }: {
-                    entryId: string
-                    programId: string
-                    uuids: string[]
-                }): Promise<Record<string, ProgramEventApi[]>> => {
-                    const response = await liveDebuggerSessionsProgramEventsRetrieve(
-                        String(values.currentProjectId),
-                        props.id,
-                        { program_id: programId, limit: 1000 }
-                    )
-                    const set = new Set(uuids)
-                    return {
-                        ...values.highlightedEvents,
-                        [entryId]: (response.results ?? []).filter((e) => set.has(e.id)),
+                loadAllEvents: async (): Promise<Record<string, ProgramEventApi>> => {
+                    const programs = values.session?.programs ?? []
+                    if (programs.length === 0) {
+                        return {}
                     }
+                    const projectId = String(values.currentProjectId)
+                    const responses = await Promise.all(
+                        programs.map((p) =>
+                            liveDebuggerSessionsProgramEventsRetrieve(projectId, props.id, {
+                                program_id: p.id,
+                                limit: 1000,
+                            }).catch(() => ({ results: [] as ProgramEventApi[] }))
+                        )
+                    )
+                    const map: Record<string, ProgramEventApi> = {}
+                    for (const response of responses) {
+                        for (const event of response.results ?? []) {
+                            map[event.id] = event
+                        }
+                    }
+                    return map
                 },
             },
         ],
     })),
 
     listeners(({ actions, props, values }) => ({
+        loadSessionSuccess: () => {
+            actions.loadAllEvents()
+        },
         closeSession: async ({ conclusionMarkdown }) => {
             await liveDebuggerSessionsCloseCreate(String(values.currentProjectId), props.id, {
                 conclusion_markdown: conclusionMarkdown ?? undefined,

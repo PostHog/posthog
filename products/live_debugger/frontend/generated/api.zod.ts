@@ -92,7 +92,7 @@ export const LiveDebuggerSessionsCreateBody = /* @__PURE__ */ zod
         title: zod.string().describe('Short human-readable name for the investigation.'),
         description: zod.string().optional().describe('What the agent is trying to figure out.'),
     })
-    .describe('Full session with its ordered entries timeline.')
+    .describe('Full session with its ordered entries timeline and the programs it owns.')
 
 /**
  * Atomically transitions the session to `closed`, sets `closed_at`, optionally appends a `conclusion` entry, and auto-uninstalls every program that still has `installed` status in this session. Idempotent: closing an already-closed session returns the session unchanged.
