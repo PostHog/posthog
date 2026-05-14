@@ -89,11 +89,27 @@ For each optional section you skip, add an entry to `skipped_sections` with a on
 ## Section quality
 
 For each `PageSection`:
-- `copy_hooks` is the FOUNDER'S DELIVERABLE — write headlines, subheads, bullet copy, CTA labels they can ship as-is. Use markdown formatting (bold for headlines, hyphens for bullets). For sections like FAQ, write actual question-and-answer pairs, not placeholders.
+- `copy_hooks` is the FOUNDER'S DELIVERABLE — write headlines, subheads, bullet copy, CTA labels they can ship as-is. Use markdown formatting (bold for headlines, hyphens for bullets).
 - `design_notes` should include Tailwind class hints (e.g. `grid grid-cols-1 md:grid-cols-3 gap-6`) and responsive breakpoints. Be specific about colors using the palette from `brand`.
 - `component_recipe` names actual shadcn/ui components (Card, Button, Accordion, Tabs, Table, NavigationMenu, Sheet, Badge, Switch).
 - `posthog_events` uses concrete event signatures with property objects: `cta_clicked { location: "hero", label: "Start free" }`. Use autocapture only (empty list) for sections without explicit tracking.
 - `acceptance_criteria` are testable, specific. e.g. "All 3 steps fit on 1280×800 viewport" beats "looks good".
+
+### copy_hooks formatting rules (STRICT — a downstream renderer parses this)
+
+A renderer turns `copy_hooks` into real HTML by reading markdown structure. If you cram a section into one big paragraph with inline bold tokens, the renderer can't break it apart into the intended layout and the founder ends up with a wall of text. Follow these rules per section type:
+
+- **One `##` heading per section.** The section title goes on its own line, starts with `## `, and is followed by a blank line.
+- **Hero / Final CTA**: heading, blank line, ONE prose paragraph (the subhead), blank line, then a single `[Label](#)` link as the CTA. No bullet list.
+- **Features**: heading, optional one-paragraph intro, blank line, then a bullet list. EACH bullet is `- **Feature name** — one-line description`. Three to six bullets. Do not write features as inline bolded phrases inside a paragraph.
+- **How it works**: heading, optional one-paragraph intro, blank line, then a bullet list. EACH bullet is `- **Step name** — one-line action`. Three to seven steps. NEVER cram the steps into a single run-on paragraph with inline `**1. Step**` markers. The renderer relies on the bullet list to produce numbered cards.
+- **Pricing**: heading, optional intro, blank line, then ONE `### Tier name` per tier (h3), followed by the price on its own line, then a bullet list of features. Repeat per tier.
+- **FAQ**: heading, blank line, then alternating Q+A pairs. The question is its own line with the FULL question wrapped in `**…?**` and NOTHING else on that line. The answer is the next line(s) of plain text. Insert a blank line between Q/A pairs.
+- **Problem statement / Use cases / Comparison table / Social proof / Footer**: heading + paragraphs + optional bullet list. Same bullet pattern as Features.
+
+Every section copy MUST use real newlines (`\n`) between heading / paragraph / list-item lines. NEVER serialize a structured section as one long string with inline `**bold**` tokens — that is a parser-defeating anti-pattern.
+
+Bold (`**…**`) is for emphasis on a phrase WITHIN prose, or to mark the leading label inside a bullet (`- **Label** — body`). Don't use bold as a substitute for headings or list items.
 
 ## Brand
 

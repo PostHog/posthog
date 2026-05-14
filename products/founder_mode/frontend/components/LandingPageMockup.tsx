@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
 
-import { IconExternal } from '@posthog/icons'
+import { IconExternal, IconGithub } from '@posthog/icons'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import type { LandingPageBuildSpec } from './founderLandingPageLogic'
@@ -19,9 +20,11 @@ interface Props {
     loadingLabel?: string
     /** Footer copy. Defaults to a "mockup vs final" disclaimer. */
     footerLabel?: string
+    /** GitHub repo URL — when present, BrowserChrome shows a "View on GitHub" icon button. */
+    repoUrl?: string | null
 }
 
-export function LandingPageMockup({ spec, liveUrl, loading, loadingLabel, footerLabel }: Props): JSX.Element {
+export function LandingPageMockup({ spec, liveUrl, loading, loadingLabel, footerLabel, repoUrl }: Props): JSX.Element {
     // URL bar contents: prefer the live URL, otherwise show a fake `.com` derived from the spec.
     const url = useMemo(() => {
         if (liveUrl) {
@@ -54,7 +57,7 @@ export function LandingPageMockup({ spec, liveUrl, loading, loadingLabel, footer
 
     return (
         <LemonCard className="p-0 overflow-hidden">
-            <BrowserChrome url={url} onOpen={canOpen ? handleOpenInTab : null} />
+            <BrowserChrome url={url} onOpen={canOpen ? handleOpenInTab : null} repoUrl={repoUrl} />
             <div className="relative bg-white min-h-[480px]">
                 {renderMode === 'live' && (
                     <iframe src={liveUrl ?? ''} title="Live landing page" className="w-full h-[640px] border-0" />
@@ -90,7 +93,15 @@ function LoadingBody({ label }: { label?: string }): JSX.Element {
     )
 }
 
-function BrowserChrome({ url, onOpen }: { url: string; onOpen: (() => void) | null }): JSX.Element {
+function BrowserChrome({
+    url,
+    onOpen,
+    repoUrl,
+}: {
+    url: string
+    onOpen: (() => void) | null
+    repoUrl?: string | null
+}): JSX.Element {
     // URL bar: callers may already pass a full https:// URL (live mode) or just a host
     // (mock mode). Don't double-prefix.
     const displayUrl = url.startsWith('http') ? url : `https://${url}`
@@ -106,6 +117,18 @@ function BrowserChrome({ url, onOpen }: { url: string; onOpen: (() => void) | nu
                     {displayUrl}
                 </div>
             </div>
+            {repoUrl && (
+                <Link
+                    to={repoUrl}
+                    target="_blank"
+                    targetBlankIcon={false}
+                    className="text-xs px-2 py-1 rounded border border-border hover:bg-fill-highlight-100 cursor-pointer flex items-center gap-1 shrink-0 text-text-primary no-underline"
+                    title="View source on GitHub"
+                >
+                    <IconGithub className="w-3.5 h-3.5" />
+                    <span className="hidden md:inline">GitHub</span>
+                </Link>
+            )}
             {onOpen && (
                 <button
                     type="button"

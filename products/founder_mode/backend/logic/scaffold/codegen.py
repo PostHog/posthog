@@ -130,6 +130,21 @@ def _parse_section_copy(copy: str) -> dict[str, Any]:
         if para:
             paragraphs.append(" ".join(para))
 
+    # Fallback: if the LLM emitted a section as one run-on paragraph with inline bold
+    # step titles (e.g. "**1. Foo** body **2. Bar** body…"), promote those bold tokens
+    # into structured bullets so step-style renderers can lay them out as numbered cards
+    # instead of a giant text blob. The first chunk before the second bold token usually
+    # reads as an intro — keep it as a paragraph, don't shove it into a step card.
+    if not bullets and len(paragraphs) == 1:
+        text_blob = paragraphs[0]
+        inline_steps = _extract_inline_steps(text_blob)
+        if len(inline_steps) >= 2:
+            bullets = inline_steps
+            # Salvage prose before the first numbered step (e.g. "**Get Productive...**
+            # designed for immediate use. Here's how to start:") into an intro paragraph.
+            preamble = _extract_inline_preamble(text_blob)
+            paragraphs = [preamble] if preamble else []
+
     return {
         "headings": headings,
         "paragraphs": paragraphs,
@@ -137,6 +152,64 @@ def _parse_section_copy(copy: str) -> dict[str, Any]:
         "qa_pairs": qa_pairs,
         "links": links,
     }
+
+
+# Matches `**Step Title**` tokens — including ones prefixed by `1.`, `2)`, `Step 3:`, etc.
+# so the section parser can split a run-on paragraph into structured steps.
+_RE_INLINE_STEP = re.compile(r"\*\*([^*]+?)\*\*")
+
+
+def _extract_inline_preamble(text: str) -> str:
+    """Pull any plain-text prose between the first two bold tokens out as an intro.
+
+    Used by the inline-step fallback to keep one-paragraph intros visible as section
+    intros instead of attaching them as bodies to the first step card.
+    """
+    matches = list(_RE_INLINE_STEP.finditer(text))
+    if len(matches) < 2:
+        return ""
+    # Body between first `**Title**` and second `**Title**` — that's intro prose. Strip
+    # trailing colons / dashes that usually precede the actual first step.
+    return text[matches[0].end() : matches[1].start()].strip().rstrip(":—–-").strip()
+
+
+_RE_STEP_TITLE = re.compile(r"^(?:step\s+\w+[:\.]?\s+|\d+\s*[\.\):]\s+)", re.IGNORECASE)
+
+
+def _looks_like_step_title(title: str) -> bool:
+    """`1. Foo` / `2) Bar` / `Step 3: Baz` — but not `Get Productive in 3 Simple Steps`."""
+    return bool(_RE_STEP_TITLE.match(title.strip()))
+
+
+def _extract_inline_steps(text: str) -> list[dict[str, str]]:
+    """Split a flat text with `**Title** body **Title** body…` into bullet structs.
+
+    Defensively handles two shapes the LLM falls into when it forgets to write a real
+    markdown list:
+      1. Pure step list: `**1. Foo** body **2. Bar** body…` — every bold is a step.
+      2. Section-heading + steps: `**Get Started** Here's how: **1. Foo** body **2. Bar** body…`
+         The first bold is the section heading, NOT a step. Skip it.
+    """
+    matches = list(_RE_INLINE_STEP.finditer(text))
+    if len(matches) < 2:
+        return []
+    # Detect the section-heading-prefix case: first bold doesn't look like a step title
+    # but the rest do. Drop it from the step list so it doesn't become a phantom card.
+    if not _looks_like_step_title(matches[0].group(1)) and all(_looks_like_step_title(m.group(1)) for m in matches[1:]):
+        matches = matches[1:]
+    if len(matches) < 1:
+        return []
+    steps: list[dict[str, str]] = []
+    for idx, m in enumerate(matches):
+        title = m.group(1).strip()
+        body_start = m.end()
+        body_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        body = text[body_start:body_end].strip().strip(":").strip()
+        # Drop intro labels that have no following body before the next bold token.
+        if not body and idx == 0:
+            continue
+        steps.append({"bold": title, "rest": body})
+    return steps
 
 
 # ---------- small helpers -----------------------------------------------------
@@ -197,6 +270,55 @@ def _render_nav(*, section: dict[str, Any], project_name: str, sections_all: lis
 """.strip()
 
 
+_HERO_MOCKUP_SVG = """<svg viewBox="0 0 720 460" class="w-full h-auto" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+        <linearGradient id="heroFrame" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="rgba(255,255,255,1)"/>
+            <stop offset="100%" stop-color="rgba(255,255,255,.85)"/>
+        </linearGradient>
+        <linearGradient id="heroAccent" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="var(--brand-primary)"/>
+            <stop offset="100%" stop-color="var(--brand-accent)"/>
+        </linearGradient>
+        <filter id="heroShadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="rgba(15,23,42,.16)"/>
+        </filter>
+    </defs>
+    <g filter="url(#heroShadow)">
+        <rect x="40" y="40" rx="14" ry="14" width="640" height="380" fill="url(#heroFrame)" stroke="rgba(15,23,42,.08)"/>
+        <rect x="40" y="40" rx="14" ry="14" width="640" height="38" fill="rgba(241,245,249,.95)"/>
+        <circle cx="68" cy="59" r="5" fill="#f87171"/>
+        <circle cx="86" cy="59" r="5" fill="#fbbf24"/>
+        <circle cx="104" cy="59" r="5" fill="#34d399"/>
+        <rect x="240" y="50" rx="6" ry="6" width="240" height="18" fill="rgba(255,255,255,.95)" stroke="rgba(15,23,42,.06)"/>
+        <rect x="60" y="100" rx="8" ry="8" width="180" height="300" fill="rgba(248,250,252,.95)"/>
+        <rect x="76" y="120" rx="4" ry="4" width="148" height="10" fill="var(--brand-primary)" opacity=".85"/>
+        <rect x="76" y="142" rx="4" ry="4" width="120" height="8" fill="rgba(100,116,139,.5)"/>
+        <rect x="76" y="164" rx="4" ry="4" width="100" height="8" fill="rgba(100,116,139,.35)"/>
+        <rect x="76" y="186" rx="4" ry="4" width="140" height="8" fill="rgba(100,116,139,.35)"/>
+        <rect x="76" y="208" rx="4" ry="4" width="110" height="8" fill="rgba(100,116,139,.35)"/>
+        <rect x="76" y="240" rx="6" ry="6" width="148" height="24" fill="url(#heroAccent)" opacity=".18"/>
+        <rect x="260" y="100" rx="8" ry="8" width="400" height="138" fill="url(#heroAccent)" opacity=".12"/>
+        <rect x="278" y="124" rx="4" ry="4" width="180" height="14" fill="var(--brand-primary)"/>
+        <rect x="278" y="152" rx="4" ry="4" width="320" height="8" fill="rgba(100,116,139,.55)"/>
+        <rect x="278" y="170" rx="4" ry="4" width="260" height="8" fill="rgba(100,116,139,.35)"/>
+        <rect x="278" y="200" rx="14" ry="14" width="98" height="26" fill="var(--brand-primary)"/>
+        <rect x="386" y="200" rx="14" ry="14" width="74" height="26" fill="rgba(15,23,42,.08)"/>
+        <rect x="260" y="256" rx="8" ry="8" width="190" height="144" fill="rgba(255,255,255,.95)" stroke="rgba(15,23,42,.06)"/>
+        <rect x="276" y="276" rx="4" ry="4" width="110" height="10" fill="rgba(15,23,42,.85)"/>
+        <rect x="276" y="296" rx="4" ry="4" width="158" height="8" fill="rgba(100,116,139,.45)"/>
+        <rect x="276" y="312" rx="4" ry="4" width="140" height="8" fill="rgba(100,116,139,.35)"/>
+        <circle cx="296" cy="362" r="14" fill="var(--brand-accent)" opacity=".75"/>
+        <circle cx="328" cy="362" r="14" fill="var(--brand-primary)" opacity=".5"/>
+        <rect x="470" y="256" rx="8" ry="8" width="190" height="144" fill="rgba(255,255,255,.95)" stroke="rgba(15,23,42,.06)"/>
+        <rect x="486" y="276" rx="4" ry="4" width="92" height="10" fill="rgba(15,23,42,.85)"/>
+        <polyline points="486,360 504,344 524,352 546,322 568,330 594,304 622,316 644,300"
+                  fill="none" stroke="var(--brand-primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="644" cy="300" r="4" fill="var(--brand-primary)"/>
+    </g>
+</svg>"""
+
+
 def _render_hero(*, section: dict[str, Any], project_name: str) -> str:
     parsed = _parse_section_copy(section.get("copy_hooks") or "")
     title = parsed["headings"][0]["text"] if parsed["headings"] else project_name
@@ -205,26 +327,32 @@ def _render_hero(*, section: dict[str, Any], project_name: str) -> str:
     secondary = _secondary_cta(parsed)
 
     primary_html = (
-        f'<a href="{primary["url"]}" class="inline-flex items-center justify-center rounded-full bg-brand-primary px-7 py-3 text-base font-semibold text-white shadow-lg shadow-brand-primary/25 hover:opacity-90 transition-opacity">{html.escape(primary["label"])}</a>'
+        f'<a href="{primary["url"]}" class="group inline-flex items-center justify-center gap-2 rounded-full bg-brand-primary px-7 py-3 text-base font-semibold text-white shadow-lg shadow-brand-primary/25 hover:shadow-xl hover:shadow-brand-primary/30 hover:-translate-y-0.5 transition-all duration-200">{html.escape(primary["label"])}<span aria-hidden="true" class="motion-safe:transition-transform motion-safe:group-hover:translate-x-1">→</span></a>'
         if primary
         else ""
     )
     secondary_html = (
-        f'<a href="{secondary["url"]}" class="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white/70 px-7 py-3 text-base font-semibold text-slate-900 hover:bg-white transition-colors">{html.escape(secondary["label"])}</a>'
+        f'<a href="{secondary["url"]}" class="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white/70 px-7 py-3 text-base font-semibold text-slate-900 hover:bg-white hover:border-slate-400 transition-colors">{html.escape(secondary["label"])}</a>'
         if secondary
         else ""
     )
     return f"""
-<section id="hero" class="relative overflow-hidden">
+<section id="hero" class="reveal relative overflow-hidden">
     <div class="absolute inset-0 -z-10 bg-gradient-to-b from-brand-neutral via-white to-white"></div>
-    <div class="absolute -top-32 left-1/2 -z-10 -translate-x-1/2 h-[36rem] w-[72rem] rounded-full bg-brand-primary/10 blur-3xl"></div>
-    <div class="mx-auto max-w-4xl px-6 pt-20 pb-16 md:pt-32 md:pb-24 text-center">
-        <p class="text-sm uppercase tracking-widest text-brand-primary font-semibold">{html.escape(project_name)}</p>
-        <h1 class="mt-4 text-4xl md:text-6xl font-bold tracking-tight text-slate-900 leading-[1.05]">{_inline(title, link_class="text-brand-primary")}</h1>
-        <p class="mt-6 text-lg md:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed">{_inline(subhead, link_class="text-brand-primary underline")}</p>
-        <div class="mt-10 flex flex-wrap gap-3 justify-center">
-            {primary_html}
-            {secondary_html}
+    <div class="absolute -top-32 left-1/2 -z-10 -translate-x-1/2 h-[36rem] w-[72rem] rounded-full bg-brand-primary/10 blur-3xl motion-safe:animate-pulse-slow"></div>
+    <div class="absolute -bottom-24 -right-24 -z-10 h-72 w-72 rounded-full bg-brand-accent/20 blur-3xl"></div>
+    <div class="mx-auto max-w-6xl px-6 pt-20 pb-16 md:pt-28 md:pb-24 grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
+        <div class="lg:col-span-6 text-center lg:text-left">
+            <p class="text-xs uppercase tracking-[0.18em] text-brand-primary font-semibold inline-flex items-center gap-2"><span class="inline-block h-1.5 w-1.5 rounded-full bg-brand-primary animate-ping-slow"></span>{html.escape(project_name)}</p>
+            <h1 class="mt-4 text-4xl md:text-6xl font-bold tracking-tight text-slate-900 leading-[1.05]">{_inline(title, link_class="text-brand-primary")}</h1>
+            <p class="mt-6 text-lg md:text-xl text-slate-600 max-w-xl mx-auto lg:mx-0 leading-relaxed">{_inline(subhead, link_class="text-brand-primary underline")}</p>
+            <div class="mt-10 flex flex-wrap gap-3 justify-center lg:justify-start">
+                {primary_html}
+                {secondary_html}
+            </div>
+        </div>
+        <div class="lg:col-span-6 motion-safe:animate-float">
+            {_HERO_MOCKUP_SVG}
         </div>
     </div>
 </section>
@@ -245,12 +373,21 @@ def _render_social_proof(*, section: dict[str, Any]) -> str:
         "Product Hunt",
         "Hacker News",
     ]
-    chips = "\n".join(
-        f'<span class="text-slate-400 font-semibold tracking-wide text-sm md:text-base">{html.escape(item)}</span>'
-        for item in items[:8]
-    )
+
+    # Stylize each chip as a faux-logo (mark + wordmark). Founders pasting this on day 1
+    # don't have real logos yet — the placeholder reads as "company N" but with structure.
+    def _chip(item: str) -> str:
+        initials = "".join(w[0].upper() for w in re.split(r"\s+", item) if w)[:2] or "·"
+        return (
+            f'<div class="inline-flex items-center gap-2 text-slate-400 font-semibold tracking-wide text-sm md:text-base hover:text-slate-600 transition-colors">\n'
+            f'    <span class="inline-flex h-7 w-7 items-center justify-center rounded-md bg-slate-200/70 text-slate-500 text-xs">{html.escape(initials)}</span>\n'
+            f"    {html.escape(item)}\n"
+            f"</div>"
+        )
+
+    chips = "\n".join(_chip(item) for item in items[:8])
     return f"""
-<section id="social-proof" class="border-y border-slate-100 bg-white py-10">
+<section id="social-proof" class="reveal border-y border-slate-100 bg-white py-10">
     <div class="mx-auto max-w-5xl px-6">
         <p class="text-center text-xs uppercase tracking-widest text-slate-500 mb-6">{html.escape(title)}</p>
         <div class="flex flex-wrap justify-center items-center gap-x-10 gap-y-4">
@@ -283,15 +420,16 @@ def _render_features(*, section: dict[str, Any]) -> str:
         label = b.get("bold") or b.get("rest") or ""
         body = b.get("rest") if b.get("bold") else ""
         cards.append(
-            f'<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all">\n'
-            f'    <div class="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-brand-primary/10 text-brand-primary">{icon}</div>\n'
+            f'<div class="group relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-brand-primary/30 transition-all duration-200 overflow-hidden">\n'
+            f'    <div class="absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-brand-primary/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>\n'
+            f'    <div class="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-brand-primary/10 text-brand-primary motion-safe:transition-transform motion-safe:duration-200 motion-safe:group-hover:scale-110 motion-safe:group-hover:rotate-3">{icon}</div>\n'
             f'    <h3 class="mt-5 text-lg font-semibold text-slate-900">{_inline(label)}</h3>\n'
             f'    <p class="mt-2 text-slate-600 leading-relaxed">{_inline(body)}</p>\n'
             f"</div>"
         )
     cards_html = "\n".join(cards)
     return f"""
-<section id="{_kebab_case(section.get("name") or "features")}" class="bg-brand-neutral py-20 md:py-28">
+<section id="{_kebab_case(section.get("name") or "features")}" class="reveal bg-brand-neutral py-20 md:py-28">
     <div class="mx-auto max-w-6xl px-6">
         <div class="max-w-2xl">
             <h2 class="text-3xl md:text-4xl font-bold tracking-tight text-slate-900">{_inline(title)}</h2>
@@ -314,15 +452,26 @@ def _render_how_it_works(*, section: dict[str, Any]) -> str:
     for idx, b in enumerate(steps[:6]):
         label = b.get("bold") or b.get("rest") or ""
         body = b.get("rest") if b.get("bold") else ""
+        # Strip the leading `1. ` / `2) ` / `Step 3: ` from the inline-bold-extracted titles
+        # so the card already has its own numbered chip — saves a "1. 1." double label.
+        clean_label = re.sub(r"^(?:step\s+\w+[:\.]?\s+|\d+\s*[\.\):]\s+)", "", label.strip(), flags=re.IGNORECASE)
+        # A faint vertical connector links each step down to the next — skip the last one.
+        is_last = idx == len(steps[:6]) - 1
+        connector = (
+            ""
+            if is_last
+            else '<div class="absolute left-[1.375rem] top-12 bottom-0 w-px bg-gradient-to-b from-brand-primary/30 to-transparent"></div>'
+        )
         step_html.append(
-            f'<div class="relative pl-14">\n'
-            f'    <div class="absolute left-0 top-0 inline-flex h-10 w-10 items-center justify-center rounded-full bg-brand-primary text-white font-bold">{idx + 1}</div>\n'
-            f'    <h3 class="text-lg font-semibold text-slate-900">{_inline(label)}</h3>\n'
+            f'<div class="reveal relative pl-16 group">\n'
+            f'    <div class="absolute left-0 top-0 inline-flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-brand-primary to-brand-accent text-white font-bold shadow-lg shadow-brand-primary/30 motion-safe:transition-transform motion-safe:group-hover:scale-110">{idx + 1}</div>\n'
+            f"    {connector}\n"
+            f'    <h3 class="text-lg font-semibold text-slate-900">{_inline(clean_label)}</h3>\n'
             f'    <p class="mt-1 text-slate-600 leading-relaxed">{_inline(body)}</p>\n'
             f"</div>"
         )
     return f"""
-<section id="{_kebab_case(section.get("name") or "how-it-works")}" class="bg-white py-20 md:py-28">
+<section id="{_kebab_case(section.get("name") or "how-it-works")}" class="reveal bg-white py-20 md:py-28">
     <div class="mx-auto max-w-5xl px-6">
         <div class="max-w-2xl">
             <h2 class="text-3xl md:text-4xl font-bold tracking-tight text-slate-900">{_inline(title)}</h2>
@@ -352,7 +501,7 @@ def _render_problem_statement(*, section: dict[str, Any]) -> str:
         )
         pains_html = f'<ul class="mt-8 space-y-3">{items}</ul>'
     return f"""
-<section id="{_kebab_case(section.get("name") or "problem")}" class="bg-white py-20 md:py-28">
+<section id="{_kebab_case(section.get("name") or "problem")}" class="reveal bg-white py-20 md:py-28">
     <div class="mx-auto max-w-4xl px-6">
         <h2 class="text-3xl md:text-4xl font-bold tracking-tight text-slate-900">{_inline(title)}</h2>
         {body_html}
@@ -401,7 +550,7 @@ def _render_pricing(*, section: dict[str, Any]) -> str:
                 f"</div>"
             )
     return f"""
-<section id="pricing" class="bg-brand-neutral py-20 md:py-28">
+<section id="pricing" class="reveal bg-brand-neutral py-20 md:py-28">
     <div class="mx-auto max-w-6xl px-6">
         <div class="text-center max-w-2xl mx-auto">
             <h2 class="text-3xl md:text-4xl font-bold tracking-tight text-slate-900">{_inline(title)}</h2>
@@ -434,7 +583,7 @@ def _render_faq(*, section: dict[str, Any]) -> str:
         )
     items_html = "\n".join(items)
     return f"""
-<section id="faq" class="bg-white py-20 md:py-28">
+<section id="faq" class="reveal bg-white py-20 md:py-28">
     <div class="mx-auto max-w-3xl px-6">
         <h2 class="text-3xl md:text-4xl font-bold tracking-tight text-slate-900 text-center">{_inline(title)}</h2>
         <div class="mt-12 space-y-3">
@@ -456,7 +605,7 @@ def _render_final_cta(*, section: dict[str, Any], project_name: str) -> str:
         else ""
     )
     return f"""
-<section id="final-cta" class="relative overflow-hidden">
+<section id="final-cta" class="reveal relative overflow-hidden">
     <div class="absolute inset-0 -z-10 bg-gradient-to-br from-brand-primary via-brand-primary to-brand-accent"></div>
     <div class="mx-auto max-w-4xl px-6 py-20 md:py-28 text-center">
         <h2 class="text-3xl md:text-5xl font-bold tracking-tight text-white">{_inline(title, link_class="text-white underline")}</h2>
@@ -503,7 +652,7 @@ def _render_generic(*, section: dict[str, Any]) -> str:
         )
         body_html_parts.append(f'<ul class="list-disc pl-6 space-y-2 mt-6 marker:text-brand-accent">{items}</ul>')
     return f"""
-<section id="{_kebab_case(section.get("name") or "section")}" class="bg-white py-20 md:py-24">
+<section id="{_kebab_case(section.get("name") or "section")}" class="reveal bg-white py-20 md:py-24">
     <div class="mx-auto max-w-3xl px-6">
         <h2 class="text-3xl md:text-4xl font-bold tracking-tight text-slate-900">{_inline(title)}</h2>
         {"".join(body_html_parts)}
@@ -577,6 +726,7 @@ def _index_html(*, spec: dict[str, Any], project_name: str) -> str:
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <noscript><style>.reveal {{ opacity: 1 !important; transform: none !important; }}</style></noscript>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {{
@@ -590,12 +740,35 @@ def _index_html(*, spec: dict[str, Any], project_name: str) -> str:
                             neutral: 'var(--brand-neutral)',
                         }},
                     }},
+                    keyframes: {{
+                        float: {{
+                            '0%, 100%': {{ transform: 'translateY(0)' }},
+                            '50%': {{ transform: 'translateY(-10px)' }},
+                        }},
+                        'pulse-slow': {{
+                            '0%, 100%': {{ opacity: '.5' }},
+                            '50%': {{ opacity: '.8' }},
+                        }},
+                        'ping-slow': {{
+                            '0%': {{ transform: 'scale(1)', opacity: '1' }},
+                            '75%, 100%': {{ transform: 'scale(2.5)', opacity: '0' }},
+                        }},
+                    }},
+                    animation: {{
+                        float: 'float 6s ease-in-out infinite',
+                        'pulse-slow': 'pulse-slow 6s ease-in-out infinite',
+                        'ping-slow': 'ping-slow 2.4s cubic-bezier(0, 0, 0.2, 1) infinite',
+                    }},
                 }},
             }},
         }}
     </script>
 </head>
 <body class="bg-white text-slate-900 font-sans antialiased">
+<!-- Scroll-progress bar: thin brand-gradient line at the very top, width tracks scrollY. -->
+<div id="scroll-progress" class="fixed top-0 left-0 right-0 z-50 h-0.5 bg-transparent pointer-events-none">
+    <div id="scroll-progress-fill" class="h-full bg-gradient-to-r from-brand-primary to-brand-accent" style="width: 0%"></div>
+</div>
 {nav_html}
 <main>
 {chr(10).join(section_html_parts)}
@@ -624,24 +797,78 @@ html {{ scroll-behavior: smooth; }}
 summary::-webkit-details-marker {{ display: none; }}
 summary::marker {{ content: ''; }}
 
-/* Subtle entrance animation for sections as they scroll in. */
+/* Sections start hidden until IntersectionObserver in script.js adds `.reveal--visible`.
+ * Gracefully degrades if JS fails: a `noscript` rule below shows everything. */
 @media (prefers-reduced-motion: no-preference) {{
-    section {{ animation: founder-fade-in .6s ease-out both; }}
-    @keyframes founder-fade-in {{
-        from {{ opacity: 0; transform: translateY(8px); }}
-        to {{ opacity: 1; transform: translateY(0); }}
+    .reveal {{
+        opacity: 0;
+        transform: translateY(16px);
+        transition: opacity .7s cubic-bezier(.16,1,.3,1), transform .7s cubic-bezier(.16,1,.3,1);
+        will-change: opacity, transform;
     }}
+    .reveal.reveal--visible {{
+        opacity: 1;
+        transform: translateY(0);
+    }}
+}}
+
+/* Card lift uses transform — give it the same easing as the reveal. */
+@media (prefers-reduced-motion: no-preference) {{
+    .group {{ transition-timing-function: cubic-bezier(.16,1,.3,1); }}
 }}
 """
 
 
 def _script_js(project_name: str) -> str:
-    # Lightweight runtime: PostHog init (gated on a meta tag) + auto-fill the footer year.
+    # Runtime layers: scroll-reveal observer, scroll-progress bar, footer year, PostHog init.
+    # All gated on `prefers-reduced-motion` where animation is involved so the page stays
+    # accessible. No external deps.
     return f"""// Generated by PostHog founder mode for {json.dumps(project_name)}.
 (function () {{
     const yearEl = document.getElementById('year');
     if (yearEl) yearEl.textContent = new Date().getFullYear();
 
+    // 1. Scroll-reveal — fade + lift sections as they enter the viewport. We add the
+    // class once and unobserve so re-entering doesn't re-trigger.
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reveals = document.querySelectorAll('.reveal');
+    if (prefersReducedMotion) {{
+        reveals.forEach((el) => el.classList.add('reveal--visible'));
+    }} else if ('IntersectionObserver' in window) {{
+        const io = new IntersectionObserver((entries) => {{
+            entries.forEach((entry) => {{
+                if (entry.isIntersecting) {{
+                    entry.target.classList.add('reveal--visible');
+                    io.unobserve(entry.target);
+                }}
+            }});
+        }}, {{ rootMargin: '0px 0px -10% 0px', threshold: 0.05 }});
+        reveals.forEach((el) => io.observe(el));
+    }} else {{
+        reveals.forEach((el) => el.classList.add('reveal--visible'));
+    }}
+
+    // 2. Scroll-progress bar — width follows scrollY / max scroll.
+    const progress = document.getElementById('scroll-progress-fill');
+    if (progress) {{
+        let ticking = false;
+        const update = () => {{
+            const max = (document.documentElement.scrollHeight - window.innerHeight) || 1;
+            const pct = Math.min(100, Math.max(0, (window.scrollY / max) * 100));
+            progress.style.width = pct.toFixed(2) + '%';
+            ticking = false;
+        }};
+        window.addEventListener('scroll', () => {{
+            if (!ticking) {{
+                window.requestAnimationFrame(update);
+                ticking = true;
+            }}
+        }}, {{ passive: true }});
+        update();
+    }}
+
+    // 3. PostHog SDK init — gated on a `<meta name="posthog-key">` in <head>. Founder
+    // wires it up post-publish; no-op until they do.
     const meta = document.querySelector('meta[name="posthog-key"]');
     const key = meta ? meta.content : null;
     if (!key) return;

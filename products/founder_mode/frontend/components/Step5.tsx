@@ -129,7 +129,8 @@ function LivePagePreview({ projectId }: { projectId: string }): JSX.Element {
     // run_scaffold → publish_scaffold. The mockup component renders three modes:
     // local React mock, a spinner with cycling phrases, and an iframe of the live URL.
     const logic = landingLivePreviewLogic({ projectId })
-    const { phase, liveUrl, isWaiting, errorMessage } = useValues(logic)
+    const { phase, liveUrl, isWaiting, errorMessage, scaffold } = useValues(logic)
+    const repoUrl = scaffold?.repo?.html_url || null
 
     return (
         <section>
@@ -138,6 +139,7 @@ function LivePagePreview({ projectId }: { projectId: string }): JSX.Element {
                 liveUrl={liveUrl}
                 loading={isWaiting && !liveUrl}
                 loadingLabel={PHASE_HINT[phase]}
+                repoUrl={repoUrl}
                 footerLabel={
                     phase === 'error' ? `Error: ${errorMessage}` : liveUrl ? `Live at ${liveUrl}` : PHASE_HINT[phase]
                 }

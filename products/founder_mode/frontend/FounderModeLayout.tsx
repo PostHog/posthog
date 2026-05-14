@@ -15,6 +15,7 @@ import {
 } from './cofounderFlowLogic'
 import { founderLandingPageLogic, LandingPageBuildSpec } from './components/founderLandingPageLogic'
 import { founderValidationLogic, ValidationReport } from './components/founderValidationLogic'
+import { landingLivePreviewLogic } from './components/landingLivePreviewLogic'
 import { LandingPageMockup } from './components/LandingPageMockup'
 import { Step5 } from './components/Step5'
 import { ValidationReportView } from './components/ValidationReportView'
@@ -637,6 +638,16 @@ function LandingLoadingInner({ isActive, onReady }: { isActive: boolean; onReady
     )
 }
 
+const LANDING_PHASE_LABEL: Record<string, string> = {
+    loading: 'Loading',
+    'no-ideation': 'No ideation',
+    'generating-spec': 'Writing your landing-page spec',
+    'generating-scaffold': 'Rendering the page into HTML',
+    publishing: 'Publishing to GitHub Pages',
+    live: 'Live',
+    error: 'Error',
+}
+
 function LandingOutputStep({ isActive }: { isActive: boolean }): JSX.Element {
     const { projectId } = useValues(cofounderFlowLogic)
     const { advance } = useActions(cofounderFlowLogic)
@@ -650,19 +661,47 @@ function LandingOutputStep({ isActive }: { isActive: boolean }): JSX.Element {
     }
     return (
         <BindLogic logic={founderLandingPageLogic} props={{ projectId }}>
-            <LandingOutputInner isActive={isActive} onNext={advance} />
+            <LandingOutputInner isActive={isActive} onNext={advance} projectId={projectId} />
         </BindLogic>
     )
 }
 
-function LandingOutputInner({ isActive, onNext }: { isActive: boolean; onNext: () => void }): JSX.Element {
+function LandingOutputInner({
+    isActive,
+    onNext,
+    projectId,
+}: {
+    isActive: boolean
+    onNext: () => void
+    projectId: string
+}): JSX.Element {
     const { spec } = useValues(founderLandingPageLogic) as { spec: LandingPageBuildSpec | null }
+    // Mount the live-preview orchestrator — auto-fires run_scaffold + publish_scaffold
+    // once the spec has been written. Until the live URL is built, fall back to the
+    // local React mockup so the founder has something to look at.
+    const livePreview = landingLivePreviewLogic({ projectId })
+    const { liveUrl, phase, errorMessage, scaffold } = useValues(livePreview)
+    const repoUrl = scaffold?.repo?.html_url || null
+
     return (
         <div>
             <h2 className="text-2xl font-semibold mb-4">Here's your landing page draft</h2>
-            {spec ? <LandingPageMockup spec={spec} /> : <LoadingBlock title="Loading landing-page spec…" body="" />}
+            <LandingPageMockup
+                spec={liveUrl ? undefined : (spec ?? undefined)}
+                liveUrl={liveUrl}
+                loading={!liveUrl}
+                loadingLabel={LANDING_PHASE_LABEL[phase]}
+                repoUrl={repoUrl}
+                footerLabel={
+                    phase === 'error'
+                        ? `Error: ${errorMessage}`
+                        : liveUrl
+                          ? `Live at ${liveUrl}`
+                          : LANDING_PHASE_LABEL[phase]
+                }
+            />
             <div className="mt-6">
-                <Button variant="primary" size="sm" onClick={onNext} disabled={!isActive || !spec}>
+                <Button variant="primary" size="sm" onClick={onNext} disabled={!isActive || (!spec && !liveUrl)}>
                     Next
                 </Button>
             </div>
