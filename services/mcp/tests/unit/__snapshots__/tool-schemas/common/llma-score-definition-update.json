@@ -1,0 +1,31 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "archived": {
+            "description": "Whether the scorer is archived.",
+            "type": "boolean"
+        },
+        "description": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Updated scorer description."
+        },
+        "id": {
+            "description": "A UUID string identifying this score definition.",
+            "type": "string"
+        },
+        "name": {
+            "description": "Updated scorer name.",
+            "maxLength": 255,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

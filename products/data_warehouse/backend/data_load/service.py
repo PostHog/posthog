@@ -13,6 +13,7 @@ from temporalio.client import (
     Client as TemporalClient,
     Schedule,
     ScheduleActionStartWorkflow,
+    ScheduleAlreadyRunningError,
     ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
     SchedulePolicy,
@@ -27,6 +28,7 @@ from posthog.temporal.common.schedule import (
     a_delete_schedule,
     a_schedule_exists,
     a_trigger_schedule,
+    a_unpause_schedule,
     a_update_schedule,
     create_schedule,
     delete_schedule,
@@ -152,7 +154,11 @@ def sync_external_data_job_workflow(
     schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
 
     if create:
-        create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
+        try:
+            create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
+        except ScheduleAlreadyRunningError:
+            update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
+            trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
     else:
         update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
 
@@ -167,7 +173,13 @@ async def a_sync_external_data_job_workflow(
     schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
 
     if create:
-        await a_create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
+        try:
+            await a_create_schedule(
+                temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True
+            )
+        except ScheduleAlreadyRunningError:
+            await a_update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
+            await a_trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
     else:
         await a_update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
 
@@ -207,6 +219,11 @@ def pause_external_data_schedule(id: str):
 def unpause_external_data_schedule(id: str):
     temporal = sync_connect()
     unpause_schedule(temporal, schedule_id=id)
+
+
+async def a_unpause_external_data_schedule(id: str):
+    temporal = await async_connect()
+    await a_unpause_schedule(temporal, schedule_id=id)
 
 
 def delete_external_data_schedule(schedule_id: str):

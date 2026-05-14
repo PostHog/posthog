@@ -6,6 +6,7 @@ from enum import StrEnum
 class DocumentType(StrEnum):
     BAA = "BAA"
     DPA = "DPA"
+    MSA = "MSA"
 
 
 class LegalDocumentStatus(StrEnum):

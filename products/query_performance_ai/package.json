@@ -1,6 +1,6 @@
 {
     "name": "@posthog/products-query-performance-ai",
     "scripts": {
-        "backend:test": "echo 'no backend tests yet'"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. orchestrator sandboxed_autoresearch_agent -v --tb=short"
     }
 }

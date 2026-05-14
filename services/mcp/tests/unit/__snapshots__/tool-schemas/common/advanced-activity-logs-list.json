@@ -3,6 +3,7 @@
     "properties": {
         "activities": {
             "default": [],
+            "description": "Filter by activity types (e.g. \"created\", \"updated\", \"deleted\").",
             "items": {
                 "type": "string"
             },
@@ -10,20 +11,24 @@
         },
         "clients": {
             "default": [],
+            "description": "Filter by API clients that generated the activity (from x-posthog-client header).",
             "items": {
                 "type": "string"
             },
             "type": "array"
         },
         "detail_filters": {
+            "description": "JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.",
             "type": "string"
         },
         "end_date": {
+            "description": "Upper bound on `created_at` (inclusive), ISO-8601.",
             "format": "date-time",
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
         },
         "hogql_filter": {
+            "description": "Reserved for future HogQL-based filtering.",
             "type": "string"
         },
         "is_system": {
@@ -34,10 +39,12 @@
                 {
                     "type": "null"
                 }
-            ]
+            ],
+            "description": "When set, filters rows authored by the system (no user)."
         },
         "item_ids": {
             "default": [],
+            "description": "Filter by the `item_id` of the affected resource(s).",
             "items": {
                 "type": "string"
             },
@@ -57,21 +64,33 @@
         },
         "scopes": {
             "default": [],
+            "description": "Filter by activity scopes (e.g. \"FeatureFlag\", \"Insight\").",
             "items": {
                 "type": "string"
             },
             "type": "array"
         },
         "search_text": {
+            "description": "Free-text search across the `detail` JSON column.",
             "type": "string"
         },
         "start_date": {
+            "description": "Lower bound on `created_at` (inclusive), ISO-8601.",
             "format": "date-time",
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
+        },
+        "team_ids": {
+            "default": [],
+            "description": "Filter by project (team) IDs. Only honored on the organization-scoped endpoint; ignored on the project-scoped endpoint.",
+            "items": {
+                "type": "number"
+            },
+            "type": "array"
         },
         "users": {
             "default": [],
+            "description": "Filter by users who performed the activity (user UUIDs).",
             "items": {
                 "type": "string"
             },
@@ -85,7 +104,8 @@
                 {
                     "type": "null"
                 }
-            ]
+            ],
+            "description": "When set, filters rows where the actor was impersonating another user."
         }
     },
     "type": "object"

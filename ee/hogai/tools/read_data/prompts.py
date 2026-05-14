@@ -73,6 +73,7 @@ Retrieves a saved notebook by its short ID. Returns the notebook content as simp
 
 ## Output format:
 The notebook content is returned as simplified markdown. Insight visualizations are represented as `<insight>` tags with their query definition. Session replays are represented as `<session_replay>` tags with the session ID.
+Notebook SQL editor nodes are represented as `DataVisualizationNode` query definitions with a `HogQLQuery` source. For these nodes, `source.query` is the SQL text and `source.filters` is applied through `{filters}` placeholders.
 
 # Feature flag
 

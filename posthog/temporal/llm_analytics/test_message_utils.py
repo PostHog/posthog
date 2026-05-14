@@ -1,8 +1,10 @@
 """Tests for message extraction utilities."""
 
+import json
+
 import pytest
 
-from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
+from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages, format_tool_definitions
 
 
 class TestExtractTextFromMessages:
@@ -81,10 +83,17 @@ class TestExtractTextFromMessages:
         assert "assistant:" in result
 
     def test_single_dict_message(self):
+        # Single-dict input renders symmetrically with the list path so the
+        # role prefix and tool_call_id correlation reach the judge regardless
+        # of whether the caller wraps the message in a list.
         message = {"role": "user", "content": "Hello"}
         result = extract_text_from_messages(message)
-        assert result == "Hello"
-        assert result != ""
+        assert result == "user: Hello"
+
+    def test_single_dict_tool_result_surfaces_call_id(self):
+        message = {"role": "tool", "tool_call_id": "call_42", "content": "done"}
+        result = extract_text_from_messages(message)
+        assert result == "tool[call_42]: done"
 
     @pytest.mark.parametrize(
         "messages,expected_substrings",
@@ -193,8 +202,37 @@ class TestExtractTextFromMessages:
         assert "user: Update placement status." in result
         assert "update_placement_status" in result
         assert '{"status": "approved"}' in result
-        assert "tool: Status updated." in result
+        # The tool result should be paired back to the call that produced it
+        # via tool_call_id, so the judge can correlate multi-step flows.
+        assert "tool[call_1]: Status updated." in result
+        assert "tool_call call_1" in result
         assert "assistant: Done." in result
+
+    def test_tool_call_id_correlation_across_parallel_calls(self):
+        # When the model issues two parallel tool calls, the rendered output
+        # should let the judge pair each result back to its originating call.
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_a", "type": "function", "function": {"name": "lookup_user", "arguments": "{}"}},
+                    {"id": "call_b", "type": "function", "function": {"name": "lookup_org", "arguments": "{}"}},
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_b", "content": "org found"},
+            {"role": "tool", "tool_call_id": "call_a", "content": "user found"},
+        ]
+        result = extract_text_from_messages(messages)
+        assert "tool_call call_a: lookup_user" in result
+        assert "tool_call call_b: lookup_org" in result
+        assert "tool[call_a]: user found" in result
+        assert "tool[call_b]: org found" in result
+
+    def test_tool_result_without_id_falls_back_to_role_only(self):
+        messages = [{"role": "tool", "content": "raw output"}]
+        result = extract_text_from_messages(messages)
+        assert result == "tool: raw output"
 
     @pytest.mark.parametrize(
         "tool_calls",
@@ -227,7 +265,7 @@ class TestExtractTextFromMessages:
         ]
         result = extract_text_from_messages(messages)
         assert "user: did anything happen?" in result
-        assert "tool:" in result
+        assert "tool[1]:" in result
         assert "assistant: yes" in result
 
     def test_completely_empty_message_is_skipped(self):
@@ -258,3 +296,226 @@ class TestExtractTextFromMessages:
         }
         result = extract_text_from_messages(message)
         assert "send_email" in result
+
+
+class TestFormatToolDefinitions:
+    @pytest.mark.parametrize(
+        "tools",
+        [
+            pytest.param(None, id="none"),
+            pytest.param("", id="empty_string"),
+            pytest.param([], id="empty_list"),
+        ],
+    )
+    def test_empty_inputs_render_as_empty(self, tools):
+        assert format_tool_definitions(tools) == ""
+
+    def test_string_passthrough(self):
+        assert format_tool_definitions("custom-stringified-tools") == "custom-stringified-tools"
+
+    def test_openai_function_shape(self):
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "send_email",
+                    "description": "Send an email to a recipient.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "to": {"type": "string"},
+                            "body": {"type": "string"},
+                            "subject": {"type": "string"},
+                        },
+                        "required": ["to", "body"],
+                    },
+                },
+            }
+        ]
+        result = format_tool_definitions(tools)
+        assert "- send_email" in result
+        assert "Send an email to a recipient." in result
+        # Parameter names are surfaced compactly with `?` for optional ones,
+        # rather than dumping the full JSON schema. Specifically, the per-property
+        # type info should not leak into the prompt.
+        assert "(to, body, subject?)" in result
+        assert '"type": "string"' not in result
+        assert '"required"' not in result
+
+    def test_anthropic_input_schema_shape(self):
+        tools = [
+            {
+                "name": "lookup_user",
+                "description": "Look up a user by id.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                    "required": ["id"],
+                },
+            }
+        ]
+        result = format_tool_definitions(tools)
+        assert "- lookup_user" in result
+        assert "Look up a user by id." in result
+        assert "(id)" in result
+
+    def test_multiple_tools_each_on_own_line(self):
+        tools = [
+            {"type": "function", "function": {"name": "tool_a", "description": "A"}},
+            {"type": "function", "function": {"name": "tool_b", "description": "B"}},
+        ]
+        result = format_tool_definitions(tools)
+        lines = result.split("\n")
+        assert len(lines) == 2
+        assert lines[0].startswith("- tool_a")
+        assert lines[1].startswith("- tool_b")
+
+    def test_single_dict_is_treated_as_one_tool(self):
+        tools = {"type": "function", "function": {"name": "solo", "description": "Only one"}}
+        result = format_tool_definitions(tools)
+        assert result.startswith("- solo")
+        assert "Only one" in result
+
+    def test_unrecognized_shape_is_stringified_not_dropped(self):
+        tools = [{"weird_key": "weird_value"}]
+        result = format_tool_definitions(tools)
+        assert "weird_key" in result
+        assert "weird_value" in result
+
+    def test_name_only_renders_without_description_or_params(self):
+        tools = [{"type": "function", "function": {"name": "noop"}}]
+        assert format_tool_definitions(tools) == "- noop"
+
+    def test_dict_of_tools_is_flattened(self):
+        # A `{tool_name: tool_spec}` mapping should render each value as its
+        # own tool rather than being treated as a single nameless tool.
+        tools = {
+            "lov-view": {"name": "lov-view", "description": "View something"},
+            "supabase-migration": {"name": "supabase-migration", "description": "Run a migration"},
+        }
+        result = format_tool_definitions(tools)
+        lines = result.split("\n")
+        assert len(lines) == 2
+        assert any(line.startswith("- lov-view") for line in lines)
+        assert any(line.startswith("- supabase-migration") for line in lines)
+
+    def test_gemini_function_declarations_shape(self):
+        tools = [
+            {
+                "functionDeclarations": [
+                    {
+                        "name": "send_email",
+                        "description": "Send an email.",
+                        "parameters": {"type": "object", "properties": {"to": {"type": "string"}}},
+                    },
+                    {
+                        "name": "lookup_user",
+                        "description": "Look up a user.",
+                        "parameters": {"type": "object", "properties": {"id": {"type": "string"}}},
+                    },
+                ]
+            }
+        ]
+        result = format_tool_definitions(tools)
+        lines = result.split("\n")
+        assert len(lines) == 2
+        assert lines[0].startswith("- send_email")
+        assert lines[1].startswith("- lookup_user")
+        assert "(to?)" in result
+        assert "(id?)" in result
+
+    def test_gemini_function_declarations_at_top_level(self):
+        # Some captures send Gemini's tool catalog as a bare dict rather than
+        # a list-wrapped one — `functionDeclarations` should be recognized as
+        # a tool spec carrier in either shape.
+        tools = {
+            "functionDeclarations": [
+                {"name": "send_email", "description": "Send an email."},
+                {"name": "lookup_user", "description": "Look up a user."},
+            ]
+        }
+        result = format_tool_definitions(tools)
+        lines = result.split("\n")
+        assert len(lines) == 2
+        assert lines[0].startswith("- send_email")
+        assert lines[1].startswith("- lookup_user")
+
+    def test_openai_camel_case_input_schema_shape(self):
+        tools = [
+            {
+                "name": "lookup_user",
+                "description": "Look up a user by id.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                    "required": ["id"],
+                },
+            }
+        ]
+        result = format_tool_definitions(tools)
+        assert "- lookup_user" in result
+        assert "Look up a user by id." in result
+        assert "(id)" in result
+
+    def test_dict_of_tools_with_name_in_key_only(self):
+        # When tools come as `{tool_name: {description, inputSchema}}` with no
+        # explicit `name` key on the value, fall back to using the mapping key.
+        tools = {
+            "search_docs": {
+                "description": "Search docs",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                },
+            }
+        }
+        result = format_tool_definitions(tools)
+        assert result.startswith("- search_docs: Search docs")
+        assert "(query)" in result
+
+    def test_compact_params_omits_full_schema_payload(self):
+        # The full JSON schema (types, descriptions per property, etc.) must
+        # not leak into the prompt — we only want parameter names, since
+        # dumping a full schema for every tool can blow past the judge's context.
+        # Assert against JSON delimiters that can only come from a schema dump
+        # (rather than free-form words that could legitimately appear in a
+        # tool's name or description).
+        tools = [
+            {
+                "name": "do_thing",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "string", "description": "A long description that should not appear"},
+                        "b": {"type": "integer", "minimum": 0, "maximum": 100},
+                    },
+                    "required": ["a"],
+                },
+            }
+        ]
+        result = format_tool_definitions(tools)
+        assert "(a, b?)" in result
+        assert '"type"' not in result
+        assert '"minimum"' not in result
+        assert '"description"' not in result
+
+    def test_empty_parameters_dict_is_skipped(self):
+        # An explicitly-empty schema (`{}`) is treated as "no params" and
+        # the `(...)` parameter suffix is omitted entirely.
+        tools = [{"type": "function", "function": {"name": "noop", "description": "Does nothing", "parameters": {}}}]
+        assert format_tool_definitions(tools) == "- noop: Does nothing"
+
+    @pytest.mark.parametrize(
+        "tools",
+        [
+            pytest.param(42, id="int"),
+            pytest.param(3.14, id="float"),
+            pytest.param(True, id="bool"),
+        ],
+    )
+    def test_non_list_non_dict_falls_through_to_json(self, tools):
+        # Anything we can't iterate as a list of tool specs gets stringified
+        # rather than silently dropped — the judge can still see something.
+        result = format_tool_definitions(tools)
+        assert result == json.dumps(tools, default=str)

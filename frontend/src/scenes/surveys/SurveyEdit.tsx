@@ -288,6 +288,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         setEditingLanguage,
         setFlagPropertyErrors,
         deleteBranchingLogic,
+        moveQuestion,
         setSurveyManualErrors,
         editingSurvey,
         loadSurvey,
@@ -337,16 +338,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     }
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
-        function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
-            const clone = [...arr]
-            // Remove the element from the array
-            const [element] = clone.splice(from, 1)
-            // Insert the element at the new position
-            clone.splice(to, 0, element)
-            return clone.map((child) => ({ ...child }))
-        }
-
-        setSurveyValue('questions', move(survey.questions, oldIndex, newIndex))
+        moveQuestion(oldIndex, newIndex)
         setSelectedPageIndex(newIndex)
     }
 
@@ -738,37 +730,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                             <DndContext
                                                 onDragEnd={({ active, over }) => {
                                                     if (over && active.id !== over.id) {
-                                                        const finishDrag = (): void =>
-                                                            onSortEnd({
-                                                                oldIndex: sortedItemIds.indexOf(active.id.toString()),
-                                                                newIndex: sortedItemIds.indexOf(over.id.toString()),
-                                                            })
-
-                                                        if (hasBranchingLogic) {
-                                                            LemonDialog.open({
-                                                                title: 'Your survey has active branching logic',
-                                                                description: (
-                                                                    <p className="py-2">
-                                                                        Rearranging questions will remove your branching
-                                                                        logic. Are you sure you want to continue?
-                                                                    </p>
-                                                                ),
-
-                                                                primaryButton: {
-                                                                    children: 'Continue',
-                                                                    status: 'danger',
-                                                                    onClick: () => {
-                                                                        deleteBranchingLogic()
-                                                                        finishDrag()
-                                                                    },
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                },
-                                                            })
-                                                        } else {
-                                                            finishDrag()
-                                                        }
+                                                        onSortEnd({
+                                                            oldIndex: sortedItemIds.indexOf(active.id.toString()),
+                                                            newIndex: sortedItemIds.indexOf(over.id.toString()),
+                                                        })
                                                     }
                                                 }}
                                             >
@@ -800,7 +765,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                             index={index}
                                                                             survey={survey}
                                                                             setSelectedPageIndex={setSelectedPageIndex}
-                                                                            setSurveyValue={setSurveyValue}
                                                                             translationValidationErrors={
                                                                                 activeTranslationValidationErrors
                                                                             }

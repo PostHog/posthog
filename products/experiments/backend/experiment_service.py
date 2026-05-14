@@ -44,6 +44,14 @@ from products.experiments.backend.models.experiment import (
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    SourceType,
+    TargetType,
+    create_notification,
+)
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
@@ -145,27 +153,95 @@ class ExperimentService:
                 raise ValidationError(
                     "Feature flag must have at least 2 variants (control and at least one test variant)"
                 )
-            if "control" not in [variant["key"] for variant in variants]:
-                raise ValidationError("Feature flag variants must contain a control variant")
+            keys = [variant["key"] for variant in variants]
+            if "control" not in keys:
+                # Surface the keys we did receive so LLM callers can self-correct without a
+                # second roundtrip. Capitalized 'Control' is auto-normalized in
+                # ExperimentParametersField.to_internal_value, so anything reaching this
+                # branch genuinely lacks a baseline variant.
+                raise ValidationError(
+                    "Feature flag variants must contain a variant with key 'control' "
+                    f"(lowercase, exactly). Got keys: {keys}. Rename the baseline variant's "
+                    "'key' to 'control'."
+                )
 
-    @staticmethod
-    def validate_experiment_exposure_criteria(exposure_criteria: dict | None) -> None:
-        """Validate experiment exposure criteria payloads."""
-        if not exposure_criteria:
+    EXPOSURE_CONFIG_KINDS = ("ExperimentEventExposureConfig", "ActionsNode")
+
+    EXPOSURE_CONFIG_HINT = (
+        "Expected either an event-based config like "
+        "{'kind': 'ExperimentEventExposureConfig', 'event': '<event_name>', 'properties': []} "
+        "or an action-based config like {'kind': 'ActionsNode', 'id': <action_id>}."
+    )
+
+    # Cap user-supplied values reflected into validation error messages so a large
+    # or sensitive payload cannot bloat responses, logs, or error tracking. repr()
+    # already escapes control characters, so the only remaining concern is length.
+    _ERROR_VALUE_MAX_LEN = 80
+
+    @classmethod
+    def _safe_repr(cls, value: object) -> str:
+        rendered = repr(value)
+        if len(rendered) > cls._ERROR_VALUE_MAX_LEN:
+            return rendered[: cls._ERROR_VALUE_MAX_LEN] + "...(truncated)"
+        return rendered
+
+    @classmethod
+    def validate_experiment_exposure_criteria(cls, exposure_criteria: object) -> None:
+        """Validate experiment exposure criteria payloads.
+
+        Accepts `object` because the input arrives from a DRF `JSONField`, which
+        can deserialize to any JSON shape. The validator narrows defensively.
+        """
+        if exposure_criteria is None:
             return
 
-        if "filterTestAccounts" in exposure_criteria and not isinstance(exposure_criteria["filterTestAccounts"], bool):
-            raise ValidationError("filterTestAccounts must be a boolean")
+        if not isinstance(exposure_criteria, dict):
+            raise ValidationError(
+                f"exposure_criteria must be an object, got {type(exposure_criteria).__name__}. "
+                "Expected shape: {'filterTestAccounts': <bool>, 'exposure_config': <object>}."
+            )
+
+        if "filterTestAccounts" in exposure_criteria:
+            filter_test_accounts = exposure_criteria["filterTestAccounts"]
+            if not isinstance(filter_test_accounts, bool):
+                raise ValidationError(
+                    f"exposure_criteria.filterTestAccounts must be a boolean, got "
+                    f"{type(filter_test_accounts).__name__}: {cls._safe_repr(filter_test_accounts)}."
+                )
 
         if "exposure_config" in exposure_criteria:
             exposure_config = exposure_criteria["exposure_config"]
+
+            if not isinstance(exposure_config, dict):
+                raise ValidationError(
+                    f"exposure_criteria.exposure_config must be an object, got "
+                    f"{type(exposure_config).__name__}. {cls.EXPOSURE_CONFIG_HINT}"
+                )
+
+            # `kind` is optional; missing kind defaults to ExperimentEventExposureConfig
+            # to mirror the pydantic Literal default on that model.
+            kind = exposure_config.get("kind", "ExperimentEventExposureConfig")
+            if kind not in cls.EXPOSURE_CONFIG_KINDS:
+                raise ValidationError(
+                    f"exposure_criteria.exposure_config.kind must be one of "
+                    f"{list(cls.EXPOSURE_CONFIG_KINDS)}, got {cls._safe_repr(kind)}. "
+                    f"{cls.EXPOSURE_CONFIG_HINT}"
+                )
+
+            model_cls = ActionsNode if kind == "ActionsNode" else ExperimentEventExposureConfig
             try:
-                if exposure_config.get("kind") == "ActionsNode":
-                    ActionsNode.model_validate(exposure_config)
-                else:
-                    ExperimentEventExposureConfig.model_validate(exposure_config)
-            except Exception:
-                raise ValidationError("Invalid exposure criteria")
+                model_cls.model_validate(exposure_config)
+            except pydantic.ValidationError as e:
+                # Surface only the field locations and error types from pydantic — not the
+                # echoed `input` and `url` fields, which would reflect arbitrary user data
+                # back into the response.
+                safe_errors = [
+                    {"loc": err.get("loc"), "type": err.get("type"), "msg": err.get("msg")} for err in e.errors()
+                ]
+                raise ValidationError(
+                    f"Invalid exposure_criteria.exposure_config (kind={cls._safe_repr(kind)}): "
+                    f"{safe_errors}. {cls.EXPOSURE_CONFIG_HINT}"
+                )
 
     @classmethod
     def validate_experiment_metrics(cls, metrics: list | None) -> None:
@@ -417,7 +493,11 @@ class ExperimentService:
             raise ValidationError(
                 f"Event(s) {unknown_str} not found. "
                 "No events with these names have been ingested by this project. "
-                "If this is intentional, set allow_unknown_events=True."
+                "If you meant a different event, please correct it. "
+                "Only if the user has explicitly confirmed they want to proceed with "
+                "the unknown event (e.g. they will instrument it shortly), "
+                "call again with allow_unknown_events=True. "
+                "Do not flip the flag silently to bypass this check."
             )
 
     @transaction.atomic
@@ -1167,6 +1247,40 @@ class ExperimentService:
             team=experiment.team,
             request=request,
         )
+
+        # Skip notifying the creator when they're the one ending the experiment —
+        # surfacing a notification for an action they just performed is noise.
+        if experiment.created_by_id and experiment.created_by_id != self.user.id:
+            try:
+                significant = completed_metadata.get("significant")
+                body = ""
+                if significant is True:
+                    body = "Primary metric: significant"
+                elif significant is False:
+                    body = "Primary metric: inconclusive"
+
+                create_notification(
+                    NotificationData(
+                        team_id=experiment.team_id,
+                        notification_type=NotificationType.EXPERIMENT_CONCLUDED,
+                        priority=Priority.NORMAL,
+                        title=f"Experiment concluded: {experiment.name}"[:100],
+                        body=body,
+                        target_type=TargetType.USER,
+                        target_id=str(experiment.created_by_id),
+                        resource_type="experiment",
+                        resource_id=str(experiment.id),
+                        source_url=f"/project/{self.team.project_id}/experiments/{experiment.id}",
+                        source_type=SourceType.EXPERIMENT,
+                        source_id=str(experiment.id),
+                    )
+                )
+            except Exception as e:
+                logger.exception(
+                    "experiment_concluded.realtime_failed",
+                    experiment_id=experiment.id,
+                    error=str(e),
+                )
 
     # ------------------------------------------------------------------
     # Reset
