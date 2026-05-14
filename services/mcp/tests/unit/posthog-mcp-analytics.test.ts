@@ -213,20 +213,28 @@ describe('initPostHogMcpAnalytics', () => {
         })
     })
 
-    it.each([
+    it.each<{
+        scenario: string
+        resolverReturn: { name: string; description: string } | undefined
+        expectedProperties: Record<string, unknown>
+        absentProperties: string[]
+    }>([
         {
             scenario: 'adds name + description when the resolver returns an inner tool',
             resolverReturn: { name: 'execute-sql', description: 'Run a HogQL/SQL query.' },
-            expectedName: 'execute-sql',
-            expectedDescription: 'Run a HogQL/SQL query.',
+            expectedProperties: {
+                $mcp_exec_tool_call_name: 'execute-sql',
+                $mcp_exec_tool_call_description: 'Run a HogQL/SQL query.',
+            },
+            absentProperties: [],
         },
         {
             scenario: 'omits both properties when the resolver returns undefined',
             resolverReturn: undefined,
-            expectedName: undefined,
-            expectedDescription: undefined,
+            expectedProperties: {},
+            absentProperties: ['$mcp_exec_tool_call_name', '$mcp_exec_tool_call_description'],
         },
-    ])('eventProperties $scenario', async ({ resolverReturn, expectedName, expectedDescription }) => {
+    ])('eventProperties $scenario', async ({ resolverReturn, expectedProperties, absentProperties }) => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
         const resolveExecInnerToolCall = vi.fn().mockReturnValue(resolverReturn)
@@ -241,12 +249,11 @@ describe('initPostHogMcpAnalytics', () => {
         const properties = await getTrackOptions().eventProperties(fakeRequest)
 
         expect(resolveExecInnerToolCall).toHaveBeenCalledWith(fakeRequest)
-        if (expectedDescription === undefined) {
-            expect(properties).not.toHaveProperty('$mcp_exec_tool_call_name')
-            expect(properties).not.toHaveProperty('$mcp_exec_tool_call_description')
-        } else {
-            expect(properties.$mcp_exec_tool_call_name).toBe(expectedName)
-            expect(properties.$mcp_exec_tool_call_description).toBe(expectedDescription)
+        for (const [key, value] of Object.entries(expectedProperties)) {
+            expect(properties[key]).toBe(value)
+        }
+        for (const key of absentProperties) {
+            expect(properties).not.toHaveProperty(key)
         }
         // Identity-derived properties should always be there regardless of resolver outcome.
         expect(properties.$mcp_organization_id).toBe('org-789')
