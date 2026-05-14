@@ -36,8 +36,9 @@ Working tracker for the runtime services only — the Django side is being built
 - [x] Manifest reader + Zod schema + built-in id validation ([src/manifest/index.ts](../../services/agent-core/src/manifest/index.ts))
 - [x] Logger (pino) + Prom metrics ([src/logger.ts](../../services/agent-core/src/logger.ts), [src/metrics.ts](../../services/agent-core/src/metrics.ts))
 - [x] `SessionQuery` — read-only `findSession` / `listSessions` + targeted-write `cancelSession`, used by the janitor's HTTP surface ([src/queue/query.ts](../../services/agent-core/src/queue/query.ts))
-- [x] Tests: queue + SessionQuery (DB-gated), pubsub in-memory, manifest, builtins
+- [x] Tests: pubsub in-memory, manifest, builtins
 - [x] Tests: internal-API client smoke — 200, 404, 5xx, shared-key header, timeout ([src/internal-api/client.test.ts](../../services/agent-core/src/internal-api/client.test.ts))
+- [ ] **Rewrite the DB-backed test suite from scratch, run step by step.** The current DB-gated tests in [src/queue/queue.test.ts](../../services/agent-core/src/queue/queue.test.ts) are flaky — `enqueue → dequeue → ack` and `reschedule round-trips state` hang at `consumeOnce()` against a real Postgres, suggesting the polling worker isn't dequeuing what the manager inserted. Plan: write per-method tests that exercise one operation at a time against a fresh DB (createJob → assert row, dequeue → assert lock, ack → assert status), drive the worker synchronously where possible, and don't share pools across tests. SessionQuery and janitor tests are fine; only the worker-polling tests need rebuilding.
 - [ ] Tests: Redis pubsub integration (needs Redis in CI)
 - [ ] Decide internal-API transport auth (mTLS vs shared key) — both supported in code, pick at infra time
 
