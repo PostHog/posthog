@@ -1831,6 +1831,10 @@
             "description": "The version of the MCP client that initiated the connection.",
             "label": "MCP client version"
         },
+        "$mcp_conversation_id": {
+            "description": "Stable, agent-echoed conversation identifier that stitches multiple tool calls into a single logical session. The MCP server mints a UUID when the agent omits one and prompts the agent to reuse it on subsequent calls; subsequent calls within the same conversation carry the same value. Unlike $session_id this survives reconnects and process restarts. Only present when the server has `enableConversationId` turned on.",
+            "label": "MCP conversation ID"
+        },
         "$mcp_duration_ms": {
             "description": "Wall-clock duration of the MCP tool or resource call, in milliseconds.",
             "examples": [
@@ -1906,6 +1910,10 @@
         "$mcp_server_version": {
             "description": "The advertised version of the MCP server that handled the request.",
             "label": "MCP server version"
+        },
+        "$mcp_session_id": {
+            "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary \u2014 use $mcp_conversation_id when you need a stable identifier across reconnects.",
+            "label": "MCP session ID"
         },
         "$mcp_source": {
             "description": "Constant identifier for the analytics SDK that emitted the event. Lets you separate events from different SDK versions or unrelated MCP servers.",
@@ -5663,6 +5671,10 @@
             "description": "The version of the MCP client that initiated the connection.",
             "label": "MCP client version"
         },
+        "$mcp_conversation_id": {
+            "description": "Stable, agent-echoed conversation identifier that stitches multiple tool calls into a single logical session. The MCP server mints a UUID when the agent omits one and prompts the agent to reuse it on subsequent calls; subsequent calls within the same conversation carry the same value. Unlike $session_id this survives reconnects and process restarts. Only present when the server has `enableConversationId` turned on.",
+            "label": "MCP conversation ID"
+        },
         "$mcp_duration_ms": {
             "description": "Wall-clock duration of the MCP tool or resource call, in milliseconds.",
             "examples": [
@@ -5738,6 +5750,10 @@
         "$mcp_server_version": {
             "description": "The advertised version of the MCP server that handled the request.",
             "label": "MCP server version"
+        },
+        "$mcp_session_id": {
+            "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary \u2014 use $mcp_conversation_id when you need a stable identifier across reconnects.",
+            "label": "MCP session ID"
         },
         "$mcp_source": {
             "description": "Constant identifier for the analytics SDK that emitted the event. Lets you separate events from different SDK versions or unrelated MCP servers.",
