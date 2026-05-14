@@ -3,7 +3,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from .. import logic
-from ..models import Monitor
+from ..models import Monitor, StatusPage
 from . import contracts
 
 
@@ -13,6 +13,42 @@ def _to_dto(obj: Monitor) -> contracts.MonitorDTO:
         name=obj.name,
         url=obj.url,
         created_at=obj.created_at,
+    )
+
+
+def _status_page_to_dto(page: StatusPage) -> contracts.StatusPageDTO:
+    return contracts.StatusPageDTO(
+        id=page.id,
+        title=page.title,
+        slug=page.slug,
+        monitor_ids=list(page.monitor_ids),
+        is_published=page.is_published,
+        published_at=page.published_at,
+        created_at=page.created_at,
+        updated_at=page.updated_at,
+    )
+
+
+def _summary_dict_to_dto(row: dict) -> contracts.MonitorSummaryDTO:
+    return contracts.MonitorSummaryDTO(
+        id=row["id"],
+        name=row["name"],
+        url=row["url"],
+        created_at=row["created_at"],
+        status=row["status"],
+        uptime_30d=row["uptime_30d"],
+        avg_latency_24h_ms=row["avg_latency_24h_ms"],
+        last_ping_at=row["last_ping_at"],
+        last_ping_outcome=row["last_ping_outcome"],
+        daily_buckets=[
+            contracts.DailyBucketDTO(
+                date=bucket["date"],
+                total=bucket["total"],
+                failed=bucket["failed"],
+                status=bucket["status"],
+            )
+            for bucket in row["daily_buckets"]
+        ],
     )
 
 
@@ -70,29 +106,7 @@ def list_all() -> list[contracts.MonitorDTO]:
 
 def list_monitor_summaries(*, team_id: int) -> list[contracts.MonitorSummaryDTO]:
     rows = logic.list_monitor_summaries(team_id=team_id)
-    return [
-        contracts.MonitorSummaryDTO(
-            id=row["id"],
-            name=row["name"],
-            url=row["url"],
-            created_at=row["created_at"],
-            status=row["status"],
-            uptime_30d=row["uptime_30d"],
-            avg_latency_24h_ms=row["avg_latency_24h_ms"],
-            last_ping_at=row["last_ping_at"],
-            last_ping_outcome=row["last_ping_outcome"],
-            daily_buckets=[
-                contracts.DailyBucketDTO(
-                    date=bucket["date"],
-                    total=bucket["total"],
-                    failed=bucket["failed"],
-                    status=bucket["status"],
-                )
-                for bucket in row["daily_buckets"]
-            ],
-        )
-        for row in rows
-    ]
+    return [_summary_dict_to_dto(row) for row in rows]
 
 
 def list_suggested_urls(*, team_id: int, days: int = 30, limit: int = 20) -> list[contracts.SuggestedUrlDTO]:
@@ -121,3 +135,50 @@ def list_recent_pings(*, team_id: int, monitor_id: UUID, limit: int = 50) -> lis
         )
         for row in rows
     ]
+
+
+def create_status_page(*, team_id: int) -> contracts.StatusPageDTO:
+    return _status_page_to_dto(logic.create_status_page(team_id=team_id))
+
+
+def list_status_pages(*, team_id: int) -> list[contracts.StatusPageDTO]:
+    return [_status_page_to_dto(p) for p in logic.list_status_pages(team_id=team_id)]
+
+
+def get_status_page(*, team_id: int, page_id: UUID) -> contracts.StatusPageDTO:
+    return _status_page_to_dto(logic.get_status_page(team_id=team_id, page_id=page_id))
+
+
+def update_status_page(input: contracts.UpdateStatusPageInput) -> contracts.StatusPageDTO:
+    return _status_page_to_dto(
+        logic.update_status_page(
+            team_id=input.team_id,
+            page_id=input.page_id,
+            title=input.title,
+            slug=input.slug,
+            monitor_ids=input.monitor_ids,
+        )
+    )
+
+
+def publish_status_page(*, team_id: int, page_id: UUID) -> contracts.StatusPageDTO:
+    return _status_page_to_dto(logic.publish_status_page(team_id=team_id, page_id=page_id))
+
+
+def unpublish_status_page(*, team_id: int, page_id: UUID) -> contracts.StatusPageDTO:
+    return _status_page_to_dto(logic.unpublish_status_page(team_id=team_id, page_id=page_id))
+
+
+def delete_status_page(*, team_id: int, page_id: UUID) -> None:
+    logic.delete_status_page(team_id=team_id, page_id=page_id)
+
+
+def get_public_status_page(*, slug: str) -> contracts.PublicStatusPageDTO | None:
+    view = logic.get_public_status_page_view(slug=slug)
+    if view is None:
+        return None
+    return contracts.PublicStatusPageDTO(
+        title=view["title"],
+        monitors=[_summary_dict_to_dto(row) for row in view["monitors"]],
+        published_at=view["published_at"],
+    )

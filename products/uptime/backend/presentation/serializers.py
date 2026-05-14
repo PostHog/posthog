@@ -1,7 +1,15 @@
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from ..facade.contracts import DailyBucketDTO, MonitorDTO, MonitorSummaryDTO, PingDTO, SuggestedUrlDTO
+from ..facade.contracts import (
+    DailyBucketDTO,
+    MonitorDTO,
+    MonitorSummaryDTO,
+    PingDTO,
+    PublicStatusPageDTO,
+    StatusPageDTO,
+    SuggestedUrlDTO,
+)
 
 
 class MonitorSerializer(DataclassSerializer):
@@ -50,3 +58,31 @@ class SuggestedUrlSerializer(DataclassSerializer):
 class PingSerializer(DataclassSerializer):
     class Meta:
         dataclass = PingDTO
+
+
+class StatusPageSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = StatusPageDTO
+
+
+class PublicStatusPageSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PublicStatusPageDTO
+
+
+class UpdateStatusPageSerializer(serializers.Serializer):
+    title = serializers.CharField(
+        max_length=255,
+        required=False,
+        help_text="Human-readable title of the status page, shown publicly above the monitor list.",
+    )
+    slug = serializers.CharField(
+        max_length=64,
+        required=False,
+        help_text="URL slug used in the public URL /status/<slug>. Must be globally unique.",
+    )
+    monitor_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text="Ordered list of monitor IDs to display on this status page. Order is preserved.",
+    )

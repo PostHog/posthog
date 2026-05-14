@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import re
+import secrets
 from datetime import date, datetime, timedelta
 from typing import Literal
 from urllib.parse import urlparse
@@ -8,6 +10,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
+from django.db.utils import IntegrityError
 from django.utils import timezone
 
 import structlog
@@ -18,11 +21,12 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 
 from ..facade.enums import PingOutcome
-from ..models import Monitor
+from ..models import Monitor, StatusPage
 
 logger = structlog.get_logger(__name__)
 
@@ -407,6 +411,123 @@ def _to_date(value: date | datetime) -> date:
     if isinstance(value, datetime):
         return value.date()
     return value
+
+
+SLUG_RANDOM_BYTES = 4
+
+
+def create_status_page(*, team_id: int) -> StatusPage:
+    """Create a draft status page with a default title and a unique random slug.
+
+    Clicking "New status page" in the UI lands the user directly in the editor — no naming modal —
+    so we create with sensible defaults the user can edit in place.
+    """
+    title = "Untitled status page"
+    return StatusPage.objects.create(
+        team_id=team_id,
+        title=title,
+        slug=_generate_unique_slug(title),
+        monitor_ids=[],
+    )
+
+
+def list_status_pages(*, team_id: int) -> list[StatusPage]:
+    return list(StatusPage.objects.filter(team_id=team_id).order_by("-updated_at"))
+
+
+def get_status_page(*, team_id: int, page_id: UUID) -> StatusPage:
+    return StatusPage.objects.get(team_id=team_id, id=page_id)
+
+
+def update_status_page(
+    *,
+    team_id: int,
+    page_id: UUID,
+    title: str | None = None,
+    slug: str | None = None,
+    monitor_ids: list[UUID] | None = None,
+) -> StatusPage:
+    page = StatusPage.objects.get(team_id=team_id, id=page_id)
+    if title is not None:
+        page.title = title
+    if slug is not None and slug != page.slug:
+        page.slug = _sanitize_slug(slug)
+    if monitor_ids is not None:
+        # Keep only monitor IDs that belong to this team — silently drop stale IDs so an orphan
+        # never appears on the public page.
+        valid_ids = set(Monitor.objects.filter(team_id=team_id, id__in=monitor_ids).values_list("id", flat=True))
+        page.monitor_ids = [m_id for m_id in monitor_ids if m_id in valid_ids]
+    try:
+        page.save()
+    except IntegrityError as exc:
+        raise SlugAlreadyTakenError("Slug already taken") from exc
+    return page
+
+
+def publish_status_page(*, team_id: int, page_id: UUID) -> StatusPage:
+    page = StatusPage.objects.get(team_id=team_id, id=page_id)
+    page.is_published = True
+    page.published_at = timezone.now()
+    page.save()
+    return page
+
+
+def unpublish_status_page(*, team_id: int, page_id: UUID) -> StatusPage:
+    page = StatusPage.objects.get(team_id=team_id, id=page_id)
+    page.is_published = False
+    page.save()
+    return page
+
+
+def delete_status_page(*, team_id: int, page_id: UUID) -> None:
+    StatusPage.objects.filter(team_id=team_id, id=page_id).delete()
+
+
+def get_public_status_page_view(*, slug: str) -> dict | None:
+    """Return the publicly viewable status page payload (title, color, monitors + their summaries).
+
+    Returns None if no published page matches the slug. Only published pages are exposed publicly.
+    The page lookup bypasses team scoping (slug is globally unique and this endpoint is unauthenticated);
+    the monitor summary call then runs inside the page's team scope so the fail-closed manager is happy.
+    """
+    page = StatusPage.objects.unscoped().filter(slug=slug, is_published=True).first()
+    if page is None:
+        return None
+    with team_scope(page.team_id):
+        summaries_by_id = {row["id"]: row for row in list_monitor_summaries(team_id=page.team_id)}
+    monitors = [summaries_by_id[m_id] for m_id in page.monitor_ids if m_id in summaries_by_id]
+    return {
+        "title": page.title,
+        "monitors": monitors,
+        "published_at": page.published_at,
+    }
+
+
+class SlugAlreadyTakenError(Exception):
+    pass
+
+
+def _generate_unique_slug(title: str) -> str:
+    """Generate a slug that's guaranteed unique across all status pages.
+
+    Public URLs are unauthenticated and use the slug as the only key, so we can't rely on a
+    composite unique constraint here.
+    """
+    base = _sanitize_slug(title) or "status-page"
+    for _ in range(10):
+        suffix = secrets.token_hex(SLUG_RANDOM_BYTES)
+        candidate = f"{base}-{suffix}"
+        if not StatusPage.objects.unscoped().filter(slug=candidate).exists():
+            return candidate
+    # Astronomically unlikely. If we get here something is very wrong; fall back to pure random.
+    return secrets.token_hex(SLUG_RANDOM_BYTES * 2)
+
+
+def _sanitize_slug(value: str) -> str:
+    value = value.strip().lower()
+    value = re.sub(r"[^a-z0-9-]+", "-", value)
+    value = re.sub(r"-+", "-", value).strip("-")
+    return value[:64]
 
 
 def list_recent_pings(*, team_id: int, monitor_id: UUID, limit: int = 50) -> list[dict]:

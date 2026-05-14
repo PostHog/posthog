@@ -112,7 +112,10 @@ from products.product_tours.backend.api import ProductTourViewSet
 from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
-from products.uptime.backend.presentation.views import MonitorViewSet as UptimeMonitorViewSet
+from products.uptime.backend.presentation.views import (
+    MonitorViewSet as UptimeMonitorViewSet,
+    StatusPageViewSet as UptimeStatusPageViewSet,
+)
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.visual_review.backend.presentation.views import (
     RepoRunsViewSet as VisualReviewRepoRunsViewSet,
@@ -1606,5 +1609,17 @@ projects_router.register(
     r"uptime/monitors",
     UptimeMonitorViewSet,
     "project_uptime_monitors",
+    ["project_id"],
+)
+environments_router.register(
+    r"uptime/status_pages",
+    UptimeStatusPageViewSet,
+    "environment_uptime_status_pages",
+    ["team_id"],
+)
+projects_router.register(
+    r"uptime/status_pages",
+    UptimeStatusPageViewSet,
+    "project_uptime_status_pages",
     ["project_id"],
 )

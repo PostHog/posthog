@@ -56,6 +56,7 @@ from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
 from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
 from products.surveys.backend.api.survey import public_survey_page
+from products.uptime.backend.presentation.views import PublicStatusPageViewSet as UptimePublicStatusPageViewSet
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -318,6 +319,11 @@ urlpatterns = [
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
+    path(
+        "api/uptime/public_status_pages/<slug:slug>/",
+        UptimePublicStatusPageViewSet.as_view({"get": "retrieve"}),
+        name="uptime_public_status_page",
+    ),
     opt_slash_path(
         "api/oauth/connected-apps",
         ConnectedAppsViewSet.as_view({"get": "list"}),
@@ -435,6 +441,7 @@ frontend_unauthenticated_routes = [
     "login",
     "unsubscribe",
     "verify_email",
+    r"status\/[a-z0-9\-]+",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

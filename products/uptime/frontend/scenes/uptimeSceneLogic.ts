@@ -69,7 +69,7 @@ export interface OverallStats {
     avgLatencyMs: number | null
 }
 
-export type UptimeSceneActiveTab = 'monitors' | 'alerts'
+export type UptimeSceneActiveTab = 'monitors' | 'alerts' | 'status_pages'
 
 const DEFAULT_ACTIVE_TAB: UptimeSceneActiveTab = 'monitors'
 

@@ -82,3 +82,31 @@ class PingDTO:
     latency_ms: int
     status_code: int | None
     outcome: PingOutcome
+
+
+@dataclass(frozen=True)
+class StatusPageDTO:
+    id: UUID
+    title: str
+    slug: str
+    monitor_ids: list[UUID]
+    is_published: bool
+    published_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class UpdateStatusPageInput:
+    team_id: int
+    page_id: UUID
+    title: str | None = None
+    slug: str | None = None
+    monitor_ids: list[UUID] | None = None
+
+
+@dataclass(frozen=True)
+class PublicStatusPageDTO:
+    title: str
+    monitors: list[MonitorSummaryDTO]
+    published_at: datetime | None
