@@ -7,7 +7,16 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 
-import { IconCheck, IconCode, IconDrag, IconGitBranch, IconPlus, IconRefresh, IconX } from '@posthog/icons'
+import {
+    IconCheck,
+    IconCode,
+    IconDrag,
+    IconGitBranch,
+    IconGithub,
+    IconPlus,
+    IconRefresh,
+    IconX,
+} from '@posthog/icons'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -202,24 +211,21 @@ function ConversationWidget(): JSX.Element {
 }
 
 function StatsWidget({ pr }: { pr: GitHogPullRequestDetail }): JSX.Element {
+    const items: { label: string; value: string | number; className?: string }[] = [
+        { label: 'Additions', value: `+${pr.additions}`, className: 'text-success' },
+        { label: 'Deletions', value: `-${pr.deletions}`, className: 'text-danger' },
+        { label: 'Files', value: pr.changed_files },
+        { label: 'Commits', value: pr.commits },
+    ]
     return (
-        <div className="flex flex-col divide-y divide-border">
-            <div className="px-4 py-3">
-                <span className="font-semibold text-sm">Stats</span>
-            </div>
-            <div className="grid grid-cols-2 divide-x divide-y divide-border">
-                {[
-                    { label: 'Additions', value: `+${pr.additions}`, className: 'text-success' },
-                    { label: 'Deletions', value: `-${pr.deletions}`, className: 'text-danger' },
-                    { label: 'Files', value: pr.changed_files, className: '' },
-                    { label: 'Commits', value: pr.commits, className: '' },
-                ].map(({ label, value, className }) => (
-                    <div key={label} className="flex flex-col gap-y-0.5 px-4 py-4">
-                        <span className={`text-2xl font-bold tabular-nums ${className}`}>{value}</span>
-                        <span className="text-xs text-secondary">{label}</span>
-                    </div>
-                ))}
-            </div>
+        <div className="px-4 py-2.5 flex items-center gap-x-6 flex-wrap">
+            <span className="font-semibold text-sm shrink-0">Stats</span>
+            {items.map(({ label, value, className }) => (
+                <div key={label} className="flex items-baseline gap-x-1.5">
+                    <span className={`text-sm font-semibold tabular-nums ${className ?? ''}`}>{value}</span>
+                    <span className="text-xs text-secondary">{label}</span>
+                </div>
+            ))}
         </div>
     )
 }
@@ -240,35 +246,6 @@ function ReviewersWidget(): JSX.Element {
                     </div>
                 ))}
             </div>
-        </div>
-    )
-}
-
-function FilesWidget({ files }: { files: GitHogPullRequestFile[] }): JSX.Element {
-    return (
-        <div className="flex flex-col divide-y divide-border">
-            <div className="px-4 py-3 flex items-center justify-between">
-                <span className="font-semibold text-sm">Files changed</span>
-                <span className="text-xs text-secondary">{files.length} files</span>
-            </div>
-            {files.map((f) => (
-                <div key={f.filename} className="px-4 py-2.5 flex items-center gap-x-3">
-                    <IconCode className="size-3.5 text-muted shrink-0" />
-                    <span className="text-sm flex-1 font-mono truncate">{f.filename}</span>
-                    {f.status === 'added' && (
-                        <LemonTag type="success" size="small">
-                            New
-                        </LemonTag>
-                    )}
-                    {f.status === 'removed' && (
-                        <LemonTag type="danger" size="small">
-                            Removed
-                        </LemonTag>
-                    )}
-                    <span className="text-xs text-success shrink-0">+{f.additions}</span>
-                    <span className="text-xs text-danger shrink-0">-{f.deletions}</span>
-                </div>
-            ))}
         </div>
     )
 }
@@ -413,71 +390,40 @@ function FactorBar({ value }: { value: number }): JSX.Element {
     )
 }
 
-function RiskScoreWidgetForPR({ owner, name, number }: GitHogPullRequestRiskScoreLogicProps): JSX.Element {
+function RiskAssessmentBanner({ owner, name, number }: GitHogPullRequestRiskScoreLogicProps): JSX.Element {
+    // Compact pinned banner — no refresh, no close. Shows just the level and a
+    // micro-grid of factors so the reviewer scans risk at a glance.
     const logic = gitHogPullRequestRiskScoreLogic({ owner, name, number })
     const { riskScore, riskScoreLoading } = useValues(logic)
-    const { refreshRiskScore } = useActions(logic)
 
     const styles = (riskScore && RISK_LEVEL_STYLES[riskScore.level]) || RISK_LEVEL_STYLES.moderate
     const factors = riskScore?.factors ?? []
-    const headSha = riskScore?.head_sha ?? ''
 
     return (
-        <div className="flex flex-col divide-y divide-border">
-            <div className="px-4 py-3 flex items-center justify-between gap-2">
-                <span className="font-semibold text-sm">Risk assessment</span>
-                <LemonButton
-                    size="xsmall"
-                    type="secondary"
-                    icon={<IconRefresh />}
-                    loading={riskScoreLoading}
-                    onClick={() => refreshRiskScore()}
-                    tooltip="Force-recompute via LLM"
-                >
-                    Refresh
-                </LemonButton>
-            </div>
-            <div className="px-4 py-4 flex flex-col gap-3">
+        <LemonCard hoverEffect={false} className="p-0 overflow-hidden">
+            <div className="px-4 py-3 flex items-center gap-3 flex-wrap">
+                <span className="font-semibold text-sm shrink-0">Risk</span>
                 {riskScoreLoading && !riskScore ? (
-                    <>
-                        <LemonSkeleton className="h-6 w-24" />
-                        <LemonSkeleton className="h-4 w-full" />
-                        <LemonSkeleton className="h-4 w-3/4" />
-                    </>
+                    <LemonSkeleton className="h-5 w-20 rounded-full" />
                 ) : !riskScore ? (
-                    <p className="text-secondary text-sm my-0">No assessment yet. Click Refresh to generate one.</p>
+                    <span className="text-secondary text-xs">No assessment yet</span>
                 ) : (
                     <>
-                        <div>
-                            <LemonTag type={styles.tag} size="small">
-                                <span className={`font-semibold ${styles.text}`}>{styles.label}</span>
-                            </LemonTag>
-                        </div>
-                        {riskScore.headline && (
-                            <p className="text-sm text-primary my-0 leading-relaxed">{riskScore.headline}</p>
-                        )}
-                        {riskScore.truncated && (
-                            <LemonTag type="warning" size="small">
-                                Truncated — diff was too large for full context
-                            </LemonTag>
-                        )}
-                        <div className="flex flex-col gap-2.5 mt-1">
+                        <LemonTag type={styles.tag} size="small">
+                            <span className={`font-semibold ${styles.text}`}>{styles.label}</span>
+                        </LemonTag>
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
                             {factors.map((f) => (
-                                <div key={f.key} className="flex flex-col gap-1">
-                                    <span className="text-xs font-medium">{f.label}</span>
+                                <div key={f.key} className="flex flex-col gap-0.5 min-w-0 flex-1" title={f.detail}>
+                                    <span className="text-xs text-secondary truncate">{f.label}</span>
                                     <FactorBar value={f.score} />
-                                    <span className="text-xs text-muted leading-snug">{f.detail}</span>
                                 </div>
                             ))}
-                        </div>
-                        <div className="text-xs text-muted">
-                            {headSha ? `head ${headSha.slice(0, 7)} · ` : ''}
-                            {riskScore.cached ? 'cached' : 'freshly computed'}
                         </div>
                     </>
                 )}
             </div>
-        </div>
+        </LemonCard>
     )
 }
 
@@ -566,14 +512,8 @@ function GitHogPRWorkspaceInner({
         switch (type) {
             case 'conversation':
                 return <ConversationWidget />
-            case 'files':
-                return <FilesWidget files={prDetail.files} />
-            case 'agent':
-                return <AgentWidget owner={owner} repo={repoName} pr={pr} files={prDetail.files} diff={prDetail.diff} />
             case 'dataFlow':
                 return <DataFlowWidgetForPR owner={owner} name={repoName} number={number} />
-            case 'riskScore':
-                return <RiskScoreWidgetForPR owner={owner} name={repoName} number={number} />
             case 'stats':
                 return <StatsWidget pr={pr} />
             case 'reviewers':
@@ -695,23 +635,40 @@ function GitHogPRWorkspaceInner({
                                 )}
                             </div>
                         </div>
-                        <LemonMenu
-                            items={available.map((key) => ({
-                                label: WIDGET_DEFS[key].label,
-                                onClick: () => addWidget(key),
-                            }))}
-                            closeParentPopoverOnClickInside
-                        >
+                        <div className="flex items-center gap-x-2 shrink-0">
                             <LemonButton
                                 type="secondary"
-                                icon={<IconPlus />}
-                                disabledReason={available.length === 0 ? 'All widgets are already visible' : undefined}
                                 size="small"
+                                icon={<IconGithub />}
+                                to={pr.url}
+                                targetBlank
                             >
-                                Add widget
+                                View on GitHub
                             </LemonButton>
-                        </LemonMenu>
+                            <LemonMenu
+                                items={available.map((key) => ({
+                                    label: WIDGET_DEFS[key].label,
+                                    onClick: () => addWidget(key),
+                                }))}
+                                closeParentPopoverOnClickInside
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconPlus />}
+                                    disabledReason={
+                                        available.length === 0 ? 'All widgets are already visible' : undefined
+                                    }
+                                    size="small"
+                                >
+                                    Add widget
+                                </LemonButton>
+                            </LemonMenu>
+                        </div>
                     </div>
+
+                    {/* Compact risk summary pinned above the grid; the detailed `riskScore`
+                        widget below stays available for the per-factor breakdown. */}
+                    <RiskAssessmentBanner owner={owner} name={repoName} number={number} />
 
                     {widgets.length === 0 ? (
                         <div className="border-2 border-dashed rounded-lg p-16 flex flex-col items-center gap-3 text-center mt-4">

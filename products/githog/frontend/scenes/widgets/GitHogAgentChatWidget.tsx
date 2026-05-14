@@ -177,7 +177,7 @@ export function GitHogAgentChatWidget({ context }: { context: PRChatContext }): 
     const tabId = `githog-pr-${context.owner}-${context.repo}-${context.pr.number}`
 
     return (
-        <div className="flex flex-col h-[600px] min-h-[400px]">
+        <div className="flex flex-col h-full min-h-[300px]">
             <div className="px-4 py-3 border-b border-border flex items-center justify-between">
                 <span className="font-semibold text-sm flex items-center gap-x-2">
                     <IconSparkles className="size-4 text-accent" />
