@@ -55,7 +55,13 @@ async function main() {
             const isLivestreamCommand = argv._[0] === 'livestream'
             const isCommandGroupHelpRequest = isTopLevelCommandGroupHelpRequest(argv)
 
-            if (isHelpCommand || isVersionCommand || isAuthCommand || isLivestreamCommand || isCommandGroupHelpRequest) {
+            if (
+                isHelpCommand ||
+                isVersionCommand ||
+                isAuthCommand ||
+                isLivestreamCommand ||
+                isCommandGroupHelpRequest
+            ) {
                 return
             }
 
@@ -109,7 +115,10 @@ async function main() {
                 return yargs
                     .option('token', { type: 'string', describe: 'JWT token (for scripting)' })
                     .option('host', { type: 'string', describe: 'PostHog host (default: https://app.posthog.com)' })
-                    .option('livestream-host', { type: 'string', describe: 'Livestream service host (for self-hosted)' })
+                    .option('livestream-host', {
+                        type: 'string',
+                        describe: 'Livestream service host (for self-hosted)',
+                    })
                     .option('event-type', { type: 'string', describe: 'Filter by event type(s), comma-separated' })
                     .option('distinct-id', { type: 'string', describe: 'Filter by distinct ID' })
                     .option('geo', { type: 'boolean', describe: 'Stream geo events instead' })
