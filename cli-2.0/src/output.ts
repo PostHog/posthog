@@ -226,8 +226,8 @@ function printListTable(result: unknown, emptyMessage: string, columns: TableCol
 function printFeatureFlags(result: unknown): void {
     printListTable(result, 'No feature flags found.', [
         { header: 'ID', render: (flag) => stringify(flag.id) },
-        { header: 'Key', render: (flag) => stringify(flag.key) },
-        { header: 'Name', render: (flag) => stringify(flag.name) },
+        { header: 'Key', render: (flag) => truncate(stringify(flag.key), 40) },
+        { header: 'Name', render: (flag) => truncate(stringify(flag.name), 60) },
         {
             header: 'Status',
             render: (flag) => (flag.active ? chalk.green('active') : chalk.gray('inactive')),
