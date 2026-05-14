@@ -21,6 +21,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 
 from products.githog.backend.logic.data_flow import compute_data_flow
 from products.githog.backend.logic.risk_score import compute_risk_score
+from products.githog.backend.models import GitHogPullRequestLayout
 
 from .serializers import (
     GitHogDataFlowQuerySerializer,
@@ -28,6 +29,9 @@ from .serializers import (
     GitHogPullRequestDetailQuerySerializer,
     GitHogPullRequestDetailResponseSerializer,
     GitHogPullRequestDiffResponseSerializer,
+    GitHogPullRequestLayoutQuerySerializer,
+    GitHogPullRequestLayoutRequestSerializer,
+    GitHogPullRequestLayoutResponseSerializer,
     GitHogPullRequestListQuerySerializer,
     GitHogPullRequestListResponseSerializer,
     GitHogRepositoryListResponseSerializer,
@@ -261,3 +265,57 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise ValidationError(str(exc)) from exc
 
         return Response(response)
+
+    @extend_schema(
+        methods=["GET"],
+        parameters=[GitHogPullRequestLayoutQuerySerializer],
+        responses={200: GitHogPullRequestLayoutResponseSerializer},
+    )
+    @extend_schema(
+        methods=["PUT"],
+        request=GitHogPullRequestLayoutRequestSerializer,
+        responses={200: GitHogPullRequestLayoutResponseSerializer},
+    )
+    @action(methods=["GET", "PUT"], detail=False, url_path="pull_request_layout")
+    def pull_request_layout(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if request.method == "PUT":
+            payload = GitHogPullRequestLayoutRequestSerializer(data=request.data)
+            payload.is_valid(raise_exception=True)
+            repository = payload.validated_data["repository"]
+            pr_number = payload.validated_data["number"]
+            items = payload.validated_data["items"]
+            row, _ = GitHogPullRequestLayout.objects.update_or_create(
+                team_id=self.team_id,
+                user=request.user,
+                repository=repository,
+                pr_number=pr_number,
+                defaults={"layout": {"items": items}},
+            )
+            return Response(
+                {
+                    "repository": row.repository,
+                    "pr_number": row.pr_number,
+                    "items": (row.layout or {}).get("items", []),
+                    "exists": True,
+                }
+            )
+
+        query = GitHogPullRequestLayoutQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        repository = query.validated_data["repository"]
+        pr_number = query.validated_data["number"]
+        row = GitHogPullRequestLayout.objects.filter(
+            team_id=self.team_id,
+            user=request.user,
+            repository=repository,
+            pr_number=pr_number,
+        ).first()
+        items = (row.layout or {}).get("items", []) if row else []
+        return Response(
+            {
+                "repository": repository,
+                "pr_number": pr_number,
+                "items": items,
+                "exists": row is not None,
+            }
+        )

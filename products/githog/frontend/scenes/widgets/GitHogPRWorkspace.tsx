@@ -1,7 +1,13 @@
-import { BindLogic, useActions, useValues } from 'kea'
-import { useState } from 'react'
+// Vendored from react-grid-layout/css/styles.css — the package's export map
+// is not reachable from products/* under our Vite workspace setup, so we keep
+// a local copy. Provides .react-grid-item / resize-handle styling.
+import './GitHogPRWorkspace.css'
 
-import { IconCheck, IconCode, IconGitBranch, IconPlus, IconRefresh, IconX } from '@posthog/icons'
+import { BindLogic, useActions, useValues } from 'kea'
+import { useCallback, useMemo } from 'react'
+import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
+
+import { IconCheck, IconCode, IconDrag, IconGitBranch, IconPlus, IconRefresh, IconX } from '@posthog/icons'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -13,6 +19,12 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
+import {
+    GitHogLayoutItem,
+    GitHogPRLayoutLogicProps,
+    GitHogWidgetType,
+    gitHogPRLayoutLogic,
+} from '../gitHogPRLayoutLogic'
 import {
     GitHogPRReviewLogicProps,
     GitHogPullRequestDetail,
@@ -64,23 +76,33 @@ const SAMPLE_COMMENTS = [
 
 // ─── Widget registry ─────────────────────────────────────────────────────────
 
-type WidgetType = 'conversation' | 'stats' | 'files' | 'reviewers' | 'agent' | 'dataFlow' | 'riskScore'
+type WidgetType = GitHogWidgetType
 
-const WIDGET_DEFS: Record<WidgetType, { label: string; description: string; column: 'main' | 'side' }> = {
-    conversation: { label: 'Conversation', description: 'Comments and review discussion', column: 'main' },
-    files: { label: 'Files changed', description: 'Modified files with line counts', column: 'main' },
-    agent: { label: 'Ask the agent', description: 'Chat with an AI agent about this PR', column: 'main' },
-    dataFlow: { label: 'Data flow', description: 'AI-generated execution flow before vs after', column: 'main' },
+const WIDGET_DEFS: Record<WidgetType, { label: string; description: string; defaultW: number; defaultH: number }> = {
+    conversation: { label: 'Conversation', description: 'Comments and review discussion', defaultW: 8, defaultH: 5 },
+    files: { label: 'Files changed', description: 'Modified files with line counts', defaultW: 8, defaultH: 5 },
+    agent: { label: 'Ask the agent', description: 'Chat with an AI agent about this PR', defaultW: 8, defaultH: 6 },
+    dataFlow: {
+        label: 'Data flow',
+        description: 'AI-generated execution flow before vs after',
+        defaultW: 8,
+        defaultH: 7,
+    },
     riskScore: {
         label: 'Risk assessment',
         description: 'Per-factor risk breakdown for this PR',
-        column: 'side',
+        defaultW: 4,
+        defaultH: 5,
     },
-    stats: { label: 'Stats', description: 'Additions, deletions, and commits', column: 'side' },
-    reviewers: { label: 'Reviewers', description: 'Review status per reviewer', column: 'side' },
+    stats: { label: 'Stats', description: 'Additions, deletions, and commits', defaultW: 4, defaultH: 3 },
+    reviewers: { label: 'Reviewers', description: 'Review status per reviewer', defaultW: 4, defaultH: 4 },
 }
 
-const DEFAULT_WIDGETS: WidgetType[] = ['riskScore', 'dataFlow', 'files', 'stats']
+// Grid configuration shared with the persisted layout shape on the backend.
+const GRID_COLS = 12
+const GRID_ROW_HEIGHT = 60
+const GRID_MARGIN: [number, number] = [12, 12]
+const GRID_PADDING: [number, number] = [0, 0]
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
@@ -105,10 +127,46 @@ function ReviewerDot({ status }: { status: 'approved' | 'changes_requested' | 'p
     return <span className="size-2 rounded-full bg-border-bold inline-block mt-1" />
 }
 
-function WidgetShell({ children, onRemove }: { children: React.ReactNode; onRemove: () => void }): JSX.Element {
+function WidgetShell({
+    label,
+    children,
+    onRemove,
+}: {
+    label: string
+    children: React.ReactNode
+    onRemove: () => void
+}): JSX.Element {
+    // The chrome bar is a single intentional strip at the top: the drag
+    // affordance fills the bar (entire strip is the grab target), and the
+    // remove button is anchored to the right edge. Interactive children are
+    // excluded from the drag via `dragConfig.cancel` so dragging and removing
+    // never compete for the same pixels — unlike the previous overlay X, which
+    // floated above content and intercepted clicks meant for the widget body.
     return (
-        <LemonCard hoverEffect={false} closeable onClose={onRemove} className="p-0 overflow-hidden">
-            {children}
+        <LemonCard hoverEffect={false} className="p-0 overflow-hidden h-full w-full flex flex-col">
+            <div className="relative group/widget-header flex items-stretch h-5 shrink-0 border-b border-border bg-fill-highlight-50 hover:bg-fill-highlight-100">
+                <div
+                    className="githog-widget-drag-handle flex-1 flex items-center justify-center cursor-grab active:cursor-grabbing"
+                    aria-label={`Drag ${label}`}
+                    role="button"
+                >
+                    <IconDrag className="size-3.5 text-muted" />
+                </div>
+                {/* Anchored to the right edge of the bar; never overlaps the widget body. */}
+                <LemonButton
+                    icon={<IconX />}
+                    size="xsmall"
+                    type="tertiary"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onRemove()
+                    }}
+                    tooltip="Remove widget"
+                    aria-label={`Remove ${label}`}
+                    className="!h-5 !min-h-0 !px-1 rounded-none opacity-0 group-hover/widget-header:opacity-100 focus-visible:opacity-100"
+                />
+            </div>
+            <div className="flex-1 min-h-0 overflow-auto">{children}</div>
         </LemonCard>
     )
 }
@@ -426,9 +484,12 @@ function RiskScoreWidgetForPR({ owner, name, number }: GitHogPullRequestRiskScor
 // ─── Public workspace component ──────────────────────────────────────────────
 
 export function GitHogPRWorkspace({ owner, name, number }: GitHogPRReviewLogicProps): JSX.Element {
+    const layoutProps: GitHogPRLayoutLogicProps = { owner, name, number }
     return (
         <BindLogic logic={gitHogPRReviewLogic} props={{ owner, name, number }}>
-            <GitHogPRWorkspaceInner owner={owner} repoName={name} number={number} />
+            <BindLogic logic={gitHogPRLayoutLogic} props={layoutProps}>
+                <GitHogPRWorkspaceInner owner={owner} repoName={name} number={number} />
+            </BindLogic>
         </BindLogic>
     )
 }
@@ -446,39 +507,62 @@ function GitHogPRWorkspaceInner({
     const { pullRequest, pullRequestLoading } = useValues(
         gitHogPullRequestDetailLogic({ owner, name: repoName, number })
     )
-    const [widgets, setWidgets] = useState<WidgetType[]>(DEFAULT_WIDGETS)
+    const { layoutItems } = useValues(gitHogPRLayoutLogic)
+    const { setLayout, addWidget, removeWidget } = useActions(gitHogPRLayoutLogic)
+    // `useContainerWidth` seeds `width` with 1280px (the hook's initialWidth
+    // default) until the ResizeObserver has measured the real container. With
+    // `measureBeforeMount: true` it keeps `mounted=false` until measurement
+    // completes, which we use below to gate the grid render — otherwise the
+    // first paint lays tiles out at 1280px wide and tiles past the viewport
+    // edge stay off-screen.
+    const {
+        width: gridWidth,
+        containerRef,
+        mounted: gridMeasured,
+    } = useContainerWidth({
+        measureBeforeMount: true,
+    })
 
-    const addWidget = (type: WidgetType): void => setWidgets((prev) => [...prev, type])
-    const removeWidget = (type: WidgetType): void => setWidgets((prev) => prev.filter((w) => w !== type))
-
+    const widgets = useMemo(() => layoutItems.map((it) => it.i as WidgetType), [layoutItems])
     const available = (Object.keys(WIDGET_DEFS) as WidgetType[]).filter((k) => !widgets.includes(k))
 
-    const mainWidgets = widgets.filter((w) => WIDGET_DEFS[w].column === 'main')
-    const sideWidgets = widgets.filter((w) => WIDGET_DEFS[w].column === 'side')
-    const hasSide = sideWidgets.length > 0
+    // react-grid-layout's `Layout` shape matches our persisted item shape 1:1.
+    const handleLayoutChange = useCallback(
+        (nextLayout: Layout[]) => {
+            const items: GitHogLayoutItem[] = nextLayout.map((l) => ({
+                i: l.i,
+                x: l.x,
+                y: l.y,
+                w: l.w,
+                h: l.h,
+            }))
+            // Only persist if anything actually changed — react-grid-layout emits
+            // onLayoutChange on first mount too.
+            const same =
+                items.length === layoutItems.length &&
+                items.every((it, idx) => {
+                    const prev = layoutItems[idx]
+                    return (
+                        prev &&
+                        prev.i === it.i &&
+                        prev.x === it.x &&
+                        prev.y === it.y &&
+                        prev.w === it.w &&
+                        prev.h === it.h
+                    )
+                })
+            if (!same) {
+                setLayout(items)
+            }
+        },
+        [layoutItems, setLayout]
+    )
 
-    if (prDetailLoading && !prDetail) {
-        return (
-            <div className="flex items-center justify-center py-16">
-                <Spinner className="text-2xl" />
-            </div>
-        )
-    }
-
-    if (!prDetail) {
-        return (
-            <p className="text-secondary text-sm">
-                Could not load this pull request. Check that the team's GitHub integration has access to{' '}
-                <code>
-                    {owner}/{repoName}
-                </code>
-                .
-            </p>
-        )
-    }
-
-    const pr = prDetail.pull_request
-    const renderWidget = (type: WidgetType): JSX.Element => {
+    const pr = prDetail?.pull_request ?? null
+    const renderWidget = (type: WidgetType): JSX.Element | null => {
+        if (!prDetail || !pr) {
+            return null
+        }
         switch (type) {
             case 'conversation':
                 return <ConversationWidget />
@@ -494,133 +578,197 @@ function GitHogPRWorkspaceInner({
                 return <StatsWidget pr={pr} />
             case 'reviewers':
                 return <ReviewersWidget />
+            default:
+                return null
         }
     }
 
+    const gridLayout: Layout[] = layoutItems.map((it) => {
+        const def = WIDGET_DEFS[it.i as WidgetType]
+        return {
+            i: it.i,
+            x: it.x,
+            y: it.y,
+            w: it.w,
+            h: it.h,
+            minW: 3,
+            minH: 2,
+            maxW: GRID_COLS,
+            isDraggable: true,
+            isResizable: true,
+            ...(def ? { minH: Math.min(2, def.defaultH) } : {}),
+        }
+    })
+
+    const isLoadingPRDetail = prDetailLoading && !prDetail
+    const hasError = !isLoadingPRDetail && (!prDetail || !pr)
+
+    // Loading, error, and content states all render inside the *same*
+    // persistent root div that carries `containerRef`. `useContainerWidth`'s
+    // internal `useEffect` only fires on first mount; if the ref-bearing
+    // element swaps later (e.g. because we returned a spinner first), the
+    // ResizeObserver stays bound to the discarded node and `mounted` never
+    // flips — keeping the grid hidden. Keep this as one return with conditional
+    // inner content.
     return (
-        <div className="flex flex-col gap-y-3">
-            {/* Compact PR header — no SceneTitleSection here; the inbox owns the page title */}
-            <div className="flex items-start justify-between gap-3">
-                <div className="flex flex-col gap-y-1 min-w-0">
-                    <h2 className="text-lg font-semibold my-0 truncate">
-                        <span className="text-muted font-mono mr-2">#{pr.number}</span>
-                        {pr.title}
-                    </h2>
-                    <div className="flex items-center gap-x-3 flex-wrap text-sm">
-                        {pullRequest ? (
-                            <>
-                                <LemonTag
-                                    type={
-                                        pullRequest.merged_at
-                                            ? 'completion'
-                                            : pullRequest.state === 'open'
-                                              ? pullRequest.draft
-                                                  ? 'default'
-                                                  : 'success'
-                                              : 'danger'
-                                    }
-                                    size="small"
-                                >
-                                    {pullRequest.merged_at
-                                        ? 'Merged'
-                                        : pullRequest.draft
-                                          ? 'Draft'
-                                          : pullRequest.state === 'open'
-                                            ? 'Open'
-                                            : 'Closed'}
-                                </LemonTag>
-                                <span className="text-secondary flex items-center gap-x-1">
-                                    <IconGitBranch className="size-3.5" />
-                                    {pullRequest.head_branch}
-                                    <span className="text-muted mx-0.5">→</span>
-                                    {pullRequest.base_branch}
-                                </span>
-                                <span className="text-muted">·</span>
-                                <span className="text-secondary flex items-center gap-x-1">
-                                    {pullRequest.author || 'unknown'}
-                                    {pullRequest.created_at && (
-                                        <>
-                                            <span className="text-muted mx-1">·</span>
-                                            <TZLabel time={pullRequest.created_at} />
-                                        </>
-                                    )}
-                                </span>
-                            </>
-                        ) : (
-                            <>
-                                <LemonTag type={pr.state === 'open' ? 'success' : 'default'} size="small">
-                                    {pr.draft ? 'Draft' : pr.state}
-                                </LemonTag>
-                                <span className="text-secondary flex items-center gap-x-1">
-                                    <IconGitBranch className="size-3.5" />
-                                    {pr.head_branch}
-                                    <span className="text-muted mx-0.5">→</span>
-                                    {pr.base_branch}
-                                </span>
-                                <span className="text-muted">·</span>
-                                <span className="text-secondary">
-                                    {pr.author || 'unknown'}
-                                    {pullRequestLoading && <span className="text-muted ml-2">· loading…</span>}
-                                </span>
-                            </>
-                        )}
+        <div ref={containerRef as React.RefObject<HTMLDivElement>} className="flex flex-col gap-y-3 w-full min-w-0">
+            {isLoadingPRDetail && (
+                <div className="flex items-center justify-center py-16">
+                    <Spinner className="text-2xl" />
+                </div>
+            )}
+            {hasError && (
+                <p className="text-secondary text-sm">
+                    Could not load this pull request. Check that the team's GitHub integration has access to{' '}
+                    <code>
+                        {owner}/{repoName}
+                    </code>
+                    .
+                </p>
+            )}
+            {pr && (
+                <>
+                    {/* Compact PR header — no SceneTitleSection here; the inbox owns the page title */}
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-col gap-y-1 min-w-0">
+                            <h2 className="text-lg font-semibold my-0 truncate">
+                                <span className="text-muted font-mono mr-2">#{pr.number}</span>
+                                {pr.title}
+                            </h2>
+                            <div className="flex items-center gap-x-3 flex-wrap text-sm">
+                                {pullRequest ? (
+                                    <>
+                                        <LemonTag
+                                            type={
+                                                pullRequest.merged_at
+                                                    ? 'completion'
+                                                    : pullRequest.state === 'open'
+                                                      ? pullRequest.draft
+                                                          ? 'default'
+                                                          : 'success'
+                                                      : 'danger'
+                                            }
+                                            size="small"
+                                        >
+                                            {pullRequest.merged_at
+                                                ? 'Merged'
+                                                : pullRequest.draft
+                                                  ? 'Draft'
+                                                  : pullRequest.state === 'open'
+                                                    ? 'Open'
+                                                    : 'Closed'}
+                                        </LemonTag>
+                                        <span className="text-secondary flex items-center gap-x-1">
+                                            <IconGitBranch className="size-3.5" />
+                                            {pullRequest.head_branch}
+                                            <span className="text-muted mx-0.5">→</span>
+                                            {pullRequest.base_branch}
+                                        </span>
+                                        <span className="text-muted">·</span>
+                                        <span className="text-secondary flex items-center gap-x-1">
+                                            {pullRequest.author || 'unknown'}
+                                            {pullRequest.created_at && (
+                                                <>
+                                                    <span className="text-muted mx-1">·</span>
+                                                    <TZLabel time={pullRequest.created_at} />
+                                                </>
+                                            )}
+                                        </span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <LemonTag type={pr.state === 'open' ? 'success' : 'default'} size="small">
+                                            {pr.draft ? 'Draft' : pr.state}
+                                        </LemonTag>
+                                        <span className="text-secondary flex items-center gap-x-1">
+                                            <IconGitBranch className="size-3.5" />
+                                            {pr.head_branch}
+                                            <span className="text-muted mx-0.5">→</span>
+                                            {pr.base_branch}
+                                        </span>
+                                        <span className="text-muted">·</span>
+                                        <span className="text-secondary">
+                                            {pr.author || 'unknown'}
+                                            {pullRequestLoading && <span className="text-muted ml-2">· loading…</span>}
+                                        </span>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                        <LemonMenu
+                            items={available.map((key) => ({
+                                label: WIDGET_DEFS[key].label,
+                                onClick: () => addWidget(key),
+                            }))}
+                            closeParentPopoverOnClickInside
+                        >
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconPlus />}
+                                disabledReason={available.length === 0 ? 'All widgets are already visible' : undefined}
+                                size="small"
+                            >
+                                Add widget
+                            </LemonButton>
+                        </LemonMenu>
                     </div>
-                </div>
-                <LemonMenu
-                    items={available.map((key) => ({
-                        label: WIDGET_DEFS[key].label,
-                        onClick: () => addWidget(key),
-                    }))}
-                    closeParentPopoverOnClickInside
-                >
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlus />}
-                        disabledReason={available.length === 0 ? 'All widgets are already visible' : undefined}
-                        size="small"
-                    >
-                        Add widget
-                    </LemonButton>
-                </LemonMenu>
-            </div>
 
-            {widgets.length === 0 ? (
-                <div className="border-2 border-dashed rounded-lg p-16 flex flex-col items-center gap-3 text-center mt-4">
-                    <p className="text-secondary text-sm my-0">Add widgets to build your review workspace</p>
-                    <LemonMenu
-                        items={available.map((key) => ({
-                            label: WIDGET_DEFS[key].label,
-                            onClick: () => addWidget(key),
-                        }))}
-                        closeParentPopoverOnClickInside
-                    >
-                        <LemonButton type="primary" icon={<IconPlus />} size="small">
-                            Add widget
-                        </LemonButton>
-                    </LemonMenu>
-                </div>
-            ) : (
-                <div className="flex gap-4 items-start mt-2">
-                    {(mainWidgets.length > 0 || !hasSide) && (
-                        <div className="flex flex-col gap-y-4 flex-1 min-w-0">
-                            {mainWidgets.map((type) => (
-                                <WidgetShell key={type} onRemove={() => removeWidget(type)}>
-                                    {renderWidget(type)}
-                                </WidgetShell>
-                            ))}
+                    {widgets.length === 0 ? (
+                        <div className="border-2 border-dashed rounded-lg p-16 flex flex-col items-center gap-3 text-center mt-4">
+                            <p className="text-secondary text-sm my-0">Add widgets to build your review workspace</p>
+                            <LemonMenu
+                                items={available.map((key) => ({
+                                    label: WIDGET_DEFS[key].label,
+                                    onClick: () => addWidget(key),
+                                }))}
+                                closeParentPopoverOnClickInside
+                            >
+                                <LemonButton type="primary" icon={<IconPlus />} size="small">
+                                    Add widget
+                                </LemonButton>
+                            </LemonMenu>
+                        </div>
+                    ) : (
+                        <div className="mt-2 w-full min-w-0 overflow-hidden">
+                            {gridMeasured && gridWidth > 0 && (
+                                <ReactGridLayout
+                                    width={gridWidth}
+                                    breakpoints={{ lg: 0 }}
+                                    cols={{ lg: GRID_COLS }}
+                                    layouts={{ lg: gridLayout }}
+                                    rowHeight={GRID_ROW_HEIGHT}
+                                    margin={GRID_MARGIN}
+                                    containerPadding={GRID_PADDING}
+                                    onLayoutChange={handleLayoutChange}
+                                    dragConfig={{
+                                        handle: '.githog-widget-drag-handle',
+                                        cancel: 'a,button,input,textarea,.Popover',
+                                    }}
+                                    resizeConfig={{
+                                        handles: ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'] as const,
+                                    }}
+                                >
+                                    {layoutItems.map((it) => {
+                                        const type = it.i as WidgetType
+                                        if (!WIDGET_DEFS[type]) {
+                                            return null
+                                        }
+                                        return (
+                                            <div key={it.i}>
+                                                <WidgetShell
+                                                    label={WIDGET_DEFS[type].label}
+                                                    onRemove={() => removeWidget(type)}
+                                                >
+                                                    {renderWidget(type)}
+                                                </WidgetShell>
+                                            </div>
+                                        )
+                                    })}
+                                </ReactGridLayout>
+                            )}
                         </div>
                     )}
-
-                    {hasSide && (
-                        <div className="flex flex-col gap-y-4 w-72 shrink-0">
-                            {sideWidgets.map((type) => (
-                                <WidgetShell key={type} onRemove={() => removeWidget(type)}>
-                                    {renderWidget(type)}
-                                </WidgetShell>
-                            ))}
-                        </div>
-                    )}
-                </div>
+                </>
             )}
         </div>
     )

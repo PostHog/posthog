@@ -200,3 +200,31 @@ class GitHogRiskScoreResponseSerializer(serializers.Serializer):
     computed_at = serializers.CharField(
         allow_blank=True, help_text="ISO 8601 timestamp of when this score was computed (empty if not tracked)."
     )
+
+
+class GitHogPullRequestLayoutItemSerializer(serializers.Serializer):
+    i = serializers.CharField(help_text="Widget type identifier (acts as grid item key).")
+    x = serializers.IntegerField(min_value=0, help_text="Grid column position (0-based).")
+    y = serializers.IntegerField(min_value=0, help_text="Grid row position (0-based).")
+    w = serializers.IntegerField(min_value=1, help_text="Width in grid columns.")
+    h = serializers.IntegerField(min_value=1, help_text="Height in grid rows.")
+
+
+class GitHogPullRequestLayoutQuerySerializer(serializers.Serializer):
+    repository = serializers.CharField(help_text="Repository in owner/repo format.")
+    number = serializers.IntegerField(help_text="Pull request number.")
+
+
+class GitHogPullRequestLayoutRequestSerializer(serializers.Serializer):
+    repository = serializers.CharField(help_text="Repository in owner/repo format.")
+    number = serializers.IntegerField(help_text="Pull request number.")
+    items = GitHogPullRequestLayoutItemSerializer(
+        many=True, help_text="Ordered list of widgets with their grid positions and sizes."
+    )
+
+
+class GitHogPullRequestLayoutResponseSerializer(serializers.Serializer):
+    repository = serializers.CharField()
+    pr_number = serializers.IntegerField()
+    items = GitHogPullRequestLayoutItemSerializer(many=True)
+    exists = serializers.BooleanField(help_text="True if a saved layout was found; otherwise the default is returned.")

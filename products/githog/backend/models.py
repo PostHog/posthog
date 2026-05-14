@@ -34,3 +34,31 @@ class GitHogPullRequestDataFlow(models.Model):
         indexes = [
             models.Index(fields=["team", "repository", "pr_number"]),
         ]
+
+
+class GitHogPullRequestLayout(models.Model):
+    """Per-user persisted widget layout for a single PR workspace.
+
+    The layout is a small JSON document describing widget positions and sizes on the
+    PR review grid. We key by (team, user, repository, pr_number) so each user keeps
+    their own arrangement of widgets per PR.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
+    repository = models.CharField(max_length=255)
+    pr_number = models.IntegerField()
+    layout = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "user", "repository", "pr_number"],
+                name="unique_githog_pr_layout_per_user",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "user", "repository", "pr_number"]),
+        ]
