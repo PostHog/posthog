@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -12,27 +12,29 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/t
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer/LogsViewer'
 
 import { CurrentDeploymentCard } from './components/CurrentDeploymentCard'
+import { openRedeployDialog, openRollbackDialog } from './components/deploymentActions'
 import { deploymentLogic, DeploymentLogicProps } from './deploymentLogic'
-import { deploymentsLogic } from './deploymentsLogic'
-import { Deployment as DeploymentType } from './fixtures'
+import { deploymentProjectLogic } from './deploymentProjectLogic'
 
 export const scene: SceneExport<DeploymentLogicProps> = {
     component: Deployment,
     logic: deploymentLogic,
-    paramsToProps: ({ params: { id } }) => ({ id }),
+    paramsToProps: ({ params: { projectId, deploymentId } }) => ({ projectId, id: deploymentId }),
 }
 
-export function Deployment({ id }: DeploymentLogicProps): JSX.Element {
+export function Deployment({ projectId, id }: DeploymentLogicProps): JSX.Element {
     return (
-        <BindLogic logic={deploymentLogic} props={{ id }}>
-            <DeploymentInner id={id} />
+        <BindLogic logic={deploymentProjectLogic} props={{ projectId }}>
+            <BindLogic logic={deploymentLogic} props={{ projectId, id }}>
+                <DeploymentInner projectId={projectId} id={id} />
+            </BindLogic>
         </BindLogic>
     )
 }
 
-function DeploymentInner({ id }: { id: string }): JSX.Element {
-    const { deployment, deploymentMissing, deploymentLoading } = useValues(deploymentLogic({ id }))
-    const { redeployDeployment, rollbackDeployment } = useActions(deploymentsLogic)
+function DeploymentInner({ projectId, id }: DeploymentLogicProps): JSX.Element {
+    const { deployment, deploymentMissing, deploymentLoading } = useValues(deploymentLogic({ projectId, id }))
+    const { redeployDeployment, rollbackDeployment } = useActions(deploymentProjectLogic({ projectId }))
 
     if (deploymentMissing) {
         return (
@@ -52,33 +54,6 @@ function DeploymentInner({ id }: { id: string }): JSX.Element {
 
     const d = deployment
 
-    const confirmRedeploy = (target: DeploymentType): void => {
-        LemonDialog.open({
-            title: 'Redeploy?',
-            description: `This will start a new deployment based on ${target.commit_sha || target.id}. It will run through the build pipeline before becoming current.`,
-            primaryButton: {
-                children: 'Redeploy',
-                type: 'primary',
-                onClick: () => redeployDeployment(target.id),
-            },
-            secondaryButton: { children: 'Cancel', type: 'secondary' },
-        })
-    }
-
-    const confirmRollback = (target: DeploymentType): void => {
-        LemonDialog.open({
-            title: 'Roll back to this deployment?',
-            description: `This will immediately make ${target.commit_message || target.id} current.`,
-            primaryButton: {
-                children: 'Roll back',
-                type: 'primary',
-                status: 'danger',
-                onClick: () => rollbackDeployment(target.id),
-            },
-            secondaryButton: { children: 'Cancel', type: 'secondary' },
-        })
-    }
-
     return (
         <SceneContent>
             <SceneTitleSection
@@ -87,13 +62,13 @@ function DeploymentInner({ id }: { id: string }): JSX.Element {
                 resourceType={{ type: 'deployments' }}
                 actions={
                     <>
-                        <LemonButton type="secondary" onClick={() => confirmRedeploy(d)}>
+                        <LemonButton type="secondary" onClick={() => openRedeployDialog(d, redeployDeployment)}>
                             Redeploy
                         </LemonButton>
                         <LemonButton
                             type="secondary"
                             status="danger"
-                            onClick={() => confirmRollback(d)}
+                            onClick={() => openRollbackDialog(d, rollbackDeployment)}
                             disabledReason={d.is_current ? 'Already current' : undefined}
                         >
                             Rollback
