@@ -350,11 +350,11 @@ function experimentStatusTag(experiment: ExperimentApi): JSX.Element {
     return <LemonTag type="default">Draft</LemonTag>
 }
 
-function promptMetadata(experiment: ExperimentApi): { template: string | null; versions: number[] } {
-    const params = experiment.parameters as { prompt_metadata?: { template?: string; versions?: number[] } } | null
+function promptMetadata(experiment: ExperimentApi): { templates: string[]; versions: number[] } {
+    const params = experiment.parameters as { prompt_metadata?: { templates?: string[]; versions?: number[] } } | null
     const meta = params?.prompt_metadata
     return {
-        template: meta?.template ?? null,
+        templates: meta?.templates ?? [],
         versions: meta?.versions ?? [],
     }
 }
@@ -405,13 +405,20 @@ export function PromptExperiments({ prompt }: { prompt: LLMPrompt }): JSX.Elemen
             },
         },
         {
-            title: 'Template',
+            title: 'Metrics',
             render: function Render(_, experiment) {
                 const meta = promptMetadata(experiment)
-                return meta.template ? (
-                    <LemonTag type="default">{meta.template}</LemonTag>
-                ) : (
-                    <span className="text-secondary">—</span>
+                if (meta.templates.length === 0) {
+                    return <span className="text-secondary">—</span>
+                }
+                return (
+                    <div className="flex flex-wrap gap-1">
+                        {meta.templates.map((t) => (
+                            <LemonTag key={t} type="default">
+                                {t}
+                            </LemonTag>
+                        ))}
+                    </div>
                 )
             },
         },

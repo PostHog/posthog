@@ -273,7 +273,7 @@ from posthog.ai.prompts import Prompts
 
 posthog = Posthog(
     os.environ["POSTHOG_API_KEY"],
-    host="https://us.posthog.com",
+    host="https://us.posthog.com",  # Replace with your PostHog host (e.g. https://eu.posthog.com for EU Cloud, or your self-hosted URL)
     personal_api_key=os.environ["POSTHOG_PERSONAL_API_KEY"],
 )
 
@@ -283,7 +283,9 @@ flag_key = "${flagKey}"
 # 1. Evaluate the flag and pull the variant payload — each variant carries its own
 #    {"prompt_name", "prompt_version"} payload set when the experiment was created.
 flags = posthog.evaluate_flags(distinct_id, flag_keys=[flag_key])
-payload = flags.get_flag_payload(flag_key) or {}
+payload = flags.get_flag_payload(flag_key)
+if not payload:
+    raise RuntimeError(f"No payload set for flag {flag_key}; was this experiment created via /create_from_prompt/?")
 if isinstance(payload, str):
     payload = json.loads(payload)
 
@@ -321,7 +323,7 @@ import { OpenAI } from '@posthog/ai/openai'
 import { Prompts } from '@posthog/ai/prompts'
 
 const posthog = new PostHog(process.env.POSTHOG_API_KEY!, {
-    host: 'https://us.posthog.com',
+    host: 'https://us.posthog.com', // Replace with your PostHog host (e.g. https://eu.posthog.com for EU Cloud, or your self-hosted URL)
     personalApiKey: process.env.POSTHOG_PERSONAL_API_KEY,
 })
 
@@ -331,7 +333,10 @@ const flagKey = '${flagKey}'
 // 1. Evaluate the flag and read the variant payload — each variant carries its own
 //    { prompt_name, prompt_version } payload set when the experiment was created.
 const flags = await posthog.evaluateFlags({ distinctId, flagKeys: [flagKey] })
-let payload = flags.getFlagPayload(flagKey) ?? {}
+let payload = flags.getFlagPayload(flagKey)
+if (!payload) {
+    throw new Error(\`No payload set for flag \${flagKey}; was this experiment created via /create_from_prompt/?\`)
+}
 if (typeof payload === 'string') {
     payload = JSON.parse(payload)
 }

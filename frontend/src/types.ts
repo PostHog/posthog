@@ -4575,7 +4575,7 @@ export interface Experiment {
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
         prompt_metadata?: {
             name: string
-            template: string
+            templates: string[]
             versions: number[]
         }
     }

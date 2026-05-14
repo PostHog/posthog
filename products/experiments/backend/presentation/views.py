@@ -457,7 +457,11 @@ class EnterpriseExperimentsViewSet(
         methods=["POST"],
         detail=False,
         url_path="create_from_prompt",
-        required_scopes=["experiment:write"],
+        # Endpoint reads an LLMPrompt's name + versions to validate input, so the caller
+        # needs prompt-read scope in addition to experiment-write. Without llm_prompt:read,
+        # a token with experiment:write alone could enumerate existing prompts by guessing
+        # names.
+        required_scopes=["experiment:write", "llm_prompt:read"],
     )
     def create_from_prompt(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """

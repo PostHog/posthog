@@ -199,7 +199,7 @@ function PromptExperimentImplementation({
                 <div className="p-6 deprecated-space-y-4">
                     <div className="text-secondary text-sm">
                         Prompt experiment for <b>{promptMetadata.name}</b>{' '}
-                        <span className="text-muted">({promptMetadata.template})</span>
+                        <span className="text-muted">({promptMetadata.templates.join(', ')})</span>
                     </div>
                     <div>
                         <div className="mb-1">
