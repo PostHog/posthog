@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "conclusion_markdown": {
+            "description": "Optional markdown summary. If provided, a `conclusion` entry is appended before the session is closed.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this live debugger session.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

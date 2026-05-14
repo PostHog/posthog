@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Full session with its ordered entries timeline and the programs it owns.",
+    "properties": {
+        "description": {
+            "description": "What the agent is trying to figure out.",
+            "type": "string"
+        },
+        "title": {
+            "description": "Short human-readable name for the investigation.",
+            "type": "string"
+        }
+    },
+    "required": ["title"],
+    "type": "object"
+}

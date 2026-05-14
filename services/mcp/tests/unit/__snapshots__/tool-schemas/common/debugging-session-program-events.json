@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this live debugger session.",
+            "type": "string"
+        },
+        "limit": {
+            "description": "Maximum number of events to return (default 100, max 1000).",
+            "type": "number"
+        },
+        "offset": {
+            "description": "Pagination offset.",
+            "type": "number"
+        },
+        "program_id": {
+            "description": "ID of the program (must belong to this session).",
+            "type": "string"
+        }
+    },
+    "required": ["id", "program_id"],
+    "type": "object"
+}

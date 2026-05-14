@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "code": {
+            "description": "The hogtrace program source code to install.",
+            "type": "string"
+        },
+        "description": {
+            "default": "",
+            "description": "Human-readable description of what this program observes and why.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this live debugger session.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "code"],
+    "type": "object"
+}

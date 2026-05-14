@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this live debugger session.",
+            "type": "string"
+        },
+        "program_id": {
+            "description": "ID of the program to uninstall.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "program_id"],
+    "type": "object"
+}

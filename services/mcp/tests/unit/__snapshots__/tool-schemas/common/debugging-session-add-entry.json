@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this live debugger session.",
+            "type": "string"
+        },
+        "kind": {
+            "description": "Entry kind: note, event_highlight, or conclusion.\n\n* `note` - note\n* `event_highlight` - event_highlight\n* `conclusion` - conclusion",
+            "enum": ["note", "event_highlight", "conclusion"],
+            "type": "string"
+        },
+        "payload": {
+            "additionalProperties": {},
+            "description": "Payload shape depends on kind. note/conclusion: {markdown: str}. event_highlight: {event_uuids: list[str], caption: str}.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        }
+    },
+    "required": ["id", "kind", "payload"],
+    "type": "object"
+}
