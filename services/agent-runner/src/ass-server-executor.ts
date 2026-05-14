@@ -1,4 +1,4 @@
-import { loadProject } from '@repo/ass-server/load-project'
+import { loadCompiledAgent } from '@repo/ass-server/load-compiled-agent'
 import { runSession } from '@repo/ass-server/session-runner'
 
 import {
@@ -96,14 +96,10 @@ export class AssServerExecutor implements SessionExecutor {
         revision: ResolvedRevision,
         bundleDir: string
     ): Promise<ExecutorTurnOutput> {
-        const project = await loadProject(bundleDir)
-        if (project.agents.length === 0) {
-            return { kind: 'failed', error: 'project has no agents declared' }
-        }
-        // For now: the application maps 1:1 to its primary agent. When we expose
-        // multi-agent applications, the resolver will need to surface which agent
-        // slug to run (cron triggers naming a specific agent, slack routing, etc.).
-        const agent = project.agents[0]
+        // Deployed bundles are single-agent (one `.ass.yaml` per tarball, produced
+        // by `ass build`). `loadCompiledAgent` reads that flat shape — different
+        // from `loadProject`, which is for the dev `ass run` TS-source tree.
+        const { project, agent } = await loadCompiledAgent(bundleDir)
 
         const triggerPayload = input.state.initialInput ?? null
         const bridge = new BusBridgingRegistry(this.options.bus, input.job.sessionId)
@@ -115,7 +111,7 @@ export class AssServerExecutor implements SessionExecutor {
             sessionId: input.job.sessionId,
             triggerPayload,
             env: input.job.secrets,
-            onLog: (line) => logger.debug('runSession', { sessionId: input.job.sessionId, line }),
+            onLog: (line: string) => logger.debug('runSession', { sessionId: input.job.sessionId, line }),
         })
         await handle.done
 

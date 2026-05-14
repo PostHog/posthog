@@ -9,11 +9,6 @@
         "outDir": "dist/",
         "rootDir": "src/",
         "moduleResolution": "node",
-        "paths": {
-            "@repo/ass-server/sse": ["./node_modules/@repo/ass-server/dist/sse.d.ts"],
-            "@repo/ass-server/session-runner": ["./node_modules/@repo/ass-server/dist/session-runner.d.ts"],
-            "@repo/ass-server/load-project": ["./node_modules/@repo/ass-server/dist/load-project.d.ts"]
-        },
         "esModuleInterop": true,
         "resolveJsonModule": true,
         "strict": true,

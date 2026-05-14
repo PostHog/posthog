@@ -103,7 +103,7 @@ async function handleAgentRequest(req: Request, res: Response, deps: ServerDeps)
         deps.authenticatePat ?? ((teamId, token) => deps.repository.verifyTeamSecret(teamId, token))
     const routeDeps: RouteDeps = {
         loadSecret,
-        authenticatePat: (token) => verifyTeamSecret(revision.teamId, token),
+        authenticatePat: (token: string) => verifyTeamSecret(revision.teamId, token),
     }
 
     let result: RouteResult
