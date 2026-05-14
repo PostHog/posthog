@@ -1,19 +1,29 @@
 import { LRUCache } from 'lru-cache'
 
-import { InternalApiClient, ResolvedRevision, logger } from '@posthog/agent-core'
+import { ApplicationsRepository, ResolvedRevision, logger } from '@posthog/agent-core'
 
 export interface ResolverOptions {
-    client: InternalApiClient
+    repository: ApplicationsRepository
     ttlMs: number
     maxEntries?: number
+    /** Suffix used to strip the slug out of an inbound `*.agents.posthog.com` host. */
+    domainSuffix: string
+    /**
+     * Dev-only escape hatch. When provided, lookups try this in-memory map first
+     * (keyed by `app:<applicationId>` AND by `domain:<host>`) before hitting Postgres.
+     * Lets the local stack run against a canned revision without needing an actual
+     * agent_stack_agentapplication row. Loaded once from `AGENT_DEV_REVISIONS_PATH`
+     * in `index.ts`.
+     */
+    localRevisions?: Map<string, ResolvedRevision>
 }
 
 /**
  * Resolves an inbound host (or explicit application id) to the live `(application, revision)`.
  *
- * Backed by an LRU keyed on the resolution input; entries expire after `ttlMs` so promotions
- * propagate without needing an explicit invalidation channel. The Django side will eventually
- * gain an admin invalidation endpoint, but TTL is enough for v1.
+ * Reads directly from the main posthog Postgres via `ApplicationsRepository`. Results are
+ * cached in an LRU keyed on the resolution input; entries expire after `ttlMs` so
+ * promotions propagate without an explicit invalidation channel.
  */
 export class RevisionResolver {
     private readonly cache: LRUCache<string, ResolvedRevision>
@@ -26,14 +36,24 @@ export class RevisionResolver {
     }
 
     async resolveDomain(domain: string): Promise<ResolvedRevision | null> {
-        return this.lookup(`domain:${domain}`, () => this.options.client.resolve({ domain }))
+        const local = this.options.localRevisions?.get(`domain:${domain}`)
+        if (local) {
+            return local
+        }
+        return this.lookup(`domain:${domain}`, () =>
+            this.options.repository.resolveByDomain(domain, this.options.domainSuffix)
+        )
     }
 
     async resolveApplication(applicationId: string): Promise<ResolvedRevision | null> {
-        return this.lookup(`app:${applicationId}`, () => this.options.client.resolve({ applicationId }))
+        const local = this.options.localRevisions?.get(`app:${applicationId}`)
+        if (local) {
+            return local
+        }
+        return this.lookup(`app:${applicationId}`, () => this.options.repository.resolveById(applicationId))
     }
 
-    /** Manually evict a cache entry, used on promotion pings from Django. */
+    /** Manually evict a cache entry — useful when Django wants to push an invalidation. */
     invalidate(key: { domain?: string; applicationId?: string }): void {
         if (key.domain) {
             this.cache.delete(`domain:${key.domain}`)

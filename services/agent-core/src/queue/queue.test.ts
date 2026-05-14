@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
@@ -9,7 +9,7 @@ import { v7 as uuidv7 } from 'uuid'
  * Skipped automatically if AGENT_RUNTIME_QUEUE_TEST_DATABASE_URL is unset, so this
  * suite is safe in environments without a Postgres available.
  */
-import { DequeuedSessionJob, SessionQueueJanitor, SessionQueueManager, SessionQueueWorker } from '..'
+import { DequeuedSessionJob, SessionQuery, SessionQueueJanitor, SessionQueueManager, SessionQueueWorker } from '..'
 
 const DB_URL = process.env.AGENT_RUNTIME_QUEUE_TEST_DATABASE_URL
 const describeIfDb = DB_URL ? describe : describe.skip
@@ -21,11 +21,20 @@ describeIfDb('agent-core queue (DB-gated)', () => {
 
     beforeAll(async () => {
         pool = new Pool({ connectionString: DB_URL })
-        const schema = readFileSync(join(__dirname, '..', '..', 'migrations', '0001_initial_schema.sql'), 'utf8')
         await pool.query(`DROP TABLE IF EXISTS agent_sessions`)
-        await pool.query(`DROP TABLE IF EXISTS agent_runtime_migrations`)
+        await pool.query(`DROP TABLE IF EXISTS _sqlx_migrations`)
         await pool.query(`DROP TYPE IF EXISTS AgentSessionStatus`)
-        await pool.query(schema)
+
+        // Canonical migrations live in rust/agent_runtime_queue_migrations/, applied via
+        // sqlx in production. For this DB-gated suite we replay them in lexicographic
+        // order directly so we don't need sqlx-cli on the test machine.
+        const migrationsDir = join(__dirname, '..', '..', '..', '..', 'rust', 'agent_runtime_queue_migrations')
+        const files = readdirSync(migrationsDir)
+            .filter((f) => f.endsWith('.sql'))
+            .sort()
+        for (const file of files) {
+            await pool.query(readFileSync(join(migrationsDir, file), 'utf8'))
+        }
     })
 
     afterAll(async () => {
@@ -94,6 +103,44 @@ describeIfDb('agent-core queue (DB-gated)', () => {
         })
         const second = await consumeOnce()
         expect(second[0].state?.toString('utf8')).toBe('world')
+    })
+
+    it('SessionQuery.findSession / listSessions / cancelSession', async () => {
+        const appA = '11111111-1111-4111-8111-111111111111'
+        const appB = '22222222-2222-4222-8222-222222222222'
+        await manager.createJob({ teamId: 1, applicationId: appA, queueName: 'test-queue' })
+        await manager.createJob({ teamId: 1, applicationId: appA, queueName: 'test-queue' })
+        await manager.createJob({ teamId: 2, applicationId: appB, queueName: 'test-queue' })
+
+        const query = new SessionQuery({ pool: { dbUrl: DB_URL! } })
+        try {
+            await query.connect()
+
+            // findSession returns null for unknown ids.
+            const unknown = await query.findSession('99999999-9999-4999-8999-999999999999')
+            expect(unknown).toBeNull()
+
+            // listSessions filters by application.
+            const onlyAppA = await query.listSessions({ applicationId: appA })
+            expect(onlyAppA).toHaveLength(2)
+
+            // listSessions filters by status; everything is 'available' right now.
+            const completed = await query.listSessions({ status: 'completed' })
+            expect(completed).toHaveLength(0)
+
+            // cancelSession moves an available row to canceled and returns the new view.
+            const toCancel = onlyAppA[0]
+            const canceled = await query.cancelSession(toCancel.id)
+            expect(canceled?.status).toBe('canceled')
+            const refound = await query.findSession(toCancel.id)
+            expect(refound?.status).toBe('canceled')
+
+            // Cancelling a canceled row is a no-op; we still return the current view.
+            const noop = await query.cancelSession(toCancel.id)
+            expect(noop?.status).toBe('canceled')
+        } finally {
+            await query.disconnect()
+        }
     })
 
     it('janitor resets stalled jobs and fails poison pills', async () => {

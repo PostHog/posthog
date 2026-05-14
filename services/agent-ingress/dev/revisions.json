@@ -1,0 +1,14 @@
+[
+    {
+        "applicationId": "00000000-0000-4000-8000-000000000001",
+        "applicationSlug": "demo",
+        "teamId": 1,
+        "revisionId": "00000000-0000-4000-8000-000000000002",
+        "revisionState": "ready",
+        "bundleS3Key": "dev/local/demo.tar.gz",
+        "bundleSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "topLevelConfig": {},
+        "parsedManifest": null,
+        "auth": { "mode": "public" }
+    }
+]

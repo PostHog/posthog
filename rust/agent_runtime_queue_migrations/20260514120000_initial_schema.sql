@@ -1,6 +1,6 @@
 -- agent_sessions: durable record of a single session execution.
 -- Lives in a dedicated Postgres DB (agent_runtime_queue). The team-scoped mirror row
--- in main posthog Postgres (AgentSession) carries FKs to Team/AgentApplication/Revision.
+-- in main posthog Postgres (AgentApplicationSession) carries FKs to Team / app / revision.
 
 CREATE TYPE AgentSessionStatus AS ENUM(
     'available',
@@ -46,9 +46,3 @@ CREATE INDEX idx_agent_sessions_terminal
 CREATE INDEX idx_agent_sessions_team_id ON agent_sessions(team_id);
 CREATE INDEX idx_agent_sessions_revision_id ON agent_sessions(revision_id);
 CREATE INDEX idx_agent_sessions_application_id ON agent_sessions(application_id);
-
--- Bookkeeping so we can apply migrations idempotently.
-CREATE TABLE IF NOT EXISTS agent_runtime_migrations (
-    id TEXT PRIMARY KEY,
-    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);

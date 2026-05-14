@@ -1,4 +1,12 @@
-import { InMemorySessionBus, InternalApiClient, RedisSessionBus, SessionBus, logger } from '@posthog/agent-core'
+import {
+    ApplicationsRepository,
+    EncryptedFields,
+    InMemorySessionBus,
+    PosthogDbClient,
+    RedisSessionBus,
+    SessionBus,
+    logger,
+} from '@posthog/agent-core'
 
 import { loadConfig } from './config'
 import { NotImplementedExecutor } from './executor-stub'
@@ -7,10 +15,9 @@ import { RunnerWorker } from './worker'
 async function main(): Promise<void> {
     const config = loadConfig()
 
-    const apiClient = new InternalApiClient({
-        baseUrl: config.internalApiBaseUrl,
-        sharedKey: config.internalApiSharedKey,
-    })
+    const posthogDb = new PosthogDbClient({ dbUrl: config.posthogDbUrl })
+    const encryption = new EncryptedFields(config.encryptionSaltKeys)
+    const repository = new ApplicationsRepository({ db: posthogDb, encryption })
 
     const bus: SessionBus = config.redisUrl ? new RedisSessionBus({ url: config.redisUrl }) : new InMemorySessionBus()
 
@@ -27,11 +34,9 @@ async function main(): Promise<void> {
             if (!applicationId) {
                 return {}
             }
-            // Real wiring: ask Django for the secrets declared on the manifest. For now,
-            // the placeholder executor never reaches the tool dispatch path, so an empty
-            // map is fine.
-            const { secrets } = await apiClient.decryptSecrets(applicationId, [])
-            return secrets
+            // Pulls the application's encrypted `.env` blob from the main posthog DB and
+            // decrypts it locally via fernet. Tools see secrets through ToolContext.secrets.
+            return await repository.decryptEnv(applicationId)
         },
     })
 
@@ -42,6 +47,7 @@ async function main(): Promise<void> {
         logger.info('agent-runner shutting down', { signal })
         await worker.stop()
         await bus.disconnect()
+        await posthogDb.disconnect()
         process.exit(0)
     }
 

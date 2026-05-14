@@ -7,7 +7,11 @@ Companion to [`agent-stack/docs/agent-platform.md`](https://github.com/PostHog/a
 Two things we own here:
 
 1. **Management plane** — a new flag-gated product under `products/agent_stack/` (Django app + viewsets + frontend).
-2. **Runtime** — three new TypeScript services under `services/`, deployed as independent node processes. They share **no code** with `nodejs/` (the legacy plugin-server). Anything we want from `nodejs/` we copy and adapt in `services/agent-core/`.
+2. **Runtime** — four TypeScript services under `services/`, deployed as independent node processes. They share **no code** with `nodejs/` (the legacy plugin-server). Anything we want from `nodejs/` we copy and adapt in `services/agent-core/`.
+   - `services/agent-core/` — shared library, no process.
+   - `services/agent-ingress/` — public-facing `*.agents.posthog.com` terminator.
+   - `services/agent-runner/` — session executor (queue consumer + SDK).
+   - `services/agent-janitor/` — operational: queue sweeps + internal HTTP surface that Django calls to read/cancel sessions. **The runtime owns session state; Django reads via this surface, never writes to `agent_sessions`.**
 
 The runtime split (ingress + runner) from the agent-stack doc still holds. This plan refines what each half looks like inside the posthog monorepo and which existing primitives we lean on conceptually (not by import).
 
@@ -21,19 +25,21 @@ Working tracker for the runtime services only — the Django side is being built
 
 ### services/agent-core/ (milestone 5 — substantially done)
 
-- [x] Queue schema + migration ([migrations/0001_initial_schema.sql](../../services/agent-core/migrations/0001_initial_schema.sql)): state enum, `lock_id`, `last_heartbeat`, `BYTEA` state, `transition_count`, `janitor_touch_count`, indexes for dequeue/stall/cleanup
+- [x] Queue schema + migration ([rust/agent_runtime_queue_migrations/](../../rust/agent_runtime_queue_migrations/), sqlx-managed via the shared rust migrations image): state enum, `lock_id`, `last_heartbeat`, `BYTEA` state, `transition_count`, `janitor_touch_count`, indexes for dequeue/stall/cleanup
 - [x] Manager / enqueue with depth limit + 1 MiB state cap ([src/queue/manager.ts](../../services/agent-core/src/queue/manager.ts))
 - [x] Worker / dequeue + `FOR UPDATE SKIP LOCKED` + heartbeat + ack/fail/reschedule/cancel ([src/queue/worker.ts](../../services/agent-core/src/queue/worker.ts))
 - [x] Janitor / stall recovery + poison-pill + terminal cleanup + Prom metrics ([src/queue/janitor.ts](../../services/agent-core/src/queue/janitor.ts))
-- [x] Migrations runner ([bin/migrate.ts](../../services/agent-core/bin/migrate.ts))
+- [x] Migrations runner ([rust/bin/migrate-agent-runtime-queue](../../rust/bin/migrate-agent-runtime-queue), wired into the shared rust sqlx-migrate image)
 - [x] Pub-sub interface + Redis adapter + in-memory adapter ([src/pubsub/](../../services/agent-core/src/pubsub))
-- [x] Internal-API client (`resolve`, `decrypt`) with optional shared-key header ([src/internal-api/client.ts](../../services/agent-core/src/internal-api/client.ts))
+- [x] PostHog DB reader (`agent_stack_agentapplication` / `*revision` rows) + Fernet decryptor for `encrypted_env` — replaces the old HTTP InternalApiClient. ([src/posthog-db/](../../services/agent-core/src/posthog-db/), [src/encryption/](../../services/agent-core/src/encryption/))
 - [x] Built-ins registry — `posthog.events.capture`, `posthog.feature_flags.evaluate`, `http.fetch` ([src/builtins/index.ts](../../services/agent-core/src/builtins/index.ts))
 - [x] Manifest reader + Zod schema + built-in id validation ([src/manifest/index.ts](../../services/agent-core/src/manifest/index.ts))
 - [x] Logger (pino) + Prom metrics ([src/logger.ts](../../services/agent-core/src/logger.ts), [src/metrics.ts](../../services/agent-core/src/metrics.ts))
-- [x] Tests: queue (DB-gated), pubsub in-memory, manifest, builtins
+- [x] `SessionQuery` — read-only `findSession` / `listSessions` + targeted-write `cancelSession`, used by the janitor's HTTP surface ([src/queue/query.ts](../../services/agent-core/src/queue/query.ts))
+- [x] Tests: pubsub in-memory, manifest, builtins
+- [x] Tests: internal-API client smoke — 200, 404, 5xx, shared-key header, timeout ([src/internal-api/client.test.ts](../../services/agent-core/src/internal-api/client.test.ts))
+- [ ] **Rewrite the DB-backed test suite from scratch, run step by step.** The current DB-gated tests in [src/queue/queue.test.ts](../../services/agent-core/src/queue/queue.test.ts) are flaky — `enqueue → dequeue → ack` and `reschedule round-trips state` hang at `consumeOnce()` against a real Postgres, suggesting the polling worker isn't dequeuing what the manager inserted. Plan: write per-method tests that exercise one operation at a time against a fresh DB (createJob → assert row, dequeue → assert lock, ack → assert status), drive the worker synchronously where possible, and don't share pools across tests. SessionQuery and janitor tests are fine; only the worker-polling tests need rebuilding.
 - [ ] Tests: Redis pubsub integration (needs Redis in CI)
-- [ ] Tests: internal-API client smoke (mock server — 404, timeout, shared-key header)
 - [ ] Decide internal-API transport auth (mTLS vs shared key) — both supported in code, pick at infra time
 
 ### services/agent-ingress/ (milestone 6 — wired end-to-end against fakes)
@@ -47,10 +53,10 @@ Working tracker for the runtime services only — the Django side is being built
 - [x] `/webhooks/:provider` — host check, generic signature verify, enqueue ([src/routes/webhooks.ts](../../services/agent-ingress/src/routes/webhooks.ts))
 - [x] `/health`, `/status`
 - [x] ESLint hard rule blocking Anthropic / Modal / nodejs imports ([.eslintrc.json](../../services/agent-ingress/.eslintrc.json))
-- [x] Tests: `/health`, `/status`, `/run`, `/send` happy/sad paths with FakeQueue + InMemoryBus ([tests/server.test.ts](../../services/agent-ingress/tests/server.test.ts))
+- [x] Tests: `/health`, `/status`, `/run`, `/send` happy/sad paths with FakeQueue + InMemoryBus ([src/server.test.ts](../../services/agent-ingress/src/server.test.ts))
+- [x] Tests: `/listen` SSE flow — subscribe → publish → frame received ([src/listen.test.ts](../../services/agent-ingress/src/listen.test.ts))
+- [x] Tests: resolver LRU + TTL + invalidate ([src/resolver.test.ts](../../services/agent-ingress/src/resolver.test.ts))
 - [ ] Tests: webhook signature flow end-to-end
-- [ ] Tests: `/listen` SSE flow (subscribe → publish → frame received)
-- [ ] Tests: resolver LRU + TTL + invalidate
 - [ ] Provider-specific webhook strategies (Stripe, Slack-style HMAC-with-timestamp) under the generic webhook_signature mode
 - [ ] Per-team concurrent-session quota enforcement on `/run`
 - [ ] `/run` rate limiter
@@ -72,7 +78,24 @@ Working tracker for the runtime services only — the Django side is being built
 - [ ] Tests: real Claude Agent SDK turn (gated on key + recorded fixtures)
 - [ ] Secrets loader — [src/index.ts](../../services/agent-runner/src/index.ts) `loadSecrets` returns `{}`; wire to `apiClient.decryptSecrets` once a tool actually needs them
 - [ ] Runner-side reaper: queue janitor already resets stalled jobs; need a matching write to set `AgentApplicationSession.state = 'failed'` for the mirror row
-- [ ] `AgentApplicationSession` mirror writes — direct DB vs internal API — coordinate with Django owner
+- [ ] **Settled with Django owner: runtime owns session state.** No mirror writes from runner. Django reads + cancels through `agent-janitor`'s `/internal/sessions/*` surface (below). `AgentApplicationSession` (the model joshsny added) is treated as a thin request record; its `state` column may be removed once the read path lands.
+
+### services/agent-janitor/ (new in this branch)
+
+Operational process: queue sweeps + internal HTTP surface for Django. The runtime owns session state; Django **reads** sessions through this service and never writes to `agent_sessions`.
+
+- [x] Bootstrap, Zod-validated env, SIGTERM/SIGINT shutdown ([src/index.ts](../../services/agent-janitor/src/index.ts), [src/config.ts](../../services/agent-janitor/src/config.ts))
+- [x] Hosts the queue janitor daemon (same `SessionQueueJanitor` from agent-core)
+- [x] `/internal/sessions/:id` — fetch single session ([src/routes/sessions.ts](../../services/agent-janitor/src/routes/sessions.ts))
+- [x] `/internal/sessions` — list filtered by `application_id`, `revision_id`, `status`, `team_id`, `created_before`, `limit`
+- [x] `POST /internal/sessions/:id/cancel` — cancel an `available` or `running` session
+- [x] Shared-key auth (`x-internal-key`, `AGENT_INTERNAL_API_SHARED_KEY`) on every `/internal/*` request; refuses traffic when no key is configured ([src/auth.ts](../../services/agent-janitor/src/auth.ts))
+- [x] `/health` and `/metrics` are open (no key required)
+- [x] Tests: route-level happy/sad paths + auth gating with a `FakeSessionQuery` ([src/server.test.ts](../../services/agent-janitor/src/server.test.ts))
+- [ ] Tests: end-to-end against a real Postgres (extend the existing DB-gated suite)
+- [ ] Cursor-style pagination on `/internal/sessions` once the UI needs it
+- [ ] Mirror cancel to `agent-ingress` / `agent-runner` (broadcast on the bus) so an in-flight turn aborts promptly rather than waiting for the next heartbeat
+- [ ] Internal-API transport: mTLS vs `x-internal-key` — settle alongside agent-core's outbound transport decision
 
 ### Cross-package / system level
 
@@ -122,7 +145,7 @@ Shared library, no process of its own. Lives here:
 - TypeScript types for the session model, manifest, tool protocol, secrets.
 - Postgres client(s) — one for the main posthog DB (read app/revision/encrypted_env rows; write `AgentApplicationSession`/`AgentApplicationSandboxInstance` rows), one for the agent-runtime queue DB (jobs). Each package depends on whichever it needs.
 - **Queue primitives** — the cyclotron-v2-shaped session queue (see next section). Single `cyclotron_jobs`-style table with `available | running | completed | failed | canceled`, `FOR UPDATE SKIP LOCKED` dequeue, `lock_id` + `last_heartbeat`, `reschedule({ scheduledAt, state })`, janitor loop. The schema and ops are a clean reimplementation in this package — we own it end-to-end, no shared migrations with `cyclotron_node`.
-- Internal-API HTTP client (talks to Django for resolve/decrypt).
+- PostHog DB reader — pg pool + `ApplicationsRepository` reading `agent_stack_agentapplication` / `*revision` rows directly from the main posthog Postgres. Encryption helper (copied from `nodejs/src/cdp/utils/encryption-utils.ts`) decrypts `encrypted_env` in-process. No HTTP hop to Django.
 - Structured logger, Prom registry, OTel setup.
 - Manifest reader / built-ins registry (also imported by the future validator package, so the same code rejects unknown ids in both places).
 

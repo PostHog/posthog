@@ -56,6 +56,14 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ] && [ "${DEPLOYMENT:-}" != "hobby" ]; then
             exit 1
         fi
     fi
+
+    if run_scope "agent_runtime"; then
+        bash $SCRIPT_DIR/../rust/bin/migrate-agent-runtime-queue
+        if [ $? -ne 0 ]; then
+            echo "Error in rust/bin/migrate-agent-runtime-queue, exiting."
+            exit 1
+        fi
+    fi
 fi
 
 if run_scope "clickhouse"; then RUN_CLICKHOUSE=1; else RUN_CLICKHOUSE=0; fi
