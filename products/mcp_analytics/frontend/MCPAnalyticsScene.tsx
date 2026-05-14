@@ -9,6 +9,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneExport } from '~/scenes/sceneTypes'
 
+import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
@@ -46,6 +47,13 @@ export function MCPAnalyticsScene(): JSX.Element {
             content: <MCPAnalyticsToolQuality />,
             link: combineUrl(urls.mcpAnalyticsToolQuality(), searchParams).url,
             'data-attr': 'mcp-analytics-tool-quality-tab',
+        },
+        {
+            key: 'intent-clustering',
+            label: 'Intent clustering',
+            content: <MCPAnalyticsClustering />,
+            link: combineUrl(urls.mcpAnalyticsIntentClustering(), searchParams).url,
+            'data-attr': 'mcp-analytics-intent-clustering-tab',
         },
     ]
 
