@@ -62,9 +62,12 @@ export function Deployments(): JSX.Element {
                     productName="Deployments"
                     productKey={ProductKey.DEPLOYMENTS}
                     thingName="deployment project"
-                    description="Connect a GitHub repo to deploy a static site through PostHog. Each push creates a new deployment with its own preview URL."
+                    description="Connect a GitHub repository to deploy a static site through PostHog. Each push creates a new deployment with its own preview URL — redeploy or roll back from this page."
+                    titleOverride="Connect your first GitHub repository"
                     isEmpty
-                    action={() => openAddProjectModal()}
+                    // Custom button (not `action`) so we can show the GitHub
+                    // icon — `action` would render the default "Create …"
+                    // button with a plus icon and discard this override.
                     actionElementOverride={
                         <LemonButton
                             type="primary"
