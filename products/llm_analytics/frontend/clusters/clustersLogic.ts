@@ -334,7 +334,7 @@ export const clustersLogic = kea<clustersLogicType>([
                                 timestamp
                             FROM events
                             WHERE event = ${eventName}
-                                AND timestamp >= now() - INTERVAL 7 DAY
+                                AND timestamp >= now() - INTERVAL 90 DAY
                             ORDER BY timestamp DESC
                             LIMIT ${MAX_CLUSTERING_RUNS}
                         `,
