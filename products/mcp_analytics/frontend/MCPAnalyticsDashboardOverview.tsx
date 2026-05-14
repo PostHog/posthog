@@ -6,7 +6,14 @@ import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { KPIMetric, NotableSession, ToolRow, mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
+import { JourneySankey } from './JourneySankey'
+import {
+    DashboardJourney,
+    KPIMetric,
+    NotableSession,
+    ToolRow,
+    mcpDashboardOverviewLogic,
+} from './mcpDashboardOverviewLogic'
 
 type TileColor = 'blue' | 'red' | 'green'
 
@@ -122,6 +129,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         toolRowsTotal,
         notableSessions,
         sessionRowsLoading,
+        dashboardJourney,
     } = useValues(mcpDashboardOverviewLogic)
 
     const tiles: TileSpec[] = [
@@ -179,6 +187,9 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             </Block>
             <Block kicker="Tool quality" question="Which tools are the weak links?">
                 <ToolReliabilityMatrix rows={topToolRows} loading={toolRowsLoading} totalTools={toolRowsTotal} />
+            </Block>
+            <Block kicker="Agent journeys" question="How are agents actually using the MCP?">
+                <AgentJourneysBlock journey={dashboardJourney} />
             </Block>
             <Block kicker="Triage" question="Which sessions should I look at?">
                 <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
@@ -343,6 +354,90 @@ function ToolReliabilityMatrix({
                 </div>
             )}
         </Card>
+    )
+}
+
+function describeLeakSteps(steps: readonly (string | null)[]): string {
+    const named = steps.filter((s): s is string => s !== null)
+    if (named.length === 0) {
+        return '(empty path)'
+    }
+    return named.join(' → ')
+}
+
+function AgentJourneysBlock({ journey }: { journey: DashboardJourney }): JSX.Element {
+    const { paths, totalSessions, leak } = journey
+
+    if (paths.length === 0) {
+        return (
+            <Card>
+                <div className="py-6 text-center text-[12px] text-secondary">
+                    No clustered journeys yet — recompute the intent clusters to populate this view.
+                </div>
+            </Card>
+        )
+    }
+
+    const averageStepsPerPath = paths.reduce((acc, p) => acc + p.steps.length, 0) / paths.length
+    if (averageStepsPerPath < 1.5) {
+        return (
+            <Card>
+                <div className="py-6 text-center text-[12px] text-secondary">
+                    Most sessions only call one tool — no multi-step journey to visualize yet.
+                </div>
+            </Card>
+        )
+    }
+
+    return (
+        <div className="flex flex-col gap-2">
+            <Card>
+                <JourneySankey
+                    paths={paths}
+                    totalSessions={totalSessions}
+                    leak={leak}
+                    showLeakSentence={false}
+                    width={640}
+                    height={280}
+                />
+            </Card>
+            <LeakCallout leak={leak} totalSessions={totalSessions} />
+        </div>
+    )
+}
+
+function LeakCallout({ leak, totalSessions }: { leak: DashboardJourney['leak']; totalSessions: number }): JSX.Element {
+    if (!leak) {
+        return (
+            <div
+                className="flex items-center justify-between rounded-md px-3.5 py-2 text-[11px]"
+                style={{ background: 'rgba(29,158,117,0.10)', color: '#27500A' }}
+            >
+                <span>
+                    <span className="font-medium">No leaks:</span> every top path completed without an error this
+                    period.
+                </span>
+            </div>
+        )
+    }
+
+    const pct = totalSessions > 0 ? Math.round((leak.count / totalSessions) * 1000) / 10 : 0
+    return (
+        <div
+            className="flex items-center justify-between gap-3 rounded-md px-3.5 py-2 text-[11px]"
+            style={{ background: 'rgba(228,75,74,0.10)', color: '#791F1F' }}
+        >
+            <span className="truncate">
+                <span className="font-medium">Leak:</span> {describeLeakSteps(leak.steps)} drains{' '}
+                <span className="font-medium">
+                    {leak.count} session{leak.count === 1 ? '' : 's'} ({pct}%)
+                </span>{' '}
+                into {leak.outcome === 'error' ? 'Error' : 'Other'} — the single biggest drop-off.
+            </span>
+            <Link to={urls.mcpAnalyticsSessions()} className="shrink-0 whitespace-nowrap text-[11px]">
+                See sessions ↗
+            </Link>
+        </div>
     )
 }
 

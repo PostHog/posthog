@@ -5,7 +5,8 @@ import { hogqlQuery } from '~/queries/query'
 import { hogql } from '~/queries/utils'
 
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
-import type { MCPIntentClusterApi } from './generated/api.schemas'
+import type { MCPIntentClusterApi, MCPIntentClusterJourneyPathApi } from './generated/api.schemas'
+import type { JourneyPath } from './JourneySankey'
 import type { mcpDashboardOverviewLogicType } from './mcpDashboardOverviewLogicType'
 
 const LOOKBACK_DAYS = 7
@@ -119,6 +120,15 @@ export interface NotableSession {
     label: string
     session: SessionRow
 }
+
+export interface DashboardJourney {
+    paths: JourneyPath[]
+    totalSessions: number
+    leak: JourneyPath | null
+}
+
+const MAX_DASHBOARD_JOURNEY_PATHS = 10
+const MIN_PATH_SHARE_PCT = 1
 
 const EMPTY_METRIC: KPIMetric = { value: 0, previousValue: 0, deltaPct: null, sparkline: [], goodDirection: 'up' }
 const EMPTY_KPIS: KPIData = {
@@ -253,6 +263,10 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (s) => [s.sessionRows],
             (sessionRows: SessionRow[]): NotableSession[] => pickNotableSessions(sessionRows),
         ],
+        dashboardJourney: [
+            (s) => [s.clusters],
+            (clusters: readonly MCPIntentClusterApi[]): DashboardJourney => buildDashboardJourney(clusters),
+        ],
         intentClusterCount: [
             (s) => [s.clusters],
             (clusters: readonly MCPIntentClusterApi[]): KPIMetric => ({
@@ -278,6 +292,56 @@ function median(values: number[]): number {
     const sorted = [...values].sort((a, b) => a - b)
     const mid = Math.floor(sorted.length / 2)
     return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+// Build a team-wide Sankey from the per-cluster journeys already computed by
+// the intent clustering snapshot. Same (steps, outcome) tuple across different
+// clusters is summed. This is intentionally a composition of existing data —
+// no new HogQL — and inherits the snapshot's `completed`/`error` outcomes.
+function buildDashboardJourney(clusters: readonly MCPIntentClusterApi[]): DashboardJourney {
+    if (clusters.length === 0) {
+        return { paths: [], totalSessions: 0, leak: null }
+    }
+
+    const byKey = new Map<string, JourneyPath>()
+    let totalSessions = 0
+
+    for (const cluster of clusters) {
+        const journey = cluster.journey
+        if (!journey) {
+            continue
+        }
+        totalSessions += journey.total_sessions
+        for (const path of journey.paths) {
+            byKey.set(pathKey(path), mergePath(byKey.get(pathKey(path)), path))
+        }
+    }
+
+    if (totalSessions === 0 || byKey.size === 0) {
+        return { paths: [], totalSessions: 0, leak: null }
+    }
+
+    const minCount = Math.max(1, Math.ceil((totalSessions * MIN_PATH_SHARE_PCT) / 100))
+    const allPaths = [...byKey.values()].sort((a, b) => b.count - a.count)
+    const paths = allPaths.filter((p) => p.count >= minCount).slice(0, MAX_DASHBOARD_JOURNEY_PATHS)
+
+    // Leak: highest-volume error path (always render *something* per spec). Fall
+    // back to the single biggest path when no error path exists at all.
+    const errorPaths = allPaths.filter((p) => p.outcome === 'error')
+    const leak = errorPaths[0] ?? null
+
+    return { paths: paths.length ? paths : allPaths.slice(0, MAX_DASHBOARD_JOURNEY_PATHS), totalSessions, leak }
+}
+
+function pathKey(path: MCPIntentClusterJourneyPathApi | JourneyPath): string {
+    return `${path.outcome}::${path.steps.map((s) => s ?? '∅').join('>')}`
+}
+
+function mergePath(existing: JourneyPath | undefined, incoming: MCPIntentClusterJourneyPathApi): JourneyPath {
+    if (!existing) {
+        return { steps: [...incoming.steps], outcome: incoming.outcome, count: incoming.count }
+    }
+    return { ...existing, count: existing.count + incoming.count }
 }
 
 // Pick at most one session per rule. Thresholds relax automatically when the
