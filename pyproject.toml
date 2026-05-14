@@ -68,6 +68,7 @@ dependencies = [
     "grpcio~=1.71.0",
     "gspread==6.2.1",
     "hogql-parser==1.3.40",
+    "hogtrace",
     "humanize~=4.12.3",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
@@ -289,6 +290,7 @@ members = ["tools/hogli"]
 
 [tool.uv.sources]
 hogli = { workspace = true }
+hogtrace = { git = "https://github.com/PostHog/hogtrace", rev = "1bb930b5ae095a8cf03e9b6e43fa8073ca0bbbcd" }
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
 
 
