@@ -21,7 +21,7 @@ from .cloudflare import (
 )
 from .github import GitHubAdapter, GitHubBranch, GitHubError, GitHubRepository, NullGitHubAdapter, get_github_adapter
 from .microlink import NullScreenshotAdapter, ScreenshotAdapter, get_screenshot_adapter
-from .temporal import NullWorkflowAdapter, WorkflowAdapter, WorkflowError, get_workflow_adapter
+from .temporal import NullWorkflowAdapter, TemporalWorkflowAdapter, WorkflowAdapter, WorkflowError, get_workflow_adapter
 
 __all__ = [
     "CloudflareAdapter",
@@ -36,6 +36,7 @@ __all__ = [
     "NullScreenshotAdapter",
     "NullWorkflowAdapter",
     "ScreenshotAdapter",
+    "TemporalWorkflowAdapter",
     "WorkflowAdapter",
     "WorkflowError",
     "get_cloudflare_adapter",
