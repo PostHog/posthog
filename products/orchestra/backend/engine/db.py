@@ -5,6 +5,19 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
+import attrs
+
+
+class _EventEncoder(json.JSONEncoder):
+    def default(self, o: Any) -> Any:
+        if attrs.has(type(o)):
+            return attrs.asdict(o)
+        return super().default(o)
+
+
+def _dumps(obj: Any) -> str:
+    return json.dumps(obj, cls=_EventEncoder)
+
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
@@ -89,7 +102,7 @@ class Database:
             await conn.execute(
                 "INSERT INTO orchestra_event (execution_id, run_id, event_id, event_type, attributes, team_id) "
                 "VALUES (%s, %s, %s, %s, %s::jsonb, %s)",
-                (execution_id, run_id, eid, event_type, json.dumps(attrs), team_id),
+                (execution_id, run_id, eid, event_type, _dumps(attrs), team_id),
             )
         return assigned
 
@@ -108,7 +121,7 @@ class Database:
             "INSERT INTO orchestra_execution "
             "(execution_id, run_id, execution_type, step_queue, input, status, started_at, team_id) "
             "VALUES (%s, %s, %s, %s, %s::jsonb, %s, now(), %s)",
-            (execution_id, run_id, execution_type, step_queue, json.dumps(input), ExecutionStatus.RUNNING, team_id),
+            (execution_id, run_id, execution_type, step_queue, _dumps(input), ExecutionStatus.RUNNING, team_id),
         )
 
     async def finish_execution(
@@ -126,8 +139,8 @@ class Database:
             "WHERE execution_id=%s AND run_id=%s",
             (
                 status,
-                json.dumps(result) if result is not None else None,
-                json.dumps(error) if error is not None else None,
+                _dumps(result) if result is not None else None,
+                _dumps(error) if error is not None else None,
                 execution_id,
                 run_id,
             ),
@@ -170,7 +183,7 @@ class Database:
                 run_id,
                 scheduled_event_id,
                 step_type,
-                json.dumps(input) if input is not None else None,
+                _dumps(input) if input is not None else None,
                 visible_at,
                 team_id,
             ),

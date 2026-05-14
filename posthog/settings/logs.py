@@ -110,6 +110,7 @@ LOGGING = {
             "handlers": ["console"],
             "propagate": False,
         },
+        "orchestra": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "boto3": {"level": "WARN"},  # boto3 logs are noisy
         "botocore": {"level": "WARN"},  # botocore logs are noisy
     },

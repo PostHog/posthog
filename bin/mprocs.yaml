@@ -517,6 +517,17 @@ procs:
             tech: Frontend
         # no capability - manual start
 
+    orchestra-worker:
+        shell: |-
+            bin/wait-for-docker && \
+            python manage.py start_orchestra_worker --concurrency 2 --poll-interval 0.3
+        autostart: false
+        ready_pattern: 'Starting Orchestra worker'
+        groups:
+            layer: Processing
+            tech: Python
+        # no capability - manual start
+
     warehouse-sources-load:
         shell: |-
             bin/wait-for-docker && \

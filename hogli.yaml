@@ -991,3 +991,11 @@ environment:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true
+    build:orchestra:runtime:
+        bin_script: build-orchestra-runtime
+        description: 'TODO: add description for build-orchestra-runtime'
+        hidden: true
+    deploy:orchestra:
+        bin_script: deploy-orchestra
+        description: 'TODO: add description for deploy-orchestra'
+        hidden: true

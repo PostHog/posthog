@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import socket
 import asyncio
 import logging
@@ -106,7 +107,8 @@ class Worker:
 
         terminal_event: tuple[str, dict[str, Any]] | None = None
         try:
-            result = await execution_fn(ctx, exec_input)
+            coerced_input = _coerce_input(execution_fn, exec_input, param_index=1)
+            result = await execution_fn(ctx, coerced_input)
             terminal_event = (EventType.EXECUTION_COMPLETED, {"result": result})
         except _Suspend:
             pass
@@ -205,7 +207,7 @@ class Worker:
         step_id = await self._lookup_attr_int(task, "step_id")
 
         try:
-            result = await step_fn(task.input)
+            result = await step_fn(_coerce_input(step_fn, task.input))
             outcome: tuple[str, dict[str, Any]] = (
                 EventType.STEP_COMPLETED,
                 {"step_id": step_id, "result": result},
@@ -260,6 +262,24 @@ class Worker:
             if ev.event_id == task.scheduled_event_id:
                 return int(ev.attributes[key])
         raise RuntimeError(f"scheduled event {task.scheduled_event_id} not found in history")
+
+
+def _coerce_input(fn: Any, raw: Any, *, param_index: int = 0) -> Any:
+    """If the parameter at `param_index` is annotated with a class and `raw` is a
+    dict, construct that class from the dict (works with attrs, dataclasses, and
+    plain __init__(**kwargs) classes)."""
+    if not isinstance(raw, dict):
+        return raw
+    sig = inspect.signature(fn)
+    params = list(sig.parameters.values())
+    if len(params) <= param_index:
+        return raw
+    annotation = params[param_index].annotation
+    if annotation is inspect.Parameter.empty:
+        return raw
+    if isinstance(annotation, type) and annotation not in (dict, str, int, float, bool, list):
+        return annotation(**raw)
+    return raw
 
 
 def _find_execution_type(history: list[Event]) -> str:
