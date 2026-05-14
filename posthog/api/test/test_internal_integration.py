@@ -10,7 +10,7 @@ from rest_framework import status
 from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models import OAuthApplication
 from posthog.models.integration import Integration
-from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
+from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -87,7 +87,7 @@ class TestInternalIntegrationLookupTeam:
             created_by=self.connector,
         )
 
-    def test_lookup_returns_team_match_with_tokens(self, client: HttpClient):
+    def test_lookup_returns_team_match_with_token(self, client: HttpClient):
         response = _post(
             client,
             {"kind": "github", "integration_id": "12345678", "scope_id": _fresh_scope()},
@@ -101,12 +101,8 @@ class TestInternalIntegrationLookupTeam:
         assert body["integration_pk"] == str(self.integration.id)
         assert body["display_name"] == "acme-corp"
         assert body["access_token"] is not None
-        assert body["refresh_token"] is not None
-        assert body["expires_in"] is not None
-        # Tokens were actually persisted and linked.
+        assert "refresh_token" not in body
         access = OAuthAccessToken.objects.get(token=body["access_token"])
-        refresh = OAuthRefreshToken.objects.get(token=body["refresh_token"])
-        assert refresh.access_token_id == access.id
         assert access.user_id == self.connector.id
         assert access.scoped_teams == [self.team.id]
 
@@ -180,7 +176,7 @@ class TestInternalIntegrationLookupUser:
         assert body["display_name"] == "alice-personal"
         assert body["user_id"] == self.user.id
         assert body["access_token"] is not None
-        assert body["refresh_token"] is not None
+        assert "refresh_token" not in body
 
     def test_team_match_wins_over_user_match(self, client: HttpClient):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
@@ -230,7 +226,7 @@ class TestInternalIntegrationLookupCaching:
             created_by=self.connector,
         )
 
-    def test_same_scope_returns_cached_tokens(self, client: HttpClient):
+    def test_same_scope_returns_cached_token(self, client: HttpClient):
         scope = _fresh_scope()
         body = {"kind": "github", "integration_id": "cache-id", "scope_id": scope}
 
@@ -238,7 +234,6 @@ class TestInternalIntegrationLookupCaching:
         second = _post(client, body, **AUTH_HEADER).json()
 
         assert first["access_token"] == second["access_token"]
-        assert first["refresh_token"] == second["refresh_token"]
         # And we only created one OAuth row, not two.
         assert OAuthAccessToken.objects.filter(token=first["access_token"]).count() == 1
 
@@ -247,4 +242,3 @@ class TestInternalIntegrationLookupCaching:
         first = _post(client, {**body_base, "scope_id": _fresh_scope()}, **AUTH_HEADER).json()
         second = _post(client, {**body_base, "scope_id": _fresh_scope()}, **AUTH_HEADER).json()
         assert first["access_token"] != second["access_token"]
-        assert first["refresh_token"] != second["refresh_token"]

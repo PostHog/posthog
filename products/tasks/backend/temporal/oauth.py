@@ -42,6 +42,6 @@ def create_oauth_access_token_for_user(
 ) -> str:
     """Create an OAuth access token for the PostHog Code app, scoped to a specific team."""
     try:
-        return _create_oauth_access_token_for_user(user, team_id, app=app, scopes=scopes)
+        return _create_oauth_access_token_for_user(user, team_id, app=app, scopes=scopes).token
     except RuntimeError as err:
         raise OAuthTokenError(str(err), {"team_id": team_id}, cause=err) from err
