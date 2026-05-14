@@ -105,6 +105,10 @@ export const catalogGraphSceneLogic = kea<catalogGraphSceneLogicType>([
     actions({
         setNodes: (nodes: Node<CatalogGraphNodeData>[]) => ({ nodes }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
+        // Pushes an updated CatalogNodeDTO back into both the graph payload and the
+        // React Flow node data so saves made via the side panel reflect on the canvas
+        // (status badge, name, description, confidence dot) without a page refresh.
+        replaceGraphNode: (node: CatalogNodeDTOApi) => ({ node }),
     }),
 
     loaders(({ values }) => ({
@@ -123,6 +127,12 @@ export const catalogGraphSceneLogic = kea<catalogGraphSceneLogicType>([
             [] as Node<CatalogGraphNodeData>[],
             {
                 setNodes: (_, { nodes }) => nodes,
+                replaceGraphNode: (state, { node }) =>
+                    state.map((n) =>
+                        n.id === node.id
+                            ? { ...n, data: { ...n.data, node, domainColor: domainColor(node.business_domain) } }
+                            : n
+                    ),
             },
         ],
         selectedNodeId: [
@@ -131,6 +141,10 @@ export const catalogGraphSceneLogic = kea<catalogGraphSceneLogicType>([
                 setSelectedNodeId: (_, { selectedNodeId }) => selectedNodeId,
             },
         ],
+        graph: {
+            replaceGraphNode: (state, { node }) =>
+                state ? { ...state, nodes: state.nodes.map((n) => (n.id === node.id ? node : n)) } : state,
+        },
     }),
 
     selectors({

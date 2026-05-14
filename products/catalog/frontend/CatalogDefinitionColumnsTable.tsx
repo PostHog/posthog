@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconCheck, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTable } from '@posthog/lemon-ui'
+import { LemonSelect, LemonTable, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
@@ -30,114 +30,30 @@ const PII_CLASS_OPTIONS: { label: string; value: string }[] = [
 ]
 
 interface Props {
-    /** Hide the hogql type column and tighten the layout for the narrow side panel. */
+    /** Hide the hogql type annotation for the narrow side panel. */
     compact?: boolean
 }
 
 export function CatalogDefinitionColumnsTable({ compact = false }: Props = {}): JSX.Element {
     const { definition, pendingColumnEdits } = useValues(catalogDefinitionSceneLogic)
-    const { setColumnEdits, clearColumnEdits, saveColumn } = useActions(catalogDefinitionSceneLogic)
+    const { setColumnEdits } = useActions(catalogDefinitionSceneLogic)
+    const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({})
 
     const columns = definition?.columns ?? []
+    const toggleExpanded = (id: string): void => setExpandedIds((prev) => ({ ...prev, [id]: !prev[id] }))
 
     const tableColumns: LemonTableColumns<CatalogColumnDTOApi> = [
         {
             title: 'Name',
             key: 'name',
-            render: (_, column) => <span className="font-mono text-sm">{column.name}</span>,
-        },
-        ...(compact
-            ? []
-            : [
-                  {
-                      title: 'Type',
-                      key: 'type',
-                      render: (_: unknown, column: CatalogColumnDTOApi) => (
-                          <span className="font-mono text-xs text-secondary">{column.hogql_type ?? '—'}</span>
-                      ),
-                  },
-              ]),
-        {
-            title: 'Semantic type',
-            key: 'semantic_type',
-            render: (_, column) => {
-                const edits = pendingColumnEdits[column.id]
-                const value =
-                    edits && 'semantic_type' in edits ? (edits.semantic_type ?? null) : (column.semantic_type ?? null)
-                return (
-                    <LemonSelect
-                        size="small"
-                        value={value}
-                        options={SEMANTIC_TYPE_OPTIONS}
-                        onChange={(next) => setColumnEdits(column.id, { semantic_type: next ?? null })}
-                        placeholder="—"
-                    />
-                )
-            },
-        },
-        {
-            title: 'PII',
-            key: 'pii_class',
-            render: (_, column) => {
-                const edits = pendingColumnEdits[column.id]
-                const value = edits && 'pii_class' in edits ? (edits.pii_class ?? null) : (column.pii_class ?? null)
-                return (
-                    <LemonSelect
-                        size="small"
-                        value={value}
-                        options={PII_CLASS_OPTIONS}
-                        onChange={(next) => setColumnEdits(column.id, { pii_class: next ?? null })}
-                        placeholder="—"
-                    />
-                )
-            },
-        },
-        {
-            title: 'Description',
-            key: 'description',
-            render: (_, column) => {
-                const edits = pendingColumnEdits[column.id]
-                const value =
-                    edits && 'synthetic_description' in edits
-                        ? (edits.synthetic_description ?? '')
-                        : (column.description ?? '')
-                return (
-                    <LemonInput
-                        size="small"
-                        value={value}
-                        placeholder="Describe this column"
-                        onChange={(next) => setColumnEdits(column.id, { synthetic_description: next })}
-                    />
-                )
-            },
-        },
-        {
-            title: '',
-            key: 'actions',
-            width: 64,
-            render: (_, column) => {
-                const dirty = !!pendingColumnEdits[column.id] && Object.keys(pendingColumnEdits[column.id]).length > 0
-                if (!dirty) {
-                    return null
-                }
-                return (
-                    <div className="flex gap-1">
-                        <LemonButton
-                            size="xsmall"
-                            type="primary"
-                            icon={<IconCheck />}
-                            onClick={() => saveColumn(column.id)}
-                            tooltip="Save column"
-                        />
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconX />}
-                            onClick={() => clearColumnEdits(column.id)}
-                            tooltip="Discard changes"
-                        />
-                    </div>
-                )
-            },
+            render: (_, column) => (
+                <div className="py-1.5">
+                    <span className="font-mono text-sm">{column.name}</span>
+                    {!compact && column.hogql_type && (
+                        <span className="ml-2 font-mono text-xs text-secondary">{column.hogql_type}</span>
+                    )}
+                </div>
+            ),
         },
     ]
 
@@ -149,5 +65,78 @@ export function CatalogDefinitionColumnsTable({ compact = false }: Props = {}): 
         )
     }
 
-    return <LemonTable dataSource={columns} columns={tableColumns} rowKey={(c) => c.id} />
+    return (
+        <LemonTable
+            dataSource={columns}
+            columns={tableColumns}
+            rowKey={(c) => c.id}
+            showHeader={false}
+            onRow={(column) => ({
+                // Don't toggle when the click bubbles up from the built-in expand
+                // chevron — its own handler already fires onRowExpand/Collapse.
+                onClick: (e) => {
+                    if ((e.target as HTMLElement).closest('button')) {
+                        return
+                    }
+                    toggleExpanded(column.id)
+                },
+                className: 'cursor-pointer',
+            })}
+            expandable={{
+                isRowExpanded: (column) => !!expandedIds[column.id],
+                onRowExpand: (column) => setExpandedIds((prev) => ({ ...prev, [column.id]: true })),
+                onRowCollapse: (column) => setExpandedIds((prev) => ({ ...prev, [column.id]: false })),
+                expandedRowRender: (column) => {
+                    const edits = pendingColumnEdits[column.id]
+                    const semanticTypeValue =
+                        edits && 'semantic_type' in edits
+                            ? (edits.semantic_type ?? null)
+                            : (column.semantic_type ?? null)
+                    const piiValue =
+                        edits && 'pii_class' in edits ? (edits.pii_class ?? null) : (column.pii_class ?? null)
+                    const descriptionValue =
+                        edits && 'synthetic_description' in edits
+                            ? (edits.synthetic_description ?? '')
+                            : (column.description ?? '')
+                    return (
+                        <div className="p-3 bg-bg-light flex flex-col gap-3">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <div className="text-xs font-medium mb-1">Type</div>
+                                    <LemonSelect
+                                        size="small"
+                                        value={semanticTypeValue}
+                                        options={SEMANTIC_TYPE_OPTIONS}
+                                        onChange={(next) => setColumnEdits(column.id, { semantic_type: next ?? null })}
+                                        placeholder="—"
+                                        fullWidth
+                                    />
+                                </div>
+                                <div>
+                                    <div className="text-xs font-medium mb-1">PII class</div>
+                                    <LemonSelect
+                                        size="small"
+                                        value={piiValue}
+                                        options={PII_CLASS_OPTIONS}
+                                        onChange={(next) => setColumnEdits(column.id, { pii_class: next ?? null })}
+                                        placeholder="—"
+                                        fullWidth
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-xs font-medium mb-1">Description</div>
+                                <LemonTextArea
+                                    value={descriptionValue}
+                                    placeholder="What this column represents — meaning, units, valid values, gotchas"
+                                    onChange={(next) => setColumnEdits(column.id, { synthetic_description: next })}
+                                    minRows={3}
+                                />
+                            </div>
+                        </div>
+                    )
+                },
+            }}
+        />
+    )
 }

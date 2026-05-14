@@ -8,6 +8,8 @@ import { catalogDefinitionSceneLogic } from './catalogDefinitionSceneLogic'
 interface Props {
     /** Stack fields vertically and trim hints — for the narrow side panel. */
     compact?: boolean
+    /** Hide the in-form save/discard row when the parent renders its own (e.g. as a sticky footer). */
+    hideActions?: boolean
 }
 
 /**
@@ -16,9 +18,9 @@ interface Props {
  * via `<BindLogic>` so this form can be reused both in the full-page detail scene
  * and in the floating side panel on the graph view.
  */
-export function CatalogDefinitionForm({ compact = false }: Props = {}): JSX.Element | null {
-    const { definition, pendingEdits, isDirty } = useValues(catalogDefinitionSceneLogic)
-    const { setEdits, clearEdits, saveDefinition } = useActions(catalogDefinitionSceneLogic)
+export function CatalogDefinitionForm({ compact = false, hideActions = false }: Props = {}): JSX.Element | null {
+    const { definition, pendingEdits } = useValues(catalogDefinitionSceneLogic)
+    const { setEdits } = useActions(catalogDefinitionSceneLogic)
 
     if (!definition) {
         return null
@@ -90,16 +92,28 @@ export function CatalogDefinitionForm({ compact = false }: Props = {}): JSX.Elem
             >
                 <CatalogDefinitionColumnsTable compact={compact} />
             </Field>
-            {isDirty && (
-                <div className="flex justify-end gap-2">
-                    <LemonButton type="tertiary" onClick={clearEdits}>
-                        Discard
-                    </LemonButton>
-                    <LemonButton type="primary" onClick={saveDefinition}>
-                        Save definition
-                    </LemonButton>
-                </div>
-            )}
+            {!hideActions && <CatalogDefinitionFormActions />}
+        </div>
+    )
+}
+
+/**
+ * Save / Discard buttons for the catalog definition form. Pulled out so the
+ * side panel can render them as a sticky footer outside the scroll zone.
+ * Saves all pending edits in one click — definition fields plus every dirty column.
+ */
+export function CatalogDefinitionFormActions(): JSX.Element {
+    const { isDirty } = useValues(catalogDefinitionSceneLogic)
+    const { discardChanges, saveChanges } = useActions(catalogDefinitionSceneLogic)
+
+    return (
+        <div className="flex justify-end gap-2">
+            <LemonButton type="tertiary" onClick={discardChanges} disabledReason={isDirty ? undefined : 'No changes'}>
+                Discard
+            </LemonButton>
+            <LemonButton type="primary" onClick={saveChanges} disabledReason={isDirty ? undefined : 'No changes'}>
+                Save changes
+            </LemonButton>
         </div>
     )
 }

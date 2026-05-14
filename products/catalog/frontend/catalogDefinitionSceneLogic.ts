@@ -37,11 +37,12 @@ export const catalogDefinitionSceneLogic = kea<catalogDefinitionSceneLogicType>(
     actions({
         setEdits: (edits: PatchedUpdateNodeInputApi) => ({ edits }),
         clearEdits: true,
-        saveDefinition: true,
         setColumnEdits: (columnId: string, edits: PatchedUpdateColumnInputApi) => ({ columnId, edits }),
         clearColumnEdits: (columnId: string) => ({ columnId }),
-        saveColumn: (columnId: string) => ({ columnId }),
+        clearAllColumnEdits: true,
         replaceColumn: (column: CatalogColumnDTOApi) => ({ column }),
+        saveChanges: true,
+        discardChanges: true,
     }),
 
     loaders(({ values, props }) => ({
@@ -75,6 +76,7 @@ export const catalogDefinitionSceneLogic = kea<catalogDefinitionSceneLogicType>(
                     delete next[columnId]
                     return next
                 },
+                clearAllColumnEdits: () => ({}),
             },
         ],
         definition: {
@@ -93,7 +95,11 @@ export const catalogDefinitionSceneLogic = kea<catalogDefinitionSceneLogicType>(
     }),
 
     selectors({
-        isDirty: [(s) => [s.pendingEdits], (edits): boolean => Object.keys(edits).length > 0],
+        isDirty: [
+            (s) => [s.pendingEdits, s.pendingColumnEdits],
+            (edits, columnEdits): boolean =>
+                Object.keys(edits).length > 0 || Object.values(columnEdits).some((e) => Object.keys(e).length > 0),
+        ],
         breadcrumbs: [
             (s) => [s.definition],
             (definition): Breadcrumb[] => [
@@ -104,35 +110,50 @@ export const catalogDefinitionSceneLogic = kea<catalogDefinitionSceneLogicType>(
     }),
 
     listeners(({ values, props, actions }) => ({
-        saveDefinition: async () => {
+        discardChanges: () => {
+            actions.clearEdits()
+            actions.clearAllColumnEdits()
+        },
+        saveChanges: async () => {
             if (!values.isDirty) {
                 return
             }
-            try {
-                const updated = await catalogNodesPartialUpdate(
-                    String(values.currentProjectId),
-                    props.id,
-                    values.pendingEdits
-                )
-                actions.loadDefinitionSuccess(updated)
-                actions.clearEdits()
-                lemonToast.success('Definition saved')
-            } catch (error) {
-                lemonToast.error(`Failed to save definition: ${(error as Error).message}`)
+            const projectId = String(values.currentProjectId)
+            const errors: string[] = []
+
+            // Definition-level edits first.
+            if (Object.keys(values.pendingEdits).length > 0) {
+                try {
+                    const updated = await catalogNodesPartialUpdate(projectId, props.id, values.pendingEdits)
+                    actions.loadDefinitionSuccess(updated)
+                    actions.clearEdits()
+                } catch (error) {
+                    errors.push(`definition: ${(error as Error).message}`)
+                }
             }
-        },
-        saveColumn: async ({ columnId }) => {
-            const edits = values.pendingColumnEdits[columnId]
-            if (!edits || Object.keys(edits).length === 0) {
-                return
-            }
-            try {
-                const updated = await catalogColumnsPartialUpdate(String(values.currentProjectId), columnId, edits)
-                actions.replaceColumn(updated)
-                actions.clearColumnEdits(columnId)
-                lemonToast.success(`Column ${updated.name} saved`)
-            } catch (error) {
-                lemonToast.error(`Failed to save column: ${(error as Error).message}`)
+
+            // Then each dirty column. Save in parallel so a 20-column edit doesn't
+            // sequentialise on round-trip latency.
+            const columnEntries = Object.entries(values.pendingColumnEdits).filter(
+                ([, edits]) => Object.keys(edits).length > 0
+            )
+            const columnResults = await Promise.allSettled(
+                columnEntries.map(async ([columnId, edits]) => {
+                    const updated = await catalogColumnsPartialUpdate(projectId, columnId, edits)
+                    actions.replaceColumn(updated)
+                    actions.clearColumnEdits(columnId)
+                })
+            )
+            columnResults.forEach((r, i) => {
+                if (r.status === 'rejected') {
+                    errors.push(`column ${columnEntries[i][0]}: ${(r.reason as Error).message}`)
+                }
+            })
+
+            if (errors.length === 0) {
+                lemonToast.success('Saved')
+            } else {
+                lemonToast.error(`Failed to save: ${errors.join('; ')}`)
             }
         },
     })),
