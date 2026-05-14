@@ -338,11 +338,7 @@ STORAGES = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        "BACKEND": (
-            "django.contrib.staticfiles.storage.StaticFilesStorage"
-            if TEST
-            else "whitenoise.storage.ManifestStaticFilesStorage"
-        ),
+        "BACKEND": "whitenoise.storage.ManifestStaticFilesStorage",
     },
 }
 
