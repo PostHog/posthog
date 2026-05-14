@@ -16,117 +16,20 @@ import {
 import { founderLandingPageLogic, LandingPageBuildSpec } from './components/founderLandingPageLogic'
 import { founderValidationLogic, ValidationReport } from './components/founderValidationLogic'
 import { LandingPageMockup } from './components/LandingPageMockup'
-import { Step2 } from './components/Step2'
-import { Step3 } from './components/Step3'
-import { Step4 } from './components/Step4'
 import { Step5 } from './components/Step5'
 import { ValidationReportView } from './components/ValidationReportView'
 import { reactionGifUrl } from './reactionGifs'
-import { founderLogic, FounderStep, FOUNDER_STEPS } from './scenes/founderLogic'
+import { founderLogic } from './scenes/founderLogic'
 
 const FADE_MASK_HEIGHT = 160
 
-const STEP_LABELS: Record<FounderStep, string> = {
-    ideation: 'Ideation',
-    validation: 'Validation',
-    gtm: 'Go-to-market',
-    mvp: 'MVP',
-    marketing: 'Marketing',
-}
-
-function StepNav(): JSX.Element {
-    const { currentStep } = useValues(founderLogic)
-    const { advanceStep } = useActions(founderLogic)
-    const currentIdx = FOUNDER_STEPS.indexOf(currentStep)
-
-    return (
-        <nav className="flex items-center gap-1 px-4 py-2 border-b border-border bg-white/80 backdrop-blur-sm">
-            {FOUNDER_STEPS.map((step, idx) => {
-                const isActive = step === currentStep
-                const isPast = idx < currentIdx
-                return (
-                    <React.Fragment key={step}>
-                        {idx > 0 && <span className="text-border mx-1 select-none">›</span>}
-                        <button
-                            type="button"
-                            onClick={() => isPast && advanceStep(step)}
-                            className={cn(
-                                'px-2.5 py-1 rounded text-xs font-medium transition-colors',
-                                isActive && 'bg-primary/10 text-primary',
-                                isPast && 'text-text-secondary hover:text-text-primary cursor-pointer',
-                                !isActive && !isPast && 'text-text-secondary/50 cursor-default'
-                            )}
-                            disabled={!isPast}
-                        >
-                            {STEP_LABELS[step]}
-                        </button>
-                    </React.Fragment>
-                )
-            })}
-        </nav>
-    )
-}
-
-function StepContent({ step }: { step: FounderStep }): JSX.Element {
-    switch (step) {
-        case 'validation':
-            return (
-                <div className="p-6 max-w-3xl mx-auto">
-                    <Step2 />
-                </div>
-            )
-        case 'gtm':
-            return (
-                <div className="p-6 max-w-3xl mx-auto">
-                    <Step3 />
-                </div>
-            )
-        case 'mvp':
-            return (
-                <div className="p-6 max-w-3xl mx-auto">
-                    <Step4 />
-                </div>
-            )
-        case 'marketing':
-            return (
-                <div className="p-6 max-w-3xl mx-auto">
-                    <Step5 />
-                </div>
-            )
-        default:
-            return <></>
-    }
-}
-
 export function FounderModeLayout(): JSX.Element {
-    const { currentStep, hasExistingProject, projectLoaded } = useValues(founderLogic)
-
-    // If there's an existing project past ideation, skip the cofounder flow and go
-    // straight to the persisted step's UI.
-    const resumingPastIdeation = hasExistingProject && currentStep !== 'ideation'
+    const { projectLoaded } = useValues(founderLogic)
 
     if (!projectLoaded) {
         return (
             <main className="fixed inset-0 top-[54px] flex items-center justify-center bg-white">
                 <Spinner />
-            </main>
-        )
-    }
-
-    if (resumingPastIdeation) {
-        return (
-            <main
-                className="fixed inset-0 top-[54px] flex flex-col bg-white overflow-hidden"
-                style={{
-                    backgroundColor: '#fff',
-                    backgroundSize: '13px 13px',
-                    backgroundImage: 'radial-gradient(1px, var(--color-gray-300), var(--color-gray-50))',
-                }}
-            >
-                <StepNav />
-                <section className="flex-1 relative overflow-y-auto">
-                    <StepContent step={currentStep} />
-                </section>
             </main>
         )
     }
@@ -262,13 +165,10 @@ function StepBlock({ stepKey, isActive }: { stepKey: StepKey; isActive: boolean 
                 />
             )
         case 'marketing':
-            return (
-                <PromptStep
-                    stepKey="marketing"
-                    title="How will you get your first 100 users?"
-                    placeholder="Channels, communities, the cheap stuff first"
-                />
-            )
+            // The marketing slot hosts the new auto-generating launch playbook (Step5),
+            // which reads the project's earlier ideation + validation directly — no
+            // manual product description needed.
+            return <Step5 />
         case 'landingLoading':
             return <LandingLoadingStep isActive={isActive} />
         case 'landingOutput':
@@ -586,12 +486,29 @@ function ModeToggle({ disabled }: { disabled: boolean }): JSX.Element {
     )
 }
 
+const VALIDATION_CYCLING_LABELS = [
+    'Searching the web…',
+    'Talking to the other hedgehogs…',
+    'Reading reviews on G2…',
+    'Sniffing out competitors…',
+    'Checking what already ships…',
+    'Polling fellow founders…',
+    'Stress-testing your assumptions…',
+    'Drafting the verdict…',
+]
+
 function ValidationLoadingStep({ isActive }: { isActive: boolean }): JSX.Element {
     const { projectId } = useValues(cofounderFlowLogic)
     const { advance } = useActions(cofounderFlowLogic)
 
     if (!projectId) {
-        return <LoadingBlock title="Right so let's summarize" body="One sec while I gather your idea." />
+        return (
+            <LoadingBlock
+                title="Right so let's summarize"
+                body="One sec while I gather your idea."
+                cyclingMessages={VALIDATION_CYCLING_LABELS}
+            />
+        )
     }
 
     return (
@@ -620,6 +537,7 @@ function ValidationLoadingInner({ isActive, onReady }: { isActive: boolean; onRe
                     ? "Hmm, that didn't land. Let me know if you want to retry."
                     : "Let me just look around and see if this idea is objectively good. My intuition doesn't really say much to me right now."
             }
+            cyclingMessages={status === 'failed' ? undefined : VALIDATION_CYCLING_LABELS}
         />
     )
 }
@@ -817,15 +735,49 @@ function DoneStep(): JSX.Element {
     )
 }
 
-function LoadingBlock({ title, body }: { title: string; body: string }): JSX.Element {
+function LoadingBlock({
+    title,
+    body,
+    cyclingMessages,
+}: {
+    title: string
+    body: string
+    cyclingMessages?: string[]
+}): JSX.Element {
     return (
         <div>
             <h2 className="text-2xl font-semibold mb-2">{title}</h2>
             {body && <p className="text-text-primary leading-relaxed">{body}</p>}
-            <div className="mt-6">
+            <div className="mt-6 flex items-center gap-3">
                 <Spinner className="w-8 h-8 text-text-primary" />
+                {cyclingMessages && cyclingMessages.length > 0 && <CyclingLabel messages={cyclingMessages} />}
             </div>
         </div>
+    )
+}
+
+const CYCLE_INTERVAL_MS = 2200
+
+function CyclingLabel({ messages }: { messages: string[] }): JSX.Element {
+    const [index, setIndex] = React.useState(0)
+    React.useEffect(() => {
+        if (messages.length <= 1) {
+            return
+        }
+        const id = window.setInterval(() => {
+            setIndex((i) => (i + 1) % messages.length)
+        }, CYCLE_INTERVAL_MS)
+        return () => window.clearInterval(id)
+    }, [messages.length])
+    return (
+        <span
+            key={index}
+            className="text-sm text-text-secondary animate-fade-in"
+            // animate-fade-in re-runs whenever the key (index) flips, so each new
+            // message gets a fresh fade-in.
+        >
+            {messages[index]}
+        </span>
     )
 }
 
