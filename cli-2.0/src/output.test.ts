@@ -14,14 +14,31 @@ describe('applyJqFilter', () => {
         {
             name: 'selects fields from each item in an array',
             filter: '[.results[] | {id, key}]',
-            input: { results: [{ id: 1, key: 'a', name: 'first' }, { id: 2, key: 'b', name: 'second' }] },
-            expected: [{ id: 1, key: 'a' }, { id: 2, key: 'b' }],
+            input: {
+                results: [
+                    { id: 1, key: 'a', name: 'first' },
+                    { id: 2, key: 'b', name: 'second' },
+                ],
+            },
+            expected: [
+                { id: 1, key: 'a' },
+                { id: 2, key: 'b' },
+            ],
         },
         {
             name: 'filters with a predicate',
             filter: '[.results[] | select(.active)]',
-            input: { results: [{ id: 1, active: true }, { id: 2, active: false }, { id: 3, active: true }] },
-            expected: [{ id: 1, active: true }, { id: 3, active: true }],
+            input: {
+                results: [
+                    { id: 1, active: true },
+                    { id: 2, active: false },
+                    { id: 3, active: true },
+                ],
+            },
+            expected: [
+                { id: 1, active: true },
+                { id: 3, active: true },
+            ],
         },
     ]
 

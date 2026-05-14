@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { describe, it } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 const INDEX_TS = resolve(dirname(fileURLToPath(import.meta.url)), 'index.ts')
 
@@ -20,7 +20,11 @@ describe('CLI bare invocations are friendly (gh-style)', () => {
         { name: '`ph auth` prints subcommands', args: ['auth'], expectedInOutput: 'Authentication commands' },
         { name: '`ph insights` prints subcommands', args: ['insights'], expectedInOutput: 'Manage insights' },
         { name: '`ph dashboards` prints subcommands', args: ['dashboards'], expectedInOutput: 'Manage dashboards' },
-        { name: '`ph feature-flags` prints subcommands', args: ['feature-flags'], expectedInOutput: 'Manage feature-flags' },
+        {
+            name: '`ph feature-flags` prints subcommands',
+            args: ['feature-flags'],
+            expectedInOutput: 'Manage feature-flags',
+        },
     ]
 
     for (const { name, args, expectedInOutput } of friendlyCases) {
@@ -66,9 +70,21 @@ describe('-h is an alias for --help', () => {
 
 describe('CLI invalid invocations still error', () => {
     const errorCases: Array<{ name: string; args: string[]; expectedInOutput: string }> = [
-        { name: 'unknown top-level command', args: ['definitely-not-a-real-command'], expectedInOutput: 'Unknown command' },
-        { name: 'unknown subcommand', args: ['insights', 'definitely-not-a-real-subcommand'], expectedInOutput: 'Unknown command' },
-        { name: '--jq without --json', args: ['insights', 'list', '--jq', '.[0]'], expectedInOutput: '--jq requires --json' },
+        {
+            name: 'unknown top-level command',
+            args: ['definitely-not-a-real-command'],
+            expectedInOutput: 'Unknown command',
+        },
+        {
+            name: 'unknown subcommand',
+            args: ['insights', 'definitely-not-a-real-subcommand'],
+            expectedInOutput: 'Unknown command',
+        },
+        {
+            name: '--jq without --json',
+            args: ['insights', 'list', '--jq', '.[0]'],
+            expectedInOutput: '--jq requires --json',
+        },
     ]
 
     for (const { name, args, expectedInOutput } of errorCases) {
