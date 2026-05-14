@@ -6,11 +6,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..facade import api
-from .serializers import (
-    ExecutionDetailSerializer,
-    ExecutionFilterSerializer,
-    ExecutionSummarySerializer,
-)
+from .serializers import ExecutionDetailSerializer, ExecutionFilterSerializer, ExecutionSummarySerializer
 
 
 class ExecutionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -25,6 +21,7 @@ class ExecutionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         filters = ExecutionFilterSerializer(data=request.query_params)
         filters.is_valid(raise_exception=True)
         items = api.list_executions(
+            team_id=self.team_id,
             status=filters.validated_data.get("status"),
             execution_type=filters.validated_data.get("execution_type"),
             limit=filters.validated_data.get("limit", 50),
@@ -37,5 +34,5 @@ class ExecutionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Retrieve a workflow execution with its full event history.",
     )
     def retrieve(self, request: Request, pk: str = "", **kwargs) -> Response:
-        detail = api.get_execution(pk)
+        detail = api.get_execution(pk, team_id=self.team_id)
         return Response(ExecutionDetailSerializer(detail).data, status=status.HTTP_200_OK)

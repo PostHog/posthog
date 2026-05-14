@@ -2,8 +2,10 @@ import uuid
 
 from django.db import models
 
+from posthog.models.scoping.product_mixin import ProductTeamModel
 
-class Execution(models.Model):
+
+class Execution(ProductTeamModel):
     execution_id = models.TextField(db_index=True)
     run_id = models.UUIDField(default=uuid.uuid4)
     execution_type = models.TextField()
@@ -18,13 +20,15 @@ class Execution(models.Model):
     class Meta:
         app_label = "orchestra"
         unique_together = [("execution_id", "run_id")]
+        default_manager_name = "all_teams"
 
 
 class Event(models.Model):
-    execution_id = models.TextField()
+    execution_id = models.TextField(primary_key=True)
     run_id = models.UUIDField()
     event_id = models.BigIntegerField()
     event_type = models.TextField()
+    team_id = models.BigIntegerField(db_index=True)
     timestamp = models.DateTimeField(auto_now_add=True)
     attributes = models.JSONField(default=dict)
 
@@ -34,7 +38,7 @@ class Event(models.Model):
         app_label = "orchestra"
 
 
-class Task(models.Model):
+class Task(ProductTeamModel):
     task_id = models.UUIDField(primary_key=True, default=uuid.uuid4)
     task_queue = models.TextField()
     task_type = models.TextField()
@@ -51,6 +55,7 @@ class Task(models.Model):
 
     class Meta:
         app_label = "orchestra"
+        default_manager_name = "all_teams"
         indexes = [
             models.Index(
                 fields=["task_queue", "visible_at"],

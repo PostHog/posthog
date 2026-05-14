@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ..db import READER_DB
 from ..models import Event, Execution
 from . import contracts
 from .enums import ExecutionStatus
@@ -27,12 +28,13 @@ def _to_event_record(obj: Event) -> contracts.EventRecord:
 
 def list_executions(
     *,
+    team_id: int,
     status: str | None = None,
     execution_type: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[contracts.ExecutionSummary]:
-    qs = Execution.objects.all().order_by("-started_at")
+    qs = Execution.all_teams.filter(team_id=team_id).order_by("-started_at")
     if status:
         qs = qs.filter(status=status)
     if execution_type:
@@ -40,11 +42,13 @@ def list_executions(
     return [_to_summary(obj) for obj in qs[offset : offset + limit]]
 
 
-def get_execution(execution_id: str) -> contracts.ExecutionDetail:
-    obj = Execution.objects.get(execution_id=execution_id)
-    events = Event.objects.using("orchestra").filter(
-        execution_id=obj.execution_id, run_id=obj.run_id
-    ).order_by("event_id")
+def get_execution(execution_id: str, *, team_id: int) -> contracts.ExecutionDetail:
+    obj = Execution.all_teams.get(execution_id=execution_id, team_id=team_id)
+    events = (
+        Event.objects.using(READER_DB)
+        .filter(execution_id=obj.execution_id, run_id=obj.run_id, team_id=team_id)
+        .order_by("event_id")
+    )
     return contracts.ExecutionDetail(
         execution_id=obj.execution_id,
         run_id=obj.run_id,

@@ -15,6 +15,9 @@ class ExecutionSummarySerializer(DataclassSerializer):
 
 
 class ExecutionDetailSerializer(DataclassSerializer):
+    input = serializers.JSONField(allow_null=True, help_text="Input passed to the execution.")
+    result = serializers.JSONField(allow_null=True, help_text="Result returned by the execution.")
+    error = serializers.JSONField(allow_null=True, help_text="Error details if the execution failed.")
     events = EventRecordSerializer(many=True, help_text="Ordered list of events in the execution history.")
 
     class Meta:
