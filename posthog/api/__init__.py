@@ -1328,6 +1328,15 @@ projects_router.register(
     ["project_id"],
 )
 
+from products.orchestra.backend.presentation.views import ExecutionViewSet
+
+projects_router.register(
+    r"orchestra/executions",
+    ExecutionViewSet,
+    "project_orchestra_executions",
+    ["project_id"],
+)
+
 environments_router.register(
     r"tracing/spans",
     TracingSpansViewSet,

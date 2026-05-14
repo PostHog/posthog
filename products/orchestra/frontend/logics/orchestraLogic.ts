@@ -1,4 +1,5 @@
-import { kea, path, actions, reducers, loaders } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import type { orchestraLogicType } from './orchestraLogicType'
@@ -43,4 +44,14 @@ export const orchestraLogic = kea<orchestraLogicType>([
             },
         ],
     })),
+
+    listeners(({ actions }) => ({
+        setStatusFilter: () => {
+            actions.loadExecutions()
+        },
+    })),
+
+    afterMount(({ actions }) => {
+        actions.loadExecutions()
+    }),
 ])

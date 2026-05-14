@@ -116,6 +116,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
+    Orchestra: () => import('../../products/orchestra/frontend/scenes/OrchestraScene'),
+    OrchestraExecution: () => import('../../products/orchestra/frontend/scenes/OrchestraExecutionScene'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
@@ -224,6 +226,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
     '/metrics': ['Metrics', 'metrics'],
+    '/orchestra': ['Orchestra', 'orchestra'],
+    '/orchestra/executions/:id': ['OrchestraExecution', 'orchestraExecution'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
@@ -550,6 +554,8 @@ export const productConfiguration: Record<string, any> = {
         description: 'Monitor and analyze application metrics to understand system performance and health.',
         iconType: 'metrics',
     },
+    Orchestra: { name: 'Orchestra', projectBased: true, iconType: 'orchestra' },
+    OrchestraExecution: { name: 'Orchestra execution', projectBased: true, iconType: 'orchestra' },
     RevenueAnalytics: {
         name: 'Revenue Analytics',
         projectBased: true,
@@ -879,6 +885,8 @@ export const productUrls = {
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
+    orchestra: (): string => '/orchestra',
+    orchestraExecution: (id: string): string => `/orchestra/executions/${id}`,
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     personByUUID: (uuid: string, encode: boolean = true): string =>
@@ -1619,6 +1627,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.notebooks(),
         sceneKey: 'Notebooks',
         sceneKeys: ['Notebook', 'Notebooks'],
+    },
+    {
+        path: 'Orchestra',
+        intents: [ProductKey.WORKFLOWS],
+        category: ProductItemCategory.TOOLS,
+        iconType: 'orchestra',
+        iconColor: ['var(--color-product-surveys-light)'],
+        href: '/orchestra',
+        sceneKey: 'Orchestra',
+        sceneKeys: ['Orchestra', 'OrchestraExecution'],
     },
     {
         path: 'Playground',

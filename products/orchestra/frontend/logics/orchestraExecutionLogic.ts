@@ -1,4 +1,5 @@
-import { kea, path, props, key, loaders } from 'kea'
+import { afterMount, kea, key, path, props } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import type { orchestraExecutionLogicType } from './orchestraExecutionLogicType'
@@ -44,4 +45,8 @@ export const orchestraExecutionLogic = kea<orchestraExecutionLogicType>([
             },
         ],
     })),
+
+    afterMount(({ actions }) => {
+        actions.loadExecution()
+    }),
 ])

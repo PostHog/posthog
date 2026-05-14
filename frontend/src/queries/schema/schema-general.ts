@@ -3190,6 +3190,7 @@ export type FileSystemIconType =
     | 'tracing'
     | 'metrics'
     | 'workflows'
+    | 'orchestra'
     | 'notebook'
     | 'action'
     | 'activity'

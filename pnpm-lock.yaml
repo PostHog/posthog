@@ -676,6 +676,9 @@ importers:
       '@posthog/products-notebooks':
         specifier: workspace:*
         version: link:../products/notebooks
+      '@posthog/products-orchestra':
+        specifier: workspace:*
+        version: link:../products/orchestra
       '@posthog/products-persons':
         specifier: workspace:*
         version: link:../products/persons
@@ -3013,6 +3016,8 @@ importers:
         version: 18.3.1
 
   products/notifications: {}
+
+  products/orchestra: {}
 
   products/persons:
     dependencies:

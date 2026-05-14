@@ -60,37 +60,39 @@ function OrchestraScene(): JSX.Element {
     ]
 
     return (
-        <>
-            <SceneTitleSection title="Orchestra" description="Workflow execution engine" />
-            <SceneContent>
-                <div className="flex items-center gap-2 mb-4">
-                    <LemonSelect
-                        value={statusFilter}
-                        onChange={setStatusFilter}
-                        options={[
-                            { value: null, label: 'All statuses' },
-                            { value: 'RUNNING', label: 'Running' },
-                            { value: 'COMPLETED', label: 'Completed' },
-                            { value: 'FAILED', label: 'Failed' },
-                        ]}
-                        size="small"
-                    />
-                    <LemonButton type="secondary" size="small" onClick={loadExecutions}>
-                        Refresh
-                    </LemonButton>
-                </div>
-                <LemonTable
-                    columns={columns}
-                    dataSource={executions}
-                    loading={executionsLoading}
-                    emptyState="No executions found"
-                    onRow={(record) => ({
-                        onClick: () => {
-                            window.location.href = urls.orchestraExecution(record.execution_id)
-                        },
-                    })}
+        <SceneContent>
+            <SceneTitleSection
+                name="Orchestra"
+                description="Workflow execution engine"
+                resourceType={{ type: 'orchestra' }}
+            />
+            <div className="flex items-center gap-2 mb-4">
+                <LemonSelect
+                    value={statusFilter}
+                    onChange={setStatusFilter}
+                    options={[
+                        { value: null, label: 'All statuses' },
+                        { value: 'RUNNING', label: 'Running' },
+                        { value: 'COMPLETED', label: 'Completed' },
+                        { value: 'FAILED', label: 'Failed' },
+                    ]}
+                    size="small"
                 />
-            </SceneContent>
-        </>
+                <LemonButton type="secondary" size="small" onClick={loadExecutions}>
+                    Refresh
+                </LemonButton>
+            </div>
+            <LemonTable
+                columns={columns}
+                dataSource={executions}
+                loading={executionsLoading}
+                emptyState="No executions found"
+                onRow={(record) => ({
+                    onClick: () => {
+                        window.location.href = urls.orchestraExecution(record.execution_id)
+                    },
+                })}
+            />
+        </SceneContent>
     )
 }

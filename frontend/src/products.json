@@ -150,6 +150,7 @@
             "intents": ["marketing_analytics"]
         },
         { "path": "Metrics", "category": "Unreleased", "iconType": "metrics", "type": null, "intents": ["metrics"] },
+        { "path": "Orchestra", "category": "Tools", "iconType": "workflows", "type": null, "intents": ["workflows"] },
         {
             "path": "Product analytics",
             "category": "Analytics",

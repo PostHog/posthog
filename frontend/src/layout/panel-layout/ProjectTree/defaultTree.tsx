@@ -31,6 +31,7 @@ import {
     IconLive,
     IconLlmAnalytics,
     IconLlmPromptManagement,
+    IconMagicWand,
     IconMegaphone,
     IconMessage,
     IconNotebook,
@@ -200,6 +201,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     workflows: {
         icon: <IconDecisionTree />,
         iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
+    },
+    orchestra: {
+        icon: <IconMagicWand />,
+        iconColor: ['var(--color-product-surveys-light)'],
     },
     notebook: {
         icon: <IconNotebook />,
