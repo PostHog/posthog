@@ -49,12 +49,21 @@ discount, _only_ when the failing process explains them:
   stopped
 - CORS or font-CDN failures from third-party scripts in dev
 
-Only flag errors that (a) appear _after_ the target interaction, (b) match
-a code path the PR actually changed, or (c) are not explained by a stopped
-local process. Call out the triage explicitly in run notes and in the PR
-comment ("All console errors traced to capture process being stopped on
-this machine; no new errors introduced by this PR"). That triage discipline
-is what makes the report trustworthy.
+Errors are in-scope (worth flagging) when they touch a code path the PR
+actually changed, regardless of when they fire - including on initial
+mount, before any user interaction. A scene that throws on first render
+or fetches a wrong endpoint on load is a real bug, not pre-existing
+noise. Errors at load time on the affected surface deserve the same
+scrutiny as errors that follow a click or form submit.
+
+Errors are out-of-scope (worth discounting) when they are explained by a
+stopped local process from the list above, or by third-party scripts
+unrelated to the diff.
+
+When you discount errors, call out the triage explicitly in run notes and
+in the PR comment ("All console errors traced to capture process being
+stopped on this machine; no new errors introduced by this PR"). Silently
+swallowing console output erodes trust in the report.
 
 ## API Checks
 
