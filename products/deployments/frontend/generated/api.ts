@@ -13,6 +13,8 @@ import type {
     DeploymentApi,
     DeploymentCreateInputApi,
     DeploymentProjectApi,
+    DeploymentProjectCreateApi,
+    DeploymentProjectRefreshResponseApi,
     DeploymentProjectsDeploymentsEventsListParams,
     DeploymentProjectsDeploymentsListParams,
     DeploymentProjectsListParams,
@@ -88,14 +90,14 @@ task.
  */
 export const deploymentProjectsCreate = async (
     projectId: string,
-    deploymentProjectApi: NonReadonly<DeploymentProjectApi>,
+    deploymentProjectCreateApi: DeploymentProjectCreateApi,
     options?: RequestInit
 ): Promise<DeploymentProjectApi> => {
     return apiMutator<DeploymentProjectApi>(getDeploymentProjectsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(deploymentProjectApi),
+        body: JSON.stringify(deploymentProjectCreateApi),
     })
 }
 
@@ -491,5 +493,29 @@ export const deploymentProjectsDestroy = async (
     return apiMutator<void>(getDeploymentProjectsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDeploymentProjectsRefreshCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/deployment_projects/${id}/refresh/`
+}
+
+/**
+ * CRUD for DeploymentProject (the connected-repo + hosting-target entity).
+
+Create-time provisioning calls Cloudflare BEFORE writing the DB row
+(see services/provision_project.py for the rationale). Delete is a
+soft-delete; Cloudflare-side cleanup is deferred to a periodic Celery
+task.
+ * @summary Refresh a deployment project's GitHub branch
+ */
+export const deploymentProjectsRefreshCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DeploymentProjectRefreshResponseApi> => {
+    return apiMutator<DeploymentProjectRefreshResponseApi>(getDeploymentProjectsRefreshCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }

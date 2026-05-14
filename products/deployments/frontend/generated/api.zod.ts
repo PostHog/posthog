@@ -24,7 +24,6 @@ export const deploymentProjectsCreateBodySlugMax = 80
 export const deploymentProjectsCreateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
 export const deploymentProjectsCreateBodyRepoUrlMax = 1024
 
-export const deploymentProjectsCreateBodyDefaultBranchDefault = `main`
 export const deploymentProjectsCreateBodyDefaultBranchMax = 255
 
 export const deploymentProjectsCreateBodyOutputDirDefault = `dist`
@@ -49,18 +48,27 @@ export const DeploymentProjectsCreateBody = /* @__PURE__ */ zod.object({
     repo_url: zod
         .url()
         .max(deploymentProjectsCreateBodyRepoUrlMax)
+        .optional()
         .describe('HTTPS URL of the source repository this project deploys from.'),
     default_branch: zod
         .string()
         .max(deploymentProjectsCreateBodyDefaultBranchMax)
-        .default(deploymentProjectsCreateBodyDefaultBranchDefault)
-        .describe('Branch the project deploys from when no commit SHA is pinned. Defaults to `main`.'),
+        .optional()
+        .describe('Branch PostHog tracks for deployment updates. Defaults to the repository default branch.'),
     github_integration: zod
         .number()
         .nullish()
         .describe(
             'ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.'
         ),
+    github_integration_id: zod
+        .number()
+        .nullish()
+        .describe('Existing PostHog GitHub integration id used for repository access.'),
+    github_repo_id: zod
+        .number()
+        .nullish()
+        .describe("Stable GitHub repository identifier selected from the existing integration's repository list."),
     build_command: zod
         .string()
         .nullish()
@@ -159,13 +167,21 @@ export const DeploymentProjectsUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(deploymentProjectsUpdateBodyDefaultBranchMax)
         .default(deploymentProjectsUpdateBodyDefaultBranchDefault)
-        .describe('Branch the project deploys from when no commit SHA is pinned. Defaults to `main`.'),
+        .describe('Branch PostHog tracks for deployment updates. Defaults to the repository default branch.'),
     github_integration: zod
         .number()
         .nullish()
         .describe(
             'ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.'
         ),
+    github_integration_id: zod
+        .number()
+        .nullish()
+        .describe('Existing PostHog GitHub integration id used for repository access.'),
+    github_repo_id: zod
+        .number()
+        .nullish()
+        .describe("Stable GitHub repository identifier selected from the existing integration's repository list."),
     build_command: zod
         .string()
         .nullish()
@@ -238,13 +254,21 @@ export const DeploymentProjectsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(deploymentProjectsPartialUpdateBodyDefaultBranchMax)
         .default(deploymentProjectsPartialUpdateBodyDefaultBranchDefault)
-        .describe('Branch the project deploys from when no commit SHA is pinned. Defaults to `main`.'),
+        .describe('Branch PostHog tracks for deployment updates. Defaults to the repository default branch.'),
     github_integration: zod
         .number()
         .nullish()
         .describe(
             'ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.'
         ),
+    github_integration_id: zod
+        .number()
+        .nullish()
+        .describe('Existing PostHog GitHub integration id used for repository access.'),
+    github_repo_id: zod
+        .number()
+        .nullish()
+        .describe("Stable GitHub repository identifier selected from the existing integration's repository list."),
     build_command: zod
         .string()
         .nullish()
