@@ -208,6 +208,15 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
             visible,
         }),
         setTenantQueryTableSearch: (search: string) => ({ search }),
+        startEditingTenantQueryTableColumn: (tableId: string, tenantColumnName: string) => ({
+            tableId,
+            tenantColumnName,
+        }),
+        setTenantQueryTableColumnDraft: (tableId: string, tenantColumnName: string) => ({
+            tableId,
+            tenantColumnName,
+        }),
+        cancelEditingTenantQueryTableColumn: true,
         saveTenantQueryTableColumnOverride: (tableId: string, tableName: string, tenantColumnName: string) => ({
             tableId,
             tableName,
@@ -288,6 +297,27 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
             '',
             {
                 setTenantQueryTableSearch: (_, { search }) => search,
+            },
+        ],
+        editingTenantQueryTableColumnId: [
+            null as string | null,
+            {
+                startEditingTenantQueryTableColumn: (_, { tableId }) => tableId,
+                cancelEditingTenantQueryTableColumn: () => null,
+                loadTenantQueryConfigSuccess: () => null,
+            },
+        ],
+        tenantQueryTableColumnDrafts: [
+            {} as Record<string, string>,
+            {
+                startEditingTenantQueryTableColumn: (state, { tableId, tenantColumnName }) => ({
+                    ...state,
+                    [tableId]: tenantColumnName,
+                }),
+                setTenantQueryTableColumnDraft: (state, { tableId, tenantColumnName }) => ({
+                    ...state,
+                    [tableId]: tenantColumnName,
+                }),
             },
         ],
         savingTenantQueryTableColumnOverride: [
@@ -459,6 +489,7 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
                 actions.loadTenantQueryConfigSuccess(response)
                 actions.resetTenantQueryConfigForm(configToForm(response))
                 actions.setTenantQueryConfigWarning(disabledTablesWarning(response.disabled_tables))
+                actions.cancelEditingTenantQueryTableColumn()
                 lemonToast.success('Tenant column saved')
             } catch (error: any) {
                 actions.setTenantQueryConfigError(tenantQueryConfigErrorMessage(error))

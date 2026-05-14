@@ -26,7 +26,7 @@ export function Deployments({ tabId }: { tabId?: string } = {}): JSX.Element {
                     name={sceneConfigurations[Scene.Deployments].name}
                     description={sceneConfigurations[Scene.Deployments].description}
                     resourceType={{
-                        type: sceneConfigurations[Scene.Deployments].iconType || 'live',
+                        type: sceneConfigurations[Scene.Deployments].iconType || 'deployments',
                     }}
                 />
                 {/* TODO(deployments-v1): render <CurrentDeploymentCard/> with the team's currently-serving deployment. */}

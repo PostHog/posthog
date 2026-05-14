@@ -101,6 +101,7 @@ class Feature(StrEnum):
     ENDPOINT_LAST_EXECUTION = "endpoint_last_execution"  # Usage tab query_log lookup
     POSTHOG_AI = "posthog_ai"
     MCP = "mcp"
+    TENANT_QUERY = "tenant_query"
 
 
 class FallbackTags(TypedDict):

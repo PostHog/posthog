@@ -23,6 +23,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -419,7 +420,7 @@ def _tenant_column_name_for_direct_postgres_table(
 
 
 def _tenant_column_output_names(config: DataWarehouseTenantQueryConfig) -> set[str]:
-    return {config.tenant_column_name}
+    return {config.tenant_column_name, *_tenant_column_overrides(config).values()}
 
 
 def _disable_schemas_without_tenant_column(source: ExternalDataSource, schemas: list[ExternalDataSchema]) -> list[str]:
@@ -462,12 +463,13 @@ def _tenant_metadata_field_rows(
     omit_source_schema = _enabled_schemas_use_single_source_schema(schemas)
     for schema in schemas:
         table_name = _tenant_query_table_name(schema, omit_source_schema=omit_source_schema)
+        tenant_column_name = _tenant_column_name_for_schema(schema, config)
         for column in _postgres_schema_columns(schema):
             column_name = column.get("name")
             postgres_type = column.get("data_type")
             if not isinstance(column_name, str) or not isinstance(postgres_type, str):
                 continue
-            if column_name == config.tenant_column_name:
+            if column_name == tenant_column_name:
                 continue
 
             rows.append(
@@ -806,12 +808,13 @@ def _tenant_query_logs_filter(
 
 
 def _execute_tenant_query_logs(team: Team, query: ast.SelectQuery) -> list[list[object]]:
-    response = execute_hogql_query(
-        query=query,
-        team=team,
-        query_type="TenantQueryLogs",
-        limit_context=LimitContext.QUERY,
-    )
+    with tags_context(product="warehouse", feature="tenant_query"):
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            query_type="TenantQueryLogs",
+            limit_context=LimitContext.QUERY,
+        )
     return response.results or []
 
 
@@ -1342,9 +1345,7 @@ def apply_tenant_query_config(
             missing_table_names.append(table.to_printed_hogql())
             continue
 
-        default_tenant_field = table.fields.get(config.tenant_column_name)
-        if default_tenant_field is not None:
-            table.fields[config.tenant_column_name] = _hide_tenant_field(default_tenant_field)
+        table.fields[tenant_column_name] = _hide_tenant_field(tenant_field)
         table.predicates = [
             *table.predicates,
             ast.CompareOperation(

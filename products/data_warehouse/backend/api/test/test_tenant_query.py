@@ -311,7 +311,7 @@ class TestTenantQuery(APIBaseTest):
         assert "customer_id = 42" in sql
         assert "LIMIT 100" in sql
 
-    def test_injects_per_table_tenant_predicate_and_keeps_override_column_from_asterisk(self):
+    def test_injects_per_table_tenant_predicate_and_hides_override_column_from_asterisk(self):
         source = self._create_direct_source()
         self._create_table(
             source,
@@ -328,9 +328,8 @@ class TestTenantQuery(APIBaseTest):
         sql = self._prepare_sql(source, config, "select * from bookings")
 
         normalized_sql = sql.lower()
-        assert normalized_sql.count("bookings.account_id") >= 2
+        assert " as account_id" not in normalized_sql
         assert "account_id = 42" in sql
-        assert "bookings.customer_id" not in normalized_sql
         assert "LIMIT 100" in sql
 
     def test_allows_unqualified_table_names_for_single_schema_direct_connections(self):
@@ -381,7 +380,7 @@ class TestTenantQuery(APIBaseTest):
                 query="select customer_id from trips",
             )
 
-    def test_allows_explicit_per_table_tenant_column_output(self):
+    def test_rejects_explicit_per_table_tenant_column_output(self):
         source = self._create_direct_source()
         self._create_table(source)
         self._create_table(
@@ -391,27 +390,14 @@ class TestTenantQuery(APIBaseTest):
         )
         self._create_config(source, tenant_column_names_by_table={"bookings": "account_id"})
 
-        response = Mock()
-        response.results = [[42]]
-        response.model_dump.return_value = {"columns": ["account_id"], "results": [[42]], "types": []}
-
-        with patch("products.data_warehouse.backend.tenant_query.HogQLQueryExecutor") as executor_class:
-            executor = executor_class.return_value
-            executor.execute.return_value = response
-            executor.direct_postgres_sql = "SELECT account_id FROM bookings WHERE account_id = 42"
-            executor._get_select_query_type.return_value = None
-
-            result, row_count = execute_tenant_query(
+        with self.assertRaisesRegex(Exception, "Tenant column `account_id` cannot be selected"):
+            execute_tenant_query(
                 team=self.team,
                 user=self.user,
                 connection_id=str(source.id),
                 tenant_value=42,
                 query="select account_id from bookings",
             )
-
-        assert row_count == 1
-        assert result["columns"] == ["account_id"]
-        assert result["results"] == [[42]]
 
     def test_rejects_derived_tenant_column_output(self):
         source = self._create_direct_source()
@@ -663,18 +649,13 @@ class TestTenantQuery(APIBaseTest):
         assert ["trips", "name", "text"] in result["results"]
         assert all(row[1] != "customer_id" for row in result["results"])
 
-    def test_metadata_fields_query_keeps_per_table_tenant_column(self):
+    def test_metadata_fields_query_hides_per_table_tenant_column(self):
         source = self._create_direct_source()
         self._create_table(source)
         self._create_table(
             source,
             name="bookings",
-            postgres_columns=[
-                ("id", "bigint", False),
-                ("customer_id", "bigint", False),
-                ("account_id", "bigint", False),
-                ("name", "text", True),
-            ],
+            postgres_columns=[("id", "bigint", False), ("account_id", "bigint", False), ("name", "text", True)],
         )
         self._create_config(source, tenant_column_names_by_table={"bookings": "account_id"})
 
@@ -687,9 +668,8 @@ class TestTenantQuery(APIBaseTest):
         )
 
         assert ["bookings", "id", "bigint"] in result["results"]
-        assert ["bookings", "account_id", "bigint"] in result["results"]
         assert ["bookings", "name", "text"] in result["results"]
-        assert all(row[1] != "customer_id" for row in result["results"])
+        assert all(row[1] != "account_id" for row in result["results"])
 
     def test_metadata_nested_asterisk_query_uses_resolved_subquery_columns(self):
         source = self._create_direct_source()

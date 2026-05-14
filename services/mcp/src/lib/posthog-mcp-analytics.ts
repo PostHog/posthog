@@ -60,6 +60,8 @@ async function buildEventProperties(identity: PostHogMcpAnalyticsIdentityProvide
         transport,
         mcpConsumer,
         mcpMode,
+        mcpSessionId,
+        mcpConversationId,
     ] = await Promise.all([
         identity.getMcpVersion(),
         identity.getClientUserAgent(),
@@ -73,6 +75,8 @@ async function buildEventProperties(identity: PostHogMcpAnalyticsIdentityProvide
         identity.getTransport(),
         identity.getMcpConsumer(),
         identity.getMcpMode(),
+        identity.getMcpSessionId(),
+        identity.getMcpConversationId(),
     ])
 
     const groups = {
@@ -97,6 +101,8 @@ async function buildEventProperties(identity: PostHogMcpAnalyticsIdentityProvide
         $mcp_transport: transport,
         $mcp_consumer: mcpConsumer,
         $mcp_mode: mcpMode,
+        $mcp_session_id: mcpSessionId,
+        $mcp_conversation_id: mcpConversationId,
         ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
     }
 }
@@ -126,6 +132,7 @@ export async function initPostHogMcpAnalytics(
             apiKey: posthogApiKey,
             context: options.contextEnabled,
             enableAITracing: true,
+            enableConversationId: true,
             enableTracing: true,
             host: posthogHost,
             identify: async () => identifyResult,

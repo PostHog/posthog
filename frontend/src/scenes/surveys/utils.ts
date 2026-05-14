@@ -946,6 +946,37 @@ export const isThumbQuestion = (question: SurveyQuestion): boolean => {
     )
 }
 
+/**
+ * Splits text pasted into a choice input on newlines or tabs (spreadsheet rows).
+ * Returns the merged choices array, or `null` if there's nothing to split (the caller
+ * should let the paste fall through to the default input behavior).
+ *
+ * Always keeps the open-ended ("Other") entry as the last item when `hasOpenChoice`
+ * is true — including when the paste happens into the open-ended slot itself.
+ */
+export function splitChoicesOnPaste(
+    pasted: string,
+    choices: string[],
+    choiceIndex: number,
+    hasOpenChoice: boolean
+): string[] | null {
+    const segments = pasted
+        .split(/[\n\t]+/)
+        .map((segment) => segment.trim())
+        .filter((segment) => segment.length > 0)
+
+    if (segments.length <= 1) {
+        return null
+    }
+
+    const openTail = hasOpenChoice ? [choices[choices.length - 1]] : []
+    const head = choices.slice(0, choiceIndex)
+    const tailStart = choiceIndex + 1
+    const tailEnd = hasOpenChoice ? choices.length - 1 : choices.length
+    const tail = choices.slice(tailStart, tailEnd)
+    return [...head, ...segments, ...tail, ...openTail]
+}
+
 export type SurveyConditionType =
     | 'url'
     | 'selector'
