@@ -16,16 +16,17 @@ export function PostHogCodeDiscordIntegration(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const { posthogCodeDiscordIntegrations, posthogCodeDiscordAvailable } = useValues(integrationsLogic)
+    const { getIntegrationsByKind, posthogCodeDiscordAvailable } = useValues(integrationsLogic)
     const flagEnabled = useFeatureFlag('POSTHOG_BOT_EVERYWHERE')
     const canConnect = posthogCodeDiscordAvailable && flagEnabled
+    const integrations = getIntegrationsByKind(['discord-posthog-code'])
 
     return (
         <div>
             <p>Connect Discord to PostHog Code to kick off tasks like pull requests directly from Discord.</p>
 
             <div className="deprecated-space-y-2">
-                {posthogCodeDiscordIntegrations?.map((integration) => (
+                {integrations.map((integration) => (
                     <IntegrationView key={integration.id} integration={integration} />
                 ))}
 

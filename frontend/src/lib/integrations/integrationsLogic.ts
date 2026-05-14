@@ -392,18 +392,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return integrations?.filter((x) => x.kind == 'slack')
             },
         ],
-        posthogCodeSlackIntegrations: [
-            (s) => [s.integrations],
-            (integrations) => {
-                return integrations?.filter((x) => x.kind === 'slack-posthog-code')
-            },
-        ],
-        posthogCodeDiscordIntegrations: [
-            (s) => [s.integrations],
-            (integrations) => {
-                return integrations?.filter((x) => x.kind === 'discord-posthog-code')
-            },
-        ],
         getIntegrationsByKind: [
             (s) => [s.integrations],
             (integrations) => {

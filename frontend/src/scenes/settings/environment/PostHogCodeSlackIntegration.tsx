@@ -14,16 +14,17 @@ export function PostHogCodeSlackIntegration(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const { posthogCodeSlackIntegrations, posthogCodeSlackAvailable } = useValues(integrationsLogic)
+    const { getIntegrationsByKind, posthogCodeSlackAvailable } = useValues(integrationsLogic)
     const flagEnabled = useFeatureFlag('POSTHOG_CODE_SLACK_AVAILABILITY')
     const canConnect = posthogCodeSlackAvailable && flagEnabled
+    const integrations = getIntegrationsByKind(['slack-posthog-code'])
 
     return (
         <div>
             <p>Connect Slack to PostHog Code to kick off tasks like pull requests directly from Slack.</p>
 
             <div className="deprecated-space-y-2">
-                {posthogCodeSlackIntegrations?.map((integration) => (
+                {integrations.map((integration) => (
                     <IntegrationView key={integration.id} integration={integration} />
                 ))}
 
