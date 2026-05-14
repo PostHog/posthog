@@ -90,7 +90,7 @@ class DeploymentProject(ModelActivityMixin, ProductTeamModel, DeletedMetaFields)
             ),
         ]
         indexes = [
-            models.Index(fields=["team_id", "-created_at"], name="deployments_team_id_e8b09b_idx"),
+            models.Index(fields=["team_id", "-created_at"]),
             models.Index(fields=("team_id", "github_integration_id"), name="deploy_project_team_int_idx"),
         ]
 
@@ -234,7 +234,7 @@ class DeploymentEvent(ProductTeamModel):
     occurred_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        indexes = [models.Index(fields=["deployment", "occurred_at"], name="deployments_deploym_3a8e69_idx")]
+        indexes = [models.Index(fields=["deployment", "occurred_at"])]
         ordering = ("-occurred_at",)
 
     def __str__(self) -> str:
