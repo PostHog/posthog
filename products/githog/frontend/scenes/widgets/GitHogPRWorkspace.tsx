@@ -570,8 +570,12 @@ function GitHogPRWorkspaceInner({
                     )}
                 </div>
 
-                {/* Sticky chat column — viewport-bound height so it's always fully visible */}
-                <aside className="w-80 shrink-0 sticky top-4 self-start h-[calc(100vh-6rem)]">
+                {/* Sticky chat column — viewport-bound height. The subtraction
+                    accounts for the top nav + SceneTitleSection + workspace
+                    header above this aside, plus a small bottom buffer, so the
+                    chat is fully visible both at the initial scroll position
+                    and once the panel sticks. */}
+                <aside className="w-80 shrink-0 sticky top-4 self-start min-h-[400px] h-[calc(100dvh-16rem)] max-h-[calc(100dvh-2rem)]">
                     <LemonCard hoverEffect={false} className="p-0 overflow-hidden h-full flex flex-col">
                         <AgentWidget
                             owner={owner}
