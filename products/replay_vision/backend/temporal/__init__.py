@@ -3,6 +3,8 @@ from typing import Any
 
 from products.replay_vision.backend.temporal.activities import (
     create_observation_activity,
+    ensure_session_asset_activity,
+    fetch_session_events_activity,
     mark_observation_failed_activity,
     mark_observation_running_activity,
 )
@@ -13,6 +15,8 @@ ACTIVITIES: list[Callable[..., Any]] = [
     create_observation_activity,
     mark_observation_running_activity,
     mark_observation_failed_activity,
+    fetch_session_events_activity,
+    ensure_session_asset_activity,
 ]
 
 __all__ = [
@@ -20,6 +24,8 @@ __all__ = [
     "WORKFLOWS",
     "ApplyLensWorkflow",
     "create_observation_activity",
+    "ensure_session_asset_activity",
+    "fetch_session_events_activity",
     "mark_observation_failed_activity",
     "mark_observation_running_activity",
 ]
