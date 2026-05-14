@@ -49,6 +49,13 @@ class LiveDebuggerProgram(UUIDModel):
         UNINSTALLED = "uninstalled", "Uninstalled"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    session = models.ForeignKey(
+        "live_debugger.LiveDebuggerSession",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="programs",
+    )
     code = models.TextField()
     description = models.TextField(blank=True, default="")
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.INSTALLED)
@@ -284,3 +291,50 @@ class LiveDebuggerBreakpoint(UUIDModel):
                 continue
 
         return processed_results
+
+
+class LiveDebuggerSession(UUIDModel):
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        CLOSED = "closed", "Closed"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    title = models.TextField()
+    description = models.TextField(blank=True, default="")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.OPEN)
+    created_at = models.DateTimeField(auto_now_add=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_livedebuggersession"
+        managed = True
+        indexes = [
+            models.Index(fields=["team_id", "status"], name="live_debug_sess_team_st_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Session {self.pk} ({self.status}) for team {self.team_id}"
+
+
+class LiveDebuggerSessionEntry(UUIDModel):
+    class Kind(models.TextChoices):
+        NOTE = "note", "Note"
+        PROGRAM_INSTALL = "program_install", "Program install"
+        PROGRAM_UNINSTALL = "program_uninstall", "Program uninstall"
+        EVENT_HIGHLIGHT = "event_highlight", "Event highlight"
+        CONCLUSION = "conclusion", "Conclusion"
+
+    session = models.ForeignKey(LiveDebuggerSession, on_delete=models.CASCADE, related_name="entries")
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    payload = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_livedebuggersessionentry"
+        managed = True
+        indexes = [
+            models.Index(fields=["session_id", "created_at"], name="live_debug_entry_sess_ts_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Entry {self.pk} ({self.kind}) in session {self.session_id}"
