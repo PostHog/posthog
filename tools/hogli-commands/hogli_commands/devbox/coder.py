@@ -45,9 +45,11 @@ GIT_SIGNING_KEY_SECRET = "POSTHOG_GIT_SIGNING_KEY"
 # Coder rejects --parameter values for keys the chosen template does not
 # define, with this exact message: `parameter "X" is not present in the
 # template`. The check happens client-side before any provisioning starts,
-# so a failed call is cheap to retry. _run_create_with_param_retry drops the
-# offending key from the candidate set and retries on this match.
-_PARAM_NOT_PRESENT_RE = re.compile(r'parameter "([^"]+)" is not present')
+# so a failed call is cheap to retry. _run_with_param_retry drops the
+# offending key from the candidate set and retries on this match. Anchored
+# to the start of a line so a user-supplied parameter value containing this
+# phrase cannot trick the matcher.
+_PARAM_NOT_PRESENT_RE = re.compile(r'^parameter "([^"]+)" is not present', re.MULTILINE)
 
 _STEP_RE = re.compile(r"^==>.*?(\w[\w ]+)")
 _LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
@@ -227,17 +229,20 @@ def _append_parameter_flags(args: list[str], parameters: dict[str, str]) -> list
     return out
 
 
-def _run_create_with_param_retry(
+def _run_with_param_retry(
     base_args: list[str],
     parameters: dict[str, str],
     *,
     verbose: bool = False,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a `coder create` build, dropping unknown parameters and retrying.
+    """Run a Coder build command, dropping unknown parameters and retrying.
 
-    Param validation happens client-side before any provisioning starts, so
-    retrying after a `parameter "X" is not present in the template` error is
-    cheap and safe. All other failures bubble up unchanged.
+    Coder validates ``--parameter`` keys client-side before any provisioning
+    starts, so retrying after a `parameter "X" is not present in the
+    template` error is cheap and safe. All other failures bubble up
+    unchanged. Used by every write path that forwards parameters (`coder
+    create`, `coder update`) so callers never have to know which keys the
+    chosen template happens to accept.
     """
     remaining = dict(parameters)
     while True:
@@ -783,7 +788,7 @@ def create_workspace(
         "--use-parameter-defaults",
         "--yes",
     ]
-    result = _run_create_with_param_retry(base_args, parameters, verbose=verbose)
+    result = _run_with_param_retry(base_args, parameters, verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
@@ -819,10 +824,13 @@ def update_workspace(
 
     ``--use-parameter-defaults`` lets coder fall back to the template's own
     defaults for any parameter not explicitly supplied here, so we never
-    need a hogli-side defaults dict.
+    need a hogli-side defaults dict. Parameters carried over from a
+    previous template (e.g. a saved ``dotfiles_uri`` that the new template
+    does not declare) are dropped by the retry shim instead of aborting
+    the update.
     """
     base_args = ["coder", "update", name, "--use-parameter-defaults"]
-    result = _run_build(_append_parameter_flags(base_args, parameters or {}), verbose=verbose)
+    result = _run_with_param_retry(base_args, parameters or {}, verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
@@ -835,9 +843,14 @@ def delete_workspace(name: str, *, verbose: bool = False) -> None:
 
 
 def update_workspace_parameters(name: str, parameters: dict[str, str]) -> None:
-    """Update mutable workspace parameters."""
+    """Update mutable workspace parameters.
+
+    Goes through the same retry shim as ``create_workspace`` so a stale
+    local config key (for example, a saved ``dotfiles_uri`` after the user
+    switches templates) does not abort the pre-start sync.
+    """
     base_args = ["coder", "update", name, "--use-parameter-defaults"]
-    result = _run(_append_parameter_flags(base_args, parameters))
+    result = _run_with_param_retry(base_args, parameters)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
