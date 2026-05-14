@@ -9,7 +9,7 @@ import { z } from 'zod'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
-import { createExecTool, type ExecInnerCallProperties } from '@/tools/exec'
+import { createExecTool, type ExecInnerCallProperties, parseExecCallInnerToolName } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -337,6 +337,44 @@ describe('exec tool', () => {
             const queryTrends = makeMockTool({ name: 'query-trends', description: 'Run a trends query' })
             const exec = createExec([queryTrends])
             await expect(exec.handler(mockContext, { command: 'call query-run {}' })).rejects.toThrow(/query-trends/)
+        })
+    })
+
+    describe('parseExecCallInnerToolName', () => {
+        it('extracts the inner tool name from a basic call command', () => {
+            expect(parseExecCallInnerToolName('call my-tool {}')).toBe('my-tool')
+        })
+
+        it('extracts the inner tool name from a call command with no JSON body', () => {
+            expect(parseExecCallInnerToolName('call my-tool')).toBe('my-tool')
+        })
+
+        it('extracts the inner tool name when --json flag is present', () => {
+            expect(parseExecCallInnerToolName('call --json my-tool {}')).toBe('my-tool')
+        })
+
+        it('handles extra whitespace around the call command', () => {
+            expect(parseExecCallInnerToolName('  call   my-tool   {}  ')).toBe('my-tool')
+        })
+
+        it('returns undefined for non-call verbs that still target a tool', () => {
+            // info/schema/etc. don't actually invoke the inner tool — the resolver
+            // is intentionally scoped to `call` so it only fires for real invocations.
+            expect(parseExecCallInnerToolName('info my-tool')).toBeUndefined()
+            expect(parseExecCallInnerToolName('schema my-tool')).toBeUndefined()
+            expect(parseExecCallInnerToolName('search query-')).toBeUndefined()
+            expect(parseExecCallInnerToolName('tools')).toBeUndefined()
+        })
+
+        it('returns undefined for a bare call verb with no tool name', () => {
+            expect(parseExecCallInnerToolName('call')).toBeUndefined()
+            expect(parseExecCallInnerToolName('call ')).toBeUndefined()
+            expect(parseExecCallInnerToolName('call --json')).toBeUndefined()
+        })
+
+        it('returns undefined for empty or garbage input', () => {
+            expect(parseExecCallInnerToolName('')).toBeUndefined()
+            expect(parseExecCallInnerToolName('   ')).toBeUndefined()
         })
     })
 

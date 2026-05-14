@@ -48,13 +48,13 @@ describe('initPostHogMcpAnalytics', () => {
     function getTrackOptions(): {
         identify: () => Promise<unknown>
         eventTags: () => Promise<Record<string, string>>
-        eventProperties: () => Promise<Record<string, unknown>>
+        eventProperties: (request?: unknown) => Promise<Record<string, unknown>>
     } {
         const call = vi.mocked(track).mock.calls[0]!
         return call[1] as {
             identify: () => Promise<unknown>
             eventTags: () => Promise<Record<string, string>>
-            eventProperties: () => Promise<Record<string, unknown>>
+            eventProperties: (request?: unknown) => Promise<Record<string, unknown>>
         }
     }
 
@@ -211,6 +211,58 @@ describe('initPostHogMcpAnalytics', () => {
                 project: 'proj-uuid-101',
             },
         })
+    })
+
+    it('eventProperties adds $mcp_exec_tool_call_description when the resolver returns one', async () => {
+        const server = new McpServer({ name: 'test', version: '1.0.0' })
+        const identity = createMockIdentity()
+        const resolveExecInnerToolDescription = vi.fn().mockReturnValue('Run a HogQL/SQL query.')
+
+        await initPostHogMcpAnalytics(server, identity, {
+            contextEnabled: false,
+            reportMissingEnabled: false,
+            resolveExecInnerToolDescription,
+        })
+
+        const fakeRequest = { params: { name: 'exec', arguments: { command: 'call execute-sql {}' } } }
+        const properties = await getTrackOptions().eventProperties(fakeRequest)
+
+        expect(resolveExecInnerToolDescription).toHaveBeenCalledWith(fakeRequest)
+        expect(properties.$mcp_exec_tool_call_description).toBe('Run a HogQL/SQL query.')
+        // Identity-derived properties should still be there.
+        expect(properties.$mcp_organization_id).toBe('org-789')
+    })
+
+    it('eventProperties omits $mcp_exec_tool_call_description when the resolver returns undefined', async () => {
+        const server = new McpServer({ name: 'test', version: '1.0.0' })
+        const identity = createMockIdentity()
+        const resolveExecInnerToolDescription = vi.fn().mockReturnValue(undefined)
+
+        await initPostHogMcpAnalytics(server, identity, {
+            contextEnabled: false,
+            reportMissingEnabled: false,
+            resolveExecInnerToolDescription,
+        })
+
+        const properties = await getTrackOptions().eventProperties({
+            params: { name: 'mcp_initialize' },
+        })
+
+        expect(resolveExecInnerToolDescription).toHaveBeenCalled()
+        expect(properties).not.toHaveProperty('$mcp_exec_tool_call_description')
+    })
+
+    it('eventProperties does not call the resolver when none is configured', async () => {
+        const server = new McpServer({ name: 'test', version: '1.0.0' })
+        const identity = createMockIdentity()
+
+        await initPostHogMcpAnalytics(server, identity)
+
+        const properties = await getTrackOptions().eventProperties({
+            params: { name: 'exec', arguments: { command: 'call execute-sql {}' } },
+        })
+
+        expect(properties).not.toHaveProperty('$mcp_exec_tool_call_description')
     })
 
     it('eventProperties callback omits $groups when analytics context is unavailable', async () => {
