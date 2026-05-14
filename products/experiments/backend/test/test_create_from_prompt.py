@@ -42,7 +42,7 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         payload: dict[str, Any] = {
             "prompt_name": self.prompt_name,
             "versions": [1, 2],
-            "template": "cost",
+            "templates": ["cost"],
         }
         payload.update(overrides)
         return self.client.post(
@@ -67,7 +67,7 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
     )
     def test_happy_path(self, template_name: str, n: int) -> None:
         versions = list(range(1, n + 1))
-        response = self._post(template=template_name, versions=versions)
+        response = self._post(templates=[template_name], versions=versions)
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         body = response.json()
@@ -79,7 +79,7 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         # parameters.prompt_metadata round-trips
         prompt_metadata = experiment.parameters["prompt_metadata"]
         self.assertEqual(prompt_metadata["name"], self.prompt_name)
-        self.assertEqual(prompt_metadata["template"], template_name)
+        self.assertEqual(prompt_metadata["templates"], [template_name])
         self.assertEqual(prompt_metadata["versions"], versions)
 
         # Variant split distribution sums to 100 with the right shape
@@ -118,6 +118,23 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         prompt_filter = next(p for p in properties if p.get("key") == "$ai_prompt_name")
         self.assertEqual(prompt_filter["value"], self.prompt_name)
 
+    def test_multiple_templates_creates_one_metric_each(self) -> None:
+        # Pick all available templates so we exercise both mean and ratio shapes.
+        templates = list(TEMPLATE_NAMES)
+        response = self._post(templates=templates)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+        experiment = Experiment.objects.get(pk=response.json()["id"])
+        self.assertEqual(experiment.parameters["prompt_metadata"]["templates"], templates)
+
+        # One metric per template, in the same order, each scoped to the prompt.
+        self.assertEqual(len(experiment.metrics), len(templates))
+        for metric in experiment.metrics:
+            source_or_numerator = metric.get("source") or metric.get("numerator")
+            assert source_or_numerator is not None
+            prompt_filter = next(p for p in source_or_numerator["properties"] if p.get("key") == "$ai_prompt_name")
+            self.assertEqual(prompt_filter["value"], self.prompt_name)
+
     def test_uses_provided_name_and_feature_flag_key(self) -> None:
         response = self._post(name="My custom name", feature_flag_key="my-custom-key")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
@@ -125,14 +142,15 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         self.assertEqual(experiment.name, "My custom name")
         self.assertEqual(experiment.feature_flag.key, "my-custom-key")
 
-    def test_default_name_includes_versions_and_template(self) -> None:
-        response = self._post(versions=[2, 4], template="latency")
+    def test_default_name_includes_versions_and_templates(self) -> None:
+        response = self._post(versions=[2, 4], templates=["latency", "cost"])
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         experiment = Experiment.objects.get(pk=response.json()["id"])
         self.assertIn(self.prompt_name, experiment.name)
         self.assertIn("v2", experiment.name)
         self.assertIn("v4", experiment.name)
         self.assertIn("latency", experiment.name)
+        self.assertIn("cost", experiment.name)
 
     def test_400_when_versions_too_short(self) -> None:
         response = self._post(versions=[1])
@@ -158,13 +176,22 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_400_when_template_unknown(self) -> None:
-        response = self._post(template="bogus")
+        response = self._post(templates=["bogus"])
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_400_when_templates_empty(self) -> None:
+        response = self._post(templates=[])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_400_when_templates_have_duplicates(self) -> None:
+        response = self._post(templates=["cost", "cost"])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("duplicates", str(response.json()))
 
     def test_list_filter_by_prompt_name(self) -> None:
         # Create two experiments for this prompt
-        created1 = self._post(versions=[1, 2], template="cost").json()
-        created2 = self._post(versions=[2, 3], template="latency").json()
+        created1 = self._post(versions=[1, 2], templates=["cost"]).json()
+        created2 = self._post(versions=[2, 3], templates=["latency"]).json()
         # And an unrelated experiment (no prompt_metadata)
         self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -185,7 +212,7 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         self.assertEqual(body["count"], 2)
 
     def test_list_filter_with_unknown_prompt_name_returns_empty(self) -> None:
-        self._post(versions=[1, 2], template="cost")
+        self._post(versions=[1, 2], templates=["cost"])
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/?prompt_name=does-not-exist")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 0)

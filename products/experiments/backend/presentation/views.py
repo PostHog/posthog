@@ -463,10 +463,11 @@ class EnterpriseExperimentsViewSet(
         """
         Create an experiment that compares N versions of an LLM prompt using a metric template.
 
-        The user picks 2+ versions of an existing LLMPrompt and a template (cost / latency /
-        eval_pass_rate). The endpoint builds the matching variants (control + test-N, each
-        named after its prompt version) and attaches the template metric scoped to the prompt's
-        $ai_prompt_name. Resulting experiment is in draft state.
+        The user picks 2+ versions of an existing LLMPrompt and 1+ metric templates
+        (cost / latency / eval_pass_rate). The endpoint builds the matching variants
+        (control + test-N, each named after its prompt version) and attaches one
+        metric per selected template, each scoped to the prompt's $ai_prompt_name.
+        Resulting experiment is in draft state.
         """
         serializer = CreateFromPromptInputSerializer(data=request.data, context={"team": self.team})
         serializer.is_valid(raise_exception=True)
@@ -474,13 +475,17 @@ class EnterpriseExperimentsViewSet(
 
         prompt_name: str = data["prompt_name"]
         versions: list[int] = data["versions"]
-        template: str = data["template"]
+        templates: list[str] = data["templates"]
         versions_label = ", ".join(f"v{v}" for v in versions)
-        name = data.get("name") or f"{prompt_name}: {versions_label} ({template})"
+        templates_label = ", ".join(templates)
+        name = data.get("name") or f"{prompt_name}: {versions_label} ({templates_label})"
         feature_flag_key = data.get("feature_flag_key") or _slugify_feature_flag_key(name, team_id=self.team.id)
 
-        metric_dict = build_template(template, prompt_name).model_dump(exclude_none=True)
-        metric_dict.setdefault("kind", "ExperimentMetric")
+        metrics: list[dict[str, Any]] = []
+        for template in templates:
+            metric_dict = build_template(template, prompt_name).model_dump(exclude_none=True)
+            metric_dict.setdefault("kind", "ExperimentMetric")
+            metrics.append(metric_dict)
 
         variants = _build_prompt_variants(versions)
         # Encode (prompt_name, prompt_version) as a JSON payload per variant so the SDK can
@@ -501,11 +506,11 @@ class EnterpriseExperimentsViewSet(
                 "rollout_percentage": 100,
                 "prompt_metadata": {
                     "name": prompt_name,
-                    "template": template,
+                    "templates": templates,
                     "versions": versions,
                 },
             },
-            metrics=[metric_dict],
+            metrics=metrics,
             serializer_context=self.get_serializer_context(),
             allow_unknown_events=True,
         )

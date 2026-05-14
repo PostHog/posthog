@@ -758,10 +758,11 @@ export const getExperimentsCreateFromPromptCreateUrl = (projectId: string) => {
 /**
  * Create an experiment that compares N versions of an LLM prompt using a metric template.
 
-The user picks 2+ versions of an existing LLMPrompt and a template (cost / latency /
-eval_pass_rate). The endpoint builds the matching variants (control + test-N, each
-named after its prompt version) and attaches the template metric scoped to the prompt's
-$ai_prompt_name. Resulting experiment is in draft state.
+The user picks 2+ versions of an existing LLMPrompt and 1+ metric templates
+(cost / latency / eval_pass_rate). The endpoint builds the matching variants
+(control + test-N, each named after its prompt version) and attaches one
+metric per selected template, each scoped to the prompt's $ai_prompt_name.
+Resulting experiment is in draft state.
  */
 export const experimentsCreateFromPromptCreate = async (
     projectId: string,

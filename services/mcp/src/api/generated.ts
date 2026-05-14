@@ -7986,10 +7986,10 @@ export namespace Schemas {
     * `latency` - latency
     * `eval_pass_rate` - eval_pass_rate
      */
-    export type TemplateEnum = typeof TemplateEnum[keyof typeof TemplateEnum];
+    export type TemplatesEnum = typeof TemplatesEnum[keyof typeof TemplatesEnum];
 
 
-    export const TemplateEnum = {
+    export const TemplatesEnum = {
       Cost: 'cost',
       Latency: 'latency',
       EvalPassRate: 'eval_pass_rate',
@@ -8004,12 +8004,12 @@ export namespace Schemas {
          * @maxItems 10
          */
       versions: number[];
-      /** The metric template to attach as the experiment's primary metric.
-
-      * `cost` - cost
-      * `latency` - latency
-      * `eval_pass_rate` - eval_pass_rate */
-      template: TemplateEnum;
+      /**
+         * One or more metric templates to attach as primary metrics. Each template becomes one metric on the experiment. Allowed values: cost, latency, eval_pass_rate.
+         * @minItems 1
+         * @maxItems 3
+         */
+      templates: TemplatesEnum[];
       /** Optional experiment name. If omitted, a name is generated from the prompt and versions. */
       name?: string;
       /** Optional feature flag key. If omitted, a slug is derived from the experiment name. */

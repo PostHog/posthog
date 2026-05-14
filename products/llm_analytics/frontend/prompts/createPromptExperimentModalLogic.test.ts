@@ -76,7 +76,7 @@ describe('createPromptExperimentModalLogic', () => {
             promptName: MOCK_PROMPT_NAME,
             promptVersions: MOCK_VERSIONS,
             versionSlots: [null, null],
-            template: null,
+            selectedTemplates: [],
         })
     })
 
@@ -86,7 +86,7 @@ describe('createPromptExperimentModalLogic', () => {
 
         logic.actions.setVersionAt(0, 1)
         logic.actions.setVersionAt(1, 2)
-        logic.actions.setTemplate('cost')
+        logic.actions.toggleTemplate('cost')
 
         await expectLogic(logic, () => {
             logic.actions.submitCreate()
@@ -95,11 +95,42 @@ describe('createPromptExperimentModalLogic', () => {
         expect(mockExperimentsCreateFromPromptCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             prompt_name: MOCK_PROMPT_NAME,
             versions: [1, 2],
-            template: 'cost',
+            templates: ['cost'],
         })
     })
 
-    it('canSubmit is false until two distinct versions and a template are picked', async () => {
+    it('submitCreate posts all selected templates in toggle order', async () => {
+        logic.actions.openModal(MOCK_PROMPT_NAME, MOCK_VERSIONS)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setVersionAt(0, 1)
+        logic.actions.setVersionAt(1, 2)
+        logic.actions.toggleTemplate('cost')
+        logic.actions.toggleTemplate('latency')
+        logic.actions.toggleTemplate('eval_pass_rate')
+
+        await expectLogic(logic, () => {
+            logic.actions.submitCreate()
+        }).toFinishAllListeners()
+
+        expect(mockExperimentsCreateFromPromptCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            prompt_name: MOCK_PROMPT_NAME,
+            versions: [1, 2],
+            templates: ['cost', 'latency', 'eval_pass_rate'],
+        })
+    })
+
+    it('toggleTemplate removes a template that is already selected', async () => {
+        logic.actions.openModal(MOCK_PROMPT_NAME, MOCK_VERSIONS)
+        logic.actions.toggleTemplate('cost')
+        logic.actions.toggleTemplate('latency')
+        await expectLogic(logic).toMatchValues({ selectedTemplates: ['cost', 'latency'] })
+
+        logic.actions.toggleTemplate('cost')
+        await expectLogic(logic).toMatchValues({ selectedTemplates: ['latency'] })
+    })
+
+    it('canSubmit is false until two distinct versions and at least one template are picked', async () => {
         logic.actions.openModal(MOCK_PROMPT_NAME, MOCK_VERSIONS)
         await expectLogic(logic).toMatchValues({ canSubmit: false })
 
@@ -110,10 +141,14 @@ describe('createPromptExperimentModalLogic', () => {
         await expectLogic(logic).toMatchValues({ canSubmit: false })
 
         logic.actions.setVersionAt(1, 2)
-        await expectLogic(logic).toMatchValues({ canSubmit: false }) // still needs template
+        await expectLogic(logic).toMatchValues({ canSubmit: false }) // still needs at least one template
 
-        logic.actions.setTemplate('cost')
+        logic.actions.toggleTemplate('cost')
         await expectLogic(logic).toMatchValues({ canSubmit: true })
+
+        // Deselecting the last template should make submit invalid again.
+        logic.actions.toggleTemplate('cost')
+        await expectLogic(logic).toMatchValues({ canSubmit: false })
     })
 
     it('addVersionSlot grows the list and removeVersionSlot shrinks it', async () => {

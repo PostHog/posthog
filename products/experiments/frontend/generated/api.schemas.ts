@@ -614,9 +614,9 @@ export interface ShipVariantApi {
  * `latency` - latency
  * `eval_pass_rate` - eval_pass_rate
  */
-export type TemplateEnumApi = (typeof TemplateEnumApi)[keyof typeof TemplateEnumApi]
+export type TemplatesEnumApi = (typeof TemplatesEnumApi)[keyof typeof TemplatesEnumApi]
 
-export const TemplateEnumApi = {
+export const TemplatesEnumApi = {
     Cost: 'cost',
     Latency: 'latency',
     EvalPassRate: 'eval_pass_rate',
@@ -631,12 +631,12 @@ export interface CreateFromPromptInputApi {
      * @maxItems 10
      */
     versions: number[]
-    /** The metric template to attach as the experiment's primary metric.
-
-  * `cost` - cost
-  * `latency` - latency
-  * `eval_pass_rate` - eval_pass_rate */
-    template: TemplateEnumApi
+    /**
+     * One or more metric templates to attach as primary metrics. Each template becomes one metric on the experiment. Allowed values: cost, latency, eval_pass_rate.
+     * @minItems 1
+     * @maxItems 3
+     */
+    templates: TemplatesEnumApi[]
     /** Optional experiment name. If omitted, a name is generated from the prompt and versions. */
     name?: string
     /** Optional feature flag key. If omitted, a slug is derived from the experiment name. */

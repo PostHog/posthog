@@ -517,9 +517,15 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
             f"{CREATE_FROM_PROMPT_MIN_VERSIONS} and {CREATE_FROM_PROMPT_MAX_VERSIONS} distinct versions."
         ),
     )
-    template = serializers.ChoiceField(
-        choices=TEMPLATE_NAMES,
-        help_text="The metric template to attach as the experiment's primary metric.",
+    templates = serializers.ListField(
+        child=serializers.ChoiceField(choices=TEMPLATE_NAMES),
+        min_length=1,
+        max_length=len(TEMPLATE_NAMES),
+        help_text=(
+            "One or more metric templates to attach as primary metrics. "
+            "Each template becomes one metric on the experiment. "
+            f"Allowed values: {', '.join(TEMPLATE_NAMES)}."
+        ),
     )
     name = serializers.CharField(
         required=False,
@@ -540,6 +546,11 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
     def validate_versions(self, value: list[int]) -> list[int]:
         if len(set(value)) != len(value):
             raise ValidationError("versions must not contain duplicates.")
+        return value
+
+    def validate_templates(self, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValidationError("templates must not contain duplicates.")
         return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:

@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 
-import type { TemplateEnumApi } from '../../../experiments/frontend/generated/api.schemas'
+import type { TemplatesEnumApi } from '../../../experiments/frontend/generated/api.schemas'
 import { MAX_VERSIONS, createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
 
 function variantLabel(index: number): string {
@@ -19,7 +19,7 @@ export function CreatePromptExperimentModal(): JSX.Element | null {
         promptName,
         promptVersions,
         versionSlots,
-        template,
+        selectedTemplates,
         templates,
         templatesLoading,
         canSubmit,
@@ -27,15 +27,13 @@ export function CreatePromptExperimentModal(): JSX.Element | null {
         disabledVersionsByIndex,
         canAddSlot,
     } = useValues(createPromptExperimentModalLogic)
-    const { closeModal, setVersionAt, addVersionSlot, removeVersionSlot, setTemplate, submitCreate } = useActions(
+    const { closeModal, setVersionAt, addVersionSlot, removeVersionSlot, toggleTemplate, submitCreate } = useActions(
         createPromptExperimentModalLogic
     )
 
     if (!isModalOpen) {
         return null
     }
-
-    const selectedTemplate = templates.find((t) => t.key === template)
 
     return (
         <LemonModal isOpen onClose={closeModal} simple maxWidth="38rem">
@@ -117,20 +115,39 @@ export function CreatePromptExperimentModal(): JSX.Element | null {
                 </div>
 
                 <div className="space-y-2">
-                    <label className="text-sm font-medium">Metric template</label>
-                    <LemonSelect<TemplateEnumApi | null>
-                        value={template}
-                        placeholder={templatesLoading ? 'Loading templates…' : 'Pick a template'}
-                        options={templates.map((t) => ({
-                            label: t.label,
-                            value: t.key as TemplateEnumApi,
-                        }))}
-                        onChange={(v) => setTemplate(v ?? null)}
-                        loading={templatesLoading}
-                        data-attr="llma-prompt-experiment-template-select"
-                        fullWidth
-                    />
-                    {selectedTemplate ? <p className="text-secondary text-xs">{selectedTemplate.description}</p> : null}
+                    <label className="text-sm font-medium">Metrics</label>
+                    <p className="text-secondary text-xs">
+                        Pick one or more metric templates to attach as primary metrics. Each becomes a separate metric
+                        scoped to this prompt.
+                    </p>
+                    {templatesLoading ? (
+                        <p className="text-secondary text-xs">Loading templates…</p>
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                            {templates.map((t) => {
+                                const key = t.key as TemplatesEnumApi
+                                return (
+                                    <div
+                                        key={t.key}
+                                        className="flex items-start gap-2"
+                                        data-attr={`llma-prompt-experiment-template-row-${t.key}`}
+                                    >
+                                        <LemonCheckbox
+                                            checked={selectedTemplates.includes(key)}
+                                            onChange={() => toggleTemplate(key)}
+                                            data-attr={`llma-prompt-experiment-template-checkbox-${t.key}`}
+                                            label={
+                                                <span className="flex flex-col">
+                                                    <span className="text-sm font-medium">{t.label}</span>
+                                                    <span className="text-secondary text-xs">{t.description}</span>
+                                                </span>
+                                            }
+                                        />
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    )}
                 </div>
             </LemonModalContent>
 
@@ -147,7 +164,9 @@ export function CreatePromptExperimentModal(): JSX.Element | null {
                     type="primary"
                     onClick={submitCreate}
                     loading={isSubmitting}
-                    disabledReason={canSubmit ? undefined : 'Pick at least two distinct versions and a template'}
+                    disabledReason={
+                        canSubmit ? undefined : 'Pick at least two distinct versions and one metric template'
+                    }
                     data-attr="llma-prompt-experiment-submit"
                 >
                     Create experiment

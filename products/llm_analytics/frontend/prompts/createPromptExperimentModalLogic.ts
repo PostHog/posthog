@@ -13,7 +13,7 @@ import {
 } from '../../../experiments/frontend/generated/api'
 import type {
     ExperimentsPromptTemplatesRetrieve200Item,
-    TemplateEnumApi,
+    TemplatesEnumApi,
 } from '../../../experiments/frontend/generated/api.schemas'
 import type { createPromptExperimentModalLogicType } from './createPromptExperimentModalLogicType'
 
@@ -34,7 +34,7 @@ export const createPromptExperimentModalLogic = kea<createPromptExperimentModalL
         setVersionAt: (index: number, version: number | null) => ({ index, version }),
         addVersionSlot: true,
         removeVersionSlot: (index: number) => ({ index }),
-        setTemplate: (template: TemplateEnumApi | null) => ({ template }),
+        toggleTemplate: (template: TemplatesEnumApi) => ({ template }),
         submitCreate: true,
         submitCreateSuccess: (experimentId: number) => ({ experimentId }),
         submitCreateFailure: (error: string) => ({ error }),
@@ -74,12 +74,13 @@ export const createPromptExperimentModalLogic = kea<createPromptExperimentModalL
                     slots.map((existing, i) => (i === index ? version : existing)),
             },
         ],
-        template: [
-            null as TemplateEnumApi | null,
+        selectedTemplates: [
+            [] as TemplatesEnumApi[],
             {
-                openModal: () => null,
-                closeModal: () => null,
-                setTemplate: (_, { template }) => template,
+                openModal: () => [] as TemplatesEnumApi[],
+                closeModal: () => [] as TemplatesEnumApi[],
+                toggleTemplate: (selected, { template }) =>
+                    selected.includes(template) ? selected.filter((t) => t !== template) : [...selected, template],
             },
         ],
         isSubmitting: [
@@ -109,14 +110,14 @@ export const createPromptExperimentModalLogic = kea<createPromptExperimentModalL
             (slots: VersionSlots): number[] => slots.filter((v): v is number => v !== null),
         ],
         canSubmit: [
-            (s) => [s.selectedVersions, s.template, s.isSubmitting, s.promptName],
+            (s) => [s.selectedVersions, s.selectedTemplates, s.isSubmitting, s.promptName],
             (
                 versions: number[],
-                template: TemplateEnumApi | null,
+                selectedTemplates: TemplatesEnumApi[],
                 submitting: boolean,
                 promptName: string | null
             ): boolean => {
-                if (submitting || !template || !promptName) {
+                if (submitting || selectedTemplates.length === 0 || !promptName) {
                     return false
                 }
                 if (versions.length < MIN_VERSIONS) {
@@ -157,8 +158,8 @@ export const createPromptExperimentModalLogic = kea<createPromptExperimentModalL
                 lemonToast.error(message)
                 return
             }
-            if (!values.template) {
-                const message = 'Pick a template before submitting.'
+            if (values.selectedTemplates.length === 0) {
+                const message = 'Pick at least one metric template before submitting.'
                 actions.submitCreateFailure(message)
                 lemonToast.error(message)
                 return
@@ -173,7 +174,7 @@ export const createPromptExperimentModalLogic = kea<createPromptExperimentModalL
                 const experiment = await experimentsCreateFromPromptCreate(String(ApiConfig.getCurrentTeamId()), {
                     prompt_name: values.promptName,
                     versions: values.selectedVersions,
-                    template: values.template,
+                    templates: values.selectedTemplates,
                 })
                 actions.submitCreateSuccess(experiment.id)
                 lemonToast.success('Experiment created', {
