@@ -183,7 +183,7 @@ class MCPIntentClusterToolEntrySerializer(serializers.Serializer):
     pct = serializers.FloatField(
         read_only=True, help_text="Percentage of the cluster's calls that went to this tool, 0–100."
     )
-    errors = serializers.IntegerField(
+    errors = serializers.IntegerField(  # type: ignore[assignment]
         read_only=True, help_text="Number of error responses observed for this tool within the cluster."
     )
     error_rate_pct = serializers.FloatField(
@@ -193,7 +193,7 @@ class MCPIntentClusterToolEntrySerializer(serializers.Serializer):
 
 class MCPIntentClusterSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True, help_text="Stable cluster identifier within this snapshot.")
-    label = serializers.CharField(
+    label = serializers.CharField(  # type: ignore[assignment]
         read_only=True,
         help_text="Representative intent text for the cluster (the medoid intent closest to the cluster centroid).",
     )
