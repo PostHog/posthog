@@ -9,8 +9,8 @@ transition: slide-left
 
 # `ph`
 
-<div class="mt-6 text-white">
-  A CLI for PostHog — friendly to both <b>humans</b> and <b>agents</b>.
+<div class="mt-6 opacity-80">
+  A CLI for PostHog — friendly to both <b>humans</b> and <b>agents</b>
 </div>
 
 ---
@@ -38,7 +38,7 @@ Commands:
   ph api <method> <path> Make direct API calls
 ```
 
-<div class="mt-4 text-white">
+<div class="mt-4 opacity-80">
   Same shape everywhere: <code>ph &lt;group&gt; &lt;verb&gt;</code> — <code>list</code>, <code>view</code>, <code>create</code>, <code>update</code>, <code>delete</code>.
 </div>
 
