@@ -36,6 +36,7 @@ from nanoid import generate
 from opentelemetry import trace
 from posthoganalytics import capture_exception
 from rest_framework import exceptions, request, serializers, status, viewsets
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -1646,6 +1647,15 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
         }
 
 
+class SurveyLimitOffsetPagination(LimitOffsetPagination):
+    default_limit = 3
+
+    def paginate_queryset(self, queryset, request, view=None):
+        if int(request.query_params.get("offset", 0)) >= self.default_limit * 2:
+            raise Exception("Something went wrong")
+        return super().paginate_queryset(queryset, request, view)
+
+
 @extend_schema(tags=[ProductKey.SURVEYS])
 @extend_schema_view(
     create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
@@ -1667,6 +1677,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     ).all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["archived"]
+    pagination_class = SurveyLimitOffsetPagination
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":
