@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
@@ -116,10 +117,13 @@ class TestTenantQuery(APIBaseTest):
         config: DataWarehouseTenantQueryConfig,
         query: str,
         tenant_value: object = 42,
+        database_callback: Callable[[Database], None] | None = None,
     ) -> str:
         parsed_query = parse_select(query)
         _apply_top_level_tenant_query_limit(parsed_query, config.max_result_limit)
         database = Database.create_for(team=self.team, connection_id=str(source.id))
+        if database_callback is not None:
+            database_callback(database)
         apply_tenant_query_config(database, config, tenant_value)
         context = HogQLContext(
             team_id=self.team.pk,
@@ -452,6 +456,40 @@ class TestTenantQuery(APIBaseTest):
         )
 
         sql = self._prepare_sql(source, config, "select * from posthog_dashboard_tiles")
+
+        assert "team_id = 42" in sql
+        assert "dashboard_id" in sql
+        assert " IN (" in sql
+        assert "LIMIT 100" in sql
+
+    def test_injects_foreign_key_tenant_predicate_without_runtime_lazy_join(self):
+        source = self._create_direct_source()
+        self._create_table(
+            source,
+            name="posthog_dashboard",
+            postgres_columns=[("id", "bigint", False), ("team_id", "bigint", False), ("name", "text", True)],
+        )
+        self._create_table(
+            source,
+            name="posthog_dashboarditem",
+            postgres_columns=[("id", "bigint", False), ("dashboard_id", "bigint", False), ("name", "text", True)],
+            postgres_foreign_keys=[("dashboard_id", "posthog_dashboard", "id")],
+        )
+        config = self._create_config(
+            source,
+            tenant_column_name="team_id",
+            tenant_column_names_by_table={"posthog_dashboarditem": "dashboard.team_id"},
+        )
+
+        def remove_dashboard_lazy_join(database: Database) -> None:
+            database.get_table("posthog_dashboarditem").fields.pop("dashboard", None)
+
+        sql = self._prepare_sql(
+            source,
+            config,
+            "select * from posthog_dashboarditem",
+            database_callback=remove_dashboard_lazy_join,
+        )
 
         assert "team_id = 42" in sql
         assert "dashboard_id" in sql

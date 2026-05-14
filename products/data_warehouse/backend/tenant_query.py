@@ -634,6 +634,25 @@ def _tenant_column_name_for_direct_postgres_table(
     )
 
 
+def _schema_for_direct_postgres_table(
+    schemas: list[ExternalDataSchema],
+    table: DirectPostgresTable,
+) -> ExternalDataSchema | None:
+    table_lookup_names = {
+        table.to_printed_hogql(),
+        f"{table.postgres_schema}.{table.postgres_table_name}",
+        table.postgres_table_name,
+    }
+    if table.name is not None:
+        table_lookup_names.add(table.name)
+
+    for schema in schemas:
+        if _schema_lookup_names(schema) & table_lookup_names:
+            return schema
+
+    return None
+
+
 def _tenant_column_output_names(config: DataWarehouseTenantQueryConfig) -> set[str]:
     return {config.tenant_column_name}
 
@@ -1584,6 +1603,55 @@ def _tenant_predicate(
     )
 
 
+def _tenant_predicate_from_foreign_key_schema_path(
+    schema: ExternalDataSchema,
+    tenant_field_chain: list[str],
+    schemas: list[ExternalDataSchema],
+    predicate_value: object | None,
+    visited_schema_names: set[str] | None = None,
+) -> ast.CompareOperation | None:
+    if len(tenant_field_chain) <= 1:
+        return None
+
+    visited_names = visited_schema_names or set()
+    schema_name = _schema_display_name(schema)
+    if schema_name in visited_names:
+        return None
+
+    foreign_key_target = _foreign_key_for_field_name(schemas, schema, tenant_field_chain[0])
+    if foreign_key_target is None:
+        return None
+
+    foreign_key, target_schema = foreign_key_target
+    target_field_chain = tenant_field_chain[1:]
+    if len(target_field_chain) == 1:
+        target_where = ast.CompareOperation(
+            left=ast.Field(chain=target_field_chain),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=predicate_value),
+        )
+    else:
+        target_where = _tenant_predicate_from_foreign_key_schema_path(
+            target_schema,
+            target_field_chain,
+            schemas,
+            predicate_value,
+            {*visited_names, schema_name},
+        )
+        if target_where is None:
+            return None
+
+    return ast.CompareOperation(
+        left=ast.Field(chain=[foreign_key["column"]]),
+        op=ast.CompareOperationOp.In,
+        right=ast.SelectQuery(
+            select=[ast.Field(chain=[foreign_key["target_column"]])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=_schema_display_name(target_schema).split("."))),
+            where=target_where,
+        ),
+    )
+
+
 class _TenantColumnOutputVisitor(TraversingVisitor):
     def __init__(self, tenant_column_names: set[str]) -> None:
         self.tenant_column_names = tenant_column_names
@@ -1626,6 +1694,7 @@ def apply_tenant_query_config(
     predicate_value: object | None = None
     has_predicate_value = False
     missing_table_names: list[str] = []
+    schemas = _direct_postgres_schemas(config.external_data_source)
 
     for table in _walk_table_nodes(database.tables):
         tenant_column_name = _tenant_column_name_for_direct_postgres_table(table, config)
@@ -1637,16 +1706,31 @@ def apply_tenant_query_config(
             missing_table_names.append(table.to_printed_hogql())
             continue
 
-        tenant_field = table.fields.get(tenant_field_chain[0])
-        if tenant_field is None:
-            missing_table_names.append(table.to_printed_hogql())
-            continue
+        predicate: ast.CompareOperation | None = None
+        if len(tenant_field_chain) > 1:
+            source_schema = _schema_for_direct_postgres_table(schemas, table)
+            if source_schema is not None:
+                if not has_predicate_value:
+                    predicate_value = _coerce_tenant_value(config, tenant_value)
+                    has_predicate_value = True
+                predicate = _tenant_predicate_from_foreign_key_schema_path(
+                    source_schema,
+                    tenant_field_chain,
+                    schemas,
+                    predicate_value,
+                )
 
-        if not has_predicate_value:
-            predicate_value = _coerce_tenant_value(config, tenant_value)
-            has_predicate_value = True
+        if predicate is None:
+            tenant_field = table.fields.get(tenant_field_chain[0])
+            if tenant_field is None:
+                missing_table_names.append(table.to_printed_hogql())
+                continue
 
-        predicate = _tenant_predicate(tenant_field_chain, tenant_field, predicate_value)
+            if not has_predicate_value:
+                predicate_value = _coerce_tenant_value(config, tenant_value)
+                has_predicate_value = True
+
+            predicate = _tenant_predicate(tenant_field_chain, tenant_field, predicate_value)
         if predicate is None:
             missing_table_names.append(table.to_printed_hogql())
             continue
