@@ -697,7 +697,7 @@ function CreateMonitorModal(): JSX.Element {
                     </div>
                 ) : (
                     <>
-                        {!isManual && topSuggestedUrls.length > 0 && (
+                        {topSuggestedUrls.length > 0 && (
                             <div className="flex flex-col gap-2">
                                 <div className="text-sm text-secondary">Suggested from your traffic</div>
                                 <div className="flex flex-wrap gap-2">

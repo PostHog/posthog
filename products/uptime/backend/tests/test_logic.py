@@ -99,6 +99,19 @@ class TestListSuggestedUrls(UptimeTeamScopedTestMixin, ClickhouseTestMixin, Base
 
         assert [r["host"] for r in results] == ["stripe.com"]
 
+    def test_handles_manual_monitors_with_null_url(self) -> None:
+        # Manual monitors can have url=None. The exclusion loop must not crash on those.
+        Monitor.objects.create(team_id=self.team.id, name="payments", url=None, mode="manual")
+        Monitor.objects.create(team_id=self.team.id, name="github", url="https://github.com")
+
+        with freeze_time(NOW):
+            _pageview(self.team, "u1", "github.com")
+            _pageview(self.team, "u1", "stripe.com")
+
+            results = list_suggested_urls(team_id=self.team.id, days=30, limit=10)
+
+        assert [r["host"] for r in results] == ["stripe.com"]
+
     def test_respects_days_window(self) -> None:
         # ClickHouse's now() is server-time, not affected by freeze_time — anchor on real wallclock.
         real_now = datetime.now(tz=ZoneInfo("UTC"))

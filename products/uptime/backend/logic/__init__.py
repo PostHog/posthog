@@ -134,7 +134,8 @@ def list_suggested_urls(*, team_id: int, days: int = 30, limit: int = 20) -> lis
     tag_queries(product=Product.UPTIME, team_id=team_id, feature=Feature.UPTIME_PINGS, name="list_suggested_urls")
 
     already_monitored_hosts: set[str] = set()
-    for url in Monitor.objects.values_list("url", flat=True):
+    # Manual monitors can have url=None; only auto monitors are guaranteed to have a URL.
+    for url in Monitor.objects.exclude(url__isnull=True).values_list("url", flat=True):
         host = _host_from_url(url)
         if host:
             already_monitored_hosts.add(host.lower())

@@ -9,6 +9,9 @@ Idempotent: every entity is keyed off the exact names below and re-running the
 command skips anything already in place. Pass --purge to wipe the seeded state
 first if you want a clean slate.
 
+Also seeds `$pageview` events covering popular hosts so the "Suggested from your
+traffic" panel in the create-monitor wizard has data to show.
+
 Pair with --with-pings to also backfill historical ping data via
 `seed_uptime_pings`, so the 90-day status timeline isn't blank for the first
 few minutes after the rust pinger comes up.
@@ -92,6 +95,11 @@ class Command(BaseCommand):
             monitor_ids = self._seed_monitors(team_id)
             self._seed_incidents(team_id, monitor_ids)
             self._seed_status_page(team_id, monitor_ids)
+
+        # $pageview events for the URL-suggester. Runs outside team_scope because
+        # seed_uptime_urls writes directly to ClickHouse without going through the ORM.
+        self.stdout.write("Seeding pageview events for the URL suggester...")
+        call_command("seed_uptime_urls", team_id=team_id)
 
         if with_pings:
             self.stdout.write("Backfilling 90 days of historical pings...")

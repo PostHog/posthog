@@ -324,6 +324,13 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
+        setCreateModalOpen: ({ open }) => {
+            // Refresh suggestions so the wizard's "from your traffic" panel is up to date
+            // with whatever pageviews have landed since the scene mounted.
+            if (open) {
+                actions.loadSuggestedUrls()
+            }
+        },
         pingNow: async ({ monitorId }) => {
             await api.create(`api/projects/${values.currentProjectId}/uptime/monitors/${monitorId}/ping_now/`, {})
             lemonToast.info('Ping enqueued — refresh in a few seconds')
