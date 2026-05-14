@@ -25,7 +25,8 @@ import requests
 from hogli.manifest import load_manifest
 
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-TEMPLATE_NAME = "posthog-linux"
+DEFAULT_TEMPLATE = "posthog-linux"
+TEMPLATE_NAMES: tuple[str, ...] = ("posthog-linux", "posthog-microvm")
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
@@ -45,13 +46,31 @@ JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
 GIT_SIGNING_KEY_SECRET = "POSTHOG_GIT_SIGNING_KEY"
 
 
-# Default values for all optional template parameters. Passing these explicitly
-# prevents the Coder CLI from prompting interactively for missing values.
-# Update this dict when new optional parameters are added to the template.
-_TEMPLATE_PARAMETER_DEFAULTS: dict[str, str] = {
-    DOTFILES_URI_PARAMETER: "",
-    DOTFILES_BRANCH_PARAMETER: "",
-    JETBRAINS_IDES_PARAMETER: "[]",
+# Per-template: the parameters each Coder template accepts, mapped to default
+# values that prevent the Coder CLI from prompting interactively when the
+# caller does not supply a value. Parameters not listed for a template are
+# silently dropped from create calls because passing an unknown parameter
+# would error from `coder create --rich-parameter-file`. Update this dict
+# when a template gains or drops a parameter.
+_TEMPLATE_PARAMETER_DEFAULTS: dict[str, dict[str, str]] = {
+    "posthog-linux": {
+        "disk_size": "",
+        "repo": "",
+        CLAUDE_OAUTH_PARAMETER: "",
+        GIT_NAME_PARAMETER: "",
+        GIT_EMAIL_PARAMETER: "",
+        DOTFILES_URI_PARAMETER: "",
+        DOTFILES_BRANCH_PARAMETER: "",
+        JETBRAINS_IDES_PARAMETER: "[]",
+    },
+    "posthog-microvm": {
+        CLAUDE_OAUTH_PARAMETER: "",
+        GIT_NAME_PARAMETER: "",
+        GIT_EMAIL_PARAMETER: "",
+        DOTFILES_URI_PARAMETER: "",
+        DOTFILES_BRANCH_PARAMETER: "",
+        JETBRAINS_IDES_PARAMETER: "[]",
+    },
 }
 
 _STEP_RE = re.compile(r"^==>.*?(\w[\w ]+)")
@@ -710,28 +729,33 @@ def create_workspace(
     dotfiles_uri: str | None = None,
     repo: str = "https://github.com/PostHog/posthog",
     *,
+    template: str = DEFAULT_TEMPLATE,
     verbose: bool = False,
 ) -> None:
     """Create a new Coder workspace."""
-    parameters = {
-        **_TEMPLATE_PARAMETER_DEFAULTS,
+    defaults = _TEMPLATE_PARAMETER_DEFAULTS.get(template)
+    if defaults is None:
+        _fail(f"Unknown template '{template}'. Choose one of: {', '.join(TEMPLATE_NAMES)}")
+    candidates: dict[str, str] = {
         "disk_size": str(disk_size),
         "repo": repo,
         CLAUDE_OAUTH_PARAMETER: claude_oauth_token or "",
     }
     if git_name:
-        parameters[GIT_NAME_PARAMETER] = git_name
+        candidates[GIT_NAME_PARAMETER] = git_name
     if git_email:
-        parameters[GIT_EMAIL_PARAMETER] = git_email
+        candidates[GIT_EMAIL_PARAMETER] = git_email
     if dotfiles_uri:
-        parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
+        candidates[DOTFILES_URI_PARAMETER] = dotfiles_uri
+
+    parameters = {**defaults, **{k: v for k, v in candidates.items() if k in defaults}}
 
     args = [
         "coder",
         "create",
         name,
         "--template",
-        TEMPLATE_NAME,
+        template,
         "--yes",
     ]
     result = _run_with_rich_parameters(args, parameters, verbose=verbose)
@@ -767,7 +791,12 @@ def update_workspace(
     verbose: bool = False,
 ) -> None:
     """Update a workspace to the latest template version."""
-    merged = {**_TEMPLATE_PARAMETER_DEFAULTS, **(parameters or {})}
+    # Only seed defaults for the truly-optional fields so we don't blank out
+    # required parameters (disk_size, repo) already set on the workspace.
+    optional_keys = (DOTFILES_URI_PARAMETER, DOTFILES_BRANCH_PARAMETER, JETBRAINS_IDES_PARAMETER)
+    template_defaults = _TEMPLATE_PARAMETER_DEFAULTS[DEFAULT_TEMPLATE]
+    defaults = {k: template_defaults[k] for k in optional_keys if k in template_defaults}
+    merged = {**defaults, **(parameters or {})}
     args = ["coder", "update", name]
     result = _run_with_rich_parameters(args, merged, verbose=verbose)
     if result.returncode != 0:
@@ -856,15 +885,16 @@ def create_task(
     *,
     task_name: str | None = None,
     quiet: bool = False,
+    template: str = DEFAULT_TEMPLATE,
 ) -> None:
-    """Create a Coder task on the posthog-linux template.
+    """Create a Coder task on the given workspace template.
 
     When ``prompt`` is None, ``--stdin`` is passed so coder reads the prompt
     from the parent process's stdin; otherwise it is forwarded as the
     positional input argument. Execs into the coder CLI so stdin, stdout,
     and the exit code flow through unchanged.
     """
-    args = ["coder", "task", "create", "--template", TEMPLATE_NAME]
+    args = ["coder", "task", "create", "--template", template]
     if task_name:
         args += ["--name", task_name]
     if quiet:

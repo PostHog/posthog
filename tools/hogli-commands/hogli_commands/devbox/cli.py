@@ -21,10 +21,12 @@ from hogli.manifest import get_manifest
 
 from . import keychain
 from .coder import (
+    DEFAULT_TEMPLATE,
     DOTFILES_URI_PARAMETER,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     GIT_SIGNING_KEY_SECRET,
+    TEMPLATE_NAMES,
     _fail,
     create_task,
     create_workspace,
@@ -737,6 +739,14 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
     help="Disk size in GiB (default: 100)",
 )
 @click.option(
+    "-t",
+    "--template",
+    type=click.Choice(TEMPLATE_NAMES),
+    default=DEFAULT_TEMPLATE,
+    show_default=True,
+    help="Coder workspace template to use when creating a new devbox",
+)
+@click.option(
     "--configure-claude/--skip-configure-claude",
     default=None,
     help="Prompt for a Claude OAuth token when creating a new workspace",
@@ -750,6 +760,7 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
 def devbox_start(
     workspace: str | None,
     disk: str,
+    template: str,
     configure_claude: bool | None,
     claude_oauth_token: str | None,
     verbose: bool,
@@ -766,7 +777,7 @@ def devbox_start(
     token = claude_oauth_token or _maybe_prompt_for_claude_oauth_token(configure_claude)
     config = load_config()
 
-    click.echo(f"Creating devbox '{name}' (disk={disk}GiB)...")
+    click.echo(f"Creating devbox '{name}' (template={template}, disk={disk}GiB)...")
     create_workspace(
         name,
         int(disk),
@@ -774,6 +785,7 @@ def devbox_start(
         git_name=config.get("git_name"),
         git_email=config.get("git_email"),
         dotfiles_uri=config.get("dotfiles_uri"),
+        template=template,
         verbose=verbose,
     )
     click.echo("Created.")
@@ -885,8 +897,16 @@ def devbox_logs(workspace: str | None, follow: bool) -> None:
 @click.argument("prompt", required=False)
 @click.option("--name", "task_name", default=None, help="Task name (auto-generated if omitted)")
 @click.option("-q", "--quiet", is_flag=True, help="Only print the created task's ID")
-def devbox_task(prompt: str | None, task_name: str | None, quiet: bool) -> None:
-    """Start a background Coder task on the posthog-linux template.
+@click.option(
+    "-t",
+    "--template",
+    type=click.Choice(TEMPLATE_NAMES),
+    default=DEFAULT_TEMPLATE,
+    show_default=True,
+    help="Coder workspace template to run the task on",
+)
+def devbox_task(prompt: str | None, task_name: str | None, quiet: bool, template: str) -> None:
+    """Start a background Coder task on the chosen workspace template.
 
     The Coder deployment provisions a fresh workspace per task and hands the
     prompt to the agent configured in the template. Pass the prompt as a
@@ -903,7 +923,7 @@ def devbox_task(prompt: str | None, task_name: str | None, quiet: bool) -> None:
             'Example: hogli devbox:task "document the ingestion pipeline"'
         )
     ensure_runtime_ready()
-    create_task(prompt, task_name=task_name, quiet=quiet)
+    create_task(prompt, task_name=task_name, quiet=quiet, template=template)
 
 
 @click.command(name="devbox:destroy", help="Destroy your devbox and its data")
