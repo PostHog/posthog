@@ -419,7 +419,7 @@ def _tenant_column_name_for_direct_postgres_table(
 
 
 def _tenant_column_output_names(config: DataWarehouseTenantQueryConfig) -> set[str]:
-    return {config.tenant_column_name, *_tenant_column_overrides(config).values()}
+    return {config.tenant_column_name}
 
 
 def _disable_schemas_without_tenant_column(source: ExternalDataSource, schemas: list[ExternalDataSchema]) -> list[str]:
@@ -462,13 +462,12 @@ def _tenant_metadata_field_rows(
     omit_source_schema = _enabled_schemas_use_single_source_schema(schemas)
     for schema in schemas:
         table_name = _tenant_query_table_name(schema, omit_source_schema=omit_source_schema)
-        tenant_column_name = _tenant_column_name_for_schema(schema, config)
         for column in _postgres_schema_columns(schema):
             column_name = column.get("name")
             postgres_type = column.get("data_type")
             if not isinstance(column_name, str) or not isinstance(postgres_type, str):
                 continue
-            if column_name == tenant_column_name:
+            if column_name == config.tenant_column_name:
                 continue
 
             rows.append(
@@ -1343,7 +1342,9 @@ def apply_tenant_query_config(
             missing_table_names.append(table.to_printed_hogql())
             continue
 
-        table.fields[tenant_column_name] = _hide_tenant_field(tenant_field)
+        default_tenant_field = table.fields.get(config.tenant_column_name)
+        if default_tenant_field is not None:
+            table.fields[config.tenant_column_name] = _hide_tenant_field(default_tenant_field)
         table.predicates = [
             *table.predicates,
             ast.CompareOperation(
