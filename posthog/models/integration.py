@@ -557,7 +557,7 @@ class OauthIntegration:
                 ],
                 client_id=settings.LINEAR_AGENT_APP_CLIENT_ID,
                 client_secret=settings.LINEAR_AGENT_APP_CLIENT_SECRET,
-                scope="read,write,comments:create,issues:create,app:mentionable",
+                scope="read,write,comments:create,issues:create,app:mentionable,app:assignable",
                 id_path="data.viewer.organization.id",
                 name_path="data.viewer.organization.name",
             )
