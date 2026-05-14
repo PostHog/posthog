@@ -32,15 +32,12 @@ function wizardCommandFor(notificationId: string): string {
 
 function modeForStyle(style: string | undefined): DeliveryMode {
     switch (style) {
-        case 'pirate':
         case 'scroll':
             return 'scroll'
-        case 'star_wars':
         case 'galactic':
             return 'galactic'
         case 'csm':
             return 'csm'
-        case 'royal':
         case 'envelope':
         default:
             return 'envelope'
