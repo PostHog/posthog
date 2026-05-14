@@ -1,0 +1,122 @@
+/**
+ * Wraps `Storage.prototype.setItem` and `removeItem` on `localStorage` and
+ * `sessionStorage` to skip redundant writes — `setItem(k, v)` becomes a no-op
+ * when the current stored value already equals `v`, and `removeItem(k)`
+ * becomes a no-op when the key isn't present.
+ *
+ * Why: every `setItem` in Chromium broadcasts a `storage` event to every
+ * other renderer in the same origin, and the receiver-side native IPC
+ * memory accumulates over hours/days (see Chromium issue 351244335).
+ * `posthog-js` writes its Persistence object on every internal mutation
+ * (~4 writes/min on an idle tab in our reproducer), and most of those
+ * writes serialize to a byte-identical payload. Deduplicating at this
+ * layer suppresses the redundant broadcasts.
+ *
+ * This is a defensive wrapper, not a behavior change. `setItem` with an
+ * unchanged value is semantically a no-op for any reader that compares
+ * before reading. If something downstream genuinely relied on the
+ * `storage` event firing for same-value writes (cross-document), set
+ * `sessionStorage.setItem('__ph_disable_storage_dedupe', '1')` before
+ * the page loads to bypass the wrapper and report it.
+ */
+
+interface StorageDedupeMetrics {
+    localSetSkipped: number
+    localSetPassed: number
+    localRemoveSkipped: number
+    localRemovePassed: number
+    sessionSetSkipped: number
+    sessionSetPassed: number
+    sessionRemoveSkipped: number
+    sessionRemovePassed: number
+    installedAt: number
+}
+
+declare global {
+    interface Window {
+        __phStorageDedupe?: StorageDedupeMetrics
+    }
+}
+
+let installed = false
+
+export function installStorageDedupe(): void {
+    if (installed || typeof window === 'undefined') {
+        return
+    }
+    try {
+        if (window.sessionStorage?.getItem('__ph_disable_storage_dedupe') === '1') {
+            return
+        }
+    } catch {
+        return
+    }
+    installed = true
+
+    const metrics: StorageDedupeMetrics = {
+        localSetSkipped: 0,
+        localSetPassed: 0,
+        localRemoveSkipped: 0,
+        localRemovePassed: 0,
+        sessionSetSkipped: 0,
+        sessionSetPassed: 0,
+        sessionRemoveSkipped: 0,
+        sessionRemovePassed: 0,
+        installedAt: Date.now(),
+    }
+    window.__phStorageDedupe = metrics
+
+    const wrap = (storage: Storage, kind: 'local' | 'session'): void => {
+        const last = new Map<string, string>()
+        const origSet = storage.setItem.bind(storage)
+        const origRemove = storage.removeItem.bind(storage)
+        const origGet = storage.getItem.bind(storage)
+
+        // Seed the cache from whatever is already in storage so the very
+        // first redundant setItem call after install is still skipped.
+        for (let i = 0; i < storage.length; i++) {
+            const k = storage.key(i)
+            if (k === null) {
+                continue
+            }
+            const v = origGet(k)
+            if (v !== null) {
+                last.set(k, v)
+            }
+        }
+
+        storage.setItem = function (key: string, value: string): void {
+            const k = String(key)
+            const v = typeof value === 'string' ? value : String(value)
+            if (last.get(k) === v) {
+                metrics[`${kind}SetSkipped`] += 1
+                return
+            }
+            last.set(k, v)
+            metrics[`${kind}SetPassed`] += 1
+            origSet(k, v)
+        }
+
+        storage.removeItem = function (key: string): void {
+            const k = String(key)
+            if (!last.has(k) && origGet(k) === null) {
+                metrics[`${kind}RemoveSkipped`] += 1
+                return
+            }
+            last.delete(k)
+            metrics[`${kind}RemovePassed`] += 1
+            origRemove(k)
+        }
+    }
+
+    try {
+        wrap(window.localStorage, 'local')
+    } catch {
+        // localStorage can throw in incognito / quota-exceeded — leave it unwrapped
+    }
+    try {
+        wrap(window.sessionStorage, 'session')
+    } catch {
+        // sessionStorage can throw on some embedded contexts — leave it unwrapped
+    }
+}

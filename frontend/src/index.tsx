@@ -14,8 +14,10 @@ import { App } from 'scenes/App'
 
 import { initKea } from './initKea'
 import { ErrorBoundary } from './layout/ErrorBoundary'
+import { installStorageDedupe } from './lib/storageDedupe'
 import { loadPostHogJS } from './loadPostHogJS'
 
+installStorageDedupe()
 loadPostHogJS()
 initKea()
 
