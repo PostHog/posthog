@@ -83,7 +83,7 @@ def execute(
     # we read whatever's currently stored in `sensitive_config` — refreshing is
     # owned by the integration framework, not this service. A null token means
     # public-repo access or a Null adapter in tests.
-    access_token = _resolve_github_access_token(project.github_integration_id)
+    access_token = _resolve_github_access_token(project.github_integration_id, project.team_id)
 
     # Resolve commit metadata up-front when possible. The build worker will
     # also resolve HEAD-of-branch in `resolve_commit_sha`, but pre-resolving
@@ -185,16 +185,23 @@ def execute(
     return deployment
 
 
-def _resolve_github_access_token(integration_id: int | None) -> str | None:
+def _resolve_github_access_token(integration_id: int | None, team_id: int) -> str | None:
     if integration_id is None:
         return None
     try:
-        integration = Integration.objects.get(id=integration_id, kind="github")
+        integration = Integration.objects.get(id=integration_id, kind="github", team_id=team_id)
     except Integration.DoesNotExist:
-        # Row was deleted between project save and deploy. Treat as "no creds"
-        # so the adapter can still attempt unauthenticated public-repo access
-        # and surface a clean GitHubError if the repo is private.
-        logger.warning("create_deployment.integration_missing", integration_id=integration_id)
+        # Row was deleted, never existed, or belongs to a different team. Treat
+        # as "no creds" so the adapter can still attempt unauthenticated
+        # public-repo access and surface a clean GitHubError if the repo is
+        # private. Filtering by team_id closes the IDOR window where a stale
+        # github_integration_id (e.g. left over from a moved project) could
+        # otherwise resolve to another team's GitHub App token.
+        logger.warning(
+            "create_deployment.integration_missing",
+            integration_id=integration_id,
+            team_id=team_id,
+        )
         return None
     token = integration.sensitive_config.get("access_token")
     return str(token) if token else None

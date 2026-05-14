@@ -9,15 +9,26 @@ three-model design from the deployments.md spec:
 - Partial unique constraint enforcing "one active deploy per project".
 
 Safety notes:
-- `Deployment.project` is added as a NOT NULL FK. The Deployment table is
-  empty in production at the time this lands (brand-new product), so the
-  implicit "rewrite-table-with-default" cost is zero. If by deploy time
-  there happen to be rows, this migration will refuse to apply — by
-  design — and we'll split it into a phased version before shipping.
-- Indexes use `AddIndex` (not Concurrently) because the tables are
-  either new (DeploymentProject, DeploymentEvent) or empty (Deployment).
+- `Deployment.project` is added via `SeparateDatabaseAndState`: the DB
+  column lands as nullable so PG only takes a brief lock to add a
+  nullable column, while Django's state keeps it `NOT NULL` so model
+  code, serializers, and type checks treat it as required. The flag-
+  gated product has an empty `deployment` table at rollout time, and
+  every code path that creates a row (see `services/create_deployment`,
+  `management/commands/seed_deployments`) sets `project`, so no row will
+  observe the relaxed DB nullability. A follow-up migration can promote
+  the column to `NOT NULL` once we have telemetry confirming all rows
+  carry a project.
+- The index on `deployment(project, -created_at)` is added in `0003`
+  with `AddIndexConcurrently`. PostHog policy (see
+  `posthog/management/migration_analysis/policies.py`) blocks
+  CONCURRENTLY operations from being mixed with regular DDL — splitting
+  the concurrent index out lets this migration keep `atomic = True`
+  (and its rollback safety) while the index build runs without a
+  transaction.
 - The partial unique constraint validates against zero rows, so it's
-  instant.
+  instant; left in this migration because it would be a no-op once the
+  product is rolled out.
 - `current_deployment` on `DeploymentProject` is a circular FK to
   `Deployment`; the string-reference + null=True lets Django resolve
   both directions within this single migration without a separate
@@ -112,16 +123,37 @@ class Migration(migrations.Migration):
                 "ordering": ("-occurred_at",),
             },
         ),
-        # Deployment.project — NOT NULL FK, safe to add directly because the
-        # table is empty at rollout time. If it isn't, this will fail loudly.
-        migrations.AddField(
-            model_name="deployment",
-            name="project",
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="deployments",
-                to="deployments.deploymentproject",
-            ),
+        # Deployment.project — the DB column lands nullable so PG only takes
+        # a brief lock to ADD COLUMN (no full table rewrite), while Django's
+        # state keeps the FK NOT NULL so model/serializer/type code treats it
+        # as required. The `deployment` table is empty at rollout, every
+        # row-creation path (services/create_deployment, seed command) sets
+        # `project`, and a follow-up migration can promote the column to
+        # `NOT NULL` once we're sure all rows carry a project.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name="deployment",
+                    name="project",
+                    field=models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="deployments",
+                        to="deployments.deploymentproject",
+                    ),
+                ),
+            ],
+            database_operations=[
+                migrations.AddField(
+                    model_name="deployment",
+                    name="project",
+                    field=models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="deployments",
+                        to="deployments.deploymentproject",
+                    ),
+                ),
+            ],
         ),
         migrations.AddField(
             model_name="deployment",
@@ -189,10 +221,9 @@ class Migration(migrations.Migration):
             model_name="deploymentevent",
             index=models.Index(fields=["deployment", "occurred_at"], name="deployments_deploym_3a8e69_idx"),
         ),
-        migrations.AddIndex(
-            model_name="deployment",
-            index=models.Index(fields=("project", "-created_at"), name="deploy_project_created_idx"),
-        ),
+        # The deployment(project, -created_at) index is built in 0003 with
+        # AddIndexConcurrently — see the file header for why it lives in
+        # its own migration.
         # Slug uniqueness scoped to live rows. The OR-isnull clause covers
         # the bool-with-null=True pattern used by DeletedMetaFields, where
         # `deleted` defaults to False but is nullable.
