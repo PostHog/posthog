@@ -37,7 +37,7 @@ import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
-import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
+import { createExecTool, type ExecInnerCallTracker, parseExecCallInnerToolName } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
 
@@ -788,9 +788,29 @@ export class MCP extends McpAgent<Env> {
         // single-exec mode the wrapper handles every call, so the missing-tool
         // signal has nothing to map to and the extra slot is pure noise.
         if (posthogMcpAnalyticsOn) {
+            // In single-exec mode every event's `$mcp_tool_name` is `exec`, so the
+            // SDK's `$mcp_tool_description` would be the dispatcher's static text on
+            // every call. Resolve the inner tool's description from the command and
+            // surface it as `$mcp_exec_tool_call_description` instead.
+            const resolveExecInnerToolDescription = useSingleExec
+                ? (request: unknown): string | undefined => {
+                      const params = (request as { params?: { name?: unknown; arguments?: { command?: unknown } } })
+                          ?.params
+                      if (params?.name !== 'exec' || typeof params.arguments?.command !== 'string') {
+                          return
+                      }
+                      const innerName = parseExecCallInnerToolName(params.arguments.command)
+                      if (!innerName) {
+                          return
+                      }
+                      return allTools.find((t) => t.name === innerName)?.description
+                  }
+                : undefined
+
             const initResult = await initPostHogMcpAnalytics(this.server, mcpAnalyticsIdentity, {
                 contextEnabled: true,
                 reportMissingEnabled: !useSingleExec,
+                ...(resolveExecInnerToolDescription ? { resolveExecInnerToolDescription } : {}),
             })
             Object.assign(this.requestProperties, {
                 posthogMcpAnalyticsInitAction: initResult.action,

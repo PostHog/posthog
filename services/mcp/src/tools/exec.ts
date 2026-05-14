@@ -40,6 +40,23 @@ function parseCommand(input: string): { verb: string; rest: string } {
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
 }
 
+// Extracts the inner tool name from an exec `call` command, e.g.
+// "call my-tool {...}" → "my-tool". Returns undefined for other verbs or
+// malformed input. Used by analytics to surface the real tool being invoked
+// in single-exec mode, where the outer call always shows as `exec`.
+export function parseExecCallInnerToolName(command: string): string | undefined {
+    const { verb, rest } = parseCommand(command)
+    if (verb !== 'call' || !rest) {
+        return
+    }
+    const argv = rest.startsWith('--json ') ? rest.slice('--json'.length).trim() : rest === '--json' ? '' : rest
+    if (!argv) {
+        return
+    }
+    const innerName = parseCommand(argv).verb
+    return innerName || undefined
+}
+
 // Tools removed from v2 (single-exec) MCP. When the model attempts to call one,
 // surface a targeted redirect to the v2 replacement instead of dumping the full
 // tool catalog. Sourced from tools marked `new_mcp: false` in

@@ -12,6 +12,12 @@ export type PostHogMcpAnalyticsOptions = {
     // catalog. In single-exec mode the wrapper handles every call, so the
     // signal has nothing to map to and the extra slot is just noise.
     reportMissingEnabled: boolean
+    // In single-exec mode, every event's `$mcp_tool_name` is `exec` — the real
+    // tool the LLM was invoking lives inside `arguments.command`. This callback
+    // lets the caller resolve that inner tool's description from the request so
+    // it can be surfaced as `$mcp_exec_tool_call_description`. Returns undefined
+    // when the request isn't an exec call or the inner tool isn't recognized.
+    resolveExecInnerToolDescription?: (request: unknown) => string | undefined
 }
 
 export type PostHogMcpAnalyticsInitResult =
@@ -143,7 +149,13 @@ export async function initPostHogMcpAnalytics(
             },
             reportMissing: options.reportMissingEnabled,
             eventTags: async () => buildEventTags(identity),
-            eventProperties: async () => buildEventProperties(identity),
+            eventProperties: async (request) => {
+                const base = await buildEventProperties(identity)
+                const innerToolDescription = options.resolveExecInnerToolDescription?.(request)
+                return innerToolDescription
+                    ? { ...base, $mcp_exec_tool_call_description: innerToolDescription }
+                    : base
+            },
             redactSensitiveInformation: (text) => Promise.resolve(redactSensitiveInformation(text)),
         })
 
