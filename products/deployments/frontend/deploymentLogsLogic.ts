@@ -115,7 +115,12 @@ export const deploymentLogsLogic = kea<deploymentLogsLogicType>([
                 loadLogs: async (_: void, breakpoint): Promise<DeploymentLogsResponseApi | null> => {
                     const teamId = values.currentTeamId
                     if (!teamId) {
-                        return values.logsResponse
+                        // Cold-start: teamLogic hasn't resolved yet. Returning
+                        // null signals "no fetch happened" to the success
+                        // listener, which then skips markLogsFetched (so the
+                        // "Last refreshed" label stays honest) and skips
+                        // schedulePoll (so we don't spin a 3s no-op loop).
+                        return null
                     }
                     const response = await deploymentProjectsDeploymentsLogsRetrieve(
                         String(teamId),
@@ -182,7 +187,13 @@ export const deploymentLogsLogic = kea<deploymentLogsLogicType>([
         status: [() => [(_, p) => p.status], (status: DeploymentStatus): DeploymentStatus => status],
     })),
     listeners(({ actions, values, cache }) => ({
-        loadLogsSuccess: () => {
+        loadLogsSuccess: ({ logsResponse }) => {
+            // The loader returns null when currentTeamId hasn't resolved yet
+            // (cold start). Treat that as a no-op so we don't flip
+            // lastFetchedAt to "now" and don't kick off the 3s poll loop.
+            if (logsResponse === null) {
+                return
+            }
             actions.markLogsFetched()
             if (values.isLive) {
                 actions.schedulePoll()

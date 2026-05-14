@@ -136,6 +136,11 @@ describe('deploymentLogsLogic', () => {
             // once so any late lines are picked up.
             await expectLogic(logic).toDispatchActions(['cancelPoll', 'loadLogs', 'loadLogsSuccess'])
             expect(getCallCount).toBe(2)
+
+            // S3: after the terminal flip, no further schedulePoll fires.
+            // The success listener reads `isLive` against the now-terminal
+            // status and short-circuits.
+            await expectLogic(logic).toNotHaveDispatchedActions(['schedulePoll'])
         } finally {
             logic.unmount()
         }
@@ -239,6 +244,26 @@ describe('deploymentLogsLogic', () => {
             expect(logic.values.followTail).toBe(true)
             logic.actions.setFollowTail(false)
             expect(logic.values.followTail).toBe(false)
+        } finally {
+            logic.unmount()
+        }
+    })
+
+    it('B1: null loadLogsSuccess payload skips markLogsFetched and schedulePoll', async () => {
+        // Pins the cold-start guard: when the loader returns null because
+        // currentTeamId hasn't resolved yet, the success listener must NOT
+        // bump lastFetchedAt or schedule a poll. Otherwise we'd spin a
+        // 3s no-op loop and lie about "Last refreshed just now".
+        const logic = mountLogic(DeploymentStatusEnumApi.Building)
+        try {
+            // Initial real poll proves the happy path still works.
+            await expectLogic(logic).toDispatchActions(['loadLogsSuccess', 'markLogsFetched', 'schedulePoll'])
+
+            // Now simulate a cold-start success: the loader returned null.
+            logic.actions.loadLogsSuccess(null)
+            await expectLogic(logic).toDispatchActions(['loadLogsSuccess'])
+            // Neither side effect should fire for the null payload.
+            await expectLogic(logic).toNotHaveDispatchedActions(['markLogsFetched', 'schedulePoll'])
         } finally {
             logic.unmount()
         }

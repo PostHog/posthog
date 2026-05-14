@@ -49,8 +49,14 @@ function emptyStateMessage(status: DeploymentStatus): string {
             return 'Waiting for the build worker to pick up this deployment…'
         case 'building':
             return "Build hasn't produced any log lines yet — they'll appear here as they stream in."
-        default:
+        case 'error':
+            return 'This deployment failed before producing any log lines. Check the error details above.'
+        case 'cancelled':
+            return 'This deployment was cancelled before any log lines were emitted.'
+        case 'ready':
             return 'This deployment finished without producing log lines.'
+        default:
+            return 'No log lines available for this deployment.'
     }
 }
 
@@ -91,16 +97,16 @@ function DeploymentLogsViewerContent({ status, deploymentId }: DeploymentLogsLog
 
     const listRef = useRef<HTMLDivElement | null>(null)
 
-    // Auto-scroll to the bottom of the log when new lines arrive and the
-    // user hasn't disabled follow-tail. We tie the effect to filteredRows
-    // (not rawRows) so the scroll happens once filters have been applied,
-    // not before — keeps the view pinned to the *visible* tail.
+    // Auto-scroll to the bottom of the log when *new lines* arrive and the
+    // user hasn't disabled follow-tail. Keying on `rawRows.length` (not
+    // `filteredRows.length`) ensures we don't snap-scroll mid-search just
+    // because the filter window shrank.
     useEffect(() => {
         if (!followTail || !listRef.current) {
             return
         }
         listRef.current.scrollTop = listRef.current.scrollHeight
-    }, [followTail, filteredRows.length])
+    }, [followTail, rawRows.length])
 
     const firstLoad = logsResponseLoading && logsResponse === null
     const showEmpty = !firstLoad && rawRows.length === 0
