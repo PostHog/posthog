@@ -9,8 +9,17 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 import type { TemplatesEnumApi } from '../../../experiments/frontend/generated/api.schemas'
 import { MAX_VERSIONS, createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
 
-function variantLabel(index: number): string {
-    return index === 0 ? 'Control' : `Variant ${index + 1}`
+// Mirrors the variant-key generation in products/experiments/backend/presentation/views.py
+// (_build_prompt_variants): 2-variant runs use "Control"/"Test"; 3+-variant runs use numbered
+// "Test 1", "Test 2", … for the trailing variants.
+function variantLabel(index: number, total: number): string {
+    if (index === 0) {
+        return 'Control'
+    }
+    if (total === 2) {
+        return 'Test'
+    }
+    return `Test ${index}`
 }
 
 export function CreatePromptExperimentModal(): JSX.Element | null {
@@ -70,7 +79,9 @@ export function CreatePromptExperimentModal(): JSX.Element | null {
                                     className="flex items-center gap-2"
                                     data-attr={`llma-prompt-experiment-version-row-${index}`}
                                 >
-                                    <div className="w-24 text-sm font-medium">{variantLabel(index)}</div>
+                                    <div className="w-24 text-sm font-medium">
+                                        {variantLabel(index, versionSlots.length)}
+                                    </div>
                                     <LemonSelect<number | null>
                                         className="flex-1"
                                         value={value}
