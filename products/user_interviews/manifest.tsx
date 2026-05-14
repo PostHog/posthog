@@ -1,3 +1,4 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -49,6 +50,7 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.userInterview(ref),
             iconColor: ['var(--color-product-user-interviews-light)'],
             filterKey: 'user_interview',
+            flag: FEATURE_FLAGS.USER_INTERVIEWS,
         },
     },
     treeItemsProducts: [
@@ -58,6 +60,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.UNRELEASED,
             href: urls.userInterviews(),
             type: 'user_interview',
+            flag: FEATURE_FLAGS.USER_INTERVIEWS,
             tags: ['alpha'],
             iconType: 'user_interview',
             iconColor: ['var(--color-product-user-interviews-light)'] as FileSystemIconColor,
