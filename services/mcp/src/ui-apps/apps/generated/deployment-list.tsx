@@ -31,7 +31,7 @@ function DeploymentListContent({ data, app }: { data: DeploymentListData; app: A
     const handleClick = useCallback(
         async (item: DeploymentData): Promise<DeploymentData | null> => {
             if (!app) {
-                fallbackToChat(item.name)
+                fallbackToChat(item.commit_message)
                 return null
             }
             try {
@@ -40,12 +40,12 @@ function DeploymentListContent({ data, app }: { data: DeploymentListData; app: A
                     arguments: { id: item.id },
                 })
                 if (result.isError || !result.structuredContent) {
-                    fallbackToChat(item.name)
+                    fallbackToChat(item.commit_message)
                     return null
                 }
                 return result.structuredContent as unknown as DeploymentData
             } catch {
-                fallbackToChat(item.name)
+                fallbackToChat(item.commit_message)
                 return null
             }
         },

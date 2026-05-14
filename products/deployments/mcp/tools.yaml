@@ -14,6 +14,7 @@ ui_apps:
     deployment-list:
         type: list
         detail_tool: deployments-get
+        item_name_field: commit_message
 tools:
     deployments-list:
         operation: deployments_list

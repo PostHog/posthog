@@ -14,7 +14,7 @@ export interface DeploymentData {
     created_at: string
     duration_seconds?: number | null
     commit_sha?: string
-    commit_message?: string
+    commit_message: string
     commit_author_name?: string
     commit_author_email?: string
     repo_url?: string
