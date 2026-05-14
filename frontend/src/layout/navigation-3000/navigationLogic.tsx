@@ -594,13 +594,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.earlyAccessFeatures(),
                             tooltipDocLink: 'https://posthog.com/docs/feature-flags/early-access-feature-management',
                         },
-                        {
-                            identifier: Scene.UserInterviews,
-                            label: 'User research',
-                            icon: <IconChat />,
-                            tag: 'alpha' as const,
-                            to: urls.userInterviews(),
-                        },
+                        featureFlags[FEATURE_FLAGS.USER_INTERVIEWS]
+                            ? {
+                                  identifier: Scene.UserInterviews,
+                                  label: 'User research',
+                                  icon: <IconChat />,
+                                  tag: 'alpha' as const,
+                                  to: urls.userInterviews(),
+                              }
+                            : null,
                         {
                             identifier: 'LLMAnalytics',
                             label: 'LLM analytics',

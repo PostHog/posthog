@@ -45,11 +45,13 @@ class UserInterviewSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "interviewee_emails",
+            "interviewee_identifier",
+            "topic",
             "transcript",
             "summary",
             "audio",
         )
-        read_only_fields = ("id", "created_by", "created_at", "transcript")
+        read_only_fields = ("id", "created_by", "created_at", "interviewee_identifier", "topic", "transcript")
 
     def create(self, validated_data: dict) -> UserInterview:
         request = self.context["request"]

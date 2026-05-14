@@ -219,6 +219,9 @@ export interface UserInterviewApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     interviewee_emails?: string[]
+    readonly interviewee_identifier: string
+    /** @nullable */
+    readonly topic: string | null
     readonly transcript: string
     summary?: string
     audio: string
@@ -238,6 +241,9 @@ export interface PatchedUserInterviewApi {
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     interviewee_emails?: string[]
+    readonly interviewee_identifier?: string
+    /** @nullable */
+    readonly topic?: string | null
     readonly transcript?: string
     summary?: string
     audio?: string
