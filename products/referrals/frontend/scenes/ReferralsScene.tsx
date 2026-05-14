@@ -80,16 +80,6 @@ export function ReferralsScene(): JSX.Element {
             sorter: (a, b) => a.invitedOrganizationName.localeCompare(b.invitedOrganizationName),
         },
         {
-            title: 'Signup date',
-            key: 'signup_date',
-            render: (_, row) => (row.signedUpAt ? <TZLabel time={row.signedUpAt} /> : '–'),
-            sorter: (a, b) => {
-                const au = a.signedUpAt ? dayjs(a.signedUpAt).unix() : 0
-                const bu = b.signedUpAt ? dayjs(b.signedUpAt).unix() : 0
-                return au - bu
-            },
-        },
-        {
             title: 'Signed-up user',
             key: 'signed_up_user',
             render: (_, row) => {
@@ -110,6 +100,16 @@ export function ReferralsScene(): JSX.Element {
                     return c
                 }
                 return (a.signedUpUserId ?? -1) - (b.signedUpUserId ?? -1)
+            },
+        },
+        {
+            title: 'Signup date',
+            key: 'signup_date',
+            render: (_, row) => (row.signedUpAt ? <TZLabel time={row.signedUpAt} /> : '–'),
+            sorter: (a, b) => {
+                const au = a.signedUpAt ? dayjs(a.signedUpAt).unix() : 0
+                const bu = b.signedUpAt ? dayjs(b.signedUpAt).unix() : 0
+                return au - bu
             },
         },
         {
@@ -195,7 +195,10 @@ export function ReferralsScene(): JSX.Element {
 
             <header className="mb-4">
                 <h2 className="m-0 text-[15px] font-semibold text-default">Attributed signups</h2>
-                <p className="m-0 mt-1 text-secondary text-sm">Referrals tracked from your link appear in this list.</p>
+                <p className="m-0 mt-1 text-secondary text-sm">
+                    Every org that joins through your link lands here, with who signed up, when, and whether
+                    they&apos;ve shipped data yet.
+                </p>
             </header>
             {referralsLoading || (attributedSignupRows?.length ?? 0) > 0 ? (
                 <LemonTable

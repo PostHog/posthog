@@ -555,7 +555,8 @@ export const productConfiguration: Record<string, any> = {
     Referrals: {
         name: 'Referrals',
         projectBased: true,
-        description: 'Share your signup link\u2014attributed signups show up below.',
+        description:
+            'Drop your referral link wherever you talk up PostHog. Signups that land through it show up below, with timing, who joined, and whether they have shipped data yet.',
         iconType: 'link',
     },
     RevenueAnalytics: {
