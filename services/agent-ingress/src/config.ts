@@ -10,6 +10,14 @@ const ConfigSchema = z.object({
     posthogDbUrl: z.string().min(1),
     /** ioredis URL. When unset, we fall back to the in-memory bus (single-process only). */
     redisUrl: z.string().optional(),
+    /**
+     * Same comma-separated key list Django uses for `EncryptedTextField`.
+     * Slack triggers (and any future trigger with secret-bound fields) read
+     * the agent's encrypted_env at request time and decrypt in-process.
+     * Default matches Django's local-dev fallback (`posthog/settings/access.py`)
+     * so a fresh hogli stack boots without extra env-var plumbing.
+     */
+    encryptionSaltKeys: z.string().default('00beef0000beef0000beef0000beef00'),
     /** Resolver cache TTL for `(domain → revision)` entries. */
     resolverTtlMs: z.coerce.number().int().min(0).default(5_000),
     /**
@@ -25,7 +33,7 @@ const ConfigSchema = z.object({
      * Explicit `ROUTING_MODE` env always wins; the default is derived from
      * `SITE_URL` in `loadConfig`.
      */
-    routingMode: z.enum(['domain', 'path']).default('domain'),
+    routingMode: z.enum(['domain', 'path']).default('path'),
     /**
      * Suffix for application subdomains in `domain` mode. Defaults derive from
      * `SITE_URL` (e.g. `https://us.posthog.com` → `.agents.us.posthog.com`,
@@ -44,6 +52,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): IngressConfig 
         queueDbUrl: env.AGENT_RUNTIME_QUEUE_DATABASE_URL,
         posthogDbUrl: env.POSTHOG_DATABASE_URL,
         redisUrl: env.REDIS_URL,
+        encryptionSaltKeys: env.ENCRYPTION_SALT_KEYS,
         resolverTtlMs: env.RESOLVER_TTL_MS,
         routingMode: env.ROUTING_MODE ?? deriveRoutingMode(env.SITE_URL),
         domainSuffix: env.DOMAIN_SUFFIX ?? deriveDomainSuffix(env.SITE_URL),

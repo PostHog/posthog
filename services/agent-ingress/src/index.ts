@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 
 import {
     ApplicationsRepository,
+    EncryptedFields,
     InMemorySessionBus,
     PosthogDbClient,
     RedisSessionBus,
@@ -22,7 +23,11 @@ async function main(): Promise<void> {
     await queue.connect()
 
     const posthogDb = new PosthogDbClient({ dbUrl: config.posthogDbUrl })
-    const repository = new ApplicationsRepository({ db: posthogDb })
+    // Ingress needs the decryptor too — slack_event triggers fetch their
+    // signing secret (and the ack_reaction's bot token) from the app's
+    // encrypted_env at request time via `repository.decryptEnv`.
+    const encryption = new EncryptedFields(config.encryptionSaltKeys)
+    const repository = new ApplicationsRepository({ db: posthogDb, encryption })
 
     const localRevisions = loadLocalRevisions(process.env.AGENT_DEV_REVISIONS_PATH, config.domainSuffix)
     const resolver = new RevisionResolver({
@@ -48,7 +53,7 @@ async function main(): Promise<void> {
     })
 
     const server = app.listen(config.port, () => {
-        logger.info('agent-ingress listening', {
+        logger.info('agent-ingress listening with', {
             port: config.port,
             routingMode: config.routingMode,
             domainSuffix: config.routingMode === 'domain' ? config.domainSuffix : undefined,

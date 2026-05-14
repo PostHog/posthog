@@ -18,7 +18,12 @@ import type { ResolvedRevision } from './types'
  * `loadSecret` callback at request time.
  */
 export function compileAgent(revision: ResolvedRevision): AgentDefinition {
-    const manifest = revision.parsedManifest ?? {}
+    // The async validator (services/agent-validator/) is deferred — it's what
+    // will populate `parsed_manifest`. Until it ships, the runner reads the
+    // bundler-emitted `top_level_config` directly. Either yields the same
+    // `triggers` / `tools` / `prompt` shape since `agentDefinitionToAssYaml`
+    // is the canonical producer.
+    const manifest = revision.parsedManifest ?? revision.topLevelConfig ?? {}
 
     const triggers = readTriggers(manifest)
     const tools = readStringIds(manifest.tools)
