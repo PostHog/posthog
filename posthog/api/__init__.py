@@ -27,6 +27,7 @@ from posthog.settings import EE_AVAILABLE
 import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
+import products.automl.backend.api as automl
 import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
@@ -1184,6 +1185,8 @@ projects_router.register(
     "environment_business_knowledge_sources",
     ["team_id"],
 )
+
+router.register(r"automl/tasks", automl.AutoMLTaskViewSet, "automl_tasks")
 
 projects_router.register(
     r"conversations/tickets",
