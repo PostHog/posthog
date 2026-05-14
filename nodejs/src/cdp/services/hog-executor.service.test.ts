@@ -785,6 +785,67 @@ describe('Hog Executor', () => {
             `)
         })
 
+        it('allows multiple postHogCapture calls in a single invocation', async () => {
+            const code = `
+                postHogCapture({
+                    'event': 'first',
+                    'distinct_id': event.distinct_id,
+                    'properties': { 'order': 1 }
+                })
+                postHogCapture({
+                    'event': 'second',
+                    'distinct_id': event.distinct_id,
+                    'properties': { 'order': 2 }
+                })
+                postHogCapture({
+                    'event': 'third',
+                    'distinct_id': event.distinct_id,
+                    'properties': { 'order': 3 }
+                })
+            `
+            const fn = createHogFunction({
+                type: 'destination',
+                hog: code,
+                bytecode: await compileHog(code),
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const result = await executor.execute(createExampleInvocation(fn))
+            expect(result?.error).toBeUndefined()
+            expect(result?.capturedPostHogEvents).toHaveLength(3)
+            expect(result?.capturedPostHogEvents.map((e) => e.event)).toEqual(['first', 'second', 'third'])
+            // Each captured event independently carries the loop-depth instrumentation
+            expect(result?.capturedPostHogEvents.map((e) => e.properties.$hog_function_execution_count)).toEqual([
+                1, 1, 1,
+            ])
+        })
+
+        it('throws when postHogCapture is called more than the per-invocation cap', async () => {
+            // 11 sequential calls — the first 10 should succeed, the 11th should throw
+            const calls = Array.from(
+                { length: 11 },
+                (_, i) => `
+                    postHogCapture({
+                        'event': 'call-${i + 1}',
+                        'distinct_id': event.distinct_id,
+                        'properties': {}
+                    })
+                `
+            ).join('\n')
+            const fn = createHogFunction({
+                type: 'destination',
+                hog: calls,
+                bytecode: await compileHog(calls),
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const result = await executor.execute(createExampleInvocation(fn))
+            expect(result?.capturedPostHogEvents).toHaveLength(10)
+            expect(String(result?.error)).toContain('postHogCapture was called more than 10 times')
+        })
+
         it('ignores events that have already used their postHogCapture 10 times', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.posthog_capture,

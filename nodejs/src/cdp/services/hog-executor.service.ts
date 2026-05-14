@@ -153,6 +153,7 @@ export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tr
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
+export const MAX_POSTHOG_CAPTURES_PER_INVOCATION = 10
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 const hogExecutionDuration = new Histogram({
@@ -485,9 +486,9 @@ export class HogExecutorService {
                                 throw new Error("[HogFunction] - postHogCapture call missing 'distinct_id' property")
                             }
 
-                            if (result.capturedPostHogEvents.length > 0) {
+                            if (result.capturedPostHogEvents.length >= MAX_POSTHOG_CAPTURES_PER_INVOCATION) {
                                 throw new Error(
-                                    'postHogCapture was called more than once. Only one call is allowed per function'
+                                    `postHogCapture was called more than ${MAX_POSTHOG_CAPTURES_PER_INVOCATION} times. Only ${MAX_POSTHOG_CAPTURES_PER_INVOCATION} calls are allowed per invocation`
                                 )
                             }
 
