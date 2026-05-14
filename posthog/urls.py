@@ -112,7 +112,13 @@ def _proxy_to_hognipotent(request: HttpRequest) -> None:
     The original ``X-Hub-Signature-256`` header is preserved so that the
     downstream receiver verifies it against the shared webhook secret exactly
     as if GitHub had delivered the event directly.
+
+    Skipped when ``HOGNIPOTENT_WEBHOOK_URL`` is unset so self-hosted installs
+    don't forward GitHub webhook payloads off-instance.
     """
+    if not settings.HOGNIPOTENT_WEBHOOK_URL:
+        return
+
     import requests
 
     headers = {name: request.headers[name] for name in HOGNIPOTENT_FORWARDED_HEADERS if name in request.headers}
