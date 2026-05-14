@@ -20402,7 +20402,7 @@ export namespace Schemas {
       readonly person_email: string;
       /** name property of the Person resolved from distinct_id; empty when no Person is mapped. */
       readonly person_name: string;
-      /** LLM-generated 2-3 sentence summary of the agent's overall goal for the session. Empty until the summary workflow runs. */
+      /** LLM-generated summary (at most two sentences) of the agent's overall goal for the session. Empty until the summary workflow runs. */
       readonly intent: string;
     }
 
