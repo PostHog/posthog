@@ -1,144 +1,310 @@
+<!-- markdownlint-disable MD031 MD040 -->
+
 # PR Comment Template
 
-Post one comment per completed run. Do not edit the PR body.
+Post one comment per completed run. Do not edit the PR body. The template
+mirrors the MCP Report style from the sibling qa-swarm skill so reviewers
+recognize both reports as one product.
 
 ## Banner
 
-Every comment starts with a fixed banner so reviewers immediately recognize
-the source. Use this exact line (level-1 heading) as the very first line of
-the comment, before the verdict:
+Every comment starts and ends with the QA Swarm brand. Top banner is a
+level-2 heading:
 
 ```markdown
-# PostHog QA Swarm - Frontend Report
+## 🦔 PostHog QA Swarm · Frontend Report
 ```
 
-## Verdict Header
+Bottom footer is a small subscript line at the end of the comment:
 
-Immediately after the banner, render one of:
+```markdown
+<sub>🦔 PostHog QA Swarm · Frontend Report</sub>
+```
+
+## Verdict Line
+
+Immediately under the banner, render a single line with the verdict, pass
+count, runtime, and tested commit:
 
 ```text
-QA runtime: PASS - no reproducible runtime issues found.
-QA runtime: <N> fix(es) pushed - reproducible issues fixed and re-verified.
-QA runtime: <N> finding(s) reported - no autonomous push.
-QA runtime: fork PR read-only mode - findings reported as suggested patches.
+**🟢 PASS** · 3/3 · 5m21s · commit `<sha7>`
+**🟡 FIXED** · 3/3 · 6m04s · commit `<sha7>` · 1 high-sev auto-fixed
+**🔴 FAIL** · 1/3 · 5m48s · commit `<sha7>` · 2 reported, no autonomous push
+**🟠 REPORT-ONLY** · 3/3 · 4m12s · commit `<sha7>` · fork PR, suggested patches only
 ```
 
-## Structure
+Underneath, a single blockquote TL;DR sentence in the same tone as the MCP
+report's hand-written summary:
 
 ```markdown
-# PostHog QA Swarm - Frontend Report
-
-QA runtime: PASS - no reproducible runtime issues found.
-
-### What was tested
-
-| Target           | Type         | Action                            | Outcome          |
-| ---------------- | ------------ | --------------------------------- | ---------------- |
-| `/dashboard/:id` | Browser      | Loaded dashboard and clicked Save | Passed           |
-| `/billing`       | Coverage gap | Could not load (auth boundary)    | Skipped (reason) |
-
-Run metadata: tested `<sha>` at `<timestamp>` using `<BASE_URL>`.
+> Exercised the changed dashboards-list filter UI; all targets green, no
+> regressions in adjacent flows.
 ```
 
-The "What was tested" table is rendered inline (not collapsed in a
-`<details>` block) so reviewers see at a glance what the agent exercised vs
-what it skipped without an extra click.
+## Coverage
 
-Coverage gaps from the walker or runtime loop must appear in this table as
-`Coverage gap` rows with an explicit "Skipped (reason)" outcome. Do not
-mention them only in a footer note - reviewers need to see what was _not_
-exercised alongside what was.
-
-For findings:
+A compact table showing every planned target and its result. No `<details>`
+wrapper - reviewers must see what was exercised vs skipped at a glance.
 
 ```markdown
-# PostHog QA Swarm - Frontend Report
+**Coverage**
 
-QA runtime: 1 fix pushed - reproducible issue fixed and re-verified.
-
-### What was tested
-
-| Target           | Type    | Action       | Outcome                             |
-| ---------------- | ------- | ------------ | ----------------------------------- |
-| `/dashboard/:id` | Browser | Clicked Save | Failed before fix, passed after fix |
-
-| #   | Severity | Target           | Status                   |
-| --- | -------- | ---------------- | ------------------------ |
-| 1   | High     | `/dashboard/:id` | Auto-fixed in `<commit>` |
-
-## Finding 1 - Save button did not submit
-
-Steps:
-
-1. Open `/dashboard/:id`.
-2. Click Save.
-3. Expected: save toast appears.
-4. Actual: button click produced no UI change.
-
-Evidence:
-
-- GIF: ![flow](https://res.cloudinary.com/dmukukwp6/image/upload/v.../qa_posthog_pr58423_a3f4b2c_001_flow_overview_<hash>.gif)
-- Screenshots: ![finding](https://res.cloudinary.com/dmukukwp6/image/upload/v.../qa_posthog_pr58423_a3f4b2c_002_save_button_no_toast_<hash>.png)
-- Console: `<scrubbed excerpt or "none">`
-
-Fix status: auto-fixed in `<commit>` and re-verified with the same MCP flow.
+| Target           | Action                                  | Result |
+| ---------------- | --------------------------------------- | ------ |
+| `/dashboard/:id` | Loaded scene, clicked Save              | ✅     |
+| `/insights/new`  | Created trend, switched breakdown       | ✅     |
+| `/billing`       | Coverage gap · blocked by auth boundary | ⏭     |
 ```
 
-Evidence URLs come from `upload-manifest.json` produced by
-`scripts/upload-evidence.py`. Use the `url` field from each `uploaded` entry
-verbatim. The script uploads directly to Cloudinary, so the URL lives on
-`res.cloudinary.com/<cloud_name>/image/upload/v.../<public_id>.<ext>` with
-dashes preserved. The local filename in `public_id` is for traceability only;
-the embeddable URL is always the `url` field.
+Result symbols: `✅` passed, `❌` failed, `⏭` skipped/coverage gap,
+`🛠` fixed (use only when a fix landed on this target).
 
-Embed images and GIFs using markdown image syntax (`![alt](url)`) so they
-render inline in the PR thread. Use one or two key visuals - the GIF for the
-flow and one screenshot per finding. Do not paste the full local screenshot
-inventory.
+Coverage gaps from the walker or runtime loop must appear as their own row
+with the "Coverage gap · `<reason>`" action and the `⏭` symbol. Do not
+relegate them to a footer.
 
-When `upload-manifest.json` reports `skipped_no_env: true` or lists files under
-`failed`, fall back to local paths and append `(upload failed)`:
+## Effort Saved (optional)
+
+One-line value pitch under the coverage table when the run actually saved
+work. Skip on clean runs that found nothing.
 
 ```markdown
-Evidence:
-
-- GIF: `.qa-runtime/runs/<run-id>/runtime-qa.gif` (upload failed)
-- Screenshots: `.qa-runtime/runs/<run-id>/011-tab-customization.png` (upload failed)
+**Effort saved** · 🎯 1 High caught · ⏱ ~15 min of manual QA
 ```
 
-Local mode always uses local paths. Do not invent external URLs when no upload
-was performed.
+## Findings
 
-For clean runs, keep evidence concise. Mention the GIF and one or two key
-screenshots. Do not list every local snapshot markdown file in the PR comment;
-those are local debugging artifacts.
+Use a separator (`---`) before findings start. Each finding is its own
+level-3 section with a status suffix:
 
-For suggested patches:
+```markdown
+---
+
+### 🐛 Finding 1 · auto-fixed in `<sha>`
+
+### 🐛 Finding 2 · reported, no autonomous fix
+
+### 🐛 Finding 3 · suggested patch (out of PR diff)
+```
+
+Finding body has four blocks in order:
+
+1. **Title and severity bar.** Title in bold-quoted code; severity as an
+   ASCII bar so the reviewer reads it without parsing words:
+
+   ```markdown
+   **`Save button in dashboard header does not fire onClick`**
+   ```
+
+   severity ████████░░ HIGH
+
+   ```
+
+   ```
+
+   Severity bars: `████████░░ HIGH`, `█████░░░░░ MEDIUM`, `██░░░░░░░░ LOW`.
+
+2. **Location.** File path · symbol on its own line so reviewers know where
+   in the diff:
+
+   ```markdown
+   `frontend/src/scenes/dashboard/DashboardHeader.tsx` · `DashboardHeader`
+   ```
+
+3. **Fix diff** (if a fix was applied or proposed) in a fenced `diff`
+   block. Omit when there is no patch.
+
+   ````markdown
+   ```diff
+   - const handleSave = () => save
+   + const handleSave = () => save()
+   ```
+   ````
+
+4. **Failing step.** A short structured block describing what was
+   exercised and what went wrong:
+
+   ```markdown
+   **Failing step**
+   ```
+
+   url: /dashboard/123
+   action: clicked Save
+   expected: save toast appears, URL stays
+   got: no UI change, no network call, no console error
+
+   ```
+
+   ```
+
+5. **Evidence.** One or two visuals, inline markdown images so they
+   render in the PR thread:
+
+   ```markdown
+   **Evidence**
+
+   - ![flow](<cloudinary url>)
+   - ![still](<cloudinary url>)
+   ```
+
+6. **Fix cycle** (collapsible, only when a fix loop ran). Mirrors the MCP
+   skill's collapsible:
+
+   ```markdown
+   <details>
+   <summary>📜 Fix cycle</summary>
+
+   - **re-run** · ✅ · 0m52s · `<sha>` - verified fix
+   - **initial** · ❌ · 2m38s · `<prev sha>` - bug found
+
+   </details>
+   ```
+
+## Suggested patches (when fix was not applied autonomously)
+
+For findings routed to comment-only (out-of-diff fix, forbidden zone, fork
+PR, low confidence), replace the Fix diff block with a clearly-labelled
+suggested patch:
 
 ````markdown
-Fix status: not auto-applied because the fix touched files outside the PR diff.
-
-Suggested patch:
+**Suggested patch** (not auto-applied: `<reason>`)
 
 ```diff
 <diff>
 ```
 ````
 
+## Full PASS example
+
+```markdown
+## 🦔 PostHog QA Swarm · Frontend Report
+
+**🟢 PASS** · 3/3 · 4m38s · commit `c03b5177`
+
+> Exercised the new sources-table per-status counts; mixed-status and
+> all-completed states render correctly. No regressions in adjacent flows.
+
+**Coverage**
+
+| Target              | Action                                | Result |
+| ------------------- | ------------------------------------- | ------ |
+| `/data-warehouse`   | Loaded sources, scanned status pills  | ✅     |
+| `/data-warehouse?…` | Filtered to "completed" only          | ✅     |
+| `/data-warehouse/X` | Drilled into source, verified schemas | ✅     |
+
+**Effort saved** · ⏱ ~10 min of manual QA
+
+<sub>🦔 PostHog QA Swarm · Frontend Report</sub>
+```
+
+## Full FIXED example
+
+```markdown
+## 🦔 PostHog QA Swarm · Frontend Report
+
+**🟡 FIXED** · 3/3 · 5m21s · commit `8b36c7b5` · 1 medium-sev auto-fixed
+
+> Found a wrong-source-field bug in the new Duplicate action;
+> duplicate's title was rendering as just " (copy)". Fixed and re-verified.
+
+**Coverage**
+
+| Target         | Action                                    | Result |
+| -------------- | ----------------------------------------- | ------ |
+| `/surveys/new` | Added Q2, clicked Duplicate on Q1         | 🛠     |
+| `/surveys/new` | Verified copy title after fix             | ✅     |
+| `/surveys/new` | Edited duplicate's choices, no leak to Q1 | ✅     |
+
+**Effort saved** · 🎯 1 Medium caught · ⏱ ~15 min of manual QA
+
+---
+
+### 🐛 Finding 1 · auto-fixed in `8b36c7b5`
+
+**`Duplicate question's title is built from the wrong field`**
+```
+
+severity █████░░░░░ MEDIUM
+
+````
+
+`frontend/src/scenes/surveys/surveyLogic.tsx` · `duplicateQuestion` listener
+
+```diff
+-        question: `${original.description ?? ''} (copy)`,
++        question: `${original.question} (copy)`,
+````
+
+**Failing step**
+
+```
+url:      /surveys/new
+action:   clicked Duplicate on Question 1 ("Give us feedback…")
+expected: new Question 2 titled "Give us feedback… (copy)"
+got:      new Question 2 titled " (copy)" - empty title with stray space
+```
+
+**Evidence**
+
+- ![flow](https://res.cloudinary.com/.../qa-posthog-pr58541-…-flow.gif)
+- ![still](https://res.cloudinary.com/.../qa-posthog-pr58541-…-still.png)
+
+<details>
+<summary>📜 Fix cycle</summary>
+
+- **re-run** · ✅ · 0m44s · `8b36c7b5` - verified fix
+- **initial** · ❌ · 2m11s · `e94bff0` - empty-title bug found
+
+</details>
+
+<sub>🦔 PostHog QA Swarm · Frontend Report</sub>
+
+````
+
+## Evidence URLs
+
+Use the `url` field from each `uploaded` entry in
+`upload-manifest.json` verbatim. The script uploads directly to Cloudinary,
+so URLs live on `res.cloudinary.com/<cloud>/image/upload/v.../<public_id>.<ext>`
+with dashes preserved. The local filename in `public_id` is for traceability
+only; the embeddable URL is always the `url` field.
+
+Embed images and GIFs with markdown image syntax (`![alt](url)`) so they
+render inline. Use one or two key visuals per finding - the GIF for the flow
+and one still per finding. Do not paste the full local screenshot inventory.
+
+When `upload-manifest.json` reports `skipped_no_env: true` or lists files
+under `failed`, fall back to local paths and append `(upload failed)`:
+
+```markdown
+**Evidence**
+
+- GIF: `.qa-runtime/runs/<run-id>/runtime-qa.gif` (upload failed)
+- Still: `.qa-runtime/runs/<run-id>/011-detail.png` (upload failed)
+````
+
+Local mode always uses local paths. Do not invent external URLs when no
+upload was performed.
+
 ## Severity Rubric
 
-- High: blocks a core flow, corrupts/hides customer data, or prevents page use.
-- Medium: important regression with a workaround or narrow surface area.
-- Low: cosmetic, copy, layout, or minor polish issue.
+- **High**: blocks a core flow, corrupts or hides customer data, or
+  prevents page use. Bar: `████████░░`.
+- **Medium**: important regression with a workaround or narrow surface
+  area. Bar: `█████░░░░░`.
+- **Low**: cosmetic, copy, layout, or minor polish issue. Bar:
+  `██░░░░░░░░`.
 
 ## Length Budget
 
 Target about 10k characters. At about 55k characters:
 
-1. Keep the verdict, test plan, and findings table.
-2. Upload the full evidence bundle/report as a secret gist.
-3. Add a link to the secret gist.
-4. Truncate repeated repro detail.
+1. Keep the banner, verdict line, coverage table, and findings table.
+2. Truncate per-finding repro detail and link the run dir for the long
+   form.
+3. Do not fall back to an external "secret" gist - GitHub secret gists are
+   not access-controlled, anyone with the link can view them, and the
+   bundle can include unscrubbed local-stack screenshots.
 
 ## Scrubbing
 
@@ -156,4 +322,5 @@ response bodies. The upload script does not log these by default; if you copy
 any script output into the comment, double-check the line you paste.
 
 Screenshots from local stacks should be embedded only when small and safe.
-Prefer secret gist links for the full bundle.
+Never use em dashes (`—`) in any output; use a plain hyphen (`-`) or
+rewrite the sentence.
