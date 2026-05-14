@@ -23,6 +23,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -807,12 +808,13 @@ def _tenant_query_logs_filter(
 
 
 def _execute_tenant_query_logs(team: Team, query: ast.SelectQuery) -> list[list[object]]:
-    response = execute_hogql_query(
-        query=query,
-        team=team,
-        query_type="TenantQueryLogs",
-        limit_context=LimitContext.QUERY,
-    )
+    with tags_context(product="warehouse", feature="tenant_query"):
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            query_type="TenantQueryLogs",
+            limit_context=LimitContext.QUERY,
+        )
     return response.results or []
 
 
