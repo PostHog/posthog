@@ -751,16 +751,14 @@ function ModeCard({
             hoverEffect
             focused={selected}
             onClick={onSelect}
-            className="flex flex-col gap-1 p-4"
+            className="flex flex-col gap-1 p-4 border-2"
             data-attr={`create-monitor-mode-${mode}`}
         >
             <div className="flex items-center justify-between">
                 <div className="font-semibold">{title}</div>
-                {selected && (
-                    <LemonTag type="primary" size="small">
-                        Selected
-                    </LemonTag>
-                )}
+                <LemonTag type="primary" size="small" className={selected ? '' : 'invisible'}>
+                    Selected
+                </LemonTag>
             </div>
             <div className="text-sm text-secondary">{tagline}</div>
             <div className="text-xs text-secondary mt-1">{description}</div>
