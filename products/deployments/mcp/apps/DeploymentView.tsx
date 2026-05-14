@@ -7,6 +7,7 @@ import { formatDuration, STATUS_LABELS, STATUS_VARIANTS } from './utils'
 
 export interface DeploymentData {
     id: string
+    project?: string
     status: string
     is_current?: boolean
     started_at?: string | null
@@ -21,8 +22,12 @@ export interface DeploymentData {
     branch?: string
     deployment_url?: string
     preview_image_url?: string
-    trigger_kind?: string
+    trigger_kind?: 'manual' | 'git' | 'redeploy' | 'rollback' | 'seed' | string
     triggered_by_deployment?: string | null
+    triggered_by_user_id?: number | null
+    error_message?: string
+    error_step?: string
+    cloudflare_deployment_id?: string
     _posthogUrl?: string
 }
 
@@ -62,8 +67,13 @@ export function DeploymentView({ deployment: d }: DeploymentViewProps): ReactEle
                     </Card>
                 ) : failed ? (
                     <Card>
-                        <CardContent className="flex items-center justify-center py-8 text-destructive font-semibold">
-                            Build failed
+                        <CardContent className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+                            <span className="text-destructive font-semibold">
+                                Build failed{d.error_step ? ` at ${d.error_step}` : ''}
+                            </span>
+                            {d.error_message && (
+                                <span className="text-sm text-muted-foreground">{d.error_message}</span>
+                            )}
                         </CardContent>
                     </Card>
                 ) : null}
