@@ -518,6 +518,25 @@ def record_inference_outcome(
             ]
         )
 
+    # Phase 2: emit `$automl_prediction` events from the predictions parquet
+    # the agent just wrote. Wrapped in try/except so emission failure (S3
+    # transient, capture-rs down) doesn't blow up the agent's MCP call — the
+    # run is already terminal at this point; rebuilding emission against the
+    # stored manifest later is always an option.
+    if params.status == RunStatus.SUCCEEDED:
+        from ..inference.emit import emit_predictions_for_run
+
+        try:
+            emit_predictions_for_run(run)
+        except Exception:
+            import structlog
+
+            structlog.get_logger(__name__).exception(
+                "emit_predictions_unhandled",
+                run_id=str(run.id),
+                pipeline_id=str(run.pipeline_id),  # type: ignore[attr-defined]
+            )
+
     return run
 
 
