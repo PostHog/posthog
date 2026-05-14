@@ -9,6 +9,10 @@ from products.agentic_tests.backend.models import AgenticTest, AgenticTestRun
 
 
 class AgenticTestRunSerializer(serializers.ModelSerializer):
+    investigation_conversation_id = serializers.SerializerMethodField(
+        help_text="ID of the PostHog AI conversation investigating this failure, if one exists."
+    )
+
     class Meta:
         model = AgenticTestRun
         fields = [
@@ -26,8 +30,33 @@ class AgenticTestRunSerializer(serializers.ModelSerializer):
             "region",
             "posthog_session_id",
             "log_entries",
+            "investigation_conversation_id",
         ]
         read_only_fields = fields
+
+    def get_investigation_conversation_id(self, run: AgenticTestRun) -> str | None:
+        from ee.models.assistant import Conversation
+
+        conversations = Conversation.objects.filter(
+            team_id=run.agentic_test.team_id,
+            sandbox_task_id__isnull=False,
+            messages_json__isnull=False,
+        ).order_by("-created_at")[:50]
+
+        run_id = str(run.id)
+        for conv in conversations:
+            messages = conv.messages_json
+            if not messages or not isinstance(messages, list):
+                continue
+            first = messages[0] if messages else None
+            if not isinstance(first, dict):
+                continue
+            meta = first.get("_meta", {})
+            source_ids = meta.get("signal_source_ids", [])
+            if run_id in source_ids:
+                return str(conv.id)
+
+        return None
 
 
 class AgenticTestSerializer(serializers.ModelSerializer):
