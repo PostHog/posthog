@@ -31754,7 +31754,11 @@ export namespace Schemas {
 
     export interface TeamTaxonomyItem {
       count: number;
+      /** Number of occurrences of this event within the last 24 hours. */
+      count_24h?: number | null;
       event: string;
+      /** Timestamp of the most recent occurrence of this event within the last 30 days. Null if no occurrences. */
+      last_seen_at?: string | null;
     }
 
     export interface TeamTaxonomyQueryResponse {
