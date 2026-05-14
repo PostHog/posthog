@@ -10,7 +10,12 @@ chosen). Stop before checkout, comments, or edits when:
 
 - `PR_REF` cannot be resolved by `gh pr view`.
 - `git status --porcelain` is non-empty at skill start.
-- `gh pr checkout` fails.
+- `gh pr checkout` fails repeatedly. Transient SSH-signing, GraphQL
+  TLS-handshake, and network blips during checkout are common; retry the
+  same `gh pr checkout <N>` up to 2 times before treating it as a hard
+  stop. Do not bypass commit signing (no `--no-gpg-sign`) and do not
+  switch to a manual `git fetch + checkout` dance to dodge a transient
+  error.
 
 Stop rules that apply to both modes:
 

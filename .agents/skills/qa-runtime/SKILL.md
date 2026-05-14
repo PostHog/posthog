@@ -77,16 +77,31 @@ Load these files only when the matching phase starts:
 - `references/playwright-mcp-patterns.md` - MCP execution and evidence capture.
 - `references/pr-comment-template.md` - final PR comment structure.
 
-Skill scripts live next to this file (under `scripts/`). Resolve them via the
-skill's own base directory, which Claude Code reports at skill activation
-("Base directory for this skill: ..."). Do not assume a repo-relative path
-like `.agents/skills/qa-runtime/scripts/...` - the skill may be installed
-user-scoped at `~/.claude/skills/qa-runtime/`, and an active
-`gh pr checkout <N>` may have switched the working tree to a branch that
-does not contain the skill files.
+Skill scripts live next to this file (under `scripts/`). When Claude Code
+activates this skill, it emits a line at the top of the prompt:
 
-Use `<skill_dir>/scripts/url-walker.py` during planning to map changed
-frontend files to candidate routes.
+```text
+Base directory for this skill: /some/absolute/path
+```
+
+Read that literal path and use it as the prefix for every invocation of
+`url-walker.py` or `upload-evidence.py`. Where this document shows
+`<skill_dir>`, substitute that exact reported path. For example, if the
+activation says `Base directory for this skill: /Users/me/.claude/skills/qa-runtime`,
+the walker invocation becomes:
+
+```bash
+python3 /Users/me/.claude/skills/qa-runtime/scripts/url-walker.py ...
+```
+
+Do **not** use a repo-relative path like
+`.agents/skills/qa-runtime/scripts/...`. The skill may be installed
+user-scoped, and an active `gh pr checkout <N>` typically switches the
+working tree to a branch that does not contain the skill files at all.
+
+Do **not** improvise discovery via `find ~/.claude`, `find ~/Desktop`, or
+other locations - those can return stale or out-of-date copies. The base
+directory Claude Code reports is the source of truth for this run.
 
 ## Preconditions
 
@@ -209,7 +224,7 @@ write the changed file list to `.qa-runtime/runs/<run-id>/changed-files.json`
 and run:
 
 ```bash
-python3 "$SKILL_DIR/scripts/url-walker.py" \
+python3 "<skill_dir>/scripts/url-walker.py" \
   --files-json .qa-runtime/runs/<run-id>/changed-files.json
 ```
 
@@ -380,11 +395,11 @@ uncompressed video. The earlier GIF step should already have produced a
 compressed GIF; if it did not, skip the GIF upload rather than uploading a
 multi-MB file.
 
-Invoke (substitute `$SKILL_DIR` with the skill's own base directory that
+Invoke (substitute `<skill_dir>` with the skill's own base directory that
 Claude Code reports at activation, e.g. `~/.claude/skills/qa-runtime`):
 
 ```bash
-uv run python "$SKILL_DIR/scripts/upload-evidence.py" \
+uv run python "<skill_dir>/scripts/upload-evidence.py" \
   --pr "$PR_NUMBER" \
   --output ".qa-runtime/runs/<run-id>/upload-manifest.json" \
   --file ".qa-runtime/runs/<run-id>/runtime-qa.gif:flow-overview" \

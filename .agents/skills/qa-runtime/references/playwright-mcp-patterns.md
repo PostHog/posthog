@@ -35,6 +35,27 @@ target interaction or clearly belongs to the exercised endpoint.
 Ignore known pre-existing third-party noise when it was present before the
 action and does not affect the changed flow.
 
+**Distinguish local-stack noise from PR-introduced errors.** Before scoring
+any console output, check the dev process state via
+`mcp__phrocs__get_process_status`. Common patterns to recognize and
+discount, _only_ when the failing process explains them:
+
+- 502s from `capture`, `capture-ai`, `capture-replay` endpoints when those
+  processes are `stopped` or `crashed`
+- 500s from invocations / hog flow paths when `cyclotron-janitor`,
+  `cyclotron-worker`, or `temporal-worker` is down
+- `Failed to load resource: 404` on `/decide`, remote-config, or
+  feature-flag endpoints when `feature-flags` or `flags-consumer` is
+  stopped
+- CORS or font-CDN failures from third-party scripts in dev
+
+Only flag errors that (a) appear _after_ the target interaction, (b) match
+a code path the PR actually changed, or (c) are not explained by a stopped
+local process. Call out the triage explicitly in run notes and in the PR
+comment ("All console errors traced to capture process being stopped on
+this machine; no new errors introduced by this PR"). That triage discipline
+is what makes the report trustworthy.
+
 ## API Checks
 
 Prefer API checks through the authenticated Playwright page context so cookies
