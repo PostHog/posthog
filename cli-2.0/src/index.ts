@@ -29,6 +29,7 @@ async function main() {
         .scriptName('ph')
         .usage('Work with PostHog from the command line.\n\n$0 <command> [options]')
         .help()
+        .alias('h', 'help')
         .version('0.1.0')
         .wrap(120)
         .strictCommands()
