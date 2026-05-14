@@ -4742,6 +4742,38 @@
         },
         "feature_flag": "user-interviews"
     },
+    "user-interview-topic-interviewees-create": {
+        "description": "Attach extra context for a single interviewee on a user interview topic. Use this to give the voice agent background it should know about this specific person — e.g. \"uses the replay product but has never used summarization\". `interviewee_identifier` is the email or PostHog distinct ID matching one of the entries in the parent topic's targeting fields. `agent_context` is free text. At most one row per (topic, interviewee_identifier) — calling create twice for the same pair will conflict.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Add per-interviewee context to a topic",
+        "title": "Add per-interviewee context to a topic",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interview-topic-interviewees-list": {
+        "description": "List the per-interviewee context rows attached to a single user interview topic. Each row is (interviewee_identifier, agent_context). Use this to see who has extra context attached before adding more.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "List per-interviewee contexts for a topic",
+        "title": "List per-interviewee contexts for a topic",
+        "required_scopes": ["user_interview:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "user-interviews"
+    },
     "user-settings-update": {
         "description": "Update the authenticated user's profile and settings using PATCH semantics — only the fields included in the request body are changed. Pass `@me` as the UUID; non-staff callers may only update their own account. Use `user-get` first to inspect current settings. `notification_settings` merges key-by-key; changing `email` triggers a verification flow; changing `password` also requires `current_password`. Always confirm changes with the user before applying.",
         "category": "Core",
