@@ -1,0 +1,31 @@
+name: list-surveys-default-pagination
+description: >
+  User asks an agent to list the surveys in the project without specifying
+  any pagination parameters. Verifies that the default page returns a
+  successful response with results and exposes a workable pagination cursor.
+  Targets the new SurveyLimitOffsetPagination default_limit behavior.
+domain: surveys
+tools_in_scope:
+  - surveys-get-all
+
+prompt: |
+  Show me the surveys we have configured in this project. Just give me the
+  first page — I want to see the names and IDs so I can pick one to look
+  at next.
+
+success_criteria:
+  - surveys-get-all returns a 2xx response (no server error)
+  - Response includes a count of total surveys
+  - Response includes a non-empty results array
+  - Each result has at least an id and a name field
+  - If more results exist, a next cursor (or offset hint) is present
+
+generated_from:
+  pr: 58576
+  commit: ca06066d5d4314ccdd3d2c2ac885baf018f26208
+  changed_files:
+    - products/surveys/backend/api/survey.py
+tags:
+  - surveys
+  - pagination
+  - list

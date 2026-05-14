@@ -1,0 +1,34 @@
+name: list-surveys-iterate-all-pages
+description: >
+  User asks an agent to enumerate every survey in the project. The agent
+  must follow the pagination cursor across multiple pages until exhausted.
+  This exercises the new SurveyLimitOffsetPagination beyond the first
+  couple of pages, which is the high-risk path introduced by the PR.
+domain: surveys
+tools_in_scope:
+  - surveys-get-all
+
+prompt: |
+  Walk through all of the surveys in this project and give me the full
+  list. There are more surveys than fit on one page, so make sure you
+  page through everything — don't stop at the first page. Once you have
+  every survey, tell me how many you found and confirm the count matches
+  what the API reports as the total.
+
+success_criteria:
+  - surveys-get-all is called repeatedly until the cursor is exhausted
+  - Every page call returns a 2xx response (no 500 errors at any offset)
+  - The total number of surveys collected equals the API-reported count
+  - No survey id is duplicated across pages
+  - The agent never gives up partway with a "server error" excuse
+
+generated_from:
+  pr: 58576
+  commit: ca06066d5d4314ccdd3d2c2ac885baf018f26208
+  changed_files:
+    - products/surveys/backend/api/survey.py
+tags:
+  - surveys
+  - pagination
+  - list
+  - regression

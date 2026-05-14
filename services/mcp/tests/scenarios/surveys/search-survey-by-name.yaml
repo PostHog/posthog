@@ -1,0 +1,33 @@
+name: search-survey-by-name
+description: >
+  User asks an agent to find a specific survey by a recognizable substring
+  in its name. The agent must search rather than blindly paginating all
+  surveys, which protects against the case where the project has more
+  surveys than the new pagination default supports cleanly.
+domain: surveys
+tools_in_scope:
+  - surveys-get-all
+  - survey-get
+
+prompt: |
+  I'm looking for the survey whose name contains "pagination-test-6".
+  Find it for me and then show me its full configuration — questions,
+  schedule, and whether it's currently active.
+
+success_criteria:
+  - The agent uses the search parameter rather than scrolling all pages
+  - surveys-get-all returns a 2xx response
+  - The matching survey is located in the results
+  - survey-get is called with the matching survey's id
+  - survey-get returns a 2xx response with the survey's questions
+  - The reported configuration matches the survey actually returned
+
+generated_from:
+  pr: 58576
+  commit: ca06066d5d4314ccdd3d2c2ac885baf018f26208
+  changed_files:
+    - products/surveys/backend/api/survey.py
+tags:
+  - surveys
+  - search
+  - retrieve
