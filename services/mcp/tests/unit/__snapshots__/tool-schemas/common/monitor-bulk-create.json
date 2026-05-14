@@ -15,7 +15,7 @@
                         "type": "string"
                     },
                     "url": {
-                        "description": "HTTP(S) URL to ping every 5 minutes.",
+                        "description": "HTTP(S) URL to ping every minute.",
                         "format": "uri",
                         "maxLength": 2048,
                         "type": "string"

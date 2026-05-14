@@ -4,16 +4,28 @@
         "id": {
             "type": "string"
         },
+        "mode": {
+            "description": "Monitor tracking mode. 'auto' (default) means PostHog pings the URL on a recurring schedule and computes uptime / latency from the pings. 'manual' means uptime is assumed 100% until you declare an incident on the monitor — useful for tracking internal services or third-party dependencies without a public health endpoint.\n\n* `auto` - auto\n* `manual` - manual",
+            "enum": ["auto", "manual"],
+            "type": "string"
+        },
         "name": {
             "description": "New human-readable name of the monitor.",
             "maxLength": 255,
             "type": "string"
         },
         "url": {
-            "description": "New HTTP(S) URL to ping every 5 minutes.",
-            "format": "uri",
-            "maxLength": 2048,
-            "type": "string"
+            "anyOf": [
+                {
+                    "format": "uri",
+                    "maxLength": 2048,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "New HTTP(S) URL. Required when the resulting mode is 'auto'."
         }
     },
     "required": ["id"],
