@@ -424,6 +424,27 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         self.assertEqual(UserInterview.objects.filter(team=self.team).count(), 1)
 
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.webhooks.emit_embedding_request")
+    def test_webhook_truncates_oversized_transcript_before_emit(self, mock_emit):
+        from products.user_interviews.backend.webhooks import EMBEDDING_CONTENT_MAX_BYTES
+
+        share = self._create_share()
+        self.client.logout()
+        oversized_transcript = "a" * (EMBEDDING_CONTENT_MAX_BYTES + 1000)
+        payload = self._end_of_call_payload(share.access_token)
+        payload["message"]["transcript"] = oversized_transcript
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._signed_post("topsecret", payload)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+        emitted = {kwargs["document_type"]: kwargs for _, kwargs in mock_emit.call_args_list}
+        self.assertIn("transcript", emitted)
+        self.assertEqual(len(emitted["transcript"]["content"].encode("utf-8")), EMBEDDING_CONTENT_MAX_BYTES)
+        # Summary was under the limit so it's emitted untouched.
+        self.assertEqual(emitted["summary"]["content"], "User talked about replay.")
+
 
 class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
     def _create_topic(self, **overrides) -> UserInterviewTopic:

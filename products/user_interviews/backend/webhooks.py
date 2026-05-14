@@ -39,6 +39,12 @@ logger = structlog.get_logger(__name__)
 
 _EMBEDDING_MODELS = [m.value for m in EmbeddingModelName]
 
+# TODO: figure out a better story for transcripts that exceed our Kafka envelope
+# than head-truncation. Options: (a) chunk + emit multiple documents per type, or
+# (b) push large content to object storage and embed a reference. Truncation is a
+# stop-gap so a 90-minute interview doesn't silently lose its embeddings entirely.
+EMBEDDING_CONTENT_MAX_BYTES = 750_000
+
 
 def _emit_interview_embeddings(interview: UserInterview, topic: UserInterviewTopic) -> None:
     """Emit transcript and summary as two separate embedding documents so each can be
@@ -52,6 +58,17 @@ def _emit_interview_embeddings(interview: UserInterview, topic: UserInterviewTop
     for document_type, content in (("transcript", interview.transcript), ("summary", interview.summary)):
         if not content or not content.strip():
             continue
+        content_bytes = content.encode("utf-8")
+        if len(content_bytes) > EMBEDDING_CONTENT_MAX_BYTES:
+            logger.warning(
+                "user_interviews_embedding_content_truncated",
+                team_id=interview.team_id,
+                interview_id=str(interview.id),
+                document_type=document_type,
+                original_bytes=len(content_bytes),
+                truncated_to_bytes=EMBEDDING_CONTENT_MAX_BYTES,
+            )
+            content = content_bytes[:EMBEDDING_CONTENT_MAX_BYTES].decode("utf-8", errors="ignore")
         try:
             emit_embedding_request(
                 content=content,
