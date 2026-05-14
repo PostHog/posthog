@@ -2595,7 +2595,7 @@ class RenderingCanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=False,
         methods=["post"],
         url_path="generate",
-        required_scopes=["task:read"],
+        required_scopes=["task:write"],
     )
     def generate(self, request, *args, **kwargs):
         data = request.validated_data

@@ -34,7 +34,6 @@ import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
-import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
@@ -663,7 +662,7 @@ export class MCP extends McpAgent<Env> {
         // Register prompts and resources
         await Promise.all([
             registerPrompts(this.server),
-            registerResources(this.server, context),
+            // registerResources(this.server, context),
             registerUiAppResources(this.server, context),
         ])
 

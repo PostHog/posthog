@@ -22,6 +22,7 @@ import type {
     PatchedTaskRunUpdateApi,
     RenderingCanvasApi,
     RenderingCanvasGenerateApi,
+    RenderingCanvasGenerateResponseApi,
     RenderingCanvasesListParams,
     RepositoryReadinessResponseApi,
     SandboxEnvironmentApi,
@@ -166,15 +167,15 @@ export const getRenderingCanvasesGenerateCreateUrl = (projectId: string) => {
 }
 
 /**
- * Generate a React/TSX module from a natural-language prompt, validate it, and persist it as a new RenderingCanvas. Returns the created canvas.
- * @summary Generate a rendering canvas from a prompt
+ * Generate a React/TSX module from a natural-language prompt and validate it. Does NOT persist — the caller follows up with POST /rendering_canvases/ (or the create-canvas MCP tool) when they want to keep the result.
+ * @summary Generate React/TSX source from a prompt
  */
 export const renderingCanvasesGenerateCreate = async (
     projectId: string,
     renderingCanvasGenerateApi: RenderingCanvasGenerateApi,
     options?: RequestInit
-): Promise<RenderingCanvasApi> => {
-    return apiMutator<RenderingCanvasApi>(getRenderingCanvasesGenerateCreateUrl(projectId), {
+): Promise<RenderingCanvasGenerateResponseApi> => {
+    return apiMutator<RenderingCanvasGenerateResponseApi>(getRenderingCanvasesGenerateCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

@@ -32830,6 +32830,10 @@ export namespace Schemas {
 
     /**
      * Input for the `rendering_canvases/generate/` action.
+
+    Pure generation — does not persist. The caller is expected to follow up with a
+    POST to `/rendering_canvases/` (the standard CRUD create) to persist whatever
+    they want to keep.
      */
     export interface RenderingCanvasGenerate {
       /**
@@ -32838,17 +32842,20 @@ export namespace Schemas {
          */
       prompt: string;
       /**
-         * Optional name for the canvas. If omitted, derived from the prompt.
+         * Optional human-readable name. If omitted, derived from the prompt.
          * @maxLength 200
          */
       name?: string;
-      /** Optional slash-separated virtual file path placing the canvas inside a file tree (e.g. 'src/components/Button.tsx'). Empty string means root. */
-      path?: string;
-      /**
-         * Optional task this canvas was generated from.
-         * @nullable
-         */
-      task?: string | null;
+    }
+
+    /**
+     * Response for the `rendering_canvases/generate/` action.
+     */
+    export interface RenderingCanvasGenerateResponse {
+      /** Suggested human-readable name for the canvas. */
+      name: string;
+      /** Generated React/TSX module source. Validated against the canvas safety rules before being returned. */
+      content: string;
     }
 
     export interface ReorderTilesRequest {

@@ -37,8 +37,8 @@ export const RenderingCanvasesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Generate a React/TSX module from a natural-language prompt, validate it, and persist it as a new RenderingCanvas. Returns the created canvas.
- * @summary Generate a rendering canvas from a prompt
+ * Generate a React/TSX module from a natural-language prompt and validate it. Does NOT persist — the caller follows up with POST /rendering_canvases/ (or the create-canvas MCP tool) when they want to keep the result.
+ * @summary Generate React/TSX source from a prompt
  */
 export const renderingCanvasesGenerateCreateBodyPromptMax = 4000
 
@@ -54,16 +54,11 @@ export const RenderingCanvasesGenerateCreateBody = /* @__PURE__ */ zod
             .string()
             .max(renderingCanvasesGenerateCreateBodyNameMax)
             .optional()
-            .describe('Optional name for the canvas. If omitted, derived from the prompt.'),
-        path: zod
-            .string()
-            .optional()
-            .describe(
-                "Optional slash-separated virtual file path placing the canvas inside a file tree (e.g. 'src\/components\/Button.tsx'). Empty string means root."
-            ),
-        task: zod.uuid().nullish().describe('Optional task this canvas was generated from.'),
+            .describe('Optional human-readable name. If omitted, derived from the prompt.'),
     })
-    .describe('Input for the `rendering_canvases\/generate\/` action.')
+    .describe(
+        'Input for the `rendering_canvases\/generate\/` action.\n\nPure generation — does not persist. The caller is expected to follow up with a\nPOST to `\/rendering_canvases\/` (the standard CRUD create) to persist whatever\nthey want to keep.'
+    )
 
 /**
  * API for managing sandbox environments that control network access for task runs.

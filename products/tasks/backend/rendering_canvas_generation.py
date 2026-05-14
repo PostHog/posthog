@@ -16,7 +16,9 @@ constrained sandbox. Your entire response must be valid TSX — no prose, no mar
 no leading/trailing commentary. Output the module source and nothing else.
 
 Hard constraints (any violation causes the result to be rejected):
-- The module must default-export a single React component (function or arrow function).
+- Define a single React component as a top-level `function App() { ... }` declaration.
+  Do NOT use `export` or `export default` — the renderer evaluates the source as a
+  script and `export` is a syntax error in that context. Just declare `function App`.
 - Do not import from any package. Assume `React` is in scope.
 - Do not use any of: fetch(), XMLHttpRequest, eval(), new Function(), dynamic import(),
   <script> tags, document.write, document.cookie, window.location, window.open.
