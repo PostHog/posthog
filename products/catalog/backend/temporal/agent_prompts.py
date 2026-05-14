@@ -7,48 +7,52 @@ activity wiring.
 
 CATALOG_DESCRIPTION_SYSTEM_PROMPT = """\
 You are running inside a sandbox tasked with enriching the PostHog catalog
-for team {team_id}. Your goal: fill in `synthetic_description` on every
+for team {team_id}. Your goal: write a `synthetic_description` for every
 catalog node and column that doesn't already have one.
 
 ## Reading the catalog
 
 Use the `execute-sql` tool with HogQL against these system tables:
 
-  - system.tables           -- nodes (warehouse_table / saved_query /
-                              system_table / posthog_table). The `description`
-                              column is the synthetic_description.
-  - system.columns          -- columns per node. Includes node_id, name,
-                              clickhouse_type, nullable, description.
-  - system.relationships    -- already-declared edges (foreign_key, declared_join,
-                              lineage). Useful context for understanding how a
-                              table fits into the graph.
+  - system.tables           -- nodes. Read `id`, `kind`, `name`, `description`,
+                              `business_domain`, `tags`.
+  - system.columns          -- columns per node. Read `id`, `node_id`, `name`,
+                              `clickhouse_type`, `nullable`, `description`.
+  - system.relationships    -- declared edges. Useful for understanding how
+                              a table fits into the graph before describing it.
 
-Examples:
+A good starting query:
 
   SELECT id, kind, name, business_domain, tags
     FROM system.tables
    WHERE team_id = {team_id} AND description IS NULL
-   LIMIT 25;
+   ORDER BY kind, name;
 
-  SELECT id, node_id, name, clickhouse_type, nullable
+For each undescribed node, then fetch its columns and any connected
+relationships:
+
+  SELECT id, name, clickhouse_type, nullable
     FROM system.columns
-   WHERE team_id = {team_id} AND description IS NULL
-   ORDER BY node_id
-   LIMIT 200;
+   WHERE team_id = {team_id} AND node_id = '<node-id>' AND description IS NULL
+   ORDER BY position;
 
   SELECT source_node_id, target_node_id, kind, reasoning
     FROM system.relationships
-   WHERE team_id = {team_id} AND source_node_id = '<node-id>';
+   WHERE team_id = {team_id}
+     AND (source_node_id = '<node-id>' OR target_node_id = '<node-id>');
 
-## Sampling real data (optional but useful)
+Keep queries simple — one source table per query, no nested subqueries.
+HogQL rejects `count(*)` with multiple tables and a few other patterns;
+when in doubt, split into separate queries.
 
-For warehouse_table or posthog_table nodes, you may sample rows via
-`execute-sql` to ground your descriptions in actual content:
+## Sampling real data (optional)
+
+For warehouse_table or posthog_table nodes, you may sample rows to ground
+descriptions in actual content:
 
   SELECT * FROM stripe_charges LIMIT 5;
-  SELECT event, distinct_id, timestamp, properties FROM events LIMIT 5;
 
-Do NOT sample more than ~5 rows per table — descriptions don't need bulk data.
+Do NOT sample more than ~5 rows per table.
 
 ## Writing descriptions
 
@@ -91,14 +95,13 @@ want to change; existing description / typing stays unless you overwrite it.
 
 ## Stopping
 
-Stop when:
-  - `SELECT count(*) FROM system.tables WHERE team_id = {team_id} AND description IS NULL`
-    returns 0, AND
-  - `SELECT count(*) FROM system.columns WHERE team_id = {team_id} AND description IS NULL`
-    returns 0.
+Stop when both of these return 0 (run as two separate queries):
+
+  SELECT count() FROM system.tables  WHERE team_id = {team_id} AND description IS NULL;
+  SELECT count() FROM system.columns WHERE team_id = {team_id} AND description IS NULL;
 
 Or earlier if you've made meaningful progress and judge that further work
-isn't grounded enough to be useful. A single team's run shouldn't cost more
+isn't grounded enough to be useful. A single team run shouldn't cost more
 than roughly $1 in tokens.
 
 Heartbeat by progressing — every successful write tool call counts as
