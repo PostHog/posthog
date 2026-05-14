@@ -12,10 +12,31 @@ into the generated MCP tool schemas. Agents read them to understand what to
 pass.
 """
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from ..facade.contracts import CatalogColumnDTO, CatalogGraphDTO, CatalogNodeDTO, CatalogRelationshipDTO
+from ..facade.contracts import (
+    CatalogColumnDTO,
+    CatalogGraphDTO,
+    CatalogMetricDTO,
+    CatalogNodeDTO,
+    CatalogRelationshipDTO,
+    MetricDefinitionSchema,
+)
+
+
+@extend_schema_field(MetricDefinitionSchema)  # type: ignore[arg-type]
+class MetricDefinitionField(serializers.JSONField):
+    """JSONField typed as `EventsNode | DataWarehouseNode | HogQLQuery`.
+
+    The schema flows through drf-spectacular into the generated MCP tool's Zod schema,
+    so agents see the same discriminated union the insight query engine speaks. Discriminated
+    on the inner `kind` literal.
+    """
+
+    pass
+
 
 # --- Output serializers -------------------------------------------------------
 
@@ -38,6 +59,13 @@ class CatalogNodeDTOSerializer(DataclassSerializer):
 class CatalogRelationshipDTOSerializer(DataclassSerializer):
     class Meta:
         dataclass = CatalogRelationshipDTO
+
+
+class CatalogMetricDTOSerializer(DataclassSerializer):
+    definition = MetricDefinitionField()
+
+    class Meta:
+        dataclass = CatalogMetricDTO
 
 
 class CatalogGraphDTOSerializer(DataclassSerializer):
@@ -416,4 +444,63 @@ class ProposeRelationshipInputSerializer(serializers.Serializer):
         allow_null=True,
         max_length=64,
         help_text="Model that proposed the relationship — same convention as on nodes and columns.",
+    )
+
+
+class UpsertMetricInputSerializer(serializers.Serializer):
+    """Body for catalog-metrics-create. team_id is taken from the URL, not the body.
+
+    Idempotent on (team, name): re-posting with the same name updates description and
+    definition in place. The bound CatalogNode(kind=metric) is created on first insert
+    and reused on update — agents can re-propose metrics across traversal runs safely.
+    """
+
+    name = serializers.CharField(
+        max_length=400,
+        help_text=(
+            "Stable identifier for the metric, unique per team. Use a short snake_case or "
+            "kebab-case slug that won't change as the metric evolves (e.g. "
+            "`monthly_recurring_revenue`, `signup_conversion_rate`). The agent looks metrics "
+            "up by name before upserting, so keep this stable across runs."
+        ),
+    )
+    description = serializers.CharField(
+        allow_blank=True,
+        required=False,
+        default="",
+        help_text=(
+            "Human-readable description of what this metric measures, when to use it, and "
+            "any caveats — 1-2 sentences. Becomes the primary signal future agents use to "
+            "decide whether this is the right metric to reference for a question."
+        ),
+    )
+    definition = MetricDefinitionField(
+        help_text=(
+            "How the metric is computed. Exactly one of `EventsNode` (event count with math "
+            "and filters), `DataWarehouseNode` (warehouse-table aggregate), or `HogQLQuery` "
+            "(raw HogQL SQL) — the same shape an `Insight.query.series` item uses, "
+            "discriminated by the inner `kind` field. Example: "
+            '`{"kind": "EventsNode", "event": "signup_completed", "math": "dau"}`.'
+        ),
+    )
+    generator_model = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=64,
+        help_text=(
+            "Model that proposed the metric — e.g. `claude-opus-4-7`. Stored on the bound "
+            "CatalogNode for auditing. Leave null when humans author the metric."
+        ),
+    )
+    confidence = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0.0,
+        max_value=1.0,
+        help_text=(
+            "Agent's confidence (0..1) that this metric is correctly defined and worth "
+            "showing to humans. Surfaces as a draft/confirmed indicator on the bound "
+            "CatalogNode. Use 1.0 for metrics derived directly from a popular dashboard's "
+            "saved query; lower values for inferred or aggregated proposals."
+        ),
     )

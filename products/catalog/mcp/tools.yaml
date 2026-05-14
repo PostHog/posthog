@@ -78,3 +78,24 @@ tools:
     catalog-relationships-retrieve:
         operation: catalog_relationships_retrieve
         enabled: false
+    catalog-metrics-create:
+        operation: catalog_metrics_create
+        enabled: true
+        scopes:
+            - catalog:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Propose catalog metric
+        description: >
+            Propose a semantic metric in the catalog — a named, reusable measurement (e.g. "monthly_recurring_revenue",
+            "signup_conversion_rate"). The `definition` field carries how the metric is computed and accepts exactly
+            one of three shapes, discriminated by `kind`:
+            (1) `{"kind": "EventsNode", "event": "<event_name>", "math": "<dau|total|unique_users|sum|...>", "math_property": "<property_name>", "properties": [<filter>...]}` for event-based metrics;
+            (2) `{"kind": "DataWarehouseNode", "id": "<table_name>", "id_field": "id", "distinct_id_field": "<column>", "math": "<sum|avg|...>", "math_property": "<column>"}` for warehouse-table aggregates;
+            (3) `{"kind": "HogQLQuery", "query": "SELECT ..."}` for raw HogQL when the metric doesn't fit the structured shapes.
+            This is the same shape an `Insight.query.series` item uses. Idempotent on (team, name): re-call with the same
+            name to update description and definition without creating duplicates. Atomically creates both the metric row
+            and a bound CatalogNode(kind=metric) in the catalog graph; returns the metric with its `node_id` for use when
+            proposing relationships (e.g. metric `depends_on` event_definition).

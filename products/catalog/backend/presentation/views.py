@@ -39,11 +39,13 @@ from ..facade.contracts import (
     UpdateNodeParams,
     UpdateRelationshipParams,
     UpsertColumnParams,
+    UpsertMetricParams,
     UpsertNodeParams,
 )
 from .serializers import (
     CatalogColumnDTOSerializer,
     CatalogGraphDTOSerializer,
+    CatalogMetricDTOSerializer,
     CatalogNodeDTOSerializer,
     CatalogRelationshipDTOSerializer,
     ProposeRelationshipInputSerializer,
@@ -51,6 +53,7 @@ from .serializers import (
     UpdateNodeInputSerializer,
     UpdateRelationshipInputSerializer,
     UpsertColumnInputSerializer,
+    UpsertMetricInputSerializer,
     UpsertNodeInputSerializer,
 )
 
@@ -281,3 +284,38 @@ class CatalogRelationshipViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         if rel is None:
             return Response({"detail": "Relationship not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(CatalogRelationshipDTOSerializer(instance=rel).data)
+
+
+@extend_schema(tags=[CATALOG_TAG])
+class CatalogMetricViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Semantic metrics — the catalog's "what does this number mean" entries.
+
+    Each metric row is paired 1:1 with a CatalogNode(kind=metric) created in the
+    same transaction. The metric row holds the computational definition (an
+    EventsNode / DataWarehouseNode / HogQLQuery body); the node carries the
+    graph-level metadata (description, status, tags, edges).
+
+    Idempotent on (team, name): re-posting the same name updates description and
+    definition without piling up duplicate rows.
+    """
+
+    scope_object = "catalog"
+    scope_object_write_actions = ["create"]
+
+    @validated_request(
+        request_serializer=UpsertMetricInputSerializer,
+        responses={201: OpenApiResponse(response=CatalogMetricDTOSerializer)},
+    )
+    def create(self, request: TypedRequest[dict[str, Any]], **kwargs) -> Response:
+        """Propose a semantic metric and bind its CatalogNode in one call."""
+        data = request.validated_data
+        params = UpsertMetricParams(
+            team_id=cast(int, self.team_id),
+            name=data["name"],
+            description=data.get("description", ""),
+            definition=data["definition"],
+            generator_model=data.get("generator_model"),
+            confidence=data.get("confidence"),
+        )
+        metric = catalog_api.CatalogAPI.upsert_metric(params)
+        return Response(CatalogMetricDTOSerializer(instance=metric).data, status=status.HTTP_201_CREATED)

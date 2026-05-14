@@ -43,6 +43,7 @@ import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
 from products.catalog.backend.presentation.views import (
     CatalogColumnViewSet,
+    CatalogMetricViewSet,
     CatalogNodeViewSet,
     CatalogRelationshipViewSet,
 )
@@ -1324,6 +1325,12 @@ projects_router.register(
     r"catalog/relationships",
     CatalogRelationshipViewSet,
     "project_catalog_relationships",
+    ["project_id"],
+)
+projects_router.register(
+    r"catalog/metrics",
+    CatalogMetricViewSet,
+    "project_catalog_metrics",
     ["project_id"],
 )
 

@@ -1,6 +1,22 @@
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 from uuid import UUID
+
+from pydantic import RootModel
+
+from posthog.schema import DataWarehouseNode, EventsNode, HogQLQuery
+
+
+class MetricDefinitionSchema(RootModel[EventsNode | DataWarehouseNode | HogQLQuery]):
+    """Schema for `CatalogMetric.definition` — same shape as an `Insight.query.series` item.
+
+    A metric is computed from exactly one of: an event count (EventsNode), a data-warehouse
+    aggregate (DataWarehouseNode), or a raw HogQL query (HogQLQuery). All three carry a
+    `kind` discriminator so consumers can route on shape without parsing the body.
+    """
+
+    root: EventsNode | DataWarehouseNode | HogQLQuery
 
 
 @dataclass(frozen=True)
@@ -129,6 +145,43 @@ class UpdateRelationshipParams:
     confidence: float | None = None
     reasoning: str | None = None
     reviewed_by_id: int | None = None
+
+
+@dataclass(frozen=True)
+class CatalogMetricDTO:
+    """A semantic metric proposed for the catalog (e.g. "MRR", "DAU", "pricing-page conversion").
+
+    Pairs 1:1 with a `CatalogNode(kind=metric)` whose polymorphic pointer
+    (content_type/object_id) targets this row. Display metadata (status, semantic_role,
+    business_domain, tags) lives on the node; the metric row holds the computational
+    definition.
+    """
+
+    id: UUID
+    team_id: int
+    name: str
+    description: str
+    definition: dict[str, Any]
+    node_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class UpsertMetricParams:
+    """Create or update a CatalogMetric and its bound CatalogNode(kind=metric).
+
+    Idempotent on (team, name): re-calling with the same name updates description and
+    definition in place. The bound CatalogNode is created on first insert and reused on
+    update. Agent traversal runs call this repeatedly without piling up duplicates.
+    """
+
+    team_id: int
+    name: str
+    description: str = ""
+    definition: dict[str, Any] = field(default_factory=dict)
+    generator_model: str | None = None
+    confidence: float | None = None
 
 
 @dataclass(frozen=True)

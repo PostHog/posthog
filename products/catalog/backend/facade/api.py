@@ -4,6 +4,7 @@ from products.catalog.backend import logic
 from products.catalog.backend.facade.contracts import (
     CatalogColumnDTO,
     CatalogGraphDTO,
+    CatalogMetricDTO,
     CatalogNodeDTO,
     CatalogRelationshipDTO,
     ProposeRelationshipParams,
@@ -11,6 +12,7 @@ from products.catalog.backend.facade.contracts import (
     UpdateNodeParams,
     UpdateRelationshipParams,
     UpsertColumnParams,
+    UpsertMetricParams,
     UpsertNodeParams,
 )
 
@@ -45,6 +47,15 @@ class CatalogAPI:
     @staticmethod
     def upsert_column(params: UpsertColumnParams) -> CatalogColumnDTO:
         return logic.upsert_column(params)
+
+    @staticmethod
+    def upsert_metric(params: UpsertMetricParams) -> CatalogMetricDTO:
+        """Upsert a semantic metric and its bound CatalogNode(kind=metric).
+
+        Idempotent on (team, name). See `logic.upsert_metric` for the atomic
+        write semantics — metric row and node row are created/updated together.
+        """
+        return logic.upsert_metric(params)
 
     @staticmethod
     def propose_relationship(params: ProposeRelationshipParams) -> CatalogRelationshipDTO:

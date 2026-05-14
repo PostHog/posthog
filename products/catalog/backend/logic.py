@@ -7,7 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from products.catalog.backend.facade import contracts
-from products.catalog.backend.models import CatalogColumn, CatalogNode, CatalogRelationship
+from products.catalog.backend.models import CatalogColumn, CatalogMetric, CatalogNode, CatalogRelationship
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 
@@ -49,6 +49,19 @@ def to_node_dto(node: CatalogNode, *, columns: list[CatalogColumn] | None = None
         confidence=node.confidence,
         status=node.status,
         reviewed_at=node.reviewed_at,
+    )
+
+
+def to_metric_dto(metric: CatalogMetric, node_id: UUID) -> contracts.CatalogMetricDTO:
+    return contracts.CatalogMetricDTO(
+        id=metric.id,
+        team_id=metric.team_id,
+        name=metric.name,
+        description=metric.description,
+        definition=metric.definition or {},
+        node_id=node_id,
+        created_at=metric.created_at,
+        updated_at=metric.updated_at,
     )
 
 
@@ -145,6 +158,41 @@ def upsert_node(params: contracts.UpsertNodeParams) -> contracts.CatalogNodeDTO:
         defaults=defaults,
     )
     return to_node_dto(node)
+
+
+@transaction.atomic
+def upsert_metric(params: contracts.UpsertMetricParams) -> contracts.CatalogMetricDTO:
+    """Upsert a CatalogMetric and bind a CatalogNode(kind=metric) to it.
+
+    Single atomic write — metric row and node row live or die together. Idempotent on
+    (team, name) for the metric and (team, kind=metric, name) for the node; calling twice
+    with the same name updates description, definition, and the node's reverse pointer
+    without creating duplicates.
+    """
+    metric, _ = CatalogMetric.objects.update_or_create(
+        team_id=params.team_id,
+        name=params.name,
+        defaults={
+            "description": params.description,
+            "definition": params.definition,
+        },
+    )
+    node_defaults: dict = {
+        "content_type": ContentType.objects.get_for_model(CatalogMetric),
+        "object_id": metric.id,
+        "last_traversed_at": timezone.now(),
+    }
+    if params.generator_model is not None:
+        node_defaults["generator_model"] = params.generator_model
+    if params.confidence is not None:
+        node_defaults["confidence"] = params.confidence
+    node, _ = CatalogNode.objects.update_or_create(
+        team_id=params.team_id,
+        kind=CatalogNode.Kind.METRIC,
+        name=params.name,
+        defaults=node_defaults,
+    )
+    return to_metric_dto(metric, node_id=node.id)
 
 
 @transaction.atomic
