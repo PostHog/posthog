@@ -13,6 +13,8 @@ from posthog.models.subscription import Subscription, SubscriptionDelivery
 from posthog.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from posthog.temporal.subscriptions.types import SnapshotInsightsInputs
 
+from ee.models import CoreMemory
+
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
 
@@ -381,6 +383,89 @@ async def test_captures_event_with_team_prefixed_distinct_id_when_no_creator(tea
     events = [c for c in fake_client.captured if c.get("event") == "subscription_ai_summary_generated"]
     assert len(events) == 1
     assert events[0]["distinct_id"] == f"team_{team.id}"
+
+
+async def test_core_memory_flows_into_change_summary(team, user, monkeypatch):
+    subscription = await _create_subscription(team, user)
+    await _set_ai_consent(subscription, approved=True)
+    await sync_to_async(CoreMemory.objects.create)(
+        team=team,
+        text="Company is PostHog.\nFlagship product is product analytics.",
+    )
+    delivery = await _create_delivery(
+        subscription,
+        {
+            "insights": [
+                {
+                    "id": subscription.insight_id,
+                    "name": "Pageviews",
+                    "query_results": {"result": [{"label": "Pageviews", "data": [1, 2, 3]}]},
+                }
+            ]
+        },
+    )
+
+    seen_core_memory: list[str] = []
+
+    def fake_generate(previous_states, current_states, *, core_memory_text: str = "", **kwargs):
+        seen_core_memory.append(core_memory_text)
+        return "- Pageviews is trending up"
+
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.generate_change_summary",
+        fake_generate,
+    )
+
+    await _run(
+        SnapshotInsightsInputs(
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=str(delivery.id),
+        )
+    )
+
+    assert len(seen_core_memory) == 1
+    assert "Company is PostHog." in seen_core_memory[0]
+    assert "Flagship product is product analytics." in seen_core_memory[0]
+
+
+async def test_core_memory_is_empty_string_when_no_memory_exists(team, user, monkeypatch):
+    subscription = await _create_subscription(team, user)
+    await _set_ai_consent(subscription, approved=True)
+    # Intentionally do not create a CoreMemory row for the team.
+    delivery = await _create_delivery(
+        subscription,
+        {
+            "insights": [
+                {
+                    "id": subscription.insight_id,
+                    "name": "Pageviews",
+                    "query_results": {"result": [{"label": "Pageviews", "data": [1, 2, 3]}]},
+                }
+            ]
+        },
+    )
+
+    seen_core_memory: list[str] = []
+
+    def fake_generate(previous_states, current_states, *, core_memory_text: str = "", **kwargs):
+        seen_core_memory.append(core_memory_text)
+        return "- Pageviews is trending up"
+
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.generate_change_summary",
+        fake_generate,
+    )
+
+    await _run(
+        SnapshotInsightsInputs(
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=str(delivery.id),
+        )
+    )
+
+    assert seen_core_memory == [""]
 
 
 async def test_unhandled_exception_is_logged_and_reraised(team, user, monkeypatch):

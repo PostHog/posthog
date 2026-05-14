@@ -9,10 +9,11 @@ SERIES_LABEL_MAX_LEN = 200
 SUBSCRIPTION_TITLE_MAX_LEN = 200
 GENERIC_VALUE_MAX_LEN = 200
 PROMPT_GUIDE_MAX_LEN = 500
+CORE_MEMORY_MAX_LEN = 5000
 
 _TAG_RE = re.compile(r"</?[a-zA-Z_][^>]*>")
 _LLM_MARKER_RE = re.compile(
-    r"</?\s*(?:system|user|assistant|human|insight_data|user_context|subscription_title)\b[^>]*>?",
+    r"</?\s*(?:system|user|assistant|human|insight_data|user_context|subscription_title|core_memory)\b[^>]*>?",
     re.IGNORECASE,
 )
 _NEWLINE_RE = re.compile(r"[\r\n\u2028\u2029]+")
@@ -52,6 +53,22 @@ def sanitize_user_text(value: str | None, max_len: int) -> str:
         cleaned = _TAG_RE.sub("", cleaned)
     cleaned = _NEWLINE_RE.sub(" ", cleaned)
     cleaned = _WHITESPACE_RUN_RE.sub(" ", cleaned).strip()
+    if len(cleaned) > max_len:
+        cleaned = cleaned[:max_len].rstrip()
+    return cleaned
+
+
+def sanitize_core_memory_text(value: str | None, max_len: int = CORE_MEMORY_MAX_LEN) -> str:
+    """Sanitize core memory facts. Preserves newlines so each fact stays on its own line,
+    but strips structural LLM markers so the memory cannot escape its `<core_memory>` wrapper."""
+    if not value:
+        return ""
+    cleaned = _strip_invisible(value)
+    previous = ""
+    while previous != cleaned:
+        previous = cleaned
+        cleaned = _LLM_MARKER_RE.sub("", cleaned)
+    cleaned = cleaned.strip()
     if len(cleaned) > max_len:
         cleaned = cleaned[:max_len].rstrip()
     return cleaned
