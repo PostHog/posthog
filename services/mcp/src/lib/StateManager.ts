@@ -103,7 +103,13 @@ export class StateManager {
         organizationId?: string
         projectId?: number
     }> {
-        const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([this.getApiKey(), this.getUser()])
+        const [apiKey, user] = await Promise.all([this.getApiKey(), this.getUser()])
+        // PostHog returns `null` for unscoped keys (no `scoped_teams` / `scoped_organizations`
+        // restrictions). Normalize to an empty array so the rest of the function can treat
+        // "no scoping" as "empty allow-list" uniformly. Without this, an unscoped personal
+        // API key crashes with `Cannot read properties of null (reading 'length')`.
+        const scoped_teams = apiKey.scoped_teams ?? []
+        const scoped_organizations = apiKey.scoped_organizations ?? []
         const { organization: activeOrganization, team: activeTeam } = user
 
         // Team-scoped key: prefer the active team if the scope allows it,
