@@ -48,15 +48,15 @@ function TestResultPanel({
             : result?.status === 'skipped'
               ? 'warning'
               : 'error'
-    const heading = loading
-        ? 'Sending test notification...'
-        : error
-          ? error
+    const heading = error
+        ? error
+        : loading
+          ? 'Sending test notification...'
           : result?.status === 'success'
             ? 'Test notification sent.'
             : result?.status === 'skipped'
               ? 'Test was skipped — the event did not match the notification filters.'
-              : 'Test failed. See logs for details.'
+              : 'Test failed.'
 
     return (
         <LemonBanner type={bannerType} className="flex flex-col gap-2">
