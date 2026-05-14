@@ -49,11 +49,11 @@ export function MCPAnalyticsScene(): JSX.Element {
             'data-attr': 'mcp-analytics-tool-quality-tab',
         },
         {
-            key: 'intent-clustering',
-            label: 'Intent clustering',
+            key: 'tasks',
+            label: 'Tasks',
             content: <MCPAnalyticsClustering />,
-            link: combineUrl(urls.mcpAnalyticsIntentClustering(), searchParams).url,
-            'data-attr': 'mcp-analytics-intent-clustering-tab',
+            link: combineUrl(urls.mcpAnalyticsTasks(), searchParams).url,
+            'data-attr': 'mcp-analytics-tasks-tab',
         },
     ]
 
