@@ -2,6 +2,7 @@ import datetime as dt
 from typing import Any
 
 from django.db.models import QuerySet
+from django.utils import timezone
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -23,6 +24,11 @@ MCP_TOOL_CALL_EVENT = "mcp_tool_call"
 # cluster. Tune this when real customer traffic exposes a need for longer windows.
 MCP_SESSIONS_DEFAULT_LOOKBACK_DAYS = 30
 MCP_TOOL_CALLS_RESULT_LIMIT = 500
+
+# How long a snapshot may sit in COMPUTING before we assume the task died and
+# auto-recover. Generous because a real recompute completes in well under a
+# minute even at the top_n=500 cap; anything past 10 minutes is a dead task.
+STALE_COMPUTING_THRESHOLD = dt.timedelta(minutes=10)
 
 _MCP_TOOL_CALLS_SQL = """
 SELECT
@@ -157,7 +163,22 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
 
     When no snapshot exists yet, returns an empty IDLE one so callers can
     render the "compute" CTA without distinguishing "missing" from "empty".
+
+    Defensive side effect: any row stuck in COMPUTING past
+    STALE_COMPUTING_THRESHOLD is auto-flipped to ERROR so the UI can offer
+    a retry. The Celery task may have died between writing COMPUTING and
+    writing its final status (worker restart, OOM, etc.) and otherwise has
+    no path back to a usable state.
     """
+    MCPIntentClusterSnapshot.objects.filter(
+        team=team,
+        status=MCPIntentClusterSnapshot.Status.COMPUTING,
+        updated_at__lt=timezone.now() - STALE_COMPUTING_THRESHOLD,
+    ).update(
+        status=MCPIntentClusterSnapshot.Status.ERROR,
+        error_message="Recompute task did not complete within the expected window. Retry to try again.",
+    )
+
     snapshot = MCPIntentClusterSnapshot.objects.filter(team=team).select_related("last_computed_by").first()
     if snapshot is None:
         return contracts.IntentClusterSnapshot(
