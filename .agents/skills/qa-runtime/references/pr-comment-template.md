@@ -70,6 +70,16 @@ work. Skip on clean runs that found nothing.
 **Effort saved** · 🎯 1 High caught · ⏱ ~15 min of manual QA
 ```
 
+The time estimate should reflect how long a developer would realistically
+spend to cover the same ground manually: checking out the PR, getting the
+local stack ready, opening each affected scene, exercising the in-diff
+behavior, capturing screenshots, comparing against expected outcomes, and
+writing up findings. Estimate the total across the whole run, not per
+target. Account for scenario complexity - a single-scene "scroll and
+verify text" pass is faster to do by hand than a multi-step flow that
+needs data seeding, feature-flag toggling, or dark/light comparison. The
+number should be honest; overstating it erodes trust in the report.
+
 ## Findings
 
 Use a separator (`---`) before findings start. Each finding is its own
