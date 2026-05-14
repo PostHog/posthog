@@ -84,7 +84,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
         resyncSchema,
         cancelSchema,
         deleteTable,
-        setSelectedSchemas,
     } = useActions(sourceSettingsLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -169,7 +168,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                 resyncSchema={resyncSchema}
                 cancelSchema={cancelSchema}
                 deleteTable={deleteTable}
-                setSelectedSchemas={setSelectedSchemas}
                 showMetrics={showMetrics}
             />
             {source?.source_type &&
@@ -211,7 +209,6 @@ interface ManagedSchemaTableProps {
     resyncSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     deleteTable: (schema: ExternalDataSourceSchema) => void
-    setSelectedSchemas: (schemaNames: string[]) => void
     showMetrics: boolean
 }
 
@@ -226,10 +223,10 @@ function ManagedSchemaTable({
     resyncSchema,
     cancelSchema,
     deleteTable,
-    setSelectedSchemas,
     showMetrics,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
+    const { setSelectedSchemas } = useActions(sourceSettingsLogic)
     const [initialLoad, setInitialLoad] = useState(true)
 
     useEffect(() => {

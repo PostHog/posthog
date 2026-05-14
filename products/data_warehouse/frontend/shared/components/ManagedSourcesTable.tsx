@@ -33,6 +33,21 @@ import { DATA_WAREHOUSE_APP_SOURCE } from './metrics/DataWarehouseMetrics'
 // eslint-disable-next-line import/no-cycle
 import { SourceIcon } from './SourceIcon'
 
+const SCHEMA_STATUS_ORDER: ExternalDataSchemaStatus[] = [
+    ExternalDataSchemaStatus.Failed,
+    ExternalDataSchemaStatus.Paused,
+    ExternalDataSchemaStatus.Cancelled,
+    ExternalDataSchemaStatus.Running,
+    ExternalDataSchemaStatus.Completed,
+]
+const SCHEMA_STATUS_LABEL: Record<ExternalDataSchemaStatus, string> = {
+    [ExternalDataSchemaStatus.Failed]: 'failed',
+    [ExternalDataSchemaStatus.Paused]: 'paused',
+    [ExternalDataSchemaStatus.Cancelled]: 'cancelled',
+    [ExternalDataSchemaStatus.Running]: 'running',
+    [ExternalDataSchemaStatus.Completed]: 'completed',
+}
+
 export function ManagedSourcesTable(): JSX.Element {
     const { filteredManagedSources, dataWarehouseSourcesLoading, sourceReloadingById, managedSearchTerm } =
         useValues(sourceManagementLogic)
@@ -151,26 +166,10 @@ export function ManagedSourcesTable(): JSX.Element {
                                 return null
                             }
                             const syncingSchemas = source.schemas.filter((s) => s.should_sync)
-                            const statusOrder: ExternalDataSchemaStatus[] = [
-                                ExternalDataSchemaStatus.Failed,
-                                ExternalDataSchemaStatus.Paused,
-                                ExternalDataSchemaStatus.Cancelled,
-                                ExternalDataSchemaStatus.Running,
-                                ExternalDataSchemaStatus.Completed,
-                            ]
-                            const statusLabel: Record<ExternalDataSchemaStatus, string> = {
-                                [ExternalDataSchemaStatus.Failed]: 'failed',
-                                [ExternalDataSchemaStatus.Paused]: 'paused',
-                                [ExternalDataSchemaStatus.Cancelled]: 'cancelled',
-                                [ExternalDataSchemaStatus.Running]: 'running',
-                                [ExternalDataSchemaStatus.Completed]: 'completed',
-                            }
-                            const counts = statusOrder
-                                .map((status) => ({
-                                    status,
-                                    schemas: syncingSchemas.filter((s) => s.status === status),
-                                }))
-                                .filter(({ schemas }) => schemas.length > 0)
+                            const counts = SCHEMA_STATUS_ORDER.map((status) => ({
+                                status,
+                                schemas: syncingSchemas.filter((s) => s.status === status),
+                            })).filter(({ schemas }) => schemas.length > 0)
 
                             // No per-schema status data — fall back to the source-level tag.
                             if (counts.length === 0) {
@@ -208,7 +207,7 @@ export function ManagedSourcesTable(): JSX.Element {
                                                 forceClickable
                                                 onClick={() => router.actions.push(sourceUrl)}
                                             >
-                                                {schemas.length} {statusLabel[status]}
+                                                {schemas.length} {SCHEMA_STATUS_LABEL[status]}
                                             </LemonTag>
                                         </Tooltip>
                                     ))}
