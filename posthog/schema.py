@@ -3794,6 +3794,7 @@ class ProductKey(StrEnum):
     ERROR_TRACKING = "error_tracking"
     EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
+    GITHOG = "githog"
     GROUP_ANALYTICS = "group_analytics"
     HEATMAPS = "heatmaps"
     HISTORY = "history"
