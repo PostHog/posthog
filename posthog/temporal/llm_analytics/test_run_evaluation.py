@@ -1358,6 +1358,11 @@ class TestSourceEventHasRealUserContext:
                 {"distinct_id": "user-abc"},
                 True,
             ),
+            (
+                "malformed_properties_json_string",
+                {"distinct_id": "user-abc", "properties": "{not valid json"},
+                False,
+            ),
         ]
     )
     def test_gate(self, _name: str, event_data: dict[str, Any], expected: bool) -> None:
