@@ -153,10 +153,10 @@ function MonitorsTab(): JSX.Element {
             ) : (
                 <DndContext sensors={sensors} modifiers={[restrictToParentElement]} onDragEnd={onDragEnd}>
                     <SortableContext items={monitorSummaries.map((m) => m.id)} strategy={rectSortingStrategy}>
-                        <div
-                            className="grid gap-4"
-                            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 360px))' }}
-                        >
+                        {/* Fixed responsive column counts with 1fr tracks ensure the grid always
+                            fills the parent container so its right edge aligns with the banner.
+                            A single tile occupies one cell (1/N of the width), not the full row. */}
+                        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                             {monitorSummariesLoading && !hasMonitors
                                 ? Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)
                                 : monitorSummaries.map((monitor) => (
@@ -417,7 +417,7 @@ function EmptyState({
                 </LemonButton>
             </LemonCard>
             {topSuggestion && (
-                <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 360px))' }}>
+                <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     <GhostTile suggestion={topSuggestion} onAdd={() => quickAddSuggestion(topSuggestion)} />
                     {hasMoreSuggestions && (
                         <LemonCard
