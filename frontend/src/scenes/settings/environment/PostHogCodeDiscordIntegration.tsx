@@ -17,7 +17,7 @@ export function PostHogCodeDiscordIntegration(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
     const { posthogCodeDiscordIntegrations, posthogCodeDiscordAvailable } = useValues(integrationsLogic)
-    const flagEnabled = useFeatureFlag('POSTHOG_CODE_DISCORD_AVAILABILITY')
+    const flagEnabled = useFeatureFlag('POSTHOG_BOT_EVERYWHERE')
     const canConnect = posthogCodeDiscordAvailable && flagEnabled
 
     return (
