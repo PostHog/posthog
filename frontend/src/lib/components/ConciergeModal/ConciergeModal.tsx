@@ -33,12 +33,15 @@ function wizardCommandFor(notificationId: string): string {
 function modeForStyle(style: string | undefined): DeliveryMode {
     switch (style) {
         case 'pirate':
+        case 'scroll':
             return 'scroll'
         case 'star_wars':
+        case 'galactic':
             return 'galactic'
         case 'csm':
             return 'csm'
         case 'royal':
+        case 'envelope':
         default:
             return 'envelope'
     }
@@ -598,6 +601,11 @@ export function ConciergeModal({ isOpen, onClose, notificationId, title, body }:
         <>
             {/* Load Caveat font for envelope + scroll modes */}
             <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap" />
+
+            {/* Make close button visible on dark mode backgrounds (CSM/Galactic) */}
+            {(mode === 'csm' || mode === 'galactic') && (
+                <style>{`.LemonModal__close .LemonButton { color: #fff !important; }`}</style>
+            )}
 
             <LemonModal isOpen={isOpen} onClose={onClose} simple closable>
                 <div

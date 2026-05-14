@@ -41,6 +41,7 @@ NOTIFICATION_STYLE_CHOICES = [
     ("envelope", "Envelope"),
     ("scroll", "Scroll"),
     ("galactic", "Galactic"),
+    ("csm", "CSM (DVD screensaver)"),
 ]
 
 
