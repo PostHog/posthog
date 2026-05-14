@@ -122,6 +122,19 @@ export function FloatingConcierge(): JSX.Element | null {
             {/* Load pixel font for speech bubble */}
             <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" />
 
+            {/* Stepped rainbow flashing — discrete jumps between muted color hues */}
+            <style>{`
+                @keyframes conciergeRainbowFlash {
+                    0%   { filter: sepia(0.7) saturate(1.6) brightness(0.95) hue-rotate(0deg); }
+                    16%  { filter: sepia(0.7) saturate(1.6) brightness(0.95) hue-rotate(60deg); }
+                    33%  { filter: sepia(0.7) saturate(1.6) brightness(0.95) hue-rotate(120deg); }
+                    50%  { filter: sepia(0.7) saturate(1.6) brightness(0.95) hue-rotate(180deg); }
+                    66%  { filter: sepia(0.7) saturate(1.6) brightness(0.95) hue-rotate(240deg); }
+                    83%  { filter: sepia(0.7) saturate(1.6) brightness(0.95) hue-rotate(300deg); }
+                    100% { filter: sepia(0.7) saturate(1.6) brightness(0.95) hue-rotate(360deg); }
+                }
+            `}</style>
+
             {firstUnreadConcierge && (
                 <ConciergeModal
                     isOpen={modalOpen}
@@ -187,6 +200,7 @@ export function FloatingConcierge(): JSX.Element | null {
                         width: '100%',
                         height: 'auto',
                         userSelect: 'none',
+                        animation: 'conciergeRainbowFlash 3s steps(1, end) infinite',
                     }}
                 />
             </motion.div>
