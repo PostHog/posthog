@@ -7,16 +7,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 
-import {
-    IconCheck,
-    IconCode,
-    IconDrag,
-    IconGitBranch,
-    IconGithub,
-    IconPlus,
-    IconRefresh,
-    IconX,
-} from '@posthog/icons'
+import { IconCheck, IconCode, IconDrag, IconGitBranch, IconGithub, IconPlus, IconRefresh, IconX } from '@posthog/icons'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -390,6 +381,103 @@ function FactorBar({ value }: { value: number }): JSX.Element {
     )
 }
 
+function FilesWidget({ files }: { files: GitHogPullRequestFile[] }): JSX.Element {
+    return (
+        <div className="flex flex-col divide-y divide-border">
+            <div className="px-4 py-3 flex items-center justify-between">
+                <span className="font-semibold text-sm">Files changed</span>
+                <span className="text-xs text-secondary">{files.length} files</span>
+            </div>
+            {files.map((f) => (
+                <div key={f.filename} className="px-4 py-2.5 flex items-center gap-x-3">
+                    <IconCode className="size-3.5 text-muted shrink-0" />
+                    <span className="text-sm flex-1 font-mono truncate">{f.filename}</span>
+                    {f.status === 'added' && (
+                        <LemonTag type="success" size="small">
+                            New
+                        </LemonTag>
+                    )}
+                    {f.status === 'removed' && (
+                        <LemonTag type="danger" size="small">
+                            Removed
+                        </LemonTag>
+                    )}
+                    <span className="text-xs text-success shrink-0">+{f.additions}</span>
+                    <span className="text-xs text-danger shrink-0">-{f.deletions}</span>
+                </div>
+            ))}
+        </div>
+    )
+}
+
+function RiskScoreWidgetForPR({ owner, name, number }: GitHogPullRequestRiskScoreLogicProps): JSX.Element {
+    const logic = gitHogPullRequestRiskScoreLogic({ owner, name, number })
+    const { riskScore, riskScoreLoading } = useValues(logic)
+    const { refreshRiskScore } = useActions(logic)
+
+    const styles = (riskScore && RISK_LEVEL_STYLES[riskScore.level]) || RISK_LEVEL_STYLES.moderate
+    const factors = riskScore?.factors ?? []
+    const headSha = riskScore?.head_sha ?? ''
+
+    return (
+        <div className="flex flex-col divide-y divide-border">
+            <div className="px-4 py-3 flex items-center justify-between gap-2">
+                <span className="font-semibold text-sm">Risk assessment</span>
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    icon={<IconRefresh />}
+                    loading={riskScoreLoading}
+                    onClick={() => refreshRiskScore()}
+                    tooltip="Force-recompute via LLM"
+                >
+                    Refresh
+                </LemonButton>
+            </div>
+            <div className="px-4 py-4 flex flex-col gap-3">
+                {riskScoreLoading && !riskScore ? (
+                    <>
+                        <LemonSkeleton className="h-6 w-24" />
+                        <LemonSkeleton className="h-4 w-full" />
+                        <LemonSkeleton className="h-4 w-3/4" />
+                    </>
+                ) : !riskScore ? (
+                    <p className="text-secondary text-sm my-0">No assessment yet. Click Refresh to generate one.</p>
+                ) : (
+                    <>
+                        <div>
+                            <LemonTag type={styles.tag} size="small">
+                                <span className={`font-semibold ${styles.text}`}>{styles.label}</span>
+                            </LemonTag>
+                        </div>
+                        {riskScore.headline && (
+                            <p className="text-sm text-primary my-0 leading-relaxed">{riskScore.headline}</p>
+                        )}
+                        {riskScore.truncated && (
+                            <LemonTag type="warning" size="small">
+                                Truncated — diff was too large for full context
+                            </LemonTag>
+                        )}
+                        <div className="flex flex-col gap-2.5 mt-1">
+                            {factors.map((f) => (
+                                <div key={f.key} className="flex flex-col gap-1">
+                                    <span className="text-xs font-medium">{f.label}</span>
+                                    <FactorBar value={f.score} />
+                                    <span className="text-xs text-muted leading-snug">{f.detail}</span>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="text-xs text-muted">
+                            {headSha ? `head ${headSha.slice(0, 7)} · ` : ''}
+                            {riskScore.cached ? 'cached' : 'freshly computed'}
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    )
+}
+
 function RiskAssessmentBanner({ owner, name, number }: GitHogPullRequestRiskScoreLogicProps): JSX.Element {
     // Compact pinned banner — no refresh, no close. Shows just the level and a
     // micro-grid of factors so the reviewer scans risk at a glance.
@@ -512,8 +600,14 @@ function GitHogPRWorkspaceInner({
         switch (type) {
             case 'conversation':
                 return <ConversationWidget />
+            case 'files':
+                return <FilesWidget files={prDetail.files} />
+            case 'agent':
+                return <AgentWidget owner={owner} repo={repoName} pr={pr} files={prDetail.files} diff={prDetail.diff} />
             case 'dataFlow':
                 return <DataFlowWidgetForPR owner={owner} name={repoName} number={number} />
+            case 'riskScore':
+                return <RiskScoreWidgetForPR owner={owner} name={repoName} number={number} />
             case 'stats':
                 return <StatsWidget pr={pr} />
             case 'reviewers':
@@ -636,13 +730,7 @@ function GitHogPRWorkspaceInner({
                             </div>
                         </div>
                         <div className="flex items-center gap-x-2 shrink-0">
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconGithub />}
-                                to={pr.url}
-                                targetBlank
-                            >
+                            <LemonButton type="secondary" size="small" icon={<IconGithub />} to={pr.url} targetBlank>
                                 View on GitHub
                             </LemonButton>
                             <LemonMenu
