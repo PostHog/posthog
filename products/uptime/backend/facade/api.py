@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from .. import logic
@@ -17,6 +19,23 @@ def _to_dto(obj: Monitor) -> contracts.MonitorDTO:
     )
 
 
+def _update_entry_to_dto(entry: dict[str, Any]) -> contracts.IncidentUpdateDTO:
+    """Coerce a single raw JSON entry from Incident.updates into the typed DTO.
+
+    posted_at is persisted as an ISO 8601 string so it survives JSONField round-trips
+    unchanged. Older rows from before this feature existed simply have an empty list.
+    """
+    posted_at_raw = entry.get("posted_at")
+    posted_at = datetime.fromisoformat(posted_at_raw) if isinstance(posted_at_raw, str) else posted_at_raw
+    return contracts.IncidentUpdateDTO(
+        id=str(entry["id"]),
+        keyword=entry["keyword"],
+        message=entry.get("message", ""),
+        posted_at=posted_at,
+        posted_by_id=entry.get("posted_by_id"),
+    )
+
+
 def _incident_to_dto(incident: Incident) -> contracts.IncidentDTO:
     return contracts.IncidentDTO(
         id=incident.id,
@@ -26,6 +45,7 @@ def _incident_to_dto(incident: Incident) -> contracts.IncidentDTO:
         started_at=incident.started_at,
         resolved_at=incident.resolved_at,
         resolution_note=incident.resolution_note,
+        updates=[_update_entry_to_dto(entry) for entry in (incident.updates or [])],
         created_at=incident.created_at,
         updated_at=incident.updated_at,
     )
@@ -244,6 +264,20 @@ def resolve_incident(input: contracts.ResolveIncidentInput) -> contracts.Inciden
 
 def reopen_incident(*, team_id: int, incident_id: UUID) -> contracts.IncidentDTO:
     return _incident_to_dto(logic.reopen_incident(team_id=team_id, incident_id=incident_id))
+
+
+def post_incident_update(input: contracts.PostIncidentUpdateInput) -> contracts.IncidentDTO:
+    return _incident_to_dto(
+        logic.post_incident_update(
+            team_id=input.team_id,
+            incident_id=input.incident_id,
+            keyword=input.keyword,
+            message=input.message,
+            posted_at=input.posted_at,
+            posted_by_id=input.posted_by_id,
+            sync_status=input.sync_status,
+        )
+    )
 
 
 def delete_incident(*, team_id: int, incident_id: UUID) -> None:

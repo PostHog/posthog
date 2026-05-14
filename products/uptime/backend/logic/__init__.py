@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import math
+import uuid
 import secrets
 from datetime import date, datetime, time, timedelta
 from typing import Literal
@@ -742,6 +743,52 @@ def reopen_incident(*, team_id: int, incident_id: UUID) -> Incident:
     incident = Incident.objects.get(team_id=team_id, id=incident_id)
     incident.resolved_at = None
     incident.resolution_note = ""
+    incident.save()
+    return incident
+
+
+def post_incident_update(
+    *,
+    team_id: int,
+    incident_id: UUID,
+    keyword: Literal["investigating", "identified", "fixing", "monitoring", "resolved", "update"],
+    message: str,
+    posted_at: datetime | None = None,
+    posted_by_id: int | None = None,
+    sync_status: bool = True,
+) -> Incident:
+    """Append a timeline entry to an incident's `updates` JSON column.
+
+    New entries go at the head so the timeline reads newest-first without a
+    client-side sort. When `sync_status` is true, keyword="resolved" closes
+    the incident (stamping resolved_at) and any other keyword reopens it —
+    matching how operators tend to use the keyword as the source of truth.
+    """
+    incident = Incident.objects.get(team_id=team_id, id=incident_id)
+    entry = {
+        "id": str(uuid.uuid4()),
+        "keyword": keyword,
+        "message": message,
+        "posted_at": (posted_at or timezone.now()).isoformat(),
+        "posted_by_id": posted_by_id,
+    }
+    incident.updates = [entry, *(incident.updates or [])]
+
+    if sync_status:
+        if keyword == "resolved":
+            if incident.resolved_at is None:
+                incident.resolved_at = timezone.now()
+            # If the operator typed the resolution in the message, treat that as the resolution
+            # note when one isn't set yet — saves them filling out the same text in two places.
+            if not incident.resolution_note:
+                incident.resolution_note = message
+        else:
+            # Any non-resolved keyword posted onto a closed incident means "actually, it's back" —
+            # clear resolved_at so the incident shows as ongoing again.
+            if incident.resolved_at is not None:
+                incident.resolved_at = None
+                incident.resolution_note = ""
+
     incident.save()
     return incident
 
