@@ -130,11 +130,13 @@ jobs:
             - name: Final ping
               run: curl -fsSL "$HOBBYCTL_URL/health" | jq .
 
-            - name: Create PostHog task (joke prompt)
+            - name: Create PostHog task
               id: create-task
+              env:
+                  BRANCH: ${{ github.ref_name }}
               run: |
                   set -euo pipefail
-                  resp=$(bin/qa/create-task "give me a joke")
+                  resp=$(bin/qa/create-task "$BRANCH")
                   echo "task_id=$(echo "$resp" | jq -r '.task_id')" >> "$GITHUB_OUTPUT"
                   echo "run_id=$(echo "$resp" | jq -r '.run_id')" >> "$GITHUB_OUTPUT"
 
