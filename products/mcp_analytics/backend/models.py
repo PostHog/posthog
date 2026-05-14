@@ -6,6 +6,33 @@ from django.db import models
 from posthog.models.utils import UUIDModel
 
 
+class MCPIntentClusterSnapshot(models.Model):
+    class Status(models.TextChoices):
+        IDLE = "idle", "Idle"
+        COMPUTING = "computing", "Computing"
+        ERROR = "error", "Error"
+
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="mcp_intent_cluster_snapshot",
+    )
+    last_computed_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.IDLE)
+    error_message = models.TextField(blank=True, default="")
+    # Full denormalized snapshot: {clusters: [{id, label, intent_count, ...}], computed_with: {...}}
+    clusters = models.JSONField(default=dict)
+    last_computed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_mcp_analytics_intent_cluster_snapshot"
+
+
 class MCPAnalyticsSubmission(UUIDModel):
     class Kind(models.TextChoices):
         FEEDBACK = "feedback", "Feedback"

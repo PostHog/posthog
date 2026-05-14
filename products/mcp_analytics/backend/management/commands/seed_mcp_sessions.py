@@ -11,6 +11,8 @@ from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 
+from products.mcp_analytics.backend.models import MCPSession
+
 TOOL_NAMES = [
     "query_run",
     "insight_get",
@@ -79,6 +81,27 @@ INTENTS_BY_TOOL: dict[str, list[str]] = {
     ],
 }
 DEFAULT_INTENT = "Helping the user investigate a recent product-analytics question without a specific recorded intent."
+
+
+# Session-level summarised intents. These intentionally repeat themes so the
+# clustering pipeline has something to cluster: variants of "check a feature
+# flag rollout" should land in one cluster, variants of "look up the reporter
+# of a billing issue" in another, etc.
+SESSION_INTENTS: list[str] = [
+    "Investigate yesterday's spike in checkout failures using revenue and error events.",
+    "Look into the unusual drop in checkout completion that started overnight.",
+    "Pull funnel conversion numbers for the new pricing page for the weekly product review.",
+    "Compare pricing page funnel performance week over week ahead of the product review.",
+    "Check whether the new pricing feature flag is fully rolled out to the affected cohort.",
+    "Confirm rollout status of the pricing feature flag for a support escalation.",
+    "Review the active pricing experiment and decide whether we have the power to call a winner.",
+    "Pull active users metrics to share growth trends in the leadership Slack channel.",
+    "Compare last cohort's retention curve to the previous one for the product review.",
+    "Triage user-reported latency complaints from this morning using the platform health dashboard.",
+    "Look up the reporter of a paid plan billing complaint before processing a refund.",
+    "Replay the signup session where the user got stuck so we can file a precise bug report.",
+    "Pull the latest exception issue tied to the deploy so on-call can triage the regression.",
+]
 
 
 class Command(BaseCommand):
@@ -155,10 +178,15 @@ class Command(BaseCommand):
             calls = rng.randint(min_calls, max_calls)
             # Spread the session across a 5-minute window, anchored a random number of hours in the past.
             session_start = now - timedelta(hours=rng.randint(0, 48), minutes=rng.randint(0, 59))
+            session_intent = rng.choice(SESSION_INTENTS)
+            last_timestamp = session_start
+            tools_used: set[str] = set()
 
             for call_idx in range(calls):
                 timestamp = session_start + timedelta(seconds=call_idx * rng.randint(15, 90))
+                last_timestamp = timestamp
                 tool_name = rng.choice(TOOL_NAMES)
+                tools_used.add(tool_name)
                 # Skew error rate and latency per tool so the Tool quality tab has variation.
                 tool_error_rate = (hash(tool_name) % 30) / 100.0
                 is_error = rng.random() < tool_error_rate
@@ -187,6 +215,19 @@ class Command(BaseCommand):
                     },
                 )
                 total_events += 1
+
+            session_end = last_timestamp
+            MCPSession.objects.create(
+                team=team,
+                session_id=session_id,
+                session_start=session_start,
+                session_end=session_end,
+                duration_seconds=max(1, int((session_end - session_start).total_seconds())),
+                tools_used=sorted(tools_used),
+                distinct_id=distinct_id,
+                mcp_client_name=client_name,
+                intent=session_intent,
+            )
 
             self.stdout.write(f"  session {session_idx + 1}/{session_count}: {calls} tool calls ({session_id})")
 

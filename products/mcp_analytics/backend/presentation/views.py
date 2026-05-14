@@ -23,6 +23,7 @@ from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 from .serializers import (
     MCPAnalyticsSubmissionSerializer,
     MCPFeedbackCreateSerializer,
+    MCPIntentClusterSnapshotSerializer,
     MCPMissingCapabilityCreateSerializer,
     MCPSessionSerializer,
     MCPToolCallSerializer,
@@ -144,6 +145,47 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         tool_calls = api.list_mcp_tool_calls(self.team, session_id=str(pk or ""))
         serializer = MCPToolCallSerializer(tool_calls, many=True)
         return Response({"results": serializer.data})
+
+
+@extend_schema(tags=["mcp_analytics"])
+class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    serializer_class = MCPIntentClusterSnapshotSerializer
+    permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
+    scope_object = "INTERNAL"
+    pagination_class = None
+
+    def dangerously_get_queryset(self) -> QuerySet:
+        # Snapshots are read directly via the facade; this satisfies GenericViewSet plumbing.
+        return MCPAnalyticsSubmission.objects.none()
+
+    @extend_schema(
+        operation_id="mcp_analytics_intent_clusters_retrieve",
+        description=(
+            "Return the most recent intent cluster snapshot for the current project. "
+            "Returns an empty IDLE snapshot when no clustering run has happened yet."
+        ),
+        responses={200: MCPIntentClusterSnapshotSerializer},
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        snapshot = api.get_intent_cluster_snapshot(self.team)
+        serializer = self.get_serializer(snapshot)
+        return Response(serializer.data)
+
+    @extend_schema(
+        operation_id="mcp_analytics_intent_clusters_recompute",
+        description=(
+            "Trigger an asynchronous recompute of the intent cluster snapshot. The task runs in the "
+            "background; poll the GET endpoint for progress (status transitions to 'idle' or 'error')."
+        ),
+        request=None,
+        responses={202: MCPIntentClusterSnapshotSerializer},
+    )
+    @action(detail=False, methods=["post"], url_path="recompute")
+    def recompute(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        api.trigger_intent_cluster_recompute(self.team, cast(User, request.user))
+        snapshot = api.get_intent_cluster_snapshot(self.team)
+        serializer = self.get_serializer(snapshot)
+        return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
 
 
 class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):
