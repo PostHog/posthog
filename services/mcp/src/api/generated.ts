@@ -4398,10 +4398,10 @@ export namespace Schemas {
     * `archived` - ARCHIVED
     * `failed` - FAILED
      */
-    export type AutoMLPipelineDTOStatusEnum = typeof AutoMLPipelineDTOStatusEnum[keyof typeof AutoMLPipelineDTOStatusEnum];
+    export type PipelineStatusEnum = typeof PipelineStatusEnum[keyof typeof PipelineStatusEnum];
 
 
-    export const AutoMLPipelineDTOStatusEnum = {
+    export const PipelineStatusEnum = {
       Draft: 'draft',
       BootstrapPending: 'bootstrap_pending',
       BootstrapRunning: 'bootstrap_running',
@@ -4452,7 +4452,7 @@ export namespace Schemas {
       name: string;
       description: string;
       task_type: TaskTypeEnum;
-      status: AutoMLPipelineDTOStatusEnum;
+      status: PipelineStatusEnum;
       autonomy: AutonomyEnum;
       config: AutoMLPipelineDTOConfig;
       training_population: AutoMLPipelineDTOTrainingPopulation;
@@ -4463,6 +4463,75 @@ export namespace Schemas {
       runtime: AutoMLPipelineDTORuntime;
       /** @nullable */
       created_by_id: number | null;
+      created_at: string;
+      updated_at: string;
+    }
+
+    export type AutoMLPipelineRunDTOEdaResult = { [key: string]: unknown };
+
+    export type AutoMLPipelineRunDTOTrainingResult = { [key: string]: unknown };
+
+    /**
+     * * `bootstrap` - BOOTSTRAP
+    * `retrain` - RETRAIN
+    * `inference` - INFERENCE
+     */
+    export type AutoMLRunKindEnum = typeof AutoMLRunKindEnum[keyof typeof AutoMLRunKindEnum];
+
+
+    export const AutoMLRunKindEnum = {
+      Bootstrap: 'bootstrap',
+      Retrain: 'retrain',
+      Inference: 'inference',
+    } as const;
+
+    /**
+     * * `running` - RUNNING
+    * `succeeded` - SUCCEEDED
+    * `failed` - FAILED
+    * `aborted` - ABORTED
+     */
+    export type AutoMLRunStatusEnum = typeof AutoMLRunStatusEnum[keyof typeof AutoMLRunStatusEnum];
+
+
+    export const AutoMLRunStatusEnum = {
+      Running: 'running',
+      Succeeded: 'succeeded',
+      Failed: 'failed',
+      Aborted: 'aborted',
+    } as const;
+
+    /**
+     * Output shape of one bootstrap / retrain / inference run on a pipeline.
+
+    Durable per-run record — holds the agent's outcome report, EDA summary,
+    training summary, and failure reason. The pipeline-detail timeline reads
+    these rows directly; the retraining iteration chain threads them via
+    ``parent_run_id``.
+     */
+    export interface AutoMLPipelineRunDTO {
+      id: string;
+      pipeline_id: string;
+      team_id: number;
+      run_kind: AutoMLRunKindEnum;
+      status: AutoMLRunStatusEnum;
+      task_slug: string;
+      task_workspace_root: string;
+      cli_run_id: string;
+      agent_session_id: string;
+      /** @nullable */
+      task_id: string | null;
+      started_at: string;
+      /** @nullable */
+      completed_at: string | null;
+      outcome_report: string;
+      eda_result: AutoMLPipelineRunDTOEdaResult;
+      training_result: AutoMLPipelineRunDTOTrainingResult;
+      failure_reason: string;
+      /** @nullable */
+      created_model_version_id: string | null;
+      /** @nullable */
+      parent_run_id: string | null;
       created_at: string;
       updated_at: string;
     }
@@ -21008,6 +21077,15 @@ export namespace Schemas {
       results: AutoMLPipelineDTO[];
     }
 
+    export interface PaginatedAutoMLPipelineRunDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AutoMLPipelineRunDTO[];
+    }
+
     export interface PaginatedBatchExportBackfillList {
       /** @nullable */
       next?: string | null;
@@ -33019,6 +33097,35 @@ export namespace Schemas {
       ci_rerun_error?: string | null;
     }
 
+    /**
+     * Request body for ``POST /automl_pipelines/{id}/runs/{run_id}/record_bootstrap_outcome/``.
+
+    Called by the bootstrap agent as the final checkpoint of a run. Flips the
+    run to a terminal status and writes the structured markdown outcome report
+    surfaced on the pipeline-detail page.
+     */
+    export interface RecordBootstrapOutcomeInput {
+      status: AutoMLRunStatusEnum;
+      outcome_report: string;
+      failure_reason?: string;
+      cli_run_id?: string;
+      agent_session_id?: string;
+    }
+
+    export type RecordEdaResultInputEdaResult = { [key: string]: unknown };
+
+    /**
+     * Request body for ``POST /automl_pipelines/{id}/runs/{run_id}/record_eda_result/``.
+
+    Called by the bootstrap agent between ``automl eda`` and ``automl train``.
+    The ``eda_result`` payload is schemaless on purpose so the CLI's
+    ``eda.yaml`` shape can evolve without forcing a migration.
+     */
+    export interface RecordEdaResultInput {
+      eda_result: RecordEdaResultInputEdaResult;
+      cli_run_id?: string;
+    }
+
     export type RecordTrainingResultInputMetrics = { [key: string]: unknown };
 
     export type RecordTrainingResultInputLeaderboardItem = { [key: string]: unknown };
@@ -40366,6 +40473,17 @@ export namespace Schemas {
      * Role to look up. Defaults to 'champion'. One of: champion, challenger, archived.
      */
     role?: string;
+    };
+
+    export type AutomlPipelinesRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type BatchExportsListParams = {

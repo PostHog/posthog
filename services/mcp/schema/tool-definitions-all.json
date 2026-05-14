@@ -455,6 +455,21 @@
             "readOnlyHint": true
         }
     },
+    "automl-get-run": {
+        "description": "Fetch one bootstrap / retrain / inference run by its UUID. Returns the durable record: run kind, status, task slug, workspace root, agent session id, started_at / completed_at, outcome report, EDA result, training result, failure reason, and any created model version id. Use this from inside the bootstrap orchestration brief to look up your own run mid-flight (e.g. to confirm a prior automl-record-eda-result write landed) — the run_id is in the brief's \"Run context\" JSON block.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Get an AutoML pipeline run",
+        "title": "Get an AutoML pipeline run",
+        "required_scopes": ["automl:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "automl-list": {
         "description": "List all non-archived AutoML pipelines for the current team, newest first. Each pipeline captures a configured ML task (clustering, classification, regression, or forecasting) along with its populations, cadence, autonomy, and lifecycle status. Use this to discover what pipelines exist before fetching one by id.",
         "category": "AutoML",
@@ -476,6 +491,21 @@
         "feature": "automl",
         "summary": "List AutoML model versions",
         "title": "List AutoML model versions",
+        "required_scopes": ["automl:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "automl-list-runs": {
+        "description": "List every bootstrap / retrain / inference run for a pipeline, newest first. Includes terminal runs (succeeded / failed / aborted) so the full timeline shows up. Each run carries the agent's outcome report, EDA summary, training summary, and failure reason — durable across sandbox container deaths. Use this to walk a pipeline's run history, find a specific run by status, or thread the retraining iteration chain via parent_run_id.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "List AutoML pipeline runs",
+        "title": "List AutoML pipeline runs",
         "required_scopes": ["automl:read"],
         "new_mcp": true,
         "annotations": {
@@ -510,6 +540,36 @@
         "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "automl-record-bootstrap-outcome": {
+        "description": "Flip a bootstrap / retrain run to a terminal status (succeeded / failed / aborted) and write the agent's final structured markdown outcome report. The outcome report is what the user reads on the pipeline-detail page — include verdict, metrics table, gate verdict, leaderboard top 5, train / val / test split sizes, artifact path, and reproducibility info (HogQL query, features hash, training params). Single-shot — once a run reaches a terminal status, re-calling this no-ops and returns the already-terminal row, so retries after a transient network blip are safe.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Record a bootstrap outcome on an AutoML run",
+        "title": "Record a bootstrap outcome on an AutoML run",
+        "required_scopes": ["automl:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "automl-record-eda-result": {
+        "description": "Stash the structured output of \"automl eda\" on an in-progress run, between EDA and training. The CLI's eda subcommand emits a YAML report at runs/<run_id>/eda.yaml plus a JSON summary on stdout — pass that summary as eda_result here so it lands on the pipeline-detail page. Status stays at \"running\" — EDA is a mid-run checkpoint, not terminal. A second call with a refreshed payload overwrites the prior one (the CLI's eda.yaml is regenerated on every re-run).",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Record EDA result on an AutoML run",
+        "title": "Record EDA result on an AutoML run",
+        "required_scopes": ["automl:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false

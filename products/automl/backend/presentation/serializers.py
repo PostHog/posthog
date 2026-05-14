@@ -9,7 +9,10 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from ..facade.contracts import (
     AutoMLModelVersionDTO,
     AutoMLPipelineDTO,
+    AutoMLPipelineRunDTO,
     CreatePipelineInput,
+    RecordBootstrapOutcomeInput,
+    RecordEdaResultInput,
     RecordTrainingResultInput,
     UpdatePipelineInput,
     ValidationFinding,
@@ -96,3 +99,40 @@ class ValidationReportSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = ValidationReport
+
+
+class AutoMLPipelineRunSerializer(DataclassSerializer):
+    """Output shape of one bootstrap / retrain / inference run on a pipeline.
+
+    Durable per-run record — holds the agent's outcome report, EDA summary,
+    training summary, and failure reason. The pipeline-detail timeline reads
+    these rows directly; the retraining iteration chain threads them via
+    ``parent_run_id``.
+    """
+
+    class Meta:
+        dataclass = AutoMLPipelineRunDTO
+
+
+class RecordEdaResultInputSerializer(DataclassSerializer):
+    """Request body for ``POST /automl_pipelines/{id}/runs/{run_id}/record_eda_result/``.
+
+    Called by the bootstrap agent between ``automl eda`` and ``automl train``.
+    The ``eda_result`` payload is schemaless on purpose so the CLI's
+    ``eda.yaml`` shape can evolve without forcing a migration.
+    """
+
+    class Meta:
+        dataclass = RecordEdaResultInput
+
+
+class RecordBootstrapOutcomeInputSerializer(DataclassSerializer):
+    """Request body for ``POST /automl_pipelines/{id}/runs/{run_id}/record_bootstrap_outcome/``.
+
+    Called by the bootstrap agent as the final checkpoint of a run. Flips the
+    run to a terminal status and writes the structured markdown outcome report
+    surfaced on the pipeline-detail page.
+    """
+
+    class Meta:
+        dataclass = RecordBootstrapOutcomeInput

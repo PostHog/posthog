@@ -184,19 +184,31 @@ def test_extract_training_query_falls_back_to_empty_for_non_hogql(team):
 
 
 def test_skill_folder_exists_with_required_files():
-    """The bootstrap skill is the canonical workflow location.
+    """The bootstrap skill is the canonical PostHog-side workflow location.
 
     Sanity-check the folder structure so a refactor that accidentally moves
     or renames the skill is caught here, not at runtime in the sandbox.
+    ``cli-surface.md`` deliberately no longer exists — the CLI's own README
+    plus its four skills (`scope-modeling-task` / `tune-hogql-query` /
+    `eda-on-features` / `run-train-predict`) carry the CLI surface now.
     """
     assert _SKILL_ROOT.is_dir(), f"skill folder missing: {_SKILL_ROOT}"
     assert (_SKILL_ROOT / "SKILL.md").is_file(), "SKILL.md missing"
-    for ref in ("cli-surface.md", "common-pitfalls.md", "failure-recovery.md"):
+    for ref in ("common-pitfalls.md", "failure-recovery.md"):
         assert (_SKILL_ROOT / "references" / ref).is_file(), f"reference {ref} missing"
+    # cli-surface.md must NOT exist — the CLI is the source of truth for its surface.
+    assert not (_SKILL_ROOT / "references" / "cli-surface.md").exists(), (
+        "cli-surface.md is gone now; the CLI's README + skills cover this surface"
+    )
 
 
 def test_skill_md_has_required_frontmatter_and_iteration_guidance():
-    """The SKILL.md is what the agent actually consumes — guard the load-bearing pieces."""
+    """The SKILL.md is what the agent actually consumes — guard the load-bearing pieces.
+
+    The new structure is a thin PostHog-side wrapper around the CLI's
+    own skills/README.md decision tree. Required anchors map to the agent's
+    actual flow inside the sandbox.
+    """
     body = (_SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
     # YAML frontmatter with name + description (required by the skill build pipeline).
     assert body.startswith("---\n"), "SKILL.md missing YAML frontmatter"
@@ -205,27 +217,68 @@ def test_skill_md_has_required_frontmatter_and_iteration_guidance():
     # The skill must steer the agent toward iteration on recoverable failures —
     # the whole reason we converted from the frozen brief.
     assert "Iterate, don't bail" in body or "iterate on recoverable" in body.lower()
-    # Workflow steps the agent has to walk through must be discoverable.
+    # The CLI's decision tree is the load-bearing cross-reference — we delegate
+    # ML/EDA/training flow to it instead of duplicating.
+    assert "automl-cli/skills/README.md" in body, "SKILL.md must cross-reference the CLI's decision tree"
+    # The four CLI skills must be named so the agent knows what to invoke when.
+    for cli_skill in (
+        "scope-modeling-task",
+        "tune-hogql-query",
+        "eda-on-features",
+        "run-train-predict",
+    ):
+        assert cli_skill in body, f"SKILL.md must mention CLI skill {cli_skill!r}"
+    # PostHog-side workflow anchors the agent walks through.
     for required_anchor in (
-        "Verify the CLI is installed",
-        "Fetch the training snapshot",
-        "Train",
-        "Record as challenger",
-        "Evaluate the gates",
-        "Promote (conditional)",
-        "Outcome report",
+        "Run context",
+        "Install the CLI",
+        "Follow the CLI's decision tree",
+        "PostHog-side checkpoints",
+        "Evaluate the promotion gates",
+        "Promote conditionally",
+        "Record the outcome report",
     ):
         assert required_anchor in body, f"SKILL.md missing required workflow anchor: {required_anchor!r}"
+    # All four MCP tools the agent calls at checkpoints must be present.
+    for mcp_tool in (
+        "automl-record-eda-result",
+        "automl-record-training-result",
+        "automl-get-active-model",
+        "automl-promote-model-version",
+        "automl-record-bootstrap-outcome",
+    ):
+        assert mcp_tool in body, f"SKILL.md missing MCP tool reference {mcp_tool!r}"
 
 
-def test_common_pitfalls_reference_covers_known_failure_modes():
-    """The pitfalls catalog has to cover the bugs we've actually surfaced —
-    otherwise the agent has no chance of recovering from them in the loop."""
+def test_common_pitfalls_reference_covers_posthog_boundary_failures():
+    """The pitfalls catalog is now PostHog-side only — ML-side pitfalls
+    (HogQL precedence, near-constant features, leakage) live on the CLI
+    side in `tune-hogql-query.md` / `eda-on-features.md`."""
     body = (_SKILL_ROOT / "references" / "common-pitfalls.md").read_text(encoding="utf-8")
-    # The HogQL precedence bug surfaced by session-16's end-to-end run.
-    assert "BETWEEN" in body and "precedence" in body.lower()
-    # The target_event vs target distinction surfaced by session-14's smoke test.
+    # The target_event vs config.target distinction — about how OUR brief embeds
+    # both fields, so still belongs on our side.
     assert "target_event" in body and "config.target" in body
+    # MCP availability — the session-17 trap where stale api.ts crashes MCP.
+    assert "MCP" in body and ("missing" in body.lower() or "unavailable" in body.lower())
+    # Row-count floor — our hackathon-grade threshold + the failure_reason mapping.
+    assert "200" in body and "population_too_small" in body
+    # Credential issues — OAuth-issued key can't be fixed from inside the sandbox.
+    assert "POSTHOG_PERSONAL_API_KEY" in body
+
+
+def test_failure_recovery_reference_documents_failure_reason_tags():
+    """Failure-recovery doc must enumerate the failure_reason tags the agent
+    passes to `automl-record-bootstrap-outcome` — those tags are how the user
+    knows where to look when a run fails."""
+    body = (_SKILL_ROOT / "references" / "failure-recovery.md").read_text(encoding="utf-8")
+    for tag in (
+        "mcp_unavailable",
+        "snapshot_fetch_failed",
+        "population_too_small",
+        "training_crash",
+        "task_create_failed",
+    ):
+        assert tag in body, f"failure-recovery.md missing failure_reason tag {tag!r}"
 
 
 @pytest.mark.django_db

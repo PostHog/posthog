@@ -11,13 +11,18 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AutoMLModelVersionDTOApi,
     AutoMLPipelineDTOApi,
+    AutoMLPipelineRunDTOApi,
     AutomlPipelinesListParams,
     AutomlPipelinesModelVersionsActiveRetrieveParams,
     AutomlPipelinesModelVersionsListParams,
+    AutomlPipelinesRunsListParams,
     CreatePipelineInputApi,
     PaginatedAutoMLModelVersionDTOListApi,
     PaginatedAutoMLPipelineDTOListApi,
+    PaginatedAutoMLPipelineRunDTOListApi,
     PatchedUpdatePipelineInputApi,
+    RecordBootstrapOutcomeInputApi,
+    RecordEdaResultInputApi,
     RecordTrainingResultInputApi,
     ValidationReportApi,
 } from './api.schemas'
@@ -297,6 +302,124 @@ export const automlPipelinesResumeCreate = async (
     return apiMutator<AutoMLPipelineDTOApi>(getAutomlPipelinesResumeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getAutomlPipelinesRunsListUrl = (
+    projectId: string,
+    id: string,
+    params?: AutomlPipelinesRunsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/automl_pipelines/${id}/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/automl_pipelines/${id}/runs/`
+}
+
+/**
+ * List every run (bootstrap / retrain / inference) for a pipeline, newest first.
+
+Includes terminal runs (succeeded / failed / aborted) — the pipeline-detail
+timeline surfaces the full history. Returns 200 with an empty list if the
+pipeline has no runs yet (e.g. before ``start`` is called for the first time).
+ */
+export const automlPipelinesRunsList = async (
+    projectId: string,
+    id: string,
+    params?: AutomlPipelinesRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedAutoMLPipelineRunDTOListApi> => {
+    return apiMutator<PaginatedAutoMLPipelineRunDTOListApi>(getAutomlPipelinesRunsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutomlPipelinesRunsRetrieveUrl = (projectId: string, id: string, runId: string) => {
+    return `/api/projects/${projectId}/automl_pipelines/${id}/runs/${runId}/`
+}
+
+/**
+ * Get one pipeline run by id.
+
+Used by the bootstrap agent to look up its own run mid-flight (e.g. to
+confirm a previous ``record_eda_result`` write landed before continuing).
+ */
+export const automlPipelinesRunsRetrieve = async (
+    projectId: string,
+    id: string,
+    runId: string,
+    options?: RequestInit
+): Promise<AutoMLPipelineRunDTOApi> => {
+    return apiMutator<AutoMLPipelineRunDTOApi>(getAutomlPipelinesRunsRetrieveUrl(projectId, id, runId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutomlPipelinesRunsRecordBootstrapOutcomeCreateUrl = (projectId: string, id: string, runId: string) => {
+    return `/api/projects/${projectId}/automl_pipelines/${id}/runs/${runId}/record_bootstrap_outcome/`
+}
+
+/**
+ * Flip a run to a terminal state and write the agent's final outcome report.
+
+Single-shot — once a run reaches a terminal state, re-calling this no-ops
+(returns the already-terminal DTO). Lets the agent retry the MCP call
+after a transient network blip without overwriting the timeline.
+Rejects ``status='running'`` with 400 (terminal status required).
+ */
+export const automlPipelinesRunsRecordBootstrapOutcomeCreate = async (
+    projectId: string,
+    id: string,
+    runId: string,
+    recordBootstrapOutcomeInputApi: RecordBootstrapOutcomeInputApi,
+    options?: RequestInit
+): Promise<AutoMLPipelineRunDTOApi> => {
+    return apiMutator<AutoMLPipelineRunDTOApi>(
+        getAutomlPipelinesRunsRecordBootstrapOutcomeCreateUrl(projectId, id, runId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(recordBootstrapOutcomeInputApi),
+        }
+    )
+}
+
+export const getAutomlPipelinesRunsRecordEdaResultCreateUrl = (projectId: string, id: string, runId: string) => {
+    return `/api/projects/${projectId}/automl_pipelines/${id}/runs/${runId}/record_eda_result/`
+}
+
+/**
+ * Stash the agent's EDA output on an in-progress run.
+
+Called by the bootstrap agent between ``automl eda`` and ``automl train``.
+Status stays at ``running`` — EDA is a mid-run checkpoint, not terminal.
+Idempotent in the sense that a second call overwrites the prior payload
+(the CLI's ``eda.yaml`` is regenerated on every re-run).
+ */
+export const automlPipelinesRunsRecordEdaResultCreate = async (
+    projectId: string,
+    id: string,
+    runId: string,
+    recordEdaResultInputApi: RecordEdaResultInputApi,
+    options?: RequestInit
+): Promise<AutoMLPipelineRunDTOApi> => {
+    return apiMutator<AutoMLPipelineRunDTOApi>(getAutomlPipelinesRunsRecordEdaResultCreateUrl(projectId, id, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(recordEdaResultInputApi),
     })
 }
 

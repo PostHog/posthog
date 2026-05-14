@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 13 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -274,6 +274,102 @@ export const AutomlPipelinesResumeCreateParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+/**
+ * List every run (bootstrap / retrain / inference) for a pipeline, newest first.
+
+Includes terminal runs (succeeded / failed / aborted) — the pipeline-detail
+timeline surfaces the full history. Returns 200 with an empty list if the
+pipeline has no runs yet (e.g. before ``start`` is called for the first time).
+ */
+export const AutomlPipelinesRunsListParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AutomlPipelinesRunsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Get one pipeline run by id.
+
+Used by the bootstrap agent to look up its own run mid-flight (e.g. to
+confirm a previous ``record_eda_result`` write landed before continuing).
+ */
+export const AutomlPipelinesRunsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    run_id: zod.string(),
+})
+
+/**
+ * Flip a run to a terminal state and write the agent's final outcome report.
+
+Single-shot — once a run reaches a terminal state, re-calling this no-ops
+(returns the already-terminal DTO). Lets the agent retry the MCP call
+after a transient network blip without overwriting the timeline.
+Rejects ``status='running'`` with 400 (terminal status required).
+ */
+export const AutomlPipelinesRunsRecordBootstrapOutcomeCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    run_id: zod.string(),
+})
+
+export const AutomlPipelinesRunsRecordBootstrapOutcomeCreateBody = /* @__PURE__ */ zod
+    .object({
+        status: zod
+            .enum(['running', 'succeeded', 'failed', 'aborted'])
+            .describe('* `running` - RUNNING\n* `succeeded` - SUCCEEDED\n* `failed` - FAILED\n* `aborted` - ABORTED'),
+        outcome_report: zod.string(),
+        failure_reason: zod.string().optional(),
+        cli_run_id: zod.string().optional(),
+        agent_session_id: zod.string().optional(),
+    })
+    .describe(
+        'Request body for ``POST /automl_pipelines/{id}/runs/{run_id}/record_bootstrap_outcome/``.\n\nCalled by the bootstrap agent as the final checkpoint of a run. Flips the\nrun to a terminal status and writes the structured markdown outcome report\nsurfaced on the pipeline-detail page.'
+    )
+
+/**
+ * Stash the agent's EDA output on an in-progress run.
+
+Called by the bootstrap agent between ``automl eda`` and ``automl train``.
+Status stays at ``running`` — EDA is a mid-run checkpoint, not terminal.
+Idempotent in the sense that a second call overwrites the prior payload
+(the CLI's ``eda.yaml`` is regenerated on every re-run).
+ */
+export const AutomlPipelinesRunsRecordEdaResultCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    run_id: zod.string(),
+})
+
+export const AutomlPipelinesRunsRecordEdaResultCreateBody = /* @__PURE__ */ zod
+    .object({
+        eda_result: zod.record(zod.string(), zod.unknown()),
+        cli_run_id: zod.string().optional(),
+    })
+    .describe(
+        "Request body for ``POST /automl_pipelines/{id}/runs/{run_id}/record_eda_result/``.\n\nCalled by the bootstrap agent between ``automl eda`` and ``automl train``.\nThe ``eda_result`` payload is schemaless on purpose so the CLI's\n``eda.yaml`` shape can evolve without forcing a migration."
+    )
 
 /**
  * Transition a draft pipeline to bootstrap-pending and enqueue the first training run.

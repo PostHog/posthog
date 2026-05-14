@@ -436,6 +436,12 @@ SPECTACULAR_SETTINGS = {
         # `inference_cadence` and `retraining_cadence` share the same Cadence StrEnum;
         # without this they'd auto-name as InferenceCadenceEnum / RetrainingCadenceEnum.
         "CadenceEnum": "products.automl.backend.facade.enums.Cadence",
+        # AutoMLPipelineDTO.status (PipelineStatus) and AutoMLPipelineRunDTO.status
+        # (RunStatus) both serialize as a field literally named "status" — without these
+        # explicit names drf-spectacular collides and emits "Status<N>Enum" placeholders.
+        "PipelineStatusEnum": "products.automl.backend.facade.enums.PipelineStatus",
+        "AutoMLRunStatusEnum": "products.automl.backend.facade.enums.RunStatus",
+        "AutoMLRunKindEnum": "products.automl.backend.facade.enums.RunKind",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [

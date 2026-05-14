@@ -18,6 +18,13 @@ import {
     AutomlPipelinesPauseCreateParams,
     AutomlPipelinesResumeCreateParams,
     AutomlPipelinesRetrieveParams,
+    AutomlPipelinesRunsListParams,
+    AutomlPipelinesRunsListQueryParams,
+    AutomlPipelinesRunsRecordBootstrapOutcomeCreateBody,
+    AutomlPipelinesRunsRecordBootstrapOutcomeCreateParams,
+    AutomlPipelinesRunsRecordEdaResultCreateBody,
+    AutomlPipelinesRunsRecordEdaResultCreateParams,
+    AutomlPipelinesRunsRetrieveParams,
     AutomlPipelinesStartCreateParams,
     AutomlPipelinesValidateCreateBody,
 } from '@/generated/automl/api'
@@ -114,6 +121,28 @@ const automlCreate = (): ToolBase<typeof AutomlCreateSchema, Schemas.AutoMLPipel
     },
 })
 
+const AutomlGetRunSchema = AutomlPipelinesRunsRetrieveParams.omit({ project_id: true }).extend({
+    id: AutomlPipelinesRunsRetrieveParams.shape['id'].describe(
+        'Pipeline UUID. Used for URL routing; the run lookup is keyed by run_id + team.'
+    ),
+    run_id: AutomlPipelinesRunsRetrieveParams.shape['run_id'].describe(
+        'Run UUID — comes from the bootstrap brief\'s "Run context" block. 404 if the run doesn\'t exist on this team.'
+    ),
+})
+
+const automlGetRun = (): ToolBase<typeof AutomlGetRunSchema, Schemas.AutoMLPipelineRunDTO> => ({
+    name: 'automl-get-run',
+    schema: AutomlGetRunSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlGetRunSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AutoMLPipelineRunDTO>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/runs/${encodeURIComponent(String(params.run_id))}/`,
+        })
+        return result
+    },
+})
+
 const AutomlGetSchema = AutomlPipelinesRetrieveParams.omit({ project_id: true })
 
 const automlGet = (): ToolBase<typeof AutomlGetSchema, WithPostHogUrl<Schemas.AutoMLPipelineDTO>> => ({
@@ -202,6 +231,105 @@ const automlGetActiveModel = (): ToolBase<
     },
 })
 
+const AutomlRecordBootstrapOutcomeSchema = AutomlPipelinesRunsRecordBootstrapOutcomeCreateParams.omit({
+    project_id: true,
+})
+    .extend(AutomlPipelinesRunsRecordBootstrapOutcomeCreateBody.shape)
+    .extend({
+        id: AutomlPipelinesRunsRecordBootstrapOutcomeCreateParams.shape['id'].describe(
+            'Pipeline UUID. Used for URL routing; the run lookup is keyed by run_id + team.'
+        ),
+        run_id: AutomlPipelinesRunsRecordBootstrapOutcomeCreateParams.shape['run_id'].describe(
+            'Run UUID from the bootstrap brief\'s "Run context" block. Must be the currently in-flight run.'
+        ),
+        status: AutomlPipelinesRunsRecordBootstrapOutcomeCreateBody.shape['status'].describe(
+            'Terminal status to flip the run to. One of "succeeded" / "failed" / "aborted". Rejects "running" (open-state hint, not terminal).'
+        ),
+        outcome_report: AutomlPipelinesRunsRecordBootstrapOutcomeCreateBody.shape['outcome_report'].describe(
+            'Structured markdown body the user reads on the pipeline-detail page. Conventions: top-level Verdict line, Metrics table, Gate verdict, Leaderboard, Rows, Artifact, Reproducibility sections. Empty string when the run failed before producing meaningful output.'
+        ),
+        failure_reason: AutomlPipelinesRunsRecordBootstrapOutcomeCreateBody.shape['failure_reason'].describe(
+            'Compact tag categorizing the failure when status is failed or aborted. Examples: snapshot_fetch_failed / population_too_small / training_crash / mcp_unavailable / task_create_failed. Empty when status is succeeded.'
+        ),
+        cli_run_id: AutomlPipelinesRunsRecordBootstrapOutcomeCreateBody.shape['cli_run_id'].describe(
+            "The CLI's runs/<run_id>/ UTC timestamp (e.g. 20260514T130000Z). Pass through from the train step's output so the workspace path stays addressable from the run row alone. Optional."
+        ),
+        agent_session_id: AutomlPipelinesRunsRecordBootstrapOutcomeCreateBody.shape['agent_session_id'].describe(
+            'Optional sandbox session id so we can replay the agent transcript later when debugging.'
+        ),
+    })
+
+const automlRecordBootstrapOutcome = (): ToolBase<
+    typeof AutomlRecordBootstrapOutcomeSchema,
+    Schemas.AutoMLPipelineRunDTO
+> => ({
+    name: 'automl-record-bootstrap-outcome',
+    schema: AutomlRecordBootstrapOutcomeSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlRecordBootstrapOutcomeSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.status !== undefined) {
+            body['status'] = params.status
+        }
+        if (params.outcome_report !== undefined) {
+            body['outcome_report'] = params.outcome_report
+        }
+        if (params.failure_reason !== undefined) {
+            body['failure_reason'] = params.failure_reason
+        }
+        if (params.cli_run_id !== undefined) {
+            body['cli_run_id'] = params.cli_run_id
+        }
+        if (params.agent_session_id !== undefined) {
+            body['agent_session_id'] = params.agent_session_id
+        }
+        const result = await context.api.request<Schemas.AutoMLPipelineRunDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/runs/${encodeURIComponent(String(params.run_id))}/record_bootstrap_outcome/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AutomlRecordEdaResultSchema = AutomlPipelinesRunsRecordEdaResultCreateParams.omit({ project_id: true })
+    .extend(AutomlPipelinesRunsRecordEdaResultCreateBody.shape)
+    .extend({
+        id: AutomlPipelinesRunsRecordEdaResultCreateParams.shape['id'].describe(
+            'Pipeline UUID. Used for URL routing; the run lookup is keyed by run_id + team.'
+        ),
+        run_id: AutomlPipelinesRunsRecordEdaResultCreateParams.shape['run_id'].describe(
+            'Run UUID from the bootstrap brief\'s "Run context" block. The run must be in "running" status.'
+        ),
+        eda_result: AutomlPipelinesRunsRecordEdaResultCreateBody.shape['eda_result'].describe(
+            'Structured EDA summary from the CLI. Recommended keys (all optional, schemaless to allow CLI evolution): n_rows, n_cols, target_type (binary / multiclass / regression / none), class_balance (for classification), top_signal_features, drop_constant_or_near_constant, drop_redundant_keep_first, suspect_target_leakage, low_signal_features, eda_uri (full report path).'
+        ),
+        cli_run_id: AutomlPipelinesRunsRecordEdaResultCreateBody.shape['cli_run_id'].describe(
+            "The CLI's runs/<run_id>/ UTC timestamp (e.g. 20260514T130000Z). Optional but recommended — lets the pipeline-detail page link directly into the workspace."
+        ),
+    })
+
+const automlRecordEdaResult = (): ToolBase<typeof AutomlRecordEdaResultSchema, Schemas.AutoMLPipelineRunDTO> => ({
+    name: 'automl-record-eda-result',
+    schema: AutomlRecordEdaResultSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlRecordEdaResultSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.eda_result !== undefined) {
+            body['eda_result'] = params.eda_result
+        }
+        if (params.cli_run_id !== undefined) {
+            body['cli_run_id'] = params.cli_run_id
+        }
+        const result = await context.api.request<Schemas.AutoMLPipelineRunDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/runs/${encodeURIComponent(String(params.run_id))}/record_eda_result/`,
+            body,
+        })
+        return result
+    },
+})
+
 const AutomlRecordTrainingResultSchema = AutomlPipelinesModelVersionsCreateParams.omit({ project_id: true })
     .extend(AutomlPipelinesModelVersionsCreateBody.shape)
     .extend({
@@ -282,6 +410,43 @@ const automlRecordTrainingResult = (): ToolBase<
             body,
         })
         return await withPostHogUrl(context, result, `/automl/${result.id}`)
+    },
+})
+
+const AutomlListRunsSchema = AutomlPipelinesRunsListParams.omit({ project_id: true })
+    .extend(AutomlPipelinesRunsListQueryParams.shape)
+    .extend({
+        id: AutomlPipelinesRunsListParams.shape['id'].describe(
+            "Pipeline UUID. Returns 404 if the pipeline doesn't exist on the team."
+        ),
+    })
+
+const automlListRuns = (): ToolBase<
+    typeof AutomlListRunsSchema,
+    WithPostHogUrl<Schemas.PaginatedAutoMLPipelineRunDTOList>
+> => ({
+    name: 'automl-list-runs',
+    schema: AutomlListRunsSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlListRunsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAutoMLPipelineRunDTOList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/runs/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/automl/${item.id}`))
+                ),
+            },
+            '/automl'
+        )
     },
 })
 
@@ -497,11 +662,15 @@ const automlValidate = (): ToolBase<typeof AutomlValidateSchema, Schemas.Validat
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'automl-archive': automlArchive,
     'automl-create': automlCreate,
+    'automl-get-run': automlGetRun,
     'automl-get': automlGet,
     'automl-list': automlList,
     'automl-pause': automlPause,
     'automl-get-active-model': automlGetActiveModel,
+    'automl-record-bootstrap-outcome': automlRecordBootstrapOutcome,
+    'automl-record-eda-result': automlRecordEdaResult,
     'automl-record-training-result': automlRecordTrainingResult,
+    'automl-list-runs': automlListRuns,
     'automl-list-model-versions': automlListModelVersions,
     'automl-promote-model-version': automlPromoteModelVersion,
     'automl-resume': automlResume,

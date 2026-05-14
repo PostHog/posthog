@@ -126,6 +126,47 @@ export const AutomlPipelinesModelVersionsCreateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Flip a run to a terminal state and write the agent's final outcome report.
+
+Single-shot — once a run reaches a terminal state, re-calling this no-ops
+(returns the already-terminal DTO). Lets the agent retry the MCP call
+after a transient network blip without overwriting the timeline.
+Rejects ``status='running'`` with 400 (terminal status required).
+ */
+export const AutomlPipelinesRunsRecordBootstrapOutcomeCreateBody = /* @__PURE__ */ zod
+    .object({
+        status: zod
+            .enum(['running', 'succeeded', 'failed', 'aborted'])
+            .describe(
+                '\* `running` - RUNNING\n\* `succeeded` - SUCCEEDED\n\* `failed` - FAILED\n\* `aborted` - ABORTED'
+            ),
+        outcome_report: zod.string(),
+        failure_reason: zod.string().optional(),
+        cli_run_id: zod.string().optional(),
+        agent_session_id: zod.string().optional(),
+    })
+    .describe(
+        'Request body for ``POST \/automl_pipelines\/{id}\/runs\/{run_id}\/record_bootstrap_outcome\/``.\n\nCalled by the bootstrap agent as the final checkpoint of a run. Flips the\nrun to a terminal status and writes the structured markdown outcome report\nsurfaced on the pipeline-detail page.'
+    )
+
+/**
+ * Stash the agent's EDA output on an in-progress run.
+
+Called by the bootstrap agent between ``automl eda`` and ``automl train``.
+Status stays at ``running`` — EDA is a mid-run checkpoint, not terminal.
+Idempotent in the sense that a second call overwrites the prior payload
+(the CLI's ``eda.yaml`` is regenerated on every re-run).
+ */
+export const AutomlPipelinesRunsRecordEdaResultCreateBody = /* @__PURE__ */ zod
+    .object({
+        eda_result: zod.record(zod.string(), zod.unknown()),
+        cli_run_id: zod.string().optional(),
+    })
+    .describe(
+        "Request body for ``POST \/automl_pipelines\/{id}\/runs\/{run_id}\/record_eda_result\/``.\n\nCalled by the bootstrap agent between ``automl eda`` and ``automl train``.\nThe ``eda_result`` payload is schemaless on purpose so the CLI's\n``eda.yaml`` shape can evolve without forcing a migration."
+    )
+
+/**
  * Run preflight validation against a proposed pipeline config.
 
 Side-effect-free: nothing is written, no pipeline is created. Same body

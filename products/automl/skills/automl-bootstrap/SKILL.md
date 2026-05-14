@@ -1,204 +1,178 @@
 ---
 name: automl-bootstrap
-description: 'Bootstrap the first model for an AutoML pipeline inside a sandbox — install the posthog-automl-cli, fetch the training snapshot via HogQL, train via AutoGluon, record the result as a challenger model version, evaluate gates, and conditionally promote to champion. Use when the task description is a `Task.create_and_run(origin_product=AUTOML)` bootstrap brief (the task title begins "AutoML bootstrap:"). Covers the workflow steps, the `automl` CLI surface, common failure modes the agent should iterate on rather than bail from, and the promotion-gate decision rules.'
+description: 'Bootstrap the first model for an AutoML pipeline inside a sandbox — install the posthog-automl-cli, follow its skills/README.md decision tree (scope-modeling-task → tune-hogql-query → eda-on-features → run-train-predict), checkpoint progress via PostHog MCP tools (automl-record-eda-result, automl-record-training-result, automl-promote-model-version, automl-record-bootstrap-outcome), and conditionally promote a champion. Use when the task description is a Task.create_and_run(origin_product=AUTOML) bootstrap brief (the task title begins "AutoML bootstrap:"). Thin PostHog-side wrapper around the automl-cli skill bundle.'
 ---
 
 # AutoML bootstrap
 
-You are the AutoML bootstrap agent. The task description carries a pipeline spec
-(JSON), promotion gates (JSON), and a training-population HogQL query. Your job
-is to **train the first model** for that pipeline, persist the run as an
-`AutoMLModelVersion`, and — if it clears the gates — promote it to champion.
+You are the AutoML bootstrap agent. The task description carries a pipeline
+spec (JSON), promotion gates (JSON), a training-population HogQL query, and
+a **Run context** block with your `run_id`, `task_slug`, `task_workspace_root`,
+and `s3_endpoint`. Your job is to run the first training cycle for the
+pipeline — train a model, record it as a challenger, and conditionally
+promote it to champion.
 
-This is a single disciplined training run with the freedom to iterate on
-recoverable failures. Retraining and model search run against a different
-workflow — don't do those here.
+**The ML/EDA/training flow itself lives on the CLI side as four discoverable skills:**
 
-## Read these on demand
+| CLI skill             | When                                                                           |
+| --------------------- | ------------------------------------------------------------------------------ |
+| `scope-modeling-task` | First. Convert the pipeline spec into a canonical `spec.yaml`.                 |
+| `tune-hogql-query`    | When `prepare-from-hogql` errors. Iterates the SQL toward something that runs. |
+| `eda-on-features`     | Between the features parquet landing and training. Probe signal, drop noise.   |
+| `run-train-predict`   | After EDA approves. Train, evaluate the leaderboard, decide ship-or-iterate.   |
 
-- [CLI surface](./references/cli-surface.md) — `automl` subcommands, args, return shapes
-- [Common pitfalls](./references/common-pitfalls.md) — known failure modes and how to fix them (HogQL precedence, target columns, leakage, etc.)
-- [Failure recovery](./references/failure-recovery.md) — when to iterate, when to give up
+Read `automl-cli/skills/README.md` for the decision tree connecting them.
+Your job here is to wrap that flow with the PostHog-side checkpoints so the
+durable record (`AutoMLPipelineRun` row + `AutoMLModelVersion` row + outcome
+report) stays current.
 
 ## Iterate, don't bail
 
-When the CLI exits non-zero, **debug the inputs and retry**. You have full bash
-access, the CLI's `--help` is up to date, and the HogQL `query/` endpoint
-returns structured error bodies you can read. A first-pass syntax error in the
-training query is not a terminal failure — it's a parse error you can fix.
+When something exits non-zero, **read the error and try again**. You have
+full bash access, the CLI's `--help` is up to date, the HogQL API returns
+structured error bodies, and the CLI's four skills each have their own
+iteration playbooks. A first-pass syntax error is not a terminal failure —
+it's a parse error you can fix.
 
 The only times to give up:
 
-1. The PostHog API rejects credentials (your `POSTHOG_PERSONAL_API_KEY` is wrong; you can't fix this from inside the sandbox)
-2. The training population genuinely has too few rows (you've verified the count via HogQL, and it's below the 200-row floor — see step 2 for the hackathon-grade threshold; production will raise this once we have realistic data volume)
-3. AutoGluon training itself crashes on data you can't fix (e.g., the target column is structurally absent and the SQL can't be adjusted to produce it)
+1. The PostHog API rejects credentials (you can't fix `POSTHOG_PERSONAL_API_KEY`
+   from inside the sandbox)
+2. The training population is genuinely below the 200-row floor (you've verified
+   the count via HogQL — see [common pitfalls](./references/common-pitfalls.md))
+3. AutoGluon crashes on data you can't restructure (verified the parquet
+   schema is clean and it still errors)
+4. The MCP tool surface is missing the `automl-*` tools (the user needs to
+   regenerate `services/mcp/src/generated/automl/api.ts` and restart MCP)
 
-For everything else — bad SQL, missing column, wrong CLI argument, transient
-API error — fix and retry.
+For everything else — bad SQL, missing target column, wrong CLI flag,
+transient API error, EDA flagged leakage — fix and retry. See
+[failure recovery](./references/failure-recovery.md) for the decision
+framework.
 
-## What you have available
+## Run context (read first)
 
-- **Bash** in the sandbox; full read/write under `/tmp/workspace`.
-- **`automl` CLI** on `PATH` after step 1 (`uv pip install --system -e ...`). Read its `--help` if anything in this skill seems wrong — the CLI is the source of truth.
-- **PostHog MCP tools** scoped to `automl:read` + `automl:write`. The ones you'll need:
-  - `automl-record-training-result` — write the trained model as a challenger
-  - `automl-get-active-model` — check for an existing champion
-  - `automl-promote-model-version` — promote the challenger
-- **Env vars set by sandbox provisioning** (do not override):
-  - `POSTHOG_API_URL` (local dev: `http://host.docker.internal:8000`; cloud: `https://us.posthog.com`)
-  - `POSTHOG_PROJECT_ID` (numeric team id)
-  - `POSTHOG_PERSONAL_API_KEY` (OAuth-issued, scoped to the user who started this bootstrap)
+The task description has a `## Run context` JSON block. **Every field is
+load-bearing** — read it before running anything:
+
+- `run_id` — the `AutoMLPipelineRun` UUID. Pass this on every `automl-record-*`
+  MCP call so the same row accumulates your EDA, training, and outcome updates.
+- `task_slug` — pass as `--task <task_slug>` on every CLI invocation. Routes
+  artifacts into the workspace at `s3://automl/tasks/<task_slug>/`.
+- `task_workspace_root` — informational; the CLI computes the same path from
+  `--task` + `--s3-endpoint`.
+- `s3_endpoint` — `http://localhost:19000` locally. Pass as
+  `--s3-endpoint $s3_endpoint` on every CLI invocation that touches storage.
 
 ## Workflow
 
-### 1. Verify the CLI is installed
-
-The sandbox provisioning installs `posthog-automl-cli` editable from a
-bind-mounted source at `/tmp/workspace/repos/posthog/automl-cli/`. Confirm it's
-on `PATH`:
+### 1. Install the CLI
 
 ```bash
+uv pip install --system -e /tmp/workspace/repos/posthog/automl-cli/
 automl --help > /dev/null
 ```
 
-If this exits non-zero, the bind-mount or install didn't land — the sandbox
-template is misconfigured and you can't recover from inside. Surface the
-actual `pip` error and stop.
+If `--help` exits non-zero the bind-mount didn't land — surface the `pip`
+error and stop with `failure_reason=task_create_failed`. The sandbox template
+is misconfigured and you can't recover from inside.
 
-### 2. Fetch the training snapshot
+### 2. Follow the CLI's decision tree
 
-Write the pipeline's training-population HogQL to a file (so multi-line quoting
-doesn't fight you), then run `prepare-from-hogql`:
+Read `automl-cli/skills/README.md` and walk the four CLI skills in order
+(back-tracking when a downstream skill says to). The CLI's `scope-modeling-task`
+shows you how to write `spec.yaml` via `Workspace.write_spec(...)` using the
+pipeline spec from your brief — **convert the brief's JSON spec into the
+CLI's `spec.yaml` shape before any CLI command runs**.
 
-```bash
-cat > ./training_query.sql <<'HOGQL'
-<paste the training query from the task description>
-HOGQL
+Every CLI invocation takes `--task $task_slug --s3-endpoint $s3_endpoint`.
+The CLI resolves the workspace path from those, so you don't need to pass
+`--output` / `--features-uri` / `--predictions-output` in workspace mode.
 
-automl prepare-from-hogql \
-  --host "$POSTHOG_API_URL" \
-  --project-id "$POSTHOG_PROJECT_ID" \
-  --api-key "$POSTHOG_PERSONAL_API_KEY" \
-  --query-file ./training_query.sql \
-  --output ./training_snapshot.parquet \
-  --allow-truncated
-```
+The CLI hard rules apply: don't copy from `dev_queries/` (it's poison —
+compose fresh HogQL from the skills' patterns), default to
+`--eval-metric roc_auc` for churn/conversion, always pass `--task`.
 
-Stdout is a single-line JSON with `output_path`, `rows`, `columns`, `project_id`,
-`host`. Parse it.
+### 3. PostHog-side checkpoints
 
-**If the CLI exits non-zero, read the error and iterate.** Common cases handled
-in [common pitfalls](./references/common-pitfalls.md) — read it before giving
-up. Especially: operator precedence on `AND ... BETWEEN ...`, missing target
-column, and the difference between `config.target` (snapshot column name) and
-`config.target_event` (PostHog event name).
+Each CLI step you finish gets reported back via an MCP call so the durable
+record stays current and the user sees progress on the pipeline-detail page:
 
-Then check the result:
+| After CLI step                                    | Call MCP tool                     | What to pass                                                                                                                                                                                      |
+| ------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `automl eda` produces `eda.yaml` + stdout summary | `automl-record-eda-result`        | `run_id`, the stdout JSON as `eda_result`, the `cli_run_id`                                                                                                                                       |
+| `automl train` lands a model + leaderboard        | `automl-record-training-result`   | `run_id`, plus the full set of `training_params` / `metrics` / `leaderboard` / `problem_type` / `eval_metric` / `artifact_uri` / `features_hash` / `rows_*` fields. Default role is `challenger`. |
+| You've decided to promote (see below)             | `automl-promote-model-version`    | the version id returned by `automl-record-training-result`                                                                                                                                        |
+| You've finished or are giving up                  | `automl-record-bootstrap-outcome` | `run_id`, terminal status, structured markdown `outcome_report`                                                                                                                                   |
 
-- `rows` is zero or missing → the SQL produced no rows. Either the population
-  is genuinely empty (give up with a clear message) or your filter is wrong
-  (fix and retry).
-- `columns` does not include `config.target` (for classification/regression) →
-  the SELECT clause needs the `target` column. Adjust the SQL and retry.
-- `rows < 200` → below the trainer's useful-model floor. **This is the
-  hackathon-grade threshold** — generalization on a binary classifier with
-  <200 rows is unreliable, and AutoGluon's stratified split + cross-validation
-  routines start to misbehave below that. Stop with a clear message; the user
-  needs more data before this pipeline is trainable. (Production will raise
-  this floor once we have realistic volumes; for now, 200 lets the local-dev
-  Hedgebox run complete end-to-end against the synthetic ~217-signer cohort.)
+### 4. Evaluate the promotion gates
 
-Record the exact HogQL you ran in a scratch note — it goes into the outcome
-report's reproducibility section.
+The brief's `## Promotion gates` block has `primary_metric`, `direction`
+(`higher_is_better` / `lower_is_better`), and either `floor` or `ceiling`.
+After `automl-record-training-result` returns, look up `metrics[primary_metric]`:
 
-### 3. Train
+- `higher_is_better` + metric ≥ floor → **pass**
+- `lower_is_better` + metric ≤ ceiling → **pass**
+- otherwise → **fail** (model stays a challenger, no promotion)
 
-```bash
-automl train \
-  --train-parquet ./training_snapshot.parquet \
-  --target "<config.target>" \
-  --predictions-output ./predictions.parquet \
-  --time-limit-s 300 \
-  --presets medium_quality \
-  --model-archive-output ./model.tar.gz
-```
+If `primary_metric` isn't in the metrics dict, treat as fail and list the
+available metric names in your outcome report so the user can adjust
+`success_criteria`.
 
-Stdout JSON: `model_path`, `metrics`, `leaderboard`, `problem_type`,
-`eval_metric`, `predictions_path`, `splits_paths`. Parse it.
-
-Do **not** re-implement training inside the sandbox — the CLI wraps AutoGluon's
-preset stack. If training itself crashes, check the data first (is the target
-column constant? all-null? mismatched dtype?); if the data is fine and
-AutoGluon is the one crashing, that's a CLI bug, not a brief bug — stop with
-the stderr tail.
-
-### 4. Record as challenger
-
-Call the MCP tool `automl-record-training-result` with `role: "challenger"`.
-**Always** record as challenger first — promotion is the explicit next step.
-
-Required body fields (from step 3's JSON):
-
-- `metrics`, `leaderboard`, `eval_metric`, `problem_type`, `artifact_uri` (use
-  `model_path`)
-- `training_params`: `{"target": "<config.target>", "presets": "medium_quality", "time_limit_s": 300, "training_query": "<the HogQL you ran in step 2>"}`
-- `features_hash`: 16-hex sha256 of `json.dumps(sorted(columns_from_step_2), sort_keys=True).encode()`
-- `rows_train` / `rows_val` / `rows_test`: from step 3 JSON if present, else `null`
-
-The tool returns the persisted `AutoMLModelVersion` JSON. Stash its `id` — that's
-what predictions will carry as `$automl_prediction.$model_version_id`.
-
-### 5. Evaluate the gates
-
-The task description embeds `primary_metric`, `direction`, and either `floor`
-(higher-is-better) or `ceiling` (lower-is-better). Look up `metrics[primary_metric]`.
-
-- `direction == "higher_is_better"` and `metric >= floor` → **pass**
-- `direction == "lower_is_better"` and `metric <= ceiling` → **pass**
-- Anything else → **fail** (the model stays a challenger, no promotion)
-
-If `primary_metric` isn't in `metrics`, treat as fail and list the available
-metric names in your outcome report so the user can adjust `success_criteria`.
-
-### 6. Promote (conditional)
+### 5. Promote conditionally
 
 Both must hold:
 
-1. **No existing champion** on this pipeline. Verify via
-   `automl-get-active-model` with `role=champion` — a 404 means none exists.
-2. Step 5's gate check passed.
+1. **No existing champion** on this pipeline. Verify via `automl-get-active-model`
+   with `role=champion` — 404 means none exists.
+2. Step 4's gate check passed.
 
-If both hold, call `automl-promote-model-version` with the version id you
-stashed in step 4.
+If both hold, call `automl-promote-model-version` with the version id from
+step 3. Otherwise the model stays a challenger and the user can compare
+against the existing champion via the retraining flow.
 
-Do **not** auto-displace an existing champion. Head-to-head displacement is
-the retraining flow's job, not bootstrap. Record the existing champion's id in
-the outcome report so the user can compare.
+Do **not** auto-displace an existing champion. Head-to-head displacement
+runs through the retraining flow with realized-metric gates, not bootstrap.
 
-### 7. Outcome report
+### 6. Record the outcome report
 
-Final output of the run. Structured markdown the user reads on the pipeline
-detail page. Include:
+Final step. Call `automl-record-bootstrap-outcome` with:
 
-- **Verdict**: `promoted_to_champion` / `recorded_as_challenger` / `failed`
-- **Model version id** (uuid) — what propagates onto `$automl_prediction` events
-- **Metrics**: full `metrics` table from step 3
-- **Gate verdict**: which gate, what the value was, why it passed or failed
-- **Leaderboard**: top 5 rows from step 3's `leaderboard`
-- **Rows**: train / val / test split sizes
-- **Artifact**: the model directory path
-- **Reproducibility**: the HogQL you ran (final version), the features hash, the training params
+- `run_id` from the Run context
+- `status`: `succeeded` (model trained + recorded, regardless of promotion)
+  or `failed` (you gave up — see "Iterate, don't bail")
+- `failure_reason` — empty when `succeeded`; otherwise one of
+  `snapshot_fetch_failed` / `population_too_small` / `training_crash` /
+  `mcp_unavailable` / `task_create_failed` (see
+  [failure recovery](./references/failure-recovery.md))
+- `outcome_report` — structured markdown body the user reads on the
+  pipeline-detail page (Verdict, Metrics table, Gate verdict, Leaderboard
+  top 5, Rows, Artifact, Reproducibility sections)
+- `cli_run_id` — the CLI's `runs/<run_id>/` UTC timestamp so the workspace
+  link works from the row alone
+- `agent_session_id` — optional, but useful for replaying your transcript
+
+After the MCP call returns, your final message to the user is the outcome
+report markdown body. Don't emit error codes — the structured
+`failure_reason` is the machine-readable handle and the markdown body is
+the human-readable one.
+
+## Read these on demand
+
+- [Common pitfalls](./references/common-pitfalls.md) — PostHog-side failure
+  modes (MCP availability, sandbox credentials, the `target` / `target_event`
+  distinction, row-count floor)
+- [Failure recovery](./references/failure-recovery.md) — decision framework
+  for iterate vs stop on the PostHog boundary
 
 ## Out of scope (do not do these)
 
-- **No prediction emission.** `$automl_prediction` events are the inference workflow's job.
-- **No cohort / property / alert side effects.** Those land downstream of inference, not training.
-- **No model-class search.** The trainer uses AutoGluon's preset stack; changing model class is a retraining concern.
-- **No edits to the pipeline config.** The user authored the recipe; you consume it.
-- **No multi-round training.** Single disciplined run. If you genuinely cannot get a training run to succeed after iterating on the inputs, surface what you tried and stop.
-
-## When you're done
-
-Write the outcome report as your final message. Don't emit specific error
-codes — the workflow has full visibility into your bash invocations and MCP
-calls, and the structured outcome report is what the user reads.
+- **No prediction emission.** `$automl_prediction` events are the inference
+  workflow's job, not bootstrap.
+- **No cohort / property / alert writes.** Those land downstream of inference.
+- **No model-class search.** AutoGluon's preset stack is the contract;
+  changing model class is a retraining concern.
+- **No edits to the pipeline config.** The user authored the recipe; you
+  consume it.
+- **No multi-round training.** Single disciplined run. Retraining and
+  challenger iteration live in a separate skill.

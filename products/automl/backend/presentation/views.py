@@ -24,12 +24,21 @@ from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..facade import api
-from ..facade.contracts import CreatePipelineInput, RecordTrainingResultInput, UpdatePipelineInput
+from ..facade.contracts import (
+    CreatePipelineInput,
+    RecordBootstrapOutcomeInput,
+    RecordEdaResultInput,
+    RecordTrainingResultInput,
+    UpdatePipelineInput,
+)
 from ..facade.enums import ModelRole
 from .serializers import (
     AutoMLModelVersionSerializer,
+    AutoMLPipelineRunSerializer,
     AutoMLPipelineSerializer,
     CreatePipelineInputSerializer,
+    RecordBootstrapOutcomeInputSerializer,
+    RecordEdaResultInputSerializer,
     RecordTrainingResultInputSerializer,
     UpdatePipelineInputSerializer,
     ValidationReportSerializer,
@@ -59,6 +68,8 @@ class AutoMLPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "archive",
         "record_model_version",
         "promote_model_version",
+        "record_eda_result",
+        "record_bootstrap_outcome",
     ]
     scope_object_read_actions = [
         "list",
@@ -66,6 +77,8 @@ class AutoMLPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "validate",
         "list_model_versions",
         "active_model_version",
+        "list_runs",
+        "retrieve_run",
     ]
     serializer_class = AutoMLPipelineSerializer
 
@@ -304,6 +317,143 @@ class AutoMLPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.ModelVersionNotFoundError:
             return Response({"detail": "Model version not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(AutoMLModelVersionSerializer(instance=dto).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: AutoMLPipelineRunSerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="runs")
+    def list_runs(self, request: Request, pk: str, **kwargs) -> Response:
+        """List every run (bootstrap / retrain / inference) for a pipeline, newest first.
+
+        Includes terminal runs (succeeded / failed / aborted) — the pipeline-detail
+        timeline surfaces the full history. Returns 200 with an empty list if the
+        pipeline has no runs yet (e.g. before ``start`` is called for the first time).
+        """
+        try:
+            runs = api.list_runs_for_pipeline(team_id=self.team_id, pipeline_id=UUID(pk))
+        except api.PipelineNotFoundError:
+            return Response({"detail": "Pipeline not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AutoMLPipelineRunSerializer(instance=runs, many=True).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter("run_id", OpenApiTypes.STR, OpenApiParameter.PATH),
+        ],
+        responses={200: AutoMLPipelineRunSerializer},
+    )
+    @action(detail=True, methods=["get"], url_path=r"runs/(?P<run_id>[^/.]+)")
+    def retrieve_run(self, request: Request, pk: str, run_id: str, **kwargs) -> Response:
+        """Get one pipeline run by id.
+
+        Used by the bootstrap agent to look up its own run mid-flight (e.g. to
+        confirm a previous ``record_eda_result`` write landed before continuing).
+        """
+        try:
+            run_uuid = UUID(run_id)
+        except ValueError:
+            return Response(
+                {"detail": "Invalid run_id", "code": "invalid_run_id"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        dto = api.get_run(team_id=self.team_id, run_id=run_uuid)
+        if dto is None:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AutoMLPipelineRunSerializer(instance=dto).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter("run_id", OpenApiTypes.STR, OpenApiParameter.PATH),
+        ],
+    )
+    @validated_request(
+        request_serializer=RecordEdaResultInputSerializer,
+        responses={200: OpenApiResponse(response=AutoMLPipelineRunSerializer)},
+    )
+    @action(detail=True, methods=["post"], url_path=r"runs/(?P<run_id>[^/.]+)/record_eda_result")
+    def record_eda_result(
+        self,
+        request: TypedRequest[RecordEdaResultInput],
+        pk: str,
+        run_id: str,
+        **kwargs,
+    ) -> Response:
+        """Stash the agent's EDA output on an in-progress run.
+
+        Called by the bootstrap agent between ``automl eda`` and ``automl train``.
+        Status stays at ``running`` — EDA is a mid-run checkpoint, not terminal.
+        Idempotent in the sense that a second call overwrites the prior payload
+        (the CLI's ``eda.yaml`` is regenerated on every re-run).
+        """
+        try:
+            run_uuid = UUID(run_id)
+        except ValueError:
+            return Response(
+                {"detail": "Invalid run_id", "code": "invalid_run_id"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            dto = api.record_eda_result(
+                team_id=self.team_id,
+                run_id=run_uuid,
+                params=request.validated_data,
+            )
+        except api.PipelineRunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AutoMLPipelineRunSerializer(instance=dto).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter("run_id", OpenApiTypes.STR, OpenApiParameter.PATH),
+        ],
+    )
+    @validated_request(
+        request_serializer=RecordBootstrapOutcomeInputSerializer,
+        responses={200: OpenApiResponse(response=AutoMLPipelineRunSerializer)},
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"runs/(?P<run_id>[^/.]+)/record_bootstrap_outcome",
+    )
+    def record_bootstrap_outcome(
+        self,
+        request: TypedRequest[RecordBootstrapOutcomeInput],
+        pk: str,
+        run_id: str,
+        **kwargs,
+    ) -> Response:
+        """Flip a run to a terminal state and write the agent's final outcome report.
+
+        Single-shot — once a run reaches a terminal state, re-calling this no-ops
+        (returns the already-terminal DTO). Lets the agent retry the MCP call
+        after a transient network blip without overwriting the timeline.
+        Rejects ``status='running'`` with 400 (terminal status required).
+        """
+        try:
+            run_uuid = UUID(run_id)
+        except ValueError:
+            return Response(
+                {"detail": "Invalid run_id", "code": "invalid_run_id"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            dto = api.record_bootstrap_outcome(
+                team_id=self.team_id,
+                run_id=run_uuid,
+                params=request.validated_data,
+            )
+        except api.PipelineRunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError as e:
+            return Response(
+                {"detail": str(e), "code": "invalid_status"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(AutoMLPipelineRunSerializer(instance=dto).data)
 
     def _run_transition(self, pk: str, transition: str) -> Response:
         """Dispatch a status transition. Maps facade exceptions to HTTP responses."""

@@ -75,6 +75,30 @@ tools:
                 description: >
                     Name of the person or group property where predictions are written. Optional; if blank the pipeline
                     emits events only.
+    automl-get-run:
+        operation: automl_pipelines_runs_retrieve
+        enabled: true
+        scopes:
+            - automl:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get an AutoML pipeline run
+        description: >
+            Fetch one bootstrap / retrain / inference run by its UUID. Returns the durable record: run kind, status,
+            task slug, workspace root, agent session id, started_at / completed_at, outcome report, EDA result,
+            training result, failure reason, and any created model version id. Use this from inside the bootstrap
+            orchestration brief to look up your own run mid-flight (e.g. to confirm a prior automl-record-eda-result
+            write landed) — the run_id is in the brief's "Run context" JSON block.
+        param_overrides:
+            id:
+                description: >
+                    Pipeline UUID. Used for URL routing; the run lookup is keyed by run_id + team.
+            run_id:
+                description: >
+                    Run UUID — comes from the bootstrap brief's "Run context" block. 404 if the run doesn't exist on
+                    this team.
     automl-get:
         operation: automl_pipelines_retrieve
         enabled: true
@@ -146,6 +170,82 @@ tools:
             role:
                 description: >
                     Role to look up. One of "champion", "challenger", "archived". Defaults to "champion" if omitted.
+    automl-record-bootstrap-outcome:
+        operation: automl_pipelines_runs_record_bootstrap_outcome_create
+        enabled: true
+        scopes:
+            - automl:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Record a bootstrap outcome on an AutoML run
+        description: >
+            Flip a bootstrap / retrain run to a terminal status (succeeded / failed / aborted) and write the agent's
+            final structured markdown outcome report. The outcome report is what the user reads on the pipeline-detail
+            page — include verdict, metrics table, gate verdict, leaderboard top 5, train / val / test split sizes,
+            artifact path, and reproducibility info (HogQL query, features hash, training params). Single-shot — once
+            a run reaches a terminal status, re-calling this no-ops and returns the already-terminal row, so retries
+            after a transient network blip are safe.
+        param_overrides:
+            id:
+                description: Pipeline UUID. Used for URL routing; the run lookup is keyed by run_id + team.
+            run_id:
+                description: >
+                    Run UUID from the bootstrap brief's "Run context" block. Must be the currently in-flight run.
+            status:
+                description: >
+                    Terminal status to flip the run to. One of "succeeded" / "failed" / "aborted". Rejects "running"
+                    (open-state hint, not terminal).
+            outcome_report:
+                description: >
+                    Structured markdown body the user reads on the pipeline-detail page. Conventions: top-level
+                    Verdict line, Metrics table, Gate verdict, Leaderboard, Rows, Artifact, Reproducibility sections.
+                    Empty string when the run failed before producing meaningful output.
+            failure_reason:
+                description: >
+                    Compact tag categorizing the failure when status is failed or aborted. Examples:
+                    snapshot_fetch_failed / population_too_small / training_crash / mcp_unavailable /
+                    task_create_failed. Empty when status is succeeded.
+            cli_run_id:
+                description: >
+                    The CLI's runs/<run_id>/ UTC timestamp (e.g. 20260514T130000Z). Pass through from the train step's
+                    output so the workspace path stays addressable from the run row alone. Optional.
+            agent_session_id:
+                description: >
+                    Optional sandbox session id so we can replay the agent transcript later when debugging.
+    automl-record-eda-result:
+        operation: automl_pipelines_runs_record_eda_result_create
+        enabled: true
+        scopes:
+            - automl:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Record EDA result on an AutoML run
+        description: >
+            Stash the structured output of "automl eda" on an in-progress run, between EDA and training. The CLI's
+            eda subcommand emits a YAML report at runs/<run_id>/eda.yaml plus a JSON summary on stdout — pass that
+            summary as eda_result here so it lands on the pipeline-detail page. Status stays at "running" — EDA is a
+            mid-run checkpoint, not terminal. A second call with a refreshed payload overwrites the prior one (the
+            CLI's eda.yaml is regenerated on every re-run).
+        param_overrides:
+            id:
+                description: Pipeline UUID. Used for URL routing; the run lookup is keyed by run_id + team.
+            run_id:
+                description: >
+                    Run UUID from the bootstrap brief's "Run context" block. The run must be in "running" status.
+            eda_result:
+                description: >
+                    Structured EDA summary from the CLI. Recommended keys (all optional, schemaless to allow CLI
+                    evolution): n_rows, n_cols, target_type (binary / multiclass / regression / none), class_balance
+                    (for classification), top_signal_features, drop_constant_or_near_constant, drop_redundant_keep_first,
+                    suspect_target_leakage, low_signal_features, eda_uri (full report path).
+            cli_run_id:
+                description: >
+                    The CLI's runs/<run_id>/ UTC timestamp (e.g. 20260514T130000Z). Optional but recommended — lets the
+                    pipeline-detail page link directly into the workspace.
     automl-record-training-result:
         operation: automl_pipelines_model_versions_create
         enabled: true
@@ -191,6 +291,27 @@ tools:
                 description: >
                     Short hash of the sorted feature column names. Used downstream to detect feature drift between
                     training runs without diffing schemas.
+    automl-list-runs:
+        operation: automl_pipelines_runs_list
+        enabled: true
+        scopes:
+            - automl:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List AutoML pipeline runs
+        description: >
+            List every bootstrap / retrain / inference run for a pipeline, newest first. Includes terminal runs
+            (succeeded / failed / aborted) so the full timeline shows up. Each run carries the agent's outcome
+            report, EDA summary, training summary, and failure reason — durable across sandbox container deaths.
+            Use this to walk a pipeline's run history, find a specific run by status, or thread the retraining
+            iteration chain via parent_run_id.
+        param_overrides:
+            id:
+                description: Pipeline UUID. Returns 404 if the pipeline doesn't exist on the team.
     automl-list-model-versions:
         operation: automl_pipelines_model_versions_list
         enabled: true

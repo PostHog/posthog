@@ -31,10 +31,9 @@ export const TaskTypeEnumApi = {
  * `archived` - ARCHIVED
  * `failed` - FAILED
  */
-export type AutoMLPipelineDTOStatusEnumApi =
-    (typeof AutoMLPipelineDTOStatusEnumApi)[keyof typeof AutoMLPipelineDTOStatusEnumApi]
+export type PipelineStatusEnumApi = (typeof PipelineStatusEnumApi)[keyof typeof PipelineStatusEnumApi]
 
-export const AutoMLPipelineDTOStatusEnumApi = {
+export const PipelineStatusEnumApi = {
     Draft: 'draft',
     BootstrapPending: 'bootstrap_pending',
     BootstrapRunning: 'bootstrap_running',
@@ -91,7 +90,7 @@ export interface AutoMLPipelineDTOApi {
     name: string
     description: string
     task_type: TaskTypeEnumApi
-    status: AutoMLPipelineDTOStatusEnumApi
+    status: PipelineStatusEnumApi
     autonomy: AutonomyEnumApi
     config: AutoMLPipelineDTOApiConfig
     training_population: AutoMLPipelineDTOApiTrainingPopulation
@@ -281,6 +280,111 @@ export interface RecordTrainingResultInputApi {
 }
 
 /**
+ * * `bootstrap` - BOOTSTRAP
+ * `retrain` - RETRAIN
+ * `inference` - INFERENCE
+ */
+export type AutoMLRunKindEnumApi = (typeof AutoMLRunKindEnumApi)[keyof typeof AutoMLRunKindEnumApi]
+
+export const AutoMLRunKindEnumApi = {
+    Bootstrap: 'bootstrap',
+    Retrain: 'retrain',
+    Inference: 'inference',
+} as const
+
+/**
+ * * `running` - RUNNING
+ * `succeeded` - SUCCEEDED
+ * `failed` - FAILED
+ * `aborted` - ABORTED
+ */
+export type AutoMLRunStatusEnumApi = (typeof AutoMLRunStatusEnumApi)[keyof typeof AutoMLRunStatusEnumApi]
+
+export const AutoMLRunStatusEnumApi = {
+    Running: 'running',
+    Succeeded: 'succeeded',
+    Failed: 'failed',
+    Aborted: 'aborted',
+} as const
+
+export type AutoMLPipelineRunDTOApiEdaResult = { [key: string]: unknown }
+
+export type AutoMLPipelineRunDTOApiTrainingResult = { [key: string]: unknown }
+
+/**
+ * Output shape of one bootstrap / retrain / inference run on a pipeline.
+
+Durable per-run record — holds the agent's outcome report, EDA summary,
+training summary, and failure reason. The pipeline-detail timeline reads
+these rows directly; the retraining iteration chain threads them via
+``parent_run_id``.
+ */
+export interface AutoMLPipelineRunDTOApi {
+    id: string
+    pipeline_id: string
+    team_id: number
+    run_kind: AutoMLRunKindEnumApi
+    status: AutoMLRunStatusEnumApi
+    task_slug: string
+    task_workspace_root: string
+    cli_run_id: string
+    agent_session_id: string
+    /** @nullable */
+    task_id: string | null
+    started_at: string
+    /** @nullable */
+    completed_at: string | null
+    outcome_report: string
+    eda_result: AutoMLPipelineRunDTOApiEdaResult
+    training_result: AutoMLPipelineRunDTOApiTrainingResult
+    failure_reason: string
+    /** @nullable */
+    created_model_version_id: string | null
+    /** @nullable */
+    parent_run_id: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface PaginatedAutoMLPipelineRunDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AutoMLPipelineRunDTOApi[]
+}
+
+/**
+ * Request body for ``POST /automl_pipelines/{id}/runs/{run_id}/record_bootstrap_outcome/``.
+
+Called by the bootstrap agent as the final checkpoint of a run. Flips the
+run to a terminal status and writes the structured markdown outcome report
+surfaced on the pipeline-detail page.
+ */
+export interface RecordBootstrapOutcomeInputApi {
+    status: AutoMLRunStatusEnumApi
+    outcome_report: string
+    failure_reason?: string
+    cli_run_id?: string
+    agent_session_id?: string
+}
+
+export type RecordEdaResultInputApiEdaResult = { [key: string]: unknown }
+
+/**
+ * Request body for ``POST /automl_pipelines/{id}/runs/{run_id}/record_eda_result/``.
+
+Called by the bootstrap agent between ``automl eda`` and ``automl train``.
+The ``eda_result`` payload is schemaless on purpose so the CLI's
+``eda.yaml`` shape can evolve without forcing a migration.
+ */
+export interface RecordEdaResultInputApi {
+    eda_result: RecordEdaResultInputApiEdaResult
+    cli_run_id?: string
+}
+
+/**
  * * `info` - INFO
  * `warn` - WARN
  * `block` - BLOCK
@@ -364,4 +468,15 @@ export type AutomlPipelinesModelVersionsActiveRetrieveParams = {
      * Role to look up. Defaults to 'champion'. One of: champion, challenger, archived.
      */
     role?: string
+}
+
+export type AutomlPipelinesRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
