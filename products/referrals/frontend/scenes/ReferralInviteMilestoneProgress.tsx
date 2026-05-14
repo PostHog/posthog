@@ -108,7 +108,7 @@ export function ReferralInviteMilestoneProgress({ firstEventSent }: { firstEvent
                                                 render={
                                                     <div
                                                         className={cn(
-                                                            'flex min-h-[6.875rem] w-full cursor-default flex-col items-center gap-2 rounded-lg border-2 p-2.5 text-center outline-none transition-colors motion-safe:hover:bg-muted/20 min-[400px]:min-h-[7.25rem]',
+                                                            'flex min-h-[6.25rem] w-full cursor-default flex-col items-center gap-2 rounded-lg border-2 p-2.5 text-center outline-none transition-colors motion-safe:hover:bg-muted/20 min-[400px]:min-h-[6.5rem]',
                                                             stage.locked &&
                                                                 'border-dashed border-muted-foreground/40 bg-muted/15 grayscale-[0.15]',
                                                             stage.complete && 'border-success/70 bg-success/5',
@@ -150,20 +150,9 @@ export function ReferralInviteMilestoneProgress({ firstEventSent }: { firstEvent
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <div className="flex w-full min-h-[2.75rem] flex-1 flex-col items-center justify-start px-0.5">
+                                                        <div className="flex w-full min-h-[2.75rem] flex-1 flex-col items-center justify-center px-0.5">
                                                             <span className="line-clamp-2 w-full text-[10px] font-extrabold leading-snug tracking-tight text-foreground">
                                                                 {stage.label}
-                                                            </span>
-                                                        </div>
-                                                        <div className="flex h-3.5 w-full shrink-0 items-center justify-center">
-                                                            <span
-                                                                className={cn(
-                                                                    'text-[9px] font-black leading-none tracking-wide',
-                                                                    stage.isCurrent ? 'text-primary' : 'invisible'
-                                                                )}
-                                                                aria-hidden={!stage.isCurrent}
-                                                            >
-                                                                Up next
                                                             </span>
                                                         </div>
                                                     </div>
