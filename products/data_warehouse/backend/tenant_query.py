@@ -1570,37 +1570,14 @@ def _tenant_predicate(
     tenant_field: FieldOrTable,
     predicate_value: object | None,
 ) -> ast.CompareOperation | None:
-    if len(tenant_field_chain) == 1:
+    if len(tenant_field_chain) == 1 or isinstance(tenant_field, LazyJoin):
         return ast.CompareOperation(
             left=ast.Field(chain=tenant_field_chain),
             op=ast.CompareOperationOp.Eq,
             right=ast.Constant(value=predicate_value),
         )
 
-    if not isinstance(tenant_field, LazyJoin):
-        return None
-
-    join_table = tenant_field.join_table
-    if isinstance(join_table, Table) and isinstance(join_table.name, str):
-        join_table_chain = join_table.name.split(".")
-    elif isinstance(join_table, str):
-        join_table_chain = join_table.split(".")
-    else:
-        return None
-
-    return ast.CompareOperation(
-        left=ast.Field(chain=tenant_field.from_field),
-        op=ast.CompareOperationOp.In,
-        right=ast.SelectQuery(
-            select=[ast.Field(chain=tenant_field.to_field)],
-            select_from=ast.JoinExpr(table=ast.Field(chain=join_table_chain)),
-            where=ast.CompareOperation(
-                left=ast.Field(chain=tenant_field_chain[1:]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value=predicate_value),
-            ),
-        ),
-    )
+    return None
 
 
 def _tenant_predicate_from_foreign_key_schema_path(
@@ -1707,7 +1684,14 @@ def apply_tenant_query_config(
             continue
 
         predicate: ast.CompareOperation | None = None
-        if len(tenant_field_chain) > 1:
+        tenant_field = table.fields.get(tenant_field_chain[0])
+        if tenant_field is not None:
+            if not has_predicate_value:
+                predicate_value = _coerce_tenant_value(config, tenant_value)
+                has_predicate_value = True
+            predicate = _tenant_predicate(tenant_field_chain, tenant_field, predicate_value)
+
+        if predicate is None and len(tenant_field_chain) > 1:
             source_schema = _schema_for_direct_postgres_table(schemas, table)
             if source_schema is not None:
                 if not has_predicate_value:
@@ -1720,17 +1704,6 @@ def apply_tenant_query_config(
                     predicate_value,
                 )
 
-        if predicate is None:
-            tenant_field = table.fields.get(tenant_field_chain[0])
-            if tenant_field is None:
-                missing_table_names.append(table.to_printed_hogql())
-                continue
-
-            if not has_predicate_value:
-                predicate_value = _coerce_tenant_value(config, tenant_value)
-                has_predicate_value = True
-
-            predicate = _tenant_predicate(tenant_field_chain, tenant_field, predicate_value)
         if predicate is None:
             missing_table_names.append(table.to_printed_hogql())
             continue

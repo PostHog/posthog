@@ -23,6 +23,14 @@ def resolve_lazy_tables(
     LazyTableResolver(stack=stack, context=context, dialect=dialect).visit(node)
 
 
+def materialize_table_predicates_with_lazy_joins(
+    node: _T_AST,
+    dialect: HogQLDialect,
+    context: HogQLContext,
+) -> None:
+    TablePredicateLazyJoinMaterializer(context=context, dialect=dialect).visit(node)
+
+
 @dataclasses.dataclass
 class ConstraintOverride:
     alias: str
@@ -168,6 +176,94 @@ class LazyFinder(TraversingVisitor):
         if visited_count < self.max_type_visits:
             self.visited_field_type_counts[node_ref] = visited_count + 1
             self.visit(node.table_type)
+
+
+class TablePredicateLazyJoinMaterializer(TraversingVisitor):
+    def __init__(self, context: HogQLContext, dialect: HogQLDialect) -> None:
+        super().__init__()
+        self.context = context
+        self.dialect = dialect
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        select_type = node.type
+        if select_type is None:
+            super().visit_select_query(node)
+            return
+
+        join = node.select_from
+        while join is not None:
+            self._materialize_join_predicates(node, join)
+            join = join.next_join
+
+        super().visit_select_query(node)
+
+    def _materialize_join_predicates(self, select_query: ast.SelectQuery, join: ast.JoinExpr) -> None:
+        table_type = self._table_type_for_predicates(join.type)
+        if table_type is None:
+            return
+
+        predicates = table_type.table.get_predicates()
+        if not predicates:
+            return
+
+        for predicate in predicates:
+            resolved_predicate = self._resolved_predicate(predicate, join.type)
+            if resolved_predicate is None or not self._has_lazy_join(resolved_predicate):
+                continue
+
+            self.context.materialized_table_predicate_ids.add(id(predicate))
+            self._add_predicate_to_select(select_query, join, resolved_predicate)
+
+    @staticmethod
+    def _table_type_for_predicates(
+        join_type: ast.TableOrSelectType | None,
+    ) -> ast.TableType | ast.LazyTableType | None:
+        table_type = join_type
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+            table_type = table_type.table_type
+
+        if isinstance(table_type, (ast.TableType, ast.LazyTableType)):
+            return table_type
+
+        return None
+
+    def _resolved_predicate(
+        self,
+        predicate: ast.Expr,
+        join_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        if join_type is None:
+            return None
+
+        scope = ast.SelectQueryType(tables={"t": join_type})
+        return resolve_types(clone_expr(predicate), self.context, self.dialect, [scope])
+
+    @staticmethod
+    def _has_lazy_join(predicate: ast.Expr) -> bool:
+        finder = LazyFinder()
+        finder.visit(predicate)
+        return finder.found_lazy
+
+    @staticmethod
+    def _and(left: ast.Expr | None, right: ast.Expr) -> ast.Expr:
+        if left is None:
+            return right
+        if isinstance(left, ast.And):
+            return ast.And(exprs=[right, *left.exprs])
+        return ast.And(exprs=[right, left])
+
+    def _add_predicate_to_select(
+        self,
+        select_query: ast.SelectQuery,
+        join: ast.JoinExpr,
+        predicate: ast.Expr,
+    ) -> None:
+        is_left_join = join.join_type is not None and "LEFT" in join.join_type
+        if is_left_join and join.constraint is not None:
+            join.constraint.expr = self._and(join.constraint.expr, predicate)
+            return
+
+        select_query.where = self._and(select_query.where, predicate)
 
 
 class LazyTableResolver(TraversingVisitor):

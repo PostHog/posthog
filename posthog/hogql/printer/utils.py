@@ -16,7 +16,7 @@ from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
-from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+from posthog.hogql.transforms.lazy_tables import materialize_table_predicates_with_lazy_joins, resolve_lazy_tables
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import clone_expr
@@ -86,6 +86,7 @@ def prepare_ast_for_printing(
     if context.direct_postgres_connection_metadata is None and context.database is not None:
         context.direct_postgres_connection_metadata = getattr(context.database, "_direct_connection_metadata", None)
 
+    context.materialized_table_predicate_ids.clear()
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
     # Load property-level access control restrictions before type resolution so that
@@ -108,6 +109,10 @@ def prepare_ast_for_printing(
             dialect=dialect,
             scopes=[node.type for node in stack if node.type is not None] if stack else None,
         )
+
+    if dialect in ("postgres", "duckdb"):
+        with context.timings.measure("materialize_table_predicates_with_lazy_joins"):
+            materialize_table_predicates_with_lazy_joins(node, dialect, context)
 
     # Detect workload from resolved table types and store on context
     with context.timings.measure("workload_detection"):

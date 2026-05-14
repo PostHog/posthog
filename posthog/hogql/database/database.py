@@ -1144,7 +1144,7 @@ class Database(BaseModel):
 
                 with timings.measure(f"table_{table.name}"):
                     s3_table = table.hogql_definition(modifiers)
-                    primary_table = s3_table
+                    tables_to_process_for_foreign_keys: list[Table] = [s3_table]
 
                     # If the warehouse table has no _properties_ field, then set it as a virtual table
                     if s3_table.fields.get("properties") is None:
@@ -1189,10 +1189,11 @@ class Database(BaseModel):
                             warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
                             if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
                                 database._direct_access_warehouse_table_names.add(joined_table_chain)
-                            if index == 0:
-                                primary_table = table_for_key
+                            if index > 0:
+                                tables_to_process_for_foreign_keys.append(table_for_key)
 
-                    warehouse_tables_to_process.append((primary_table, table))
+                    for table_to_process in tables_to_process_for_foreign_keys:
+                        warehouse_tables_to_process.append((table_to_process, table))
 
         def define_mappings(root_node: TableNode, get_table: Callable):
             table: Table | None = None

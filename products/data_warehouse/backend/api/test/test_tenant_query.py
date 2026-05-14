@@ -459,7 +459,37 @@ class TestTenantQuery(APIBaseTest):
 
         assert "team_id = 42" in sql
         assert "dashboard_id" in sql
-        assert " IN (" in sql
+        assert "LEFT JOIN" in sql
+        assert " IN (" not in sql
+        assert "LIMIT 100" in sql
+
+    def test_injects_foreign_key_tenant_predicate_for_unqualified_direct_table_alias(self):
+        source = self._create_direct_source()
+        self._create_table(
+            source,
+            name="public.posthog_dashboard",
+            source_table_name="posthog_dashboard",
+            postgres_columns=[("id", "bigint", False), ("team_id", "bigint", False), ("name", "text", True)],
+        )
+        self._create_table(
+            source,
+            name="public.posthog_dashboarditem",
+            source_table_name="posthog_dashboarditem",
+            postgres_columns=[("id", "bigint", False), ("dashboard_id", "bigint", False), ("name", "text", True)],
+            postgres_foreign_keys=[("dashboard_id", "posthog_dashboard", "id")],
+        )
+        config = self._create_config(
+            source,
+            tenant_column_name="team_id",
+            tenant_column_names_by_table={"public.posthog_dashboarditem": "dashboard.team_id"},
+        )
+
+        sql = self._prepare_sql(source, config, "select * from posthog_dashboarditem")
+
+        assert "team_id = 42" in sql
+        assert "dashboard_id" in sql
+        assert "LEFT JOIN" in sql
+        assert " IN (" not in sql
         assert "LIMIT 100" in sql
 
     def test_injects_foreign_key_tenant_predicate_without_runtime_lazy_join(self):
