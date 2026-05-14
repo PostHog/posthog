@@ -7,7 +7,7 @@ Companion to [`agent-stack/docs/agent-platform.md`](https://github.com/PostHog/a
 Two things we own here:
 
 1. **Management plane** — a new flag-gated product under `products/agent_stack/` (Django app + viewsets + frontend).
-2. **Runtime** — three new TypeScript packages under `packages/`, deployed as independent node processes. They share **no code** with `nodejs/` (the legacy plugin-server). Anything we want from `nodejs/` we copy and adapt in `packages/agent-core/`.
+2. **Runtime** — three new TypeScript services under `services/`, deployed as independent node processes. They share **no code** with `nodejs/` (the legacy plugin-server). Anything we want from `nodejs/` we copy and adapt in `services/agent-core/`.
 
 The runtime split (ingress + runner) from the agent-stack doc still holds. This plan refines what each half looks like inside the posthog monorepo and which existing primitives we lean on conceptually (not by import).
 
@@ -15,39 +15,39 @@ The runtime split (ingress + runner) from the agent-stack doc still holds. This 
 
 ## Status & nodejs TODO
 
-Working tracker for the runtime packages only — the Django side is being built in parallel. Update inline as work lands; the rest of this doc is the spec.
+Working tracker for the runtime services only — the Django side is being built in parallel. Update inline as work lands; the rest of this doc is the spec.
 
 **Last audited:** 2026-05-13.
 
-### packages/agent-core/ (milestone 5 — substantially done)
+### services/agent-core/ (milestone 5 — substantially done)
 
-- [x] Queue schema + migration ([migrations/0001_initial_schema.sql](../../packages/agent-core/migrations/0001_initial_schema.sql)): state enum, `lock_id`, `last_heartbeat`, `BYTEA` state, `transition_count`, `janitor_touch_count`, indexes for dequeue/stall/cleanup
-- [x] Manager / enqueue with depth limit + 1 MiB state cap ([src/queue/manager.ts](../../packages/agent-core/src/queue/manager.ts))
-- [x] Worker / dequeue + `FOR UPDATE SKIP LOCKED` + heartbeat + ack/fail/reschedule/cancel ([src/queue/worker.ts](../../packages/agent-core/src/queue/worker.ts))
-- [x] Janitor / stall recovery + poison-pill + terminal cleanup + Prom metrics ([src/queue/janitor.ts](../../packages/agent-core/src/queue/janitor.ts))
-- [x] Migrations runner ([bin/migrate.ts](../../packages/agent-core/bin/migrate.ts))
-- [x] Pub-sub interface + Redis adapter + in-memory adapter ([src/pubsub/](../../packages/agent-core/src/pubsub))
-- [x] Internal-API client (`resolve`, `decrypt`) with optional shared-key header ([src/internal-api/client.ts](../../packages/agent-core/src/internal-api/client.ts))
-- [x] Built-ins registry — `posthog.events.capture`, `posthog.feature_flags.evaluate`, `http.fetch` ([src/builtins/index.ts](../../packages/agent-core/src/builtins/index.ts))
-- [x] Manifest reader + Zod schema + built-in id validation ([src/manifest/index.ts](../../packages/agent-core/src/manifest/index.ts))
-- [x] Logger (pino) + Prom metrics ([src/logger.ts](../../packages/agent-core/src/logger.ts), [src/metrics.ts](../../packages/agent-core/src/metrics.ts))
+- [x] Queue schema + migration ([migrations/0001_initial_schema.sql](../../services/agent-core/migrations/0001_initial_schema.sql)): state enum, `lock_id`, `last_heartbeat`, `BYTEA` state, `transition_count`, `janitor_touch_count`, indexes for dequeue/stall/cleanup
+- [x] Manager / enqueue with depth limit + 1 MiB state cap ([src/queue/manager.ts](../../services/agent-core/src/queue/manager.ts))
+- [x] Worker / dequeue + `FOR UPDATE SKIP LOCKED` + heartbeat + ack/fail/reschedule/cancel ([src/queue/worker.ts](../../services/agent-core/src/queue/worker.ts))
+- [x] Janitor / stall recovery + poison-pill + terminal cleanup + Prom metrics ([src/queue/janitor.ts](../../services/agent-core/src/queue/janitor.ts))
+- [x] Migrations runner ([bin/migrate.ts](../../services/agent-core/bin/migrate.ts))
+- [x] Pub-sub interface + Redis adapter + in-memory adapter ([src/pubsub/](../../services/agent-core/src/pubsub))
+- [x] Internal-API client (`resolve`, `decrypt`) with optional shared-key header ([src/internal-api/client.ts](../../services/agent-core/src/internal-api/client.ts))
+- [x] Built-ins registry — `posthog.events.capture`, `posthog.feature_flags.evaluate`, `http.fetch` ([src/builtins/index.ts](../../services/agent-core/src/builtins/index.ts))
+- [x] Manifest reader + Zod schema + built-in id validation ([src/manifest/index.ts](../../services/agent-core/src/manifest/index.ts))
+- [x] Logger (pino) + Prom metrics ([src/logger.ts](../../services/agent-core/src/logger.ts), [src/metrics.ts](../../services/agent-core/src/metrics.ts))
 - [x] Tests: queue (DB-gated), pubsub in-memory, manifest, builtins
 - [ ] Tests: Redis pubsub integration (needs Redis in CI)
 - [ ] Tests: internal-API client smoke (mock server — 404, timeout, shared-key header)
 - [ ] Decide internal-API transport auth (mTLS vs shared key) — both supported in code, pick at infra time
 
-### packages/agent-ingress/ (milestone 6 — wired end-to-end against fakes)
+### services/agent-ingress/ (milestone 6 — wired end-to-end against fakes)
 
-- [x] Bootstrap, Zod-validated env, SIGTERM/SIGINT shutdown ([src/index.ts](../../packages/agent-ingress/src/index.ts), [src/config.ts](../../packages/agent-ingress/src/config.ts))
-- [x] Host resolver with LRU + TTL + `invalidate()` hook ([src/resolver.ts](../../packages/agent-ingress/src/resolver.ts))
-- [x] Auth modes: `public`, `shared_secret`, `webhook_signature` (generic HMAC-SHA256) ([src/auth.ts](../../packages/agent-ingress/src/auth.ts))
-- [x] `/run` — resolves, authorizes, writes job via agent-core queue, returns 202 `{ sessionId }` ([src/routes/run.ts](../../packages/agent-ingress/src/routes/run.ts))
-- [x] `/listen/:id` — SSE wired to `bus.subscribeEvents` + 15s heartbeat ([src/routes/listen.ts](../../packages/agent-ingress/src/routes/listen.ts))
-- [x] `/send/:id` — publishes `user_message` to `bus.publishInput` ([src/routes/send.ts](../../packages/agent-ingress/src/routes/send.ts))
-- [x] `/webhooks/:provider` — host check, generic signature verify, enqueue ([src/routes/webhooks.ts](../../packages/agent-ingress/src/routes/webhooks.ts))
+- [x] Bootstrap, Zod-validated env, SIGTERM/SIGINT shutdown ([src/index.ts](../../services/agent-ingress/src/index.ts), [src/config.ts](../../services/agent-ingress/src/config.ts))
+- [x] Host resolver with LRU + TTL + `invalidate()` hook ([src/resolver.ts](../../services/agent-ingress/src/resolver.ts))
+- [x] Auth modes: `public`, `shared_secret`, `webhook_signature` (generic HMAC-SHA256) ([src/auth.ts](../../services/agent-ingress/src/auth.ts))
+- [x] `/run` — resolves, authorizes, writes job via agent-core queue, returns 202 `{ sessionId }` ([src/routes/run.ts](../../services/agent-ingress/src/routes/run.ts))
+- [x] `/listen/:id` — SSE wired to `bus.subscribeEvents` + 15s heartbeat ([src/routes/listen.ts](../../services/agent-ingress/src/routes/listen.ts))
+- [x] `/send/:id` — publishes `user_message` to `bus.publishInput` ([src/routes/send.ts](../../services/agent-ingress/src/routes/send.ts))
+- [x] `/webhooks/:provider` — host check, generic signature verify, enqueue ([src/routes/webhooks.ts](../../services/agent-ingress/src/routes/webhooks.ts))
 - [x] `/health`, `/status`
-- [x] ESLint hard rule blocking Anthropic / Modal / nodejs imports ([.eslintrc.json](../../packages/agent-ingress/.eslintrc.json))
-- [x] Tests: `/health`, `/status`, `/run`, `/send` happy/sad paths with FakeQueue + InMemoryBus ([tests/server.test.ts](../../packages/agent-ingress/tests/server.test.ts))
+- [x] ESLint hard rule blocking Anthropic / Modal / nodejs imports ([.eslintrc.json](../../services/agent-ingress/.eslintrc.json))
+- [x] Tests: `/health`, `/status`, `/run`, `/send` happy/sad paths with FakeQueue + InMemoryBus ([tests/server.test.ts](../../services/agent-ingress/tests/server.test.ts))
 - [ ] Tests: webhook signature flow end-to-end
 - [ ] Tests: `/listen` SSE flow (subscribe → publish → frame received)
 - [ ] Tests: resolver LRU + TTL + invalidate
@@ -56,23 +56,23 @@ Working tracker for the runtime packages only — the Django side is being built
 - [ ] `/run` rate limiter
 - [ ] Promotion invalidation: settle on push-from-Django call to `resolver.invalidate(...)` vs TTL-only
 
-### packages/agent-runner/ (milestone 7 — orchestration solid, executor stubbed)
+### services/agent-runner/ (milestone 7 — orchestration solid, executor stubbed)
 
-- [x] Worker — dequeue, lock, heartbeat, reschedule on suspend, ack/fail on terminal ([src/worker.ts](../../packages/agent-runner/src/worker.ts))
-- [x] `SessionExecutor` interface + `ExecutorTurnInput/Output` shape ([src/executor.ts](../../packages/agent-runner/src/executor.ts))
-- [ ] **Real executor backed by Claude Agent SDK.** Currently `NotImplementedExecutor` ([src/executor-stub.ts](../../packages/agent-runner/src/executor-stub.ts)) returns a "not implemented" error. The real one must invoke the SDK, stream chunks, tick heartbeats, and return `tool_call | completed | failed | awaiting_input` per turn.
-- [ ] State ↔ Claude Agent SDK `Message[]` / `ContentBlock` mapping. Today [src/state.ts](../../packages/agent-runner/src/state.ts) round-trips a generic `{role, content, at}` envelope.
-- [x] Meta tools `complete`, `wait_for_input` ([src/tools/meta.ts](../../packages/agent-runner/src/tools/meta.ts))
-- [x] `http.fetch` builtin — real fetch with timeout ([src/tools/builtins.ts](../../packages/agent-runner/src/tools/builtins.ts))
+- [x] Worker — dequeue, lock, heartbeat, reschedule on suspend, ack/fail on terminal ([src/worker.ts](../../services/agent-runner/src/worker.ts))
+- [x] `SessionExecutor` interface + `ExecutorTurnInput/Output` shape ([src/executor.ts](../../services/agent-runner/src/executor.ts))
+- [ ] **Real executor backed by Claude Agent SDK.** Currently `NotImplementedExecutor` ([src/executor-stub.ts](../../services/agent-runner/src/executor-stub.ts)) returns a "not implemented" error. The real one must invoke the SDK, stream chunks, tick heartbeats, and return `tool_call | completed | failed | awaiting_input` per turn.
+- [ ] State ↔ Claude Agent SDK `Message[]` / `ContentBlock` mapping. Today [src/state.ts](../../services/agent-runner/src/state.ts) round-trips a generic `{role, content, at}` envelope.
+- [x] Meta tools `complete`, `wait_for_input` ([src/tools/meta.ts](../../services/agent-runner/src/tools/meta.ts))
+- [x] `http.fetch` builtin — real fetch with timeout ([src/tools/builtins.ts](../../services/agent-runner/src/tools/builtins.ts))
 - [ ] `posthog.events.capture` builtin — currently logs to console; wire `posthog-node` + per-app credentials from secrets
 - [ ] `posthog.feature_flags.evaluate` builtin — currently hardcoded false; wire to PostHog API
-- [x] Tool registry + dispatch ([src/tools/registry.ts](../../packages/agent-runner/src/tools/registry.ts))
-- [x] Config (Anthropic key, queue DB, internal API, Redis) ([src/config.ts](../../packages/agent-runner/src/config.ts))
+- [x] Tool registry + dispatch ([src/tools/registry.ts](../../services/agent-runner/src/tools/registry.ts))
+- [x] Config (Anthropic key, queue DB, internal API, Redis) ([src/config.ts](../../services/agent-runner/src/config.ts))
 - [x] Tests: state round-trip, tool dispatch, worker outcomes (`completed` / `failed` / `tool_call` / `awaiting_input` / pendingInputs flush)
 - [ ] Tests: real Claude Agent SDK turn (gated on key + recorded fixtures)
-- [ ] Secrets loader — [src/index.ts](../../packages/agent-runner/src/index.ts) `loadSecrets` returns `{}`; wire to `apiClient.decryptSecrets` once a tool actually needs them
-- [ ] Runner-side reaper: queue janitor already resets stalled jobs; need a matching write to set `AgentSession.state = 'failed'` for the mirror row
-- [ ] `AgentSession` mirror writes — direct DB vs internal API — coordinate with Django owner
+- [ ] Secrets loader — [src/index.ts](../../services/agent-runner/src/index.ts) `loadSecrets` returns `{}`; wire to `apiClient.decryptSecrets` once a tool actually needs them
+- [ ] Runner-side reaper: queue janitor already resets stalled jobs; need a matching write to set `AgentApplicationSession.state = 'failed'` for the mirror row
+- [ ] `AgentApplicationSession` mirror writes — direct DB vs internal API — coordinate with Django owner
 
 ### Cross-package / system level
 
@@ -88,25 +88,25 @@ Working tracker for the runtime packages only — the Django side is being built
 
 - Triggers (M9): cron, slack event ingestion — webhook endpoint exists; orchestrator still TBD
 - Sandboxes (M8): Modal integration, custom-tool execution, sandbox lifecycle + reaper
-- Bundle validator (M12): the fourth package `packages/agent-validator/`
+- Bundle validator (M12): the fourth package `services/agent-validator/`
 - Skills + registry v2 (M13)
 
 ---
 
-## Runtime packages
+## Runtime services
 
-Three packages under `packages/`, each its own process / deployment:
+Three services under `services/`, each its own process / deployment:
 
 ```text
-packages/
+services/
   agent-core/        # shared types, db client, queue primitives, manifest reader
   agent-ingress/     # process: HTTP ingress, *.agents.posthog.com terminator
   agent-runner/      # process: session executor (Claude Agent SDK + tools + sandbox)
 ```
 
-A fourth package will land later for async bundle validation (see §C below). v1 does not ship it.
+A fourth service will land later for async bundle validation (see §C below). v1 does not ship it.
 
-**Hard rule: no imports from `nodejs/`.** When we need a primitive that exists in `nodejs/` (cyclotron queue ops, structured logger, Prom metrics middleware, Postgres connection pool wrapper, Redis client, etc.) we copy the relevant code into `packages/agent-core/` and adapt it. We pay a duplication cost upfront in exchange for:
+**Hard rule: no imports from `nodejs/`.** When we need a primitive that exists in `nodejs/` (cyclotron queue ops, structured logger, Prom metrics middleware, Postgres connection pool wrapper, Redis client, etc.) we copy the relevant code into `services/agent-core/` and adapt it. We pay a duplication cost upfront in exchange for:
 
 - Independent dependency graph — no plugin-server transitive cruft.
 - Independent deploy cadence and release process.
@@ -115,7 +115,7 @@ A fourth package will land later for async bundle validation (see §C below). v1
 
 Cherry-pick what we want, leave the rest. The legacy concepts the agent-stack plan calls out (plugin VMs, worker thread topology, event-pipeline-shaped hooks) don't come with us.
 
-### `packages/agent-core/`
+### `services/agent-core/`
 
 Shared library, no process of its own. Lives here:
 
@@ -126,7 +126,7 @@ Shared library, no process of its own. Lives here:
 - Structured logger, Prom registry, OTel setup.
 - Manifest reader / built-ins registry (also imported by the future validator package, so the same code rejects unknown ids in both places).
 
-### `packages/agent-ingress/`
+### `services/agent-ingress/`
 
 The public-facing process. Responsibilities:
 
@@ -140,7 +140,7 @@ The public-facing process. Responsibilities:
 
 **Hard rule (matches agent-stack plan):** ingress imports zero Anthropic / Claude Agent SDK / Modal code, and never decrypts a secret. Enforced by an `eslint-plugin-no-restricted-imports` rule in the package. The blast-radius win is the whole point of splitting from the runner.
 
-### `packages/agent-runner/`
+### `services/agent-runner/`
 
 The session executor. Responsibilities:
 
@@ -156,7 +156,7 @@ The session executor. Responsibilities:
 Tool execution split:
 
 - **Meta tools** — in-process. Trivial.
-- **Referenced (built-in) tools** — in-process. Built-ins registry is a hardcoded map in `agent-core` (e.g. `packages/agent-core/src/builtins/index.ts`). The future validator package imports the same map so unknown ids fail before deploy.
+- **Referenced (built-in) tools** — in-process. Built-ins registry is a hardcoded map in `agent-core` (e.g. `services/agent-core/src/builtins/index.ts`). The future validator package imports the same map so unknown ids fail before deploy.
 - **Local tools** — proxied to a Modal sandbox via the sandbox manager. Per-invocation secrets passed in the call, never persisted in the sandbox.
 
 Sandbox manager:
@@ -202,7 +202,7 @@ What we add on top:
 
 ### Queue database
 
-A separate Postgres DB owned by the agent-runtime — `agent_runtime_queue` (name TBD). Schema lives in `packages/agent-core/migrations/`, applied by a small bin script in the same package (mirrors how Rust migrations are managed for `cyclotron_node`, but in TypeScript since we have no Rust here). Not the main posthog Postgres. Not shared with `cyclotron_node`.
+A separate Postgres DB owned by the agent-runtime — `agent_runtime_queue` (name TBD). Schema lives in `services/agent-core/migrations/`, applied by a small bin script in the same package (mirrors how Rust migrations are managed for `cyclotron_node`, but in TypeScript since we have no Rust here). Not the main posthog Postgres. Not shared with `cyclotron_node`.
 
 ---
 
@@ -352,7 +352,7 @@ The full state machine (`pending_upload → uploaded → validating → ready | 
 
 ## Part C — Async bundle validator (deferred, not v1)
 
-When we ship it, the validator will be **a fourth node package**, not a Celery task. Lives at `packages/agent-validator/`. Same shape as `agent-runner`:
+When we ship it, the validator will be **a fourth node package**, not a Celery task. Lives at `services/agent-validator/`. Same shape as `agent-runner`:
 
 - Polls its own work queue (`available` revisions whose state is `uploaded` / `validating`).
 - Picks one up, marks `validating`, streams the bundle from S3, unpacks with size/file-count caps, walks manifests, resolves referenced ids against the shared built-ins registry in `agent-core`, runs static checks (secrets exist, allow-listed actions exist on referenced tools, triggers valid), transitions to `ready` (+ `parsed_manifest`) or `failed` (+ structured `validation_report`).
@@ -408,14 +408,14 @@ Each shippable behind `FEATURE_FLAGS.AGENTS`.
 2. **Management API.** CRUD viewsets for apps and revisions. Env upload endpoint. Activity logging wired. `complete_upload` shortcut transitions straight to `state=ready`. Promote endpoint flips `deployment_status`.
 3. **Deploy flow.** `start_deploy` → presigned PUT → `complete_upload` (auto-ready) → `promote`. End-to-end via CLI. No async work.
 4. **Internal API.** `resolve` + `decrypt_env` endpoints with internal scopes. mTLS / signed-key auth.
-5. **`packages/agent-core/`.** Types, DB clients, queue primitives (schema + ops), pub-sub helper, internal-API client, logger/metrics. No process; tested in isolation.
-6. **`packages/agent-ingress/`.** Domain resolution, `/run` writes `AgentApplicationSession` + enqueues job, `/listen` SSE wired to pub-sub, `/send` publishes to pub-sub. Runner stubbed.
-7. **`packages/agent-runner/` — meta + built-in tools.** Queue consumer. Real Claude Agent SDK invocation. State serialized into queue `state`, reschedule loop on tool boundaries. Built-ins registry shared with `agent-core`.
+5. **`services/agent-core/`.** Types, DB clients, queue primitives (schema + ops), pub-sub helper, internal-API client, logger/metrics. No process; tested in isolation.
+6. **`services/agent-ingress/`.** Domain resolution, `/run` writes `AgentApplicationSession` + enqueues job, `/listen` SSE wired to pub-sub, `/send` publishes to pub-sub. Runner stubbed.
+7. **`services/agent-runner/` — meta + built-in tools.** Queue consumer. Real Claude Agent SDK invocation. State serialized into queue `state`, reschedule loop on tool boundaries. Built-ins registry shared with `agent-core`.
 8. **Sandboxes.** Modal integration, custom-tool execution, sandbox lifecycle + reaper. `AgentApplicationSandboxInstance` writes from the runner.
 9. **Triggers.** Webhooks, cron, slack event ingestion.
 10. **Frontend.** App list, app detail (revisions/env/sessions/sandbox tabs), session detail.
 11. **Preview deploys (set `deployment_status=preview`), observability polish, quotas.**
-12. **`packages/agent-validator/`.** Async bundle validator. Pure-function checks reusable from the CLI. Flip `complete_upload` to enqueue validation instead of auto-ready.
+12. **`services/agent-validator/`.** Async bundle validator. Pure-function checks reusable from the CLI. Flip `complete_upload` to enqueue validation instead of auto-ready.
 13. **Skills + registry v2** (publish flow, third-party tool publishing). Reuses the same immutable revision artifacts.
 
 ---
