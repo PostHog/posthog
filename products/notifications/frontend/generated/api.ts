@@ -8,7 +8,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { NotificationsListParams, PaginatedNotificationEventListApi } from './api.schemas'
+import type {
+    NotificationsListParams,
+    PaginatedNotificationEventListApi,
+    SendConciergeNotificationApi,
+    SendConciergeNotificationResponseApi,
+} from './api.schemas'
 
 export const getNotificationsListUrl = (projectId: string, params?: NotificationsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -75,6 +80,23 @@ export const notificationsMarkAllReadCreate = async (projectId: string, options?
     return apiMutator<void>(getNotificationsMarkAllReadCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getNotificationsSendConciergeCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/notifications/send_concierge/`
+}
+
+export const notificationsSendConciergeCreate = async (
+    projectId: string,
+    sendConciergeNotificationApi: SendConciergeNotificationApi,
+    options?: RequestInit
+): Promise<SendConciergeNotificationResponseApi> => {
+    return apiMutator<SendConciergeNotificationResponseApi>(getNotificationsSendConciergeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendConciergeNotificationApi),
     })
 }
 

@@ -1,9 +1,11 @@
+import json
 from typing import cast
 
 from django.db.models import Exists, OuterRef, QuerySet, Subquery
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
+from rest_framework import exceptions
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -15,9 +17,20 @@ from posthog.models import User
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.notifications.backend.cache import get_unread_count, invalidate_unread_count, set_unread_count
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    TargetType,
+    create_notification,
+)
 from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES
 from products.notifications.backend.models import NotificationEvent, NotificationReadState
-from products.notifications.backend.presentation.serializers import NotificationEventSerializer
+from products.notifications.backend.presentation.serializers import (
+    NotificationEventSerializer,
+    SendConciergeNotificationResponseSerializer,
+    SendConciergeNotificationSerializer,
+)
 
 
 class NotificationPagination(LimitOffsetPagination):
@@ -170,3 +183,69 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         NotificationReadState.objects.filter(notification_event=event, user=user).delete()
         invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"status": "ok"})
+
+    @extend_schema(
+        request=SendConciergeNotificationSerializer,
+        responses=SendConciergeNotificationResponseSerializer,
+    )
+    @action(methods=["POST"], detail=False, url_path="send_concierge")
+    def send_concierge(self, request: Request, **kwargs) -> Response:
+        if not request.user.is_staff:
+            raise exceptions.PermissionDenied("Only PostHog staff users can send concierge notifications.")
+
+        serializer = SendConciergeNotificationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        payload = json.dumps(
+            {
+                "body": data["body"],
+                "skill": data.get("skill", ""),
+                "long_form_wizard_text": data.get("long_form_wizard_text", ""),
+                "notification_style": data["notification_style"],
+            }
+        )
+        priority = Priority(data["priority"])
+        title = data["title"]
+
+        sent = 0
+        skipped: list[dict[str, str | int]] = []
+        notification_event_ids: list[str] = []
+
+        target_users = {u.id: u for u in User.objects.filter(id__in=data["target_user_ids"])}
+        for user_id in data["target_user_ids"]:
+            target_user = target_users.get(user_id)
+            if target_user is None:
+                skipped.append({"user_id": user_id, "reason": "user not found"})
+                continue
+            if not target_user.current_team_id:
+                skipped.append({"user_id": user_id, "reason": "user has no current team"})
+                continue
+
+            event = create_notification(
+                NotificationData(
+                    team_id=target_user.current_team_id,
+                    notification_type=NotificationType.CONCIERGE,
+                    title=title,
+                    body=payload,
+                    target_type=TargetType.USER,
+                    target_id=str(target_user.id),
+                    priority=priority,
+                )
+            )
+            if event is None:
+                skipped.append(
+                    {"user_id": user_id, "reason": "delivery suppressed (feature flag off or user preferences)"}
+                )
+            else:
+                sent += 1
+                notification_event_ids.append(str(event.id))
+
+        response_serializer = SendConciergeNotificationResponseSerializer(
+            {
+                "sent": sent,
+                "skipped": skipped,
+                "notification_event_ids": notification_event_ids,
+            }
+        )
+        return Response(response_serializer.data)

@@ -1,13 +1,33 @@
 /**
- * Auto-generated Zod validation schemas from the Django backend OpenAPI schema.
- * To modify these schemas, update the Django serializers or views, then run:
- *   hogli build:openapi
- * Questions or issues? #team-devex on Slack
+ * Auto-generated from the Django backend OpenAPI schema.
+ * MCP service uses these Zod schemas for generated tool handlers.
+ * To regenerate: hogli build:openapi
  *
- * PostHog API - generated
+ * PostHog API - MCP 2 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const NotificationsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const NotificationsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const NotificationsSendConciergeCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 export const notificationsSendConciergeCreateBodyTitleMax = 255
 
@@ -34,17 +54,17 @@ export const NotificationsSendConciergeCreateBody = /* @__PURE__ */ zod.object({
         ),
     priority: zod
         .enum(['normal', 'critical'])
-        .describe('\* `normal` - NORMAL\n\* `critical` - CRITICAL')
+        .describe('* `normal` - NORMAL\n* `critical` - CRITICAL')
         .default(notificationsSendConciergeCreateBodyPriorityDefault)
         .describe(
-            "Delivery priority: 'normal' (popover only) or 'critical' (popover plus persistent toast).\n\n\* `normal` - NORMAL\n\* `critical` - CRITICAL"
+            "Delivery priority: 'normal' (popover only) or 'critical' (popover plus persistent toast).\n\n* `normal` - NORMAL\n* `critical` - CRITICAL"
         ),
     notification_style: zod
         .enum(['envelope', 'scroll', 'galactic'])
-        .describe('\* `envelope` - envelope\n\* `scroll` - scroll\n\* `galactic` - galactic')
+        .describe('* `envelope` - envelope\n* `scroll` - scroll\n* `galactic` - galactic')
         .default(notificationsSendConciergeCreateBodyNotificationStyleDefault)
         .describe(
-            "Visual style for the notification: 'envelope', 'scroll', or 'galactic'.\n\n\* `envelope` - envelope\n\* `scroll` - scroll\n\* `galactic` - galactic"
+            "Visual style for the notification: 'envelope', 'scroll', or 'galactic'.\n\n* `envelope` - envelope\n* `scroll` - scroll\n* `galactic` - galactic"
         ),
     skill: zod
         .string()

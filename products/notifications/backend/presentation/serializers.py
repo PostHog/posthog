@@ -1,6 +1,8 @@
 from rest_framework import serializers
 
-from products.notifications.backend.facade.enums import SourceType
+from products.notifications.backend.facade.enums import Priority, SourceType
+
+NOTIFICATION_STYLE_CHOICES = ["envelope", "scroll", "galactic"]
 
 
 class NotificationEventSerializer(serializers.Serializer):
@@ -49,3 +51,61 @@ class NotificationEventSerializer(serializers.Serializer):
         help_text="ID of the producing record in the source subsystem (e.g. alert ID, comment ID).",
     )
     created_at = serializers.DateTimeField(help_text="When the notification was created, in ISO 8601 format.")
+
+
+class SendConciergeNotificationSerializer(serializers.Serializer):
+    target_user_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=1,
+        help_text=(
+            "IDs of the PostHog users who should receive this notification. Each user will receive the "
+            "notification in their current project. Users without a current team are skipped."
+        ),
+    )
+    title = serializers.CharField(
+        max_length=255,
+        help_text="Short headline shown to the user in the notification UI (max 255 characters).",
+    )
+    body = serializers.CharField(
+        allow_blank=True,
+        help_text="Main message body shown beneath the title. Can be left blank if the long-form wizard text carries the message.",
+    )
+    priority = serializers.ChoiceField(
+        choices=[(p.value, p.name) for p in Priority],
+        default=Priority.NORMAL.value,
+        help_text="Delivery priority: 'normal' (popover only) or 'critical' (popover plus persistent toast).",
+    )
+    notification_style = serializers.ChoiceField(
+        choices=[(s, s) for s in NOTIFICATION_STYLE_CHOICES],
+        default="envelope",
+        help_text="Visual style for the notification: 'envelope', 'scroll', or 'galactic'.",
+    )
+    skill = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional skill identifier used by the wizard UI to render an associated capability for the user.",
+    )
+    long_form_wizard_text = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional long-form text shown in the notification wizard expanded view.",
+    )
+
+
+class SendConciergeNotificationSkippedSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField(help_text="ID of the user that was skipped.")
+    reason = serializers.CharField(help_text="Human-readable reason the notification was not delivered to this user.")
+
+
+class SendConciergeNotificationResponseSerializer(serializers.Serializer):
+    sent = serializers.IntegerField(help_text="Number of users that successfully received the notification.")
+    skipped = SendConciergeNotificationSkippedSerializer(
+        many=True,
+        help_text="List of users that were skipped, with the reason for each (e.g. no current team, suppressed by feature flag).",
+    )
+    notification_event_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="IDs of the NotificationEvent rows that were created, one per successfully delivered user.",
+    )

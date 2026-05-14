@@ -8,6 +8,7 @@ from posthog.kafka_client.topics import KAFKA_NOTIFICATION_EVENTS
 from posthog.models import Team, User
 
 from products.notifications.backend.cache import invalidate_unread_count_for_users
+from products.notifications.backend.events import capture_notification_delivered
 from products.notifications.backend.facade.contracts import NotificationData
 from products.notifications.backend.facade.enums import (
     AC_RESOURCE_TYPES,
@@ -126,6 +127,7 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
     def _on_commit() -> None:
         _publish_to_kafka(event)
         invalidate_unread_count_for_users(resolved_user_ids, organization.id)
+        capture_notification_delivered(event)
 
     transaction.on_commit(_on_commit)
 

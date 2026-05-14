@@ -3882,6 +3882,36 @@
             "readOnlyHint": true
         }
     },
+    "notifications-list": {
+        "description": "List the real-time notifications the current user has in the PostHog dashboard, newest first. Each result includes the title, body, source URL, priority, whether the user has already read it, and what resource it points to (dashboard, alert, comment, approval, etc.). Use this to surface what PostHog is currently telling the user about — for example unread alerts firing on a dashboard, comment mentions, assigned issues, or pending approval requests.",
+        "category": "Notifications",
+        "feature": "notifications",
+        "summary": "List my notifications",
+        "title": "List my notifications",
+        "required_scopes": ["notification:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "notifications-send-concierge": {
+        "description": "STAFF ONLY. Send a real-time in-app concierge notification to one or more PostHog users. Equivalent to the Django admin \"Send in-app notification to selected user(s)\" action. Each target user receives the notification in their own current project. Returns the number of users that received the notification, a list of users that were skipped (with reasons — e.g. user has no current team, or delivery was suppressed by the real-time-notifications feature flag), and the IDs of the created notification events. Use sparingly — concierge notifications interrupt the user with a popover.",
+        "category": "Notifications",
+        "feature": "notifications",
+        "summary": "Send concierge notification",
+        "title": "Send concierge notification",
+        "required_scopes": ["notification:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "org-members-list": {
         "description": "List all members of the current organization with their names, emails, membership levels (member, admin, owner), and last login times.",
         "category": "Platform Features",
