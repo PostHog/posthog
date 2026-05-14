@@ -4,20 +4,21 @@ import { useEffect, useRef, useState } from 'react'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
+import christopheDvdSrc from 'public/concierge/christophe-dvd.png'
 import envelopeBackSrc from 'public/concierge/envelope/envelope-back.png'
-import envelopeFlapSrc from 'public/concierge/envelope/envelope-flap.png'
+import envelopeStampSrc from 'public/concierge/envelope/envelope-stamp.png'
+import fullEnvelopeSrc from 'public/concierge/envelope/full-envelope.png'
 import letterFoldedSrc from 'public/concierge/envelope/letter-folded.png'
-import letterPanelBottomSrc from 'public/concierge/envelope/letter-panel-bottom.png'
-import letterPanelMiddleSrc from 'public/concierge/envelope/letter-panel-middle.png'
-import letterPanelTopSrc from 'public/concierge/envelope/letter-panel-top.png'
+import letterUnfoldedSrc from 'public/concierge/envelope/letter-unfolded.png'
 import hoggieQuillSrc from 'public/concierge/hoggie-quill.png'
 import scrollParchmentSrc from 'public/concierge/scroll/scroll-parchment.png'
 import scrollRollLeftSrc from 'public/concierge/scroll/scroll-roll-left.png'
 import scrollRollRightSrc from 'public/concierge/scroll/scroll-roll-right.png'
 
 import { Starfield } from './Starfield'
+import { useDvdScreensaver } from './useDvdScreensaver'
 
-type DeliveryMode = 'envelope' | 'scroll' | 'galactic'
+type DeliveryMode = 'envelope' | 'scroll' | 'galactic' | 'csm'
 
 interface ConciergePayload {
     body?: string
@@ -35,6 +36,8 @@ function modeForStyle(style: string | undefined): DeliveryMode {
             return 'scroll'
         case 'star_wars':
             return 'galactic'
+        case 'csm':
+            return 'csm'
         case 'royal':
         default:
             return 'envelope'
@@ -134,95 +137,139 @@ function HandwrittenText({
 // -- Envelope mode --
 
 function EnvelopeMode({ message }: { message: string }): JSX.Element {
-    const [phase, setPhase] = useState<'closed' | 'flap-open' | 'letter-rising' | 'letter-unfolded'>('closed')
+    const [phase, setPhase] = useState<'sealed' | 'stamp-peeling' | 'open' | 'letter-unfolded'>('sealed')
 
     useEffect(() => {
         const timers = [
-            setTimeout(() => setPhase('flap-open'), 400),
-            setTimeout(() => setPhase('letter-rising'), 1000),
-            setTimeout(() => setPhase('letter-unfolded'), 1800),
+            // 1. Sealed envelope with stamp
+            // 2. Stamp peels off
+            setTimeout(() => setPhase('stamp-peeling'), 550),
+            // 3. Open envelope — crossfade to open state with folded letter
+            setTimeout(() => setPhase('open'), 1400),
+            // 4. Unfolded letter rises up on top
+            setTimeout(() => setPhase('letter-unfolded'), 2100),
         ]
         return () => timers.forEach(clearTimeout)
     }, [])
 
+    // All layers are 1600×1200 canvases — stack them inside a scaled-up
+    // wrapper (like scroll mode) so the art fills the modal.
+    const layerClass = 'absolute inset-0 w-full h-full object-contain pointer-events-none'
+
     return (
-        <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
-            {/* Envelope back */}
-            <img src={envelopeBackSrc} alt="" className="absolute w-[85%] bottom-[10%]" draggable={false} />
+        <div className="relative w-full h-full overflow-hidden flex items-center justify-center">
+            {/* Scaled wrapper — all layers live inside here */}
+            <div
+                className="relative"
+                style={{
+                    width: '130%',
+                    height: '130%',
+                    // keep aspect ratio of the 1600×1200 canvases
+                    maxWidth: '130%',
+                    maxHeight: '130%',
+                }}
+            >
+                {/* Closed envelope — fades out as it transitions to open */}
+                <motion.img
+                    src={fullEnvelopeSrc}
+                    alt=""
+                    className={layerClass}
+                    style={{ zIndex: 2 }}
+                    initial={{ opacity: 1 }}
+                    animate={{ opacity: phase === 'sealed' || phase === 'stamp-peeling' ? 1 : 0 }}
+                    transition={{ duration: 0.6, ease: 'easeInOut' }}
+                    draggable={false}
+                />
 
-            {/* Letter (folded, then unfolded panels) */}
-            <AnimatePresence>
-                {phase === 'letter-rising' && (
-                    <motion.img
-                        key="letter-folded"
-                        src={letterFoldedSrc}
-                        alt=""
-                        className="absolute w-[75%] bottom-[15%]"
-                        initial={{ y: 0, opacity: 0 }}
-                        animate={{ y: -60, opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.7, ease: 'easeOut' }}
-                        draggable={false}
-                    />
-                )}
-            </AnimatePresence>
+                {/* Open envelope back — fades in when opening */}
+                <motion.img
+                    src={envelopeBackSrc}
+                    alt=""
+                    className={layerClass}
+                    style={{ zIndex: 1 }}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: phase === 'open' || phase === 'letter-unfolded' ? 1 : 0 }}
+                    transition={{ duration: 0.6, ease: 'easeInOut' }}
+                    draggable={false}
+                />
 
-            {phase === 'letter-unfolded' && (
-                <div className="absolute w-[75%] top-[3%] flex flex-col items-center">
-                    {/* Top panel */}
-                    <motion.img
-                        src={letterPanelTopSrc}
-                        alt=""
-                        className="w-full"
-                        initial={{ rotateX: 180, originY: 1 }}
-                        animate={{ rotateX: 0 }}
-                        transition={{ duration: 0.5, ease: 'easeOut' }}
-                        draggable={false}
-                    />
-                    {/* Middle panel with text */}
-                    <div className="relative w-full">
-                        <img src={letterPanelMiddleSrc} alt="" className="w-full" draggable={false} />
-                        <div className="absolute inset-0 flex items-center justify-center p-3">
+                {/* Folded letter inside — fades in with the open envelope */}
+                <motion.img
+                    src={letterFoldedSrc}
+                    alt=""
+                    className={layerClass}
+                    style={{ zIndex: 5 }}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: phase === 'open' || phase === 'letter-unfolded' ? 1 : 0 }}
+                    transition={{ duration: 0.6, ease: 'easeInOut' }}
+                    draggable={false}
+                />
+
+                {/* Wax seal stamp — peels up smoothly */}
+                <motion.img
+                    src={envelopeStampSrc}
+                    alt=""
+                    className={layerClass}
+                    style={{
+                        zIndex: 12,
+                        transformOrigin: 'center bottom',
+                    }}
+                    initial={{ opacity: 1, rotateX: 0, y: 0 }}
+                    animate={
+                        phase === 'sealed' ? { opacity: 1, rotateX: 0, y: 0 } : { opacity: 0, rotateX: -60, y: -30 }
+                    }
+                    transition={{ duration: 1, ease: 'easeInOut' }}
+                    draggable={false}
+                />
+
+                {/* Unfolded letter — rises up smoothly on top of envelope */}
+                <motion.img
+                    src={letterUnfoldedSrc}
+                    alt=""
+                    className={layerClass}
+                    style={{ zIndex: 20 }}
+                    initial={{ y: 20, opacity: 0 }}
+                    animate={phase === 'letter-unfolded' ? { y: -40, opacity: 1 } : { y: 20, opacity: 0 }}
+                    transition={{ duration: 0.8, ease: 'easeOut' }}
+                    draggable={false}
+                />
+
+                {/* Text on the letter */}
+                {phase === 'letter-unfolded' && (
+                    <motion.div
+                        className="absolute overflow-y-auto"
+                        style={{
+                            top: '34%',
+                            left: '39%',
+                            right: '37%',
+                            bottom: '25%',
+                            zIndex: 30,
+                            scrollbarWidth: 'none',
+                            // Shift up with the letter
+                            transform: 'translateY(-40px)',
+                        }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.4, delay: 0.5 }}
+                    >
+                        <div className="px-3 py-2">
                             <span
-                                className="text-center"
                                 style={{
                                     fontFamily: "'Caveat', cursive",
                                     fontSize: 16,
                                     color: '#3B2B26',
-                                    lineHeight: 1.3,
+                                    lineHeight: 1.4,
                                     whiteSpace: 'pre-wrap',
+                                    textAlign: 'left',
+                                    display: 'block',
                                 }}
                             >
                                 {message}
                             </span>
                         </div>
-                    </div>
-                    {/* Bottom panel */}
-                    <motion.img
-                        src={letterPanelBottomSrc}
-                        alt=""
-                        className="w-full"
-                        initial={{ rotateX: -180, originY: 0 }}
-                        animate={{ rotateX: 0 }}
-                        transition={{ duration: 0.5, ease: 'easeOut', delay: 0.2 }}
-                        draggable={false}
-                    />
-                </div>
-            )}
-
-            {/* Envelope flap */}
-            <motion.img
-                src={envelopeFlapSrc}
-                alt=""
-                className="absolute w-[85%] bottom-[28%]"
-                style={{ transformOrigin: 'top center' }}
-                animate={{
-                    rotateX: phase === 'closed' ? 0 : 180,
-                    zIndex: phase === 'closed' ? 10 : -1,
-                }}
-                transition={{ duration: 0.6, ease: 'easeInOut' }}
-                draggable={false}
-            />
+                    </motion.div>
+                )}
+            </div>
         </div>
     )
 }
@@ -405,6 +452,140 @@ function GalacticMode({ message }: { message: string }): JSX.Element {
     )
 }
 
+// -- Captions overlay for CSM mode --
+// Shows ~6 words at a time, advancing every 1.5 seconds like real closed captions.
+
+function CaptionsOverlay({ message }: { message: string }): JSX.Element {
+    const words = message.split(/\s+/)
+    const chunkSize = 12
+    const [chunkIndex, setChunkIndex] = useState(0)
+    const totalChunks = Math.ceil(words.length / chunkSize)
+
+    useEffect(() => {
+        setChunkIndex(0)
+    }, [message])
+
+    useEffect(() => {
+        if (chunkIndex >= totalChunks - 1) {
+            return
+        }
+        const timer = setTimeout(() => setChunkIndex((i) => i + 1), 1500)
+        return () => clearTimeout(timer)
+    }, [chunkIndex, totalChunks])
+
+    const currentWords = words.slice(chunkIndex * chunkSize, (chunkIndex + 1) * chunkSize).join(' ')
+
+    return (
+        <motion.div
+            className="absolute bottom-14 left-0 right-0 z-20 flex justify-center px-8"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+        >
+            <div
+                className="w-full max-w-2xl px-6 py-3 rounded text-center"
+                style={{
+                    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+                }}
+            >
+                <AnimatePresence mode="wait">
+                    <motion.p
+                        key={chunkIndex}
+                        className="text-sm leading-relaxed text-center"
+                        style={{
+                            color: '#fff',
+                            fontFamily: 'system-ui, -apple-system, sans-serif',
+                        }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.15 }}
+                    >
+                        {currentWords}
+                    </motion.p>
+                </AnimatePresence>
+            </div>
+        </motion.div>
+    )
+}
+
+// -- CSM mode --
+// DVD screensaver with bouncing CSM image and audio playback (TODO).
+// Captions toggle shows the letter text as closed captions.
+
+// DVD color tinting — the image has a transparent background and grayscale art.
+// We use sepia + saturate + hue-rotate to tint the art to each color.
+// No invert needed since there's no white background to deal with.
+const DVD_HUE_MAP: Record<string, number> = {
+    '#1d4aff': 200,
+    '#f54e00': 350,
+    '#35c759': 90,
+    '#f9bd2b': 15,
+    '#b62ad9': 260,
+    '#ff6b6b': 325,
+}
+
+const DVD_COLORS = ['#1d4aff', '#f54e00', '#35c759', '#f9bd2b', '#b62ad9', '#ff6b6b']
+
+function CsmMode({ message }: { message: string }): JSX.Element {
+    const [captionsOn, setCaptionsOn] = useState(false)
+    const [color, setColor] = useState(DVD_COLORS[0])
+
+    const { containerRef, elementRef } = useDvdScreensaver<HTMLDivElement>({
+        speed: 3,
+        impactCallback: (count) => setColor(DVD_COLORS[count % DVD_COLORS.length]),
+    })
+
+    return (
+        <div ref={containerRef} className="relative w-full h-full overflow-hidden" style={{ backgroundColor: '#000' }}>
+            {/* Bouncing DVD element */}
+            <div
+                ref={elementRef}
+                className="absolute"
+                style={{
+                    top: 0,
+                    left: 0,
+                }}
+            >
+                <img
+                    src={christopheDvdSrc}
+                    alt="CSM"
+                    style={{
+                        width: 220,
+                        height: 'auto',
+                        filter: `sepia(1) saturate(3) hue-rotate(${DVD_HUE_MAP[color] ?? 0}deg)`,
+                        transition: 'filter 0.3s ease',
+                    }}
+                    draggable={false}
+                />
+            </div>
+
+            {/* TODO: Add audio playback of CSM reading the letter */}
+            {/* When audio is added:
+                - Add play/pause button
+                - Sync captions with audio timestamps
+                - Auto-show captions when audio plays
+            */}
+
+            {/* CC button */}
+            <button
+                onClick={() => setCaptionsOn(!captionsOn)}
+                className="absolute bottom-4 right-4 z-30 px-3 py-1.5 rounded text-xs font-bold border-2 transition-colors"
+                style={{
+                    backgroundColor: captionsOn ? '#fff' : 'transparent',
+                    color: captionsOn ? '#000' : '#fff',
+                    borderColor: '#fff',
+                }}
+            >
+                CC
+            </button>
+
+            {/* Captions overlay — reveals word-by-word like real CC */}
+            {captionsOn && <CaptionsOverlay message={message} />}
+        </div>
+    )
+}
+
 // -- Main modal --
 
 export function ConciergeModal({ isOpen, onClose, notificationId, title, body }: ConciergeModalProps): JSX.Element {
@@ -438,6 +619,7 @@ export function ConciergeModal({ isOpen, onClose, notificationId, title, body }:
                                 {mode === 'envelope' && <EnvelopeMode message={message} />}
                                 {mode === 'scroll' && <ScrollMode message={message} />}
                                 {mode === 'galactic' && <GalacticMode message={message} />}
+                                {mode === 'csm' && <CsmMode message={message} />}
                             </motion.div>
                         </AnimatePresence>
                     </div>
