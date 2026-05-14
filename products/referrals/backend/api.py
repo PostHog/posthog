@@ -52,6 +52,40 @@ def _coerce_signed_up_user_id(raw: dict[str, Any]) -> int | None:
     return None
 
 
+def _coerce_shopify_discount_codes(raw: object) -> list[dict[str, str]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        code = item.get("code")
+        if not isinstance(code, str) or not code:
+            continue
+        issued = item.get("issued_at")
+        rule = item.get("price_rule_id")
+        out.append(
+            {
+                "code": code,
+                "issued_at": issued if isinstance(issued, str) else "",
+                "price_rule_id": rule if isinstance(rule, str) else "",
+            }
+        )
+    return out
+
+
+class SocialReferralShopifyDiscountCodeRecordSerializer(serializers.Serializer):
+    code = serializers.CharField(help_text="Discount code string as created in Shopify Admin.")
+    issued_at = serializers.CharField(
+        help_text="ISO 8601 datetime when the code was created.",
+        allow_blank=True,
+    )
+    price_rule_id = serializers.CharField(
+        help_text="Shopify price rule id this code was created under.",
+        allow_blank=True,
+    )
+
+
 class SocialReferralRefereeInviteSerializer(serializers.Serializer):
     organization_id = serializers.UUIDField(
         help_text="UUID of the organization that signed up via this referral link.",
@@ -77,6 +111,12 @@ class SocialReferralRefereeInviteSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Resolved full name or email of signed_up_user_id when that user still exists; null if missing.",
     )
+    shopify_discount_codes = SocialReferralShopifyDiscountCodeRecordSerializer(
+        many=True,
+        read_only=True,
+        required=False,
+        help_text="Shopify discount codes issued for this invited organization (append-only; multiple allowed).",
+    )
 
 
 class SocialReferralSerializer(serializers.ModelSerializer):
@@ -85,7 +125,7 @@ class SocialReferralSerializer(serializers.ModelSerializer):
     referee_state = SocialReferralRefereeStateField(
         required=False,
         help_text="Map of invited organization UUID (string) to referral progress "
-        f"(`first_event_sent`, `{SIGNED_UP_AT_KEY}`, `{SIGNED_UP_USER_ID_KEY}`, etc.).",
+        f"(`first_event_sent`, `{SIGNED_UP_AT_KEY}`, `{SIGNED_UP_USER_ID_KEY}`, `shopify_discount_codes`, etc.).",
     )
     referee_invites = serializers.SerializerMethodField(
         read_only=True,
@@ -120,7 +160,7 @@ class SocialReferralSerializer(serializers.ModelSerializer):
         if not isinstance(state_raw, dict):
             return []
 
-        entries: list[tuple[UUID, bool, str | None, int | None]] = []
+        entries: list[tuple[UUID, bool, str | None, int | None, dict[str, Any]]] = []
         for key, raw in state_raw.items():
             if key == REFEREE_STATE_ERRORS_KEY:
                 continue
@@ -134,17 +174,17 @@ class SocialReferralSerializer(serializers.ModelSerializer):
             signed_raw = raw.get(SIGNED_UP_AT_KEY)
             signed_up_at: str | None = signed_raw if isinstance(signed_raw, str) and signed_raw else None
             signed_up_user_id = _coerce_signed_up_user_id(raw)
-            entries.append((org_id, first_event_sent, signed_up_at, signed_up_user_id))
+            entries.append((org_id, first_event_sent, signed_up_at, signed_up_user_id, raw))
 
         if not entries:
             return []
 
-        org_ids = [pair[0] for pair in entries]
+        org_ids = [t[0] for t in entries]
         name_lookup: dict[UUID, str] = {
             row[0]: row[1] for row in Organization.objects.filter(pk__in=org_ids).values_list("id", "name")
         }
 
-        signed_user_ids = [uid for *_, uid in entries if uid is not None]
+        signed_user_ids = [t[3] for t in entries if t[3] is not None]
         user_display_lookup = _referral_invite_signed_up_user_display_name_lookup(signed_user_ids)
 
         unknown_label = "Unknown organization"
@@ -158,8 +198,9 @@ class SocialReferralSerializer(serializers.ModelSerializer):
                 "signed_up_user_display_name": (
                     user_display_lookup.get(signed_up_uid) if signed_up_uid is not None else None
                 ),
+                "shopify_discount_codes": _coerce_shopify_discount_codes(raw.get("shopify_discount_codes")),
             }
-            for org_id, sent, signed_up, signed_up_uid in entries
+            for org_id, sent, signed_up, signed_up_uid, raw in entries
         ]
 
 

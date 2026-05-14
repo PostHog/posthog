@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from posthog.test.base import PostHogTestCase
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 from posthog.models import Organization, Team
 
@@ -12,6 +15,11 @@ from products.referrals.backend.models import (
     SocialReferral,
 )
 from products.referrals.backend.temporal.activities import (
+    REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE,
+    REFEREE_ENTRY_SHOPIFY_CODE_RECORD_ISSUED_AT,
+    REFEREE_ENTRY_SHOPIFY_CODE_RECORD_PRICE_RULE_ID,
+    REFEREE_ENTRY_SHOPIFY_DISCOUNT_CODES_KEY,
+    REFEREE_ENTRY_SHOPIFY_PROMO_LAST_ERROR_KEY,
     build_pending_ingestion_snapshot,
     execute_referral_ingestion_stage_sweep,
     process_single_social_referral_ingestion_sync,
@@ -104,6 +112,204 @@ class TestExecuteReferralIngestionStageSweep(PostHogTestCase):
         self.assertEqual(state[str(org_a.id)]["first_event_sent"], True)
         self.assertEqual(state[str(org_b.id)]["first_event_sent"], True)
         self.assertEqual(summary["referees_rows_updated"], 2)
+
+    @override_settings(
+        SOCIAL_REFERRAL_SHOPIFY_ACCESS_TOKEN="test-token",
+    )
+    @patch(
+        "products.referrals.backend.temporal.activities.create_referrer_discount_code",
+        return_value=("REF-MOCKED-1", None),
+    )
+    def test_shopify_promo_written_once_when_first_event_recorded(
+        self,
+        _mock_shopify: object,
+    ) -> None:
+        referee_org = Organization.objects.create(name="Referee shopify promo")
+        Team.objects.create(organization=referee_org, name="Ts", ingested_event=True)
+
+        referral = SocialReferral.objects.create(
+            organization=self.organization,
+            user=self.user,
+            referee_state={str(referee_org.id): {"first_event_sent": False}},
+        )
+
+        execute_referral_ingestion_stage_sweep()
+
+        referral.refresh_from_db()
+        entry = referral.referee_state[str(referee_org.id)]
+        self.assertIsInstance(entry, dict)
+        assert isinstance(entry, dict)
+        codes = entry.get(REFEREE_ENTRY_SHOPIFY_DISCOUNT_CODES_KEY)
+        self.assertIsInstance(codes, list)
+        self.assertEqual(len(codes), 1)
+        self.assertEqual(codes[0][REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE], "REF-MOCKED-1")
+        self.assertIn(REFEREE_ENTRY_SHOPIFY_CODE_RECORD_ISSUED_AT, codes[0])
+
+    @override_settings(
+        SOCIAL_REFERRAL_SHOPIFY_ACCESS_TOKEN="test-token",
+    )
+    @patch(
+        "products.referrals.backend.temporal.activities.create_referrer_discount_code",
+        return_value=("REF-NEW", None),
+    )
+    def test_shopify_promo_appends_to_existing_discount_codes_list(
+        self,
+        _mock_shopify: object,
+    ) -> None:
+        referee_org = Organization.objects.create(name="Referee append codes")
+        Team.objects.create(organization=referee_org, name="Tap", ingested_event=True)
+
+        referral = SocialReferral.objects.create(
+            organization=self.organization,
+            user=self.user,
+            referee_state={
+                str(referee_org.id): {
+                    "first_event_sent": False,
+                    REFEREE_ENTRY_SHOPIFY_DISCOUNT_CODES_KEY: [
+                        {
+                            REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE: "PREEXISTING",
+                            REFEREE_ENTRY_SHOPIFY_CODE_RECORD_ISSUED_AT: "2020-01-01T00:00:00+00:00",
+                            REFEREE_ENTRY_SHOPIFY_CODE_RECORD_PRICE_RULE_ID: "99",
+                        }
+                    ],
+                }
+            },
+        )
+
+        execute_referral_ingestion_stage_sweep()
+
+        referral.refresh_from_db()
+        entry = referral.referee_state[str(referee_org.id)]
+        codes = entry[REFEREE_ENTRY_SHOPIFY_DISCOUNT_CODES_KEY]
+        self.assertEqual(len(codes), 2)
+        self.assertEqual(codes[0][REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE], "PREEXISTING")
+        self.assertEqual(codes[1][REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE], "REF-NEW")
+
+    @override_settings(
+        SOCIAL_REFERRAL_SHOPIFY_ACCESS_TOKEN="test-token",
+    )
+    @patch(
+        "products.referrals.backend.temporal.activities.create_referrer_discount_code",
+        side_effect=[("REF-A", None), ("REF-B", None)],
+    )
+    def test_shopify_promo_one_code_per_referee_org_when_two_flip_same_sweep(
+        self,
+        mock_shopify: MagicMock,
+    ) -> None:
+        org_a = Organization.objects.create(name="Ref A promo")
+        org_b = Organization.objects.create(name="Ref B promo")
+        Team.objects.create(organization=org_a, name="TAsp", ingested_event=True)
+        Team.objects.create(organization=org_b, name="TBsp", ingested_event=True)
+
+        referral = SocialReferral.objects.create(
+            organization=self.organization,
+            user=self.user,
+            referee_state={
+                str(org_a.id): {"first_event_sent": False},
+                str(org_b.id): {"first_event_sent": False},
+            },
+        )
+
+        execute_referral_ingestion_stage_sweep()
+
+        referral.refresh_from_db()
+        self.assertEqual(mock_shopify.call_count, 2)
+        state = referral.referee_state
+        self.assertIsInstance(state, dict)
+        assert isinstance(state, dict)
+        ea = state[str(org_a.id)]
+        eb = state[str(org_b.id)]
+        self.assertIsInstance(ea, dict)
+        self.assertIsInstance(eb, dict)
+        assert isinstance(ea, dict) and isinstance(eb, dict)
+        ca = ea.get(REFEREE_ENTRY_SHOPIFY_DISCOUNT_CODES_KEY)
+        cb = eb.get(REFEREE_ENTRY_SHOPIFY_DISCOUNT_CODES_KEY)
+        self.assertIsInstance(ca, list)
+        self.assertIsInstance(cb, list)
+        assert isinstance(ca, list) and isinstance(cb, list)
+        self.assertEqual(len(ca), 1)
+        self.assertEqual(len(cb), 1)
+        self.assertEqual(ca[0][REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE], "REF-A")
+        self.assertEqual(cb[0][REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE], "REF-B")
+
+    @override_settings(
+        SOCIAL_REFERRAL_SHOPIFY_ACCESS_TOKEN="test-token",
+    )
+    @patch(
+        "products.referrals.backend.temporal.activities.create_referrer_discount_code",
+        return_value=(None, "HTTP 401: unauthorized"),
+    )
+    def test_shopify_promo_failure_persists_last_error(
+        self,
+        _mock_shopify: object,
+    ) -> None:
+        referee_org = Organization.objects.create(name="Referee shopify fail")
+        Team.objects.create(organization=referee_org, name="Tsf", ingested_event=True)
+
+        referral = SocialReferral.objects.create(
+            organization=self.organization,
+            user=self.user,
+            referee_state={str(referee_org.id): {"first_event_sent": False}},
+        )
+
+        execute_referral_ingestion_stage_sweep()
+
+        referral.refresh_from_db()
+        self.assertEqual(referral.referee_state[str(referee_org.id)]["first_event_sent"], True)
+        entry = referral.referee_state[str(referee_org.id)]
+        self.assertIsInstance(entry, dict)
+        assert isinstance(entry, dict)
+        self.assertIsNone(entry.get(REFEREE_ENTRY_SHOPIFY_DISCOUNT_CODES_KEY))
+        self.assertEqual(entry.get(REFEREE_ENTRY_SHOPIFY_PROMO_LAST_ERROR_KEY), "HTTP 401: unauthorized")
+
+    @override_settings(
+        SOCIAL_REFERRAL_SHOPIFY_ACCESS_TOKEN="test-token",
+    )
+    @patch(
+        "products.referrals.backend.temporal.activities.create_referrer_discount_code",
+        return_value=("REF-SKIP", None),
+    )
+    def test_shopify_promo_skipped_when_first_event_already_true_no_flip_this_run(
+        self,
+        mock_shopify: MagicMock,
+    ) -> None:
+        referee_org = Organization.objects.create(name="Referee already flipped")
+        Team.objects.create(organization=referee_org, name="Tskip", ingested_event=True)
+
+        SocialReferral.objects.create(
+            organization=self.organization,
+            user=self.user,
+            referee_state={str(referee_org.id): {"first_event_sent": True}},
+        )
+
+        execute_referral_ingestion_stage_sweep()
+
+        mock_shopify.assert_not_called()
+
+    @override_settings(
+        SOCIAL_REFERRAL_SHOPIFY_ACCESS_TOKEN="test-token",
+    )
+    @patch(
+        "products.referrals.backend.temporal.activities.create_referrer_discount_code",
+        return_value=(None, "HTTP 401: unauthorized"),
+    )
+    def test_shopify_not_called_again_on_later_sweep_after_flip_even_when_promo_failed(
+        self,
+        mock_shopify: MagicMock,
+    ) -> None:
+        referee_org = Organization.objects.create(name="Referee no retry sweep")
+        Team.objects.create(organization=referee_org, name="Tnr", ingested_event=True)
+
+        SocialReferral.objects.create(
+            organization=self.organization,
+            user=self.user,
+            referee_state={str(referee_org.id): {"first_event_sent": False}},
+        )
+
+        execute_referral_ingestion_stage_sweep()
+        execute_referral_ingestion_stage_sweep()
+
+        self.assertEqual(mock_shopify.call_count, 1)
 
     def test_same_referring_org_single_row_multiple_referee_orgs_all_pending_then_one_ingests(
         self,

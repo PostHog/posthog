@@ -42,8 +42,9 @@ class SocialReferral(UUIDModel):
         default=dict,
         blank=True,
         help_text='Per-invited-org map: `{ "<organization_uuid>": { "first_event_sent": boolean, '
-        '"signed_up_at": "<ISO-8601>", "signed_up_user_id": <int or null> } }`. '
-        "Optional `errors` object may hold sync job messages (e.g. `ingestion_sync` after a failed row check).",
+        '"signed_up_at": "<ISO-8601>", "signed_up_user_id": <int or null>, '
+        '"shopify_discount_codes": [ { "code", "issued_at", "price_rule_id" }, ... ], ... } }`. '
+        "Reserved top-level key: `errors` (ingestion sync failures).",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     organization = models.ForeignKey(

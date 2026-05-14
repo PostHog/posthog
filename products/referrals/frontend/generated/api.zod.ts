@@ -17,5 +17,7 @@ export const SocialReferralsCreateBody = /* @__PURE__ */ zod.object({
     referee_state: zod
         .record(zod.string(), zod.unknown())
         .optional()
-        .describe('Map of invited organization UUID (string) to `{\"first_event_sent\": boolean}`.'),
+        .describe(
+            'Map of invited organization UUID (string) to referral progress (`first_event_sent`, `signed_up_at`, `signed_up_user_id`, `shopify_discount_codes`, etc.).'
+        ),
 })

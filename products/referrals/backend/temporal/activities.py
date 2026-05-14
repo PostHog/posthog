@@ -44,6 +44,11 @@ from products.referrals.backend.models import (
     REFEREE_STATE_ERRORS_KEY,
     SocialReferral,
 )
+from products.referrals.backend.shopify_referrer_promo import (
+    REFERRALS_SHOPIFY_PRICE_RULE_ID,
+    create_referrer_discount_code,
+    social_referral_shopify_promo_configured,
+)
 from products.referrals.backend.temporal.constants import TWITTER_DEFAULT_HOURS
 from products.referrals.backend.temporal.types import (
     ProcessSingleReferralIngestionInput,
@@ -221,6 +226,17 @@ async def run_internal_referral_research_activity(
 FIRST_EVENT_SENT_KEY = "first_event_sent"
 INGESTION_CHECK_FAILURE_DETAIL_MAX_LEN = 4000
 
+# Per-referee-org Shopify promos: append-only list of `{code, issued_at, price_rule_id}`.
+REFEREE_ENTRY_SHOPIFY_DISCOUNT_CODES_KEY = "shopify_discount_codes"
+REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE = "code"
+REFEREE_ENTRY_SHOPIFY_CODE_RECORD_ISSUED_AT = "issued_at"
+REFEREE_ENTRY_SHOPIFY_CODE_RECORD_PRICE_RULE_ID = "price_rule_id"
+REFEREE_ENTRY_SHOPIFY_PROMO_LAST_ERROR_KEY = "shopify_promo_last_error"
+_SHOPIFY_PROMO_ERROR_MAX_LEN = 2000
+_LEGACY_SHOPIFY_SCALAR_KEYS = ("shopify_discount_code", "shopify_promo_issued_at", "shopify_price_rule_id")
+
+_LOGGER = structlog.get_logger(__name__)
+
 
 def referee_entry_pending_first_event(entry: object) -> bool:
     """True unless `first_event_sent` is explicitly true."""
@@ -231,6 +247,47 @@ def referee_entry_pending_first_event(entry: object) -> bool:
 
 def _is_reserved_referee_state_key(org_key: str) -> bool:
     return org_key == REFEREE_STATE_ERRORS_KEY
+
+
+def _normalized_discount_code_list(raw: object) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        code = item.get(REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE)
+        if not isinstance(code, str) or not code:
+            continue
+        issued = item.get(REFEREE_ENTRY_SHOPIFY_CODE_RECORD_ISSUED_AT)
+        rule = item.get(REFEREE_ENTRY_SHOPIFY_CODE_RECORD_PRICE_RULE_ID)
+        rec: dict[str, Any] = {REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE: code}
+        if isinstance(issued, str) and issued:
+            rec[REFEREE_ENTRY_SHOPIFY_CODE_RECORD_ISSUED_AT] = issued
+        if isinstance(rule, str) and rule:
+            rec[REFEREE_ENTRY_SHOPIFY_CODE_RECORD_PRICE_RULE_ID] = rule
+        out.append(rec)
+    return out
+
+
+def _attach_shopify_promo_to_referee_entry(entry: dict[str, Any]) -> None:
+    """Mutate referee entry after `first_event_sent` flip: append a Shopify code when configured."""
+    code, err = create_referrer_discount_code()
+    if code is not None:
+        codes = _normalized_discount_code_list(entry.get(REFEREE_ENTRY_SHOPIFY_DISCOUNT_CODES_KEY))
+        codes.append(
+            {
+                REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE: code,
+                REFEREE_ENTRY_SHOPIFY_CODE_RECORD_ISSUED_AT: timezone.now().isoformat(),
+                REFEREE_ENTRY_SHOPIFY_CODE_RECORD_PRICE_RULE_ID: REFERRALS_SHOPIFY_PRICE_RULE_ID,
+            }
+        )
+        entry[REFEREE_ENTRY_SHOPIFY_DISCOUNT_CODES_KEY] = codes
+        entry.pop(REFEREE_ENTRY_SHOPIFY_PROMO_LAST_ERROR_KEY, None)
+        for legacy in _LEGACY_SHOPIFY_SCALAR_KEYS:
+            entry.pop(legacy, None)
+    elif err is not None:
+        entry[REFEREE_ENTRY_SHOPIFY_PROMO_LAST_ERROR_KEY] = err[:_SHOPIFY_PROMO_ERROR_MAX_LEN]
 
 
 def _clear_ingestion_sync_error_from_merged(merged: dict[str, Any]) -> bool:
@@ -361,13 +418,14 @@ def process_single_social_referral_ingestion_sync(referral_id: UUID) -> dict[str
             if isinstance(entry_raw, dict) and entry_raw.get(FIRST_EVENT_SENT_KEY) is True:
                 continue
             if isinstance(entry_raw, dict):
-                merged[org_key] = {**entry_raw, FIRST_EVENT_SENT_KEY: True}
+                new_entry: dict[str, Any] = {**entry_raw, FIRST_EVENT_SENT_KEY: True}
             else:
-                merged[org_key] = {FIRST_EVENT_SENT_KEY: True}
+                new_entry = {FIRST_EVENT_SENT_KEY: True}
+            if social_referral_shopify_promo_configured():
+                _attach_shopify_promo_to_referee_entry(new_entry)
+            merged[org_key] = new_entry
             orgs_flipped += 1
             changed = True
-
-            # TODO(referrals): downstream notification/email when ingestion stage clears for this referrer row + org pair
 
         if changed:
             referral.referee_state = merged
