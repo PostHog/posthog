@@ -199,10 +199,13 @@ def reconcile_sendblue_prewarmed_sandbox_pool(*, team_id: int | None = None) -> 
 
 def cleanup_expired_sendblue_prewarmed_sandboxes(*, config: SendbluePrewarmedPoolConfig | None = None) -> int:
     config = config or get_sendblue_prewarmed_pool_config()
+    team_id = config.team_id
+    if team_id is None:
+        return 0
     now = timezone.now()
     expired = list(
         TaskPrewarmedSandbox.objects.filter(
-            team_id=config.team_id,
+            team_id=team_id,
             pool_key=config.pool_key,
             status__in=[TaskPrewarmedSandbox.Status.AVAILABLE, TaskPrewarmedSandbox.Status.PROVISIONING],
             expires_at__lte=now,
@@ -215,9 +218,12 @@ def cleanup_expired_sendblue_prewarmed_sandboxes(*, config: SendbluePrewarmedPoo
 
 def terminate_available_sendblue_prewarmed_sandboxes(*, config: SendbluePrewarmedPoolConfig | None = None) -> int:
     config = config or get_sendblue_prewarmed_pool_config()
+    team_id = config.team_id
+    if team_id is None:
+        return 0
     entries = list(
         TaskPrewarmedSandbox.objects.filter(
-            team_id=config.team_id,
+            team_id=team_id,
             pool_key=config.pool_key,
             status__in=[TaskPrewarmedSandbox.Status.AVAILABLE, TaskPrewarmedSandbox.Status.PROVISIONING],
         )[:100]
@@ -280,9 +286,10 @@ def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int
 
 
 def _available_or_provisioning_count(*, config: SendbluePrewarmedPoolConfig) -> int:
+    team_id = _require_team_id(config)
     now = timezone.now()
     return TaskPrewarmedSandbox.objects.filter(
-        team_id=config.team_id,
+        team_id=team_id,
         pool_key=config.pool_key,
         status__in=[TaskPrewarmedSandbox.Status.AVAILABLE, TaskPrewarmedSandbox.Status.PROVISIONING],
         expires_at__gt=now,
@@ -290,12 +297,13 @@ def _available_or_provisioning_count(*, config: SendbluePrewarmedPoolConfig) -> 
 
 
 def _reserve_provisioning_entry(*, config: SendbluePrewarmedPoolConfig) -> TaskPrewarmedSandbox | None:
+    team_id = _require_team_id(config)
     with transaction.atomic():
         if _available_or_provisioning_count(config=config) >= config.target_available:
             return None
 
         return TaskPrewarmedSandbox.objects.create(
-            team_id=config.team_id,
+            team_id=team_id,
             pool_key=config.pool_key,
             origin_product=Task.OriginProduct.SENDBLUE,
             repository=config.repository,
@@ -350,12 +358,13 @@ def _lease_available_entry(
     config: SendbluePrewarmedPoolConfig,
     run_id: str,
 ) -> TaskPrewarmedSandbox | None:
+    team_id = _require_team_id(config)
     now = timezone.now()
     with transaction.atomic():
         entry = (
             TaskPrewarmedSandbox.objects.select_for_update(skip_locked=True)
             .filter(
-                team_id=config.team_id,
+                team_id=team_id,
                 pool_key=config.pool_key,
                 status=TaskPrewarmedSandbox.Status.AVAILABLE,
                 expires_at__gt=now,
@@ -371,6 +380,12 @@ def _lease_available_entry(
         entry.leased_at = now
         entry.save(update_fields=["status", "leased_task_run", "leased_at", "updated_at"])
         return entry
+
+
+def _require_team_id(config: SendbluePrewarmedPoolConfig) -> int:
+    if config.team_id is None:
+        raise ValueError("Sendblue prewarmed sandbox pool requires a team_id")
+    return config.team_id
 
 
 def _mark_entry_failed(entry: TaskPrewarmedSandbox, error: str) -> None:

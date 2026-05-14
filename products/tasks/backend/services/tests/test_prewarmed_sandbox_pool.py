@@ -93,8 +93,10 @@ def _config(**overrides: Any) -> SendbluePrewarmedPoolConfig:
 
 
 def _available_entry(config: SendbluePrewarmedPoolConfig, sandbox_id: str = "sb-available") -> TaskPrewarmedSandbox:
+    team_id = config.team_id
+    assert team_id is not None
     return TaskPrewarmedSandbox.objects.create(
-        team_id=config.team_id,
+        team_id=team_id,
         pool_key=config.pool_key,
         origin_product=Task.OriginProduct.SENDBLUE,
         repository=config.repository,

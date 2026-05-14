@@ -15,7 +15,7 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.services.sandbox import is_public_sandbox_repo
+from products.tasks.backend.services.sandbox import can_clone_without_github_integration
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextInput, get_pr_context
 
@@ -653,7 +653,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
-        can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
+        can_clone_without_integration = can_clone_without_github_integration(
+            prepared.repository, self.context.origin_product
+        )
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
 
         will_clone = bool(

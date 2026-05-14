@@ -25,6 +25,8 @@ from django.conf import settings
 import structlog
 from pydantic import BaseModel
 
+from products.tasks.backend.constants import SENDBLUE_TASK_REPOSITORY
+
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
@@ -85,13 +87,19 @@ class SandboxConfig(BaseModel):
 WORKING_DIR = "/tmp/workspace"
 PREWARMED_SANDBOX_ENV_FILE = "/tmp/posthog-prewarmed-agent-env.sh"
 
-PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.github", "posthog/posthog"})
+PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.github"})
 """Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
 # TODO: Remove `posthog/.github` when we switch repo discovery to repo-less agent (now it works as a lightweight dummy)
 
 
 def is_public_sandbox_repo(repository: str | None) -> bool:
     return repository is not None and repository.lower() in PUBLIC_SANDBOX_REPOS
+
+
+def can_clone_without_github_integration(repository: str | None, origin_product: str | None = None) -> bool:
+    if is_public_sandbox_repo(repository):
+        return True
+    return origin_product == "sendblue" and repository is not None and repository.lower() == SENDBLUE_TASK_REPOSITORY
 
 
 def build_agent_runtime_env_prefix(

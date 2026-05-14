@@ -291,7 +291,7 @@ class Task(DeletedMetaFields, models.Model):
 
         created_by = User.objects.get(id=user_id)
 
-        from products.tasks.backend.services.sandbox import is_public_sandbox_repo
+        from products.tasks.backend.services.sandbox import can_clone_without_github_integration
         from products.tasks.backend.temporal.process_task.utils import (
             PrAuthorshipMode,
             RunSource,
@@ -335,7 +335,11 @@ class Task(DeletedMetaFields, models.Model):
                 github_user_integration = user_github_integration.integration
 
         if repository:
-            if not github_integration and github_user_integration is None and not is_public_sandbox_repo(repository):
+            if (
+                not github_integration
+                and github_user_integration is None
+                and not can_clone_without_github_integration(repository, origin_product)
+            ):
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
         sandbox_env = None
