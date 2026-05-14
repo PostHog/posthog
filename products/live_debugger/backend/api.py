@@ -3,6 +3,7 @@ import hashlib
 import logging
 from typing import Optional
 
+from django.db import transaction
 from django.db.models import Prefetch, QuerySet
 from django.http import HttpResponse
 
@@ -790,6 +791,16 @@ class AddEntryRequestSerializer(serializers.Serializer):
         return attrs
 
 
+class InstallProgramInSessionRequestSerializer(serializers.Serializer):
+    code = serializers.CharField(help_text="The hogtrace program source code to install.")
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Human-readable description of what this program observes and why.",
+    )
+
+
 class LiveDebuggerSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Start, list, inspect, and close debugging sessions.
@@ -890,5 +901,41 @@ class LiveDebuggerSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return Response(
             LiveDebuggerSessionEntryListItemSerializer(entry).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        summary="Install a hogtrace program inside a session",
+        description=(
+            "Atomically installs a hogtrace program scoped to this session and appends "
+            "a `program_install` entry to the timeline. Returns the installed program."
+        ),
+        request=InstallProgramInSessionRequestSerializer,
+        responses={
+            201: OpenApiResponse(response=LiveDebuggerProgramSerializer, description="Program installed."),
+            400: OpenApiResponse(description="Invalid payload or session is closed."),
+            404: OpenApiResponse(description="Session not found."),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="install_program")
+    def install_program(self, request: Request, *args, **kwargs) -> Response:
+        session = self.get_object()
+        self._ensure_open(session)
+        ser = InstallProgramInSessionRequestSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        with transaction.atomic():
+            program = LiveDebuggerProgram.objects.create(
+                team=self.team,
+                session=session,
+                code=ser.validated_data["code"],
+                description=ser.validated_data.get("description", ""),
+            )
+            LiveDebuggerSessionEntry.objects.create(
+                session=session,
+                kind=LiveDebuggerSessionEntry.Kind.PROGRAM_INSTALL,
+                payload={"program_id": str(program.id)},
+            )
+        return Response(
+            LiveDebuggerProgramSerializer(program).data,
             status=status.HTTP_201_CREATED,
         )

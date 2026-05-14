@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+import unittest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from django.test.client import Client
@@ -1476,3 +1477,34 @@ class TestLiveDebuggerSessionAPI(APIBaseTest):
             )
         body = self.client.get(self._url(f"{sid}/")).json()
         self.assertEqual([e["payload"]["markdown"] for e in body["entries"]], ["n0", "n1", "n2"])
+
+    def test_install_program_creates_program_and_entry(self):
+        sid = self._start_session()
+        response = self.client.post(
+            self._url(f"{sid}/install_program/"),
+            data={"code": "probe foo {}", "description": "watching foo"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        program_id = response.json()["id"]
+        self.assertEqual(response.json()["status"], "installed")
+
+        body = self.client.get(self._url(f"{sid}/")).json()
+        kinds = [e["kind"] for e in body["entries"]]
+        self.assertIn("program_install", kinds)
+        install_entry = next(e for e in body["entries"] if e["kind"] == "program_install")
+        self.assertEqual(install_entry["payload"]["program_id"], program_id)
+
+        # Program is linked back to the session
+        self.assertEqual(str(LiveDebuggerProgram.objects.get(id=program_id).session_id), sid)
+
+    @unittest.skip("Depends on Task 6: close endpoint")
+    def test_install_program_rejected_when_session_closed(self):
+        sid = self._start_session()
+        self.client.post(self._url(f"{sid}/close/"), content_type="application/json")
+        response = self.client.post(
+            self._url(f"{sid}/install_program/"),
+            data={"code": "probe foo {}", "description": ""},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
