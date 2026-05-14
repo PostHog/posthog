@@ -86,7 +86,7 @@ rg -n "chunkId=|_posthogChunkIds|sourceMappingURL" dist
 
 Expected local artifact shape:
 
-- JS has a `chunkId` marker or `_posthogChunkIds` registration.
+- JS has a `chunkId` marker and `_posthogChunkIds` registration.
 - JS has `sourceMappingURL` only when maps are intentionally public. Hidden source maps may omit it.
 - Map has non-empty `mappings`.
 - Map has non-empty `sources`.
