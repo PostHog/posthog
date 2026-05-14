@@ -653,6 +653,12 @@ class TestExperimentService(APIBaseTest):
     # validate_experiment_metrics — improved pydantic error messages
     # ------------------------------------------------------------------
 
+    _INVALID_METRIC_EVENTS_NODE_ID = {
+        "kind": "ExperimentMetric",
+        "metric_type": "mean",
+        "source": {"kind": "EventsNode", "event": "$pageview", "id": None},
+    }
+
     def test_validate_experiment_metrics_does_not_leak_user_input_into_message(self) -> None:
         """User-supplied data must not be echoed back into error messages reflected to the caller."""
         sensitive_value = "secret-payload-12345-do-not-leak"
@@ -672,39 +678,24 @@ class TestExperimentService(APIBaseTest):
 
     def test_validate_experiment_metrics_strips_pydantic_url_field(self) -> None:
         """Pydantic URLs like https://errors.pydantic.dev/... add noise — strip them."""
-        metric = {
-            "kind": "ExperimentMetric",
-            "metric_type": "mean",
-            "source": {"kind": "EventsNode", "event": "$pageview", "id": None},
-        }
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_metrics([metric])
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
         message = str(ctx.exception)
         assert "errors.pydantic.dev" not in message
         assert "'url':" not in message
 
     def test_validate_experiment_metrics_preserves_loc_and_type_in_message(self) -> None:
         """Field location and error type stay so callers can self-correct."""
-        metric = {
-            "kind": "ExperimentMetric",
-            "metric_type": "mean",
-            "source": {"kind": "EventsNode", "event": "$pageview", "id": None},
-        }
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_metrics([metric])
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
         message = str(ctx.exception)
         assert "extra_forbidden" in message
         assert "id" in message
 
     def test_validate_experiment_metrics_preserves_index_prefix(self) -> None:
         """The 'Invalid metric at index <i>:' prefix identifies which metric failed."""
-        metric = {
-            "kind": "ExperimentMetric",
-            "metric_type": "mean",
-            "source": {"kind": "EventsNode", "event": "$pageview", "id": None},
-        }
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_metrics([metric])
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
         assert "Invalid metric at index 0:" in str(ctx.exception)
 
     def test_metric_type_to_class_mapping_matches_schema(self) -> None:
@@ -773,13 +764,8 @@ class TestExperimentService(APIBaseTest):
 
     def test_validate_experiment_metrics_events_node_id_hint(self) -> None:
         """Passing `id` on an EventsNode yields a hint mentioning both EventsNode and ActionsNode."""
-        metric = {
-            "kind": "ExperimentMetric",
-            "metric_type": "mean",
-            "source": {"kind": "EventsNode", "event": "$pageview", "id": None},
-        }
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_metrics([metric])
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
         message = str(ctx.exception)
         assert "EventsNode" in message
         assert "ActionsNode" in message
@@ -826,13 +812,8 @@ class TestExperimentService(APIBaseTest):
             "metric_type": "mean",
             "source": {"kind": "EventsNode", "event": "$pageview"},
         }
-        invalid = {
-            "kind": "ExperimentMetric",
-            "metric_type": "mean",
-            "source": {"kind": "EventsNode", "event": "$pageview", "id": None},
-        }
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_metrics([valid, invalid])
+            ExperimentService.validate_experiment_metrics([valid, self._INVALID_METRIC_EVENTS_NODE_ID])
         assert "Invalid metric at index 1:" in str(ctx.exception)
 
     # ------------------------------------------------------------------
