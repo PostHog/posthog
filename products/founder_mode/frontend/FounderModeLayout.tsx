@@ -1,7 +1,7 @@
 import { useActions, useValues, BindLogic } from 'kea'
 import * as React from 'react'
 
-import { Button, cn } from '@posthog/quill'
+import { Button, cn, Spinner } from '@posthog/quill'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -482,18 +482,9 @@ function LoadingBlock({ title, body }: { title: string; body: string }): JSX.Ele
             <h2 className="text-2xl font-semibold mb-2">{title}</h2>
             {body && <p className="text-text-primary leading-relaxed">{body}</p>}
             <div className="mt-6">
-                <Spinner />
+                <Spinner className="w-8 h-8 text-text-primary" />
             </div>
         </div>
-    )
-}
-
-function Spinner(): JSX.Element {
-    return (
-        <div
-            className="w-8 h-8 border-2 border-text-secondary/30 border-t-text-primary rounded-full animate-spin"
-            aria-label="Loading"
-        />
     )
 }
 
