@@ -15,10 +15,10 @@
   - [x] Drop the import.
   - [x] Remove it from the viewset inheritance list.
 
-- [ ] Add feature-flag visibility validation for deployment MCP tools
-  - [ ] Test that deployment MCP tools are not presented when the `deployments` feature flag is off.
-  - [ ] Test that deployment MCP tools are presented when the `deployments` feature flag is on.
-  - [ ] Test fail-closed behavior if feature-flag evaluation fails.
+- [x] Add feature-flag visibility validation for deployment MCP tools
+  - [x] Test that deployment MCP tools are not presented when the `deployments` feature flag is off.
+  - [x] Test that deployment MCP tools are presented when the `deployments` feature flag is on.
+  - [x] Test fail-closed behavior if feature-flag evaluation fails.
 
 - [x] Add a deploy API/tool endpoint
   - [x] Add a deploy API path that the frontend can wire a deploy button to before execution is fully available.
