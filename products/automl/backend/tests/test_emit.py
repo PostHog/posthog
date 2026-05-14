@@ -126,6 +126,40 @@ def test_emit_predictions_classification_emits_one_event_per_row(team, user):
     assert props["$automl_proba_1"] == pytest.approx(0.7)
     assert props["$automl_score"] == pytest.approx(0.7)  # last sorted proba = positive
     assert props["$automl_score_column"] == "proba_1"
+    # The fixture `_make_active_pipeline_with_winning_run` builds a pipeline
+    # with config={"target_event": "uploaded_file", "horizon_days": 14}.
+    # Verify those flow through as self-describing properties.
+    assert props["$automl_target_event"] == "uploaded_file"
+    assert props["$automl_horizon_days"] == 14
+    assert props["$automl_outcome_description"] == "P(uploaded_file within 14 days)"
+
+
+def test_outcome_description_shapes():
+    """Inline coverage of the human-label helper across task types."""
+    from products.automl.backend.inference.emit import _outcome_description
+
+    assert (
+        _outcome_description(
+            target_event="upgraded_plan", framing="adoption", horizon_days=14, task_type="classification"
+        )
+        == "P(upgraded_plan within 14 days) — adoption"
+    )
+    assert (
+        _outcome_description(target_event="churned", framing="", horizon_days=30, task_type="classification")
+        == "P(churned within 30 days)"
+    )
+    assert (
+        _outcome_description(target_event="ltv", framing="", horizon_days=None, task_type="regression")
+        == "Predicted ltv (regression)"
+    )
+    assert (
+        _outcome_description(target_event="", framing="behavior", horizon_days=None, task_type="clustering")
+        == "Cluster assignment (behavior)"
+    )
+    assert (
+        _outcome_description(target_event="revenue", framing="", horizon_days=None, task_type="forecasting")
+        == "Forecast of revenue"
+    )
 
 
 @pytest.mark.django_db

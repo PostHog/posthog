@@ -101,6 +101,16 @@ def emit_predictions_for_run(run: AutoMLPipelineRun) -> int:
     score_col = sorted(proba_cols)[-1] if proba_cols else None
 
     # Pre-compute pipeline-wide metadata once (every event carries it).
+    # The target / framing / horizon fields make the event self-describing —
+    # readers can see what's being predicted without joining back to the
+    # pipeline row. `outcome_description` is the human-readable summary
+    # surfaced on insight + UI labels.
+    config = pipeline.config or {}
+    target_event = config.get("target_event") or ""
+    target_column = config.get("target") or ""
+    framing = config.get("framing") or ""
+    horizon_days = config.get("horizon_days")
+
     base_props: dict[str, Any] = {
         "$automl_pipeline_id": str(pipeline.id),
         "$automl_pipeline_name": pipeline.name,
@@ -109,7 +119,20 @@ def emit_predictions_for_run(run: AutoMLPipelineRun) -> int:
         "$automl_model_run_id": manifest.get("model_run_id", ""),
         "$automl_task_type": pipeline.task_type,
         "$automl_id_column": id_column,
+        "$automl_target_event": target_event,
+        "$automl_target_column": target_column,
+        "$automl_framing": framing,
     }
+    if horizon_days is not None:
+        base_props["$automl_horizon_days"] = horizon_days
+    if pipeline.output_property_name:
+        base_props["$automl_output_property_name"] = pipeline.output_property_name
+    base_props["$automl_outcome_description"] = _outcome_description(
+        target_event=target_event,
+        framing=framing,
+        horizon_days=horizon_days,
+        task_type=pipeline.task_type,
+    )
     if score_col is not None:
         base_props["$automl_score_column"] = score_col
 
@@ -185,6 +208,38 @@ def emit_predictions_for_run(run: AutoMLPipelineRun) -> int:
         predictions_uri=predictions_uri,
     )
     return emitted
+
+
+def _outcome_description(
+    *,
+    target_event: str,
+    framing: str,
+    horizon_days: Any,
+    task_type: str,
+) -> str:
+    """Build a one-line human-readable summary of what the model predicts.
+
+    Examples:
+      classification + adoption + upgraded_plan + 14d
+        → "P(upgraded_plan within 14 days) — adoption"
+      classification + churn + churned + 30d
+        → "P(churned within 30 days) — churn"
+      regression + ltv + (no event)
+        → "Predicted ltv (regression)"
+    """
+    if task_type == "classification" and target_event:
+        if isinstance(horizon_days, int | float) and horizon_days > 0:
+            base = f"P({target_event} within {int(horizon_days)} days)"
+        else:
+            base = f"P({target_event})"
+        return f"{base}{' — ' + framing if framing else ''}"
+    if task_type == "regression":
+        return f"Predicted {target_event or framing or 'value'} (regression)"
+    if task_type == "forecasting":
+        return f"Forecast of {target_event or framing or 'series'}"
+    if task_type == "clustering":
+        return f"Cluster assignment ({framing})" if framing else "Cluster assignment"
+    return f"{task_type} prediction"
 
 
 def _read_predictions(uri: str) -> pq.pyarrow.Table:  # type: ignore[name-defined]
