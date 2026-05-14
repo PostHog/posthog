@@ -17,6 +17,8 @@ from products.data_warehouse.backend.models import DataWarehouseTable, ExternalD
 from products.data_warehouse.backend.models.tenant_query_config import DataWarehouseTenantQueryConfig
 from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_columns
 from products.data_warehouse.backend.tenant_query import (
+    TENANT_QUERY_NO_TENANT_FIELD,
+    TENANT_QUERY_TABLE_DISABLED,
     _apply_top_level_tenant_query_limit,
     apply_tenant_query_config,
     configure_tenant_query,
@@ -213,6 +215,52 @@ class TestTenantQuery(APIBaseTest):
         assert response["disabled_tables"] == []
         assert ExternalDataSchema.objects.get(source=source, name="bookings").should_sync is True
 
+    def test_configure_tenant_query_allows_table_without_tenant_column_as_dimension(self):
+        source = self._create_direct_source()
+        self._create_table(source)
+        self._create_table(
+            source,
+            name="countries",
+            postgres_columns=[("id", "bigint", False), ("name", "text", True)],
+            should_sync=False,
+        )
+
+        response = configure_tenant_query(
+            team=self.team,
+            connection_id=str(source.id),
+            enabled=True,
+            tenant_column_name="customer_id",
+            tenant_column_names_by_table={"countries": TENANT_QUERY_NO_TENANT_FIELD},
+        )
+
+        config = DataWarehouseTenantQueryConfig.objects.get(team=self.team, external_data_source=source)
+        assert config.tenant_column_type == DataWarehouseTenantQueryConfig.TenantColumnType.INTEGER
+        assert config.tenant_column_names_by_table == {"countries": TENANT_QUERY_NO_TENANT_FIELD}
+        assert response["tenant_column_names_by_table"] == {"countries": TENANT_QUERY_NO_TENANT_FIELD}
+        assert response["enabled_tables"] == ["countries", "trips"]
+        assert response["disabled_tables"] == []
+        assert ExternalDataSchema.objects.get(source=source, name="countries").should_sync is True
+
+    def test_configure_tenant_query_disables_table_from_per_table_setting(self):
+        source = self._create_direct_source()
+        self._create_table(source)
+        self._create_table(source, name="payments")
+
+        response = configure_tenant_query(
+            team=self.team,
+            connection_id=str(source.id),
+            enabled=True,
+            tenant_column_name="customer_id",
+            tenant_column_names_by_table={"payments": TENANT_QUERY_TABLE_DISABLED},
+        )
+
+        config = DataWarehouseTenantQueryConfig.objects.get(team=self.team, external_data_source=source)
+        assert config.tenant_column_names_by_table == {"payments": TENANT_QUERY_TABLE_DISABLED}
+        assert response["tenant_column_names_by_table"] == {"payments": TENANT_QUERY_TABLE_DISABLED}
+        assert response["enabled_tables"] == ["trips"]
+        assert response["disabled_tables"] == []
+        assert ExternalDataSchema.objects.get(source=source, name="payments").should_sync is False
+
     def test_configure_tenant_query_rejects_per_table_tenant_column_with_different_type(self):
         source = self._create_direct_source()
         self._create_table(source)
@@ -330,6 +378,21 @@ class TestTenantQuery(APIBaseTest):
         normalized_sql = sql.lower()
         assert " as account_id" not in normalized_sql
         assert "account_id = 42" in sql
+        assert "LIMIT 100" in sql
+
+    def test_no_tenant_field_table_exposes_all_columns_without_tenant_predicate(self):
+        source = self._create_direct_source()
+        self._create_table(
+            source,
+            name="countries",
+            postgres_columns=[("id", "bigint", False), ("name", "text", True)],
+        )
+        config = self._create_config(source, tenant_column_names_by_table={"countries": TENANT_QUERY_NO_TENANT_FIELD})
+
+        sql = self._prepare_sql(source, config, "select * from countries", tenant_value=None)
+
+        assert "customer_id" not in sql
+        assert "WHERE" not in sql
         assert "LIMIT 100" in sql
 
     def test_allows_unqualified_table_names_for_single_schema_direct_connections(self):
@@ -670,6 +733,28 @@ class TestTenantQuery(APIBaseTest):
         assert ["bookings", "id", "bigint"] in result["results"]
         assert ["bookings", "name", "text"] in result["results"]
         assert all(row[1] != "account_id" for row in result["results"])
+
+    def test_metadata_fields_query_exposes_no_tenant_field_table_columns(self):
+        source = self._create_direct_source()
+        self._create_table(source)
+        self._create_table(
+            source,
+            name="countries",
+            postgres_columns=[("id", "bigint", False), ("customer_id", "bigint", False), ("name", "text", True)],
+        )
+        self._create_config(source, tenant_column_names_by_table={"countries": TENANT_QUERY_NO_TENANT_FIELD})
+
+        result, _row_count = execute_tenant_query(
+            team=self.team,
+            user=self.user,
+            connection_id=str(source.id),
+            tenant_value=None,
+            query="select table, name, postgres_type from system.fields where table = 'countries'",
+        )
+
+        assert ["countries", "id", "bigint"] in result["results"]
+        assert ["countries", "customer_id", "bigint"] in result["results"]
+        assert ["countries", "name", "text"] in result["results"]
 
     def test_metadata_nested_asterisk_query_uses_resolved_subquery_columns(self):
         source = self._create_direct_source()
