@@ -2819,6 +2819,12 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     string text = ctx->getText();
     to_lower(text);
 
+    // Grammar admits an optional leading sign on every numberLiteral, including INF/NAN.
+    // Strip a leading '+' so downstream comparisons (and stoll's sign handling) work uniformly.
+    if (!text.empty() && text[0] == '+') {
+      text.erase(0, 1);
+    }
+
     if (text.find("inf") != string::npos || text.find("nan") != string::npos) {
       // Handle special number cases (infinity and NaN)
       // Mark these with value_type="number" so the deserializer knows to convert them
@@ -2840,7 +2846,9 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       return json;
     } else {
       try {
-        json["value"] = static_cast<int64_t>(stoll(text));  // Integer
+        // Base 0: auto-detect radix from prefix (0x → hex, leading 0 → octal, else decimal),
+        // so HEXADECIMAL_LITERAL / OCTAL_LITERAL tokens aren't silently truncated to 0.
+        json["value"] = static_cast<int64_t>(stoll(text, nullptr, 0));  // Integer
       } catch (const std::out_of_range&) {
         try {
           json["value"] = Json(stod(text));  // Too large for int64, use float
