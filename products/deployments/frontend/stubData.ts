@@ -1,3 +1,4 @@
+import posthogComBuildLogsUrl from 'public/deployments/posthog-com-build-output-20260514T172327Z.jsonl?url'
 import posthogComPreviewImage from 'public/deployments/posthog-com.png'
 
 import type { DeploymentsFilters } from './fixtures'
@@ -27,7 +28,7 @@ export interface StubBuildLogLine {
 }
 
 export const DEMO_DEPLOYMENT_URL = 'https://posthog-com.hog.dev/'
-export const POSTHOG_COM_BUILD_LOGS_URL = '/static/deployments/posthog-com-build-output-20260514T172327Z.jsonl'
+export const POSTHOG_COM_BUILD_LOGS_URL = posthogComBuildLogsUrl
 export const POSTHOG_COM_PREVIEW_IMAGE_URL = posthogComPreviewImage
 
 export const POSTHOG_COM_PROJECT_ID = '0198f4b2-2c75-7580-8ad8-b5f2cb9974a1'

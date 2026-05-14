@@ -81,7 +81,8 @@ export function StubBuildLogs({
             .then((response) => (response.ok ? response.text() : Promise.reject(new Error('Failed to load logs'))))
             .then((contents) => {
                 if (!cancelled) {
-                    setRealLogs(parseJsonlLogs(contents))
+                    const parsedLogs = parseJsonlLogs(contents)
+                    setRealLogs(parsedLogs.length > 0 ? parsedLogs : null)
                 }
             })
             .catch(() => {

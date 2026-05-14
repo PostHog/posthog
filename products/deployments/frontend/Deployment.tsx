@@ -21,14 +21,33 @@ import { deploymentsLogic } from './deploymentsLogic'
 export const scene: SceneExport<DeploymentLogicProps> = {
     component: Deployment,
     logic: deploymentLogic,
-    paramsToProps: ({ params: { projectId, deploymentId } }) => ({ projectId, id: deploymentId }),
+    paramsToProps: ({ params: { projectId, deploymentId } }) => ({
+        projectId,
+        id: deploymentId,
+    }),
 }
 
-export function Deployment({ projectId, id }: DeploymentLogicProps): JSX.Element {
+interface DeploymentSceneProps {
+    projectId: string
+    id?: string
+    deploymentId?: string
+}
+
+export function Deployment({ projectId, id, deploymentId }: DeploymentSceneProps): JSX.Element {
+    const resolvedDeploymentId = id ?? deploymentId
+
+    if (!resolvedDeploymentId) {
+        return (
+            <SceneContent>
+                <NotFound object="deployment" />
+            </SceneContent>
+        )
+    }
+
     return (
         <BindLogic logic={deploymentProjectLogic} props={{ projectId }}>
-            <BindLogic logic={deploymentLogic} props={{ projectId, id }}>
-                <DeploymentInner projectId={projectId} id={id} />
+            <BindLogic logic={deploymentLogic} props={{ projectId, id: resolvedDeploymentId }}>
+                <DeploymentInner projectId={projectId} id={resolvedDeploymentId} />
             </BindLogic>
         </BindLogic>
     )

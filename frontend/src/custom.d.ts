@@ -34,6 +34,12 @@ declare module '*.json?url' {
     export default content
 }
 
+// This fixes TS errors when importing an .jsonl file with ?url suffix
+declare module '*.jsonl?url' {
+    const content: any
+    export default content
+}
+
 // This fixes TS errors when importing an .sql file with ?raw suffix
 declare module '*.sql?raw' {
     const content: string
