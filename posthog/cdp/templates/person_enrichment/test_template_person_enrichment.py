@@ -26,24 +26,10 @@ GOOD_PDL_RESPONSE = {
 class TestTemplatePersonEnrichment(BaseHogFunctionTemplateTest):
     template = template_person_enrichment
 
-    def createHogGlobals(self, globals=None) -> dict:
-        # The template is scoped to team 2 via a `project.id == 2` runtime guard.
-        # Inject the project global so the test surface mirrors the scoped team.
-        data = super().createHogGlobals(globals)
-        data["project"] = {"id": 2, "url": "https://us.posthog.com/project/2"}
-        if globals and globals.get("project"):
-            data["project"].update(globals["project"])
-        return data
-
     def _inputs(self, **kwargs):
         inputs = {"pdl_api_key": "PDL_KEY", "email": "abhischek@posthog.com"}
         inputs.update(kwargs)
         return inputs
-
-    def test_skips_when_project_id_mismatches(self):
-        result = self.run_function(inputs=self._inputs(), globals={"project": {"id": 99}})
-        assert result.result is False
-        assert self.get_mock_fetch_calls() == []
 
     def test_skips_when_email_missing(self):
         result = self.run_function(inputs=self._inputs(email=""))

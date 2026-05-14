@@ -50,15 +50,6 @@ def _group_event(domain="posthog.com", already_enriched=False) -> dict:
 class TestTemplateOrganizationEnrichment(BaseHogFunctionTemplateTest):
     template = template_organization_enrichment
 
-    def createHogGlobals(self, globals=None) -> dict:
-        # The template is scoped to team 2 via a `project.id == 2` runtime guard.
-        # Inject the project global so the test surface mirrors the scoped team.
-        data = super().createHogGlobals(globals)
-        data["project"] = {"id": 2, "url": "https://us.posthog.com/project/2"}
-        if globals and globals.get("project"):
-            data["project"].update(globals["project"])
-        return data
-
     def _inputs(self, **kwargs):
         inputs = {
             "harmonic_api_key": "HK",
@@ -69,14 +60,6 @@ class TestTemplateOrganizationEnrichment(BaseHogFunctionTemplateTest):
         }
         inputs.update(kwargs)
         return inputs
-
-    def test_skips_when_project_id_mismatches(self):
-        result = self.run_function(
-            inputs=self._inputs(),
-            globals={"project": {"id": 99}, "event": _group_event()},
-        )
-        assert result.result is False
-        assert self.get_mock_fetch_calls() == []
 
     def test_skips_when_group_type_mismatches(self):
         result = self.run_function(

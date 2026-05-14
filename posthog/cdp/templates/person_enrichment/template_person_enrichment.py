@@ -18,10 +18,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 # 'string'` guards so they never reach person properties.
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    # `hidden` keeps this out of the public template gallery; combined with the
-    # runtime `project.id` guard below, only team 2 ("🎉 PostHog App + Website")
-    # can use it. Flip to `beta` if rolling out to additional teams.
-    status="hidden",
+    status="beta",
     free=False,
     type="destination",
     id="template-person-enrichment-pdl",
@@ -40,13 +37,6 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
         "events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}],
     },
     code="""
-// Scoped to team 2 (`🎉 PostHog App + Website`) — matches the `hidden` status.
-// Other teams won't reach this hog function via the template gallery, but if
-// they're given access to the template via API this guard still refuses to run.
-if (project.id != 2) {
-    return false
-}
-
 // Avoid emitting on our own writes to prevent infinite loops.
 if (event.event == '$set' or event.event == '$groupidentify') {
     return false
