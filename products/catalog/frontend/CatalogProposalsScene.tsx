@@ -1,14 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { AcceptRateBanner } from './AcceptRateBanner'
 import { CatalogPageTabs } from './CatalogPageTabs'
 import { catalogProposalsLogic } from './catalogProposalsLogic'
 import { ProposalCategoryRail } from './ProposalCategoryRail'
@@ -22,30 +21,22 @@ export const scene: SceneExport = {
 }
 
 export function CatalogProposalsScene(): JSX.Element {
-    const { visibleProposals, selectedProposal, activeCategory } = useValues(catalogProposalsLogic)
-    const { setSelectedProposalId, approveProposal } = useActions(catalogProposalsLogic)
+    const { visibleProposals, selectedProposal, activeCategory, isLoading } = useValues(catalogProposalsLogic)
+    const { setSelectedProposalId } = useActions(catalogProposalsLogic)
 
     useKeyboardNav()
 
     const activeCat = PROPOSAL_CATEGORIES.find((c) => c.key === activeCategory)
-    const isRejectedView = activeCategory === 'rejected'
+    const isRejectedView = activeCategory === 'rejected_relationships'
 
     return (
         <SceneContent>
             <SceneTitleSection
                 name="Semantic layer"
-                description="Review AI-generated proposals — new definitions, drift alerts, duplicates and schema sync — before they reach your semantic layer."
+                description="Review AI-generated proposals — new definitions, drift alerts, and relationships — before they reach your semantic layer."
                 resourceType={{ type: 'data_warehouse' }}
             />
             <CatalogPageTabs activeTab="proposals" />
-
-            <LemonBanner type="info" className="text-sm">
-                <strong>Prototype.</strong> Mock data, no backend. Click around the categories, approve, reject (with a
-                reason), snooze, and toggle the <em>Code</em> view on the right to see the YAML representation MCP/CLI
-                would emit.
-            </LemonBanner>
-
-            <AcceptRateBanner />
 
             <div className="flex gap-4 min-h-[640px] items-stretch">
                 <ProposalCategoryRail />
@@ -56,11 +47,17 @@ export function CatalogProposalsScene(): JSX.Element {
                             {isRejectedView ? 'Recently rejected' : activeCat?.label}
                         </div>
                         <div className="text-xs text-muted-alt">
-                            {isRejectedView ? 'Audit trail of rejected proposals.' : activeCat?.description}
+                            {isRejectedView ? 'Relationships rejected during review.' : activeCat?.description}
                         </div>
                     </div>
                     <div className="flex flex-col gap-2 overflow-y-auto pr-1">
-                        {visibleProposals.length === 0 ? (
+                        {isLoading && visibleProposals.length === 0 ? (
+                            <>
+                                <LemonSkeleton className="h-16 w-full" />
+                                <LemonSkeleton className="h-16 w-full" />
+                                <LemonSkeleton className="h-16 w-full" />
+                            </>
+                        ) : visibleProposals.length === 0 ? (
                             <div className="text-sm text-muted-alt p-4 border rounded bg-surface-primary text-center">
                                 Nothing here.
                             </div>
@@ -75,15 +72,6 @@ export function CatalogProposalsScene(): JSX.Element {
                             ))
                         )}
                     </div>
-                    {!isRejectedView && visibleProposals.length > 1 && activeCategory === 'metadata' ? (
-                        <button
-                            type="button"
-                            className="text-xs px-2 py-1.5 border border-dashed rounded text-muted-alt hover:bg-fill-highlight-50"
-                            onClick={() => visibleProposals.forEach((p) => approveProposal(p.id))}
-                        >
-                            Approve all {visibleProposals.length} metadata proposals
-                        </button>
-                    ) : null}
                 </div>
 
                 <div className="flex-1 min-w-0 flex flex-col border rounded bg-surface-primary p-4">
@@ -120,9 +108,9 @@ function useKeyboardNav(): void {
                 if (prev) {
                     setSelectedProposalId(prev.id)
                 }
-            } else if (e.key === 'a' && selectedProposal && selectedProposal.status === 'open') {
+            } else if (e.key === 'a' && selectedProposal) {
                 e.preventDefault()
-                approveProposal(selectedProposal.id)
+                approveProposal(selectedProposal)
             }
         }
         window.addEventListener('keydown', onKey)

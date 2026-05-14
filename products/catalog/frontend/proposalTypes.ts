@@ -1,195 +1,94 @@
-// Types for the Semantic Layer Proposals inbox prototype.
+// Types for the AI proposals inbox.
 //
-// This is a hackathon UI mockup — every shape here is a frontend-only fixture
-// so we can iterate on the inbox UX without committing to a backend schema.
+// Every shape here mirrors a real backend state in the catalog product:
+// - "node_proposed" → CatalogNode.status = proposed (any kind — warehouse_table,
+//   saved_query, system_table, posthog_table, metric, event_definition,
+//   property_definition)
+// - "node_drift"    → CatalogNode.status = drift
+// - "relationship_proposed" → CatalogRelationship.status = proposed
+//
+// No invented proposal types — if the backend doesn't model it, it isn't here.
 
-export type ProposalKind =
-    | 'new_definition'
-    | 'drift'
-    | 'duplicate'
-    | 'schema_sync'
-    | 'relationship'
-    | 'metadata'
-    | 'question'
+import type {
+    CatalogNodeDTOApi,
+    CatalogRelationshipDTOApi,
+    MetricDefinitionSchemaApi,
+} from 'products/catalog/frontend/generated/api.schemas'
 
-export type ProposalStatus = 'open' | 'approved' | 'rejected' | 'snoozed'
+export type ProposalKind = 'node_proposed' | 'node_drift' | 'relationship_proposed'
 
-export type DefinitionKind = 'metric' | 'entity' | 'dimension'
-
-export interface Provenance {
-    source: string
-    detail?: string
-}
-
-export interface ProposedDefinition {
-    name: string
-    kind: DefinitionKind
-    description: string
-    formulaPlainEnglish?: string
-    formulaSql?: string
-    suggestedDimensions?: string[]
-    suggestedOwner?: string
-    entity?: string
-}
-
-export interface DiffField {
-    field: string
-    before: string
-    after: string
-}
-
-export interface ImpactSummary {
-    insights?: number
-    dashboards?: number
-    notebooks?: number
-    consumers?: string[]
-}
-
-export interface BaseProposal {
+export interface NodeProposal {
+    kind: 'node_proposed' | 'node_drift'
     id: string
-    kind: ProposalKind
-    title: string
-    summary: string
-    ageHours: number
-    confidence: number
-    status: ProposalStatus
-    provenance: Provenance[]
-    impact?: ImpactSummary
-    suggestedReviewers?: string[]
-    rejectionReason?: string
+    node: CatalogNodeDTOApi
+    /** Present when node.kind === 'metric'. Looked up from the metrics endpoint. */
+    metricDefinition?: MetricDefinitionSchemaApi
 }
 
-export interface NewDefinitionProposal extends BaseProposal {
-    kind: 'new_definition'
-    definition: ProposedDefinition
+export interface RelationshipProposal {
+    kind: 'relationship_proposed'
+    id: string
+    relationship: CatalogRelationshipDTOApi
+    sourceNode: CatalogNodeDTOApi | null
+    targetNode: CatalogNodeDTOApi | null
 }
 
-export interface DriftProposal extends BaseProposal {
-    kind: 'drift'
-    targetDefinition: string
-    targetKind: DefinitionKind
-    diff: DiffField[]
-    triggerEvent: string
-}
+export type Proposal = NodeProposal | RelationshipProposal
 
-export interface DuplicateProposal extends BaseProposal {
-    kind: 'duplicate'
-    candidates: {
-        id: string
-        name: string
-        description: string
-        owner?: string
-        usage: number
-    }[]
-    recommendedCanonicalIndex: number
-}
-
-export interface SchemaSyncProposal extends BaseProposal {
-    kind: 'schema_sync'
-    sourceTable: string
-    addedColumns: {
-        column: string
-        type: string
-        suggestedRole: 'dimension' | 'measure' | 'foreign_key'
-        preselected: boolean
-    }[]
-}
-
-export interface RelationshipProposal extends BaseProposal {
-    kind: 'relationship'
-    leftSide: { entity: string; field: string }
-    rightSide: { entity: string; field: string }
-    relationshipType: 'one_to_one' | 'one_to_many' | 'many_to_many'
-    sampleMatches: { left: string; right: string }[]
-}
-
-export interface MetadataProposal extends BaseProposal {
-    kind: 'metadata'
-    targetDefinition: string
-    targetKind: DefinitionKind
-    changes: DiffField[]
-}
-
-export interface QuestionProposal extends BaseProposal {
-    kind: 'question'
-    question: string
-    options?: { id: string; label: string; rationale: string }[]
-    allowFreeform?: boolean
-}
-
-export type Proposal =
-    | NewDefinitionProposal
-    | DriftProposal
-    | DuplicateProposal
-    | SchemaSyncProposal
-    | RelationshipProposal
-    | MetadataProposal
-    | QuestionProposal
+export type CategoryKey = 'all' | 'node_proposed' | 'node_drift' | 'relationship_proposed' | 'rejected_relationships'
 
 export interface ProposalCategory {
-    key: ProposalKind | 'all'
+    key: CategoryKey
     label: string
     iconLabel: string
     description: string
 }
 
 export const PROPOSAL_CATEGORIES: ProposalCategory[] = [
+    { key: 'all', label: 'Inbox', iconLabel: '∗', description: 'Everything waiting on review' },
     {
-        key: 'all',
-        label: 'Inbox',
-        iconLabel: '∗',
-        description: 'Everything waiting on review',
-    },
-    {
-        key: 'new_definition',
+        key: 'node_proposed',
         label: 'New definitions',
         iconLabel: '⊕',
-        description: 'Entities, metrics and dimensions the agent discovered',
+        description: 'Tables, saved queries, metrics, and event/property definitions the agent proposed',
     },
     {
-        key: 'drift',
+        key: 'node_drift',
         label: 'Drift',
         iconLabel: '⚠',
-        description: 'Definitions that may be stale after upstream changes',
+        description: 'Definitions the agent flagged as stale after upstream changes',
     },
     {
-        key: 'duplicate',
-        label: 'Duplicates',
-        iconLabel: '⇆',
-        description: 'Likely-duplicate definitions to merge',
-    },
-    {
-        key: 'schema_sync',
-        label: 'Schema sync',
-        iconLabel: '⇨',
-        description: 'New columns in connected sources',
-    },
-    {
-        key: 'relationship',
+        key: 'relationship_proposed',
         label: 'Relationships',
         iconLabel: '↔',
-        description: 'Detected joins across entities',
-    },
-    {
-        key: 'metadata',
-        label: 'Metadata',
-        iconLabel: '✎',
-        description: 'Suggested description, synonym and owner improvements',
-    },
-    {
-        key: 'question',
-        label: 'Questions',
-        iconLabel: '?',
-        description: 'Agent needs your input to proceed',
+        description: 'Joins and dependencies between catalog nodes the agent proposed',
     },
 ]
 
 export const KIND_LABELS: Record<ProposalKind, string> = {
-    new_definition: 'New definition',
-    drift: 'Drift alert',
-    duplicate: 'Merge duplicates',
-    schema_sync: 'Schema sync',
-    relationship: 'Relationship',
-    metadata: 'Metadata',
-    question: 'Question',
+    node_proposed: 'New definition',
+    node_drift: 'Drift alert',
+    relationship_proposed: 'Relationship',
+}
+
+/** Pretty label for a CatalogNode.kind. */
+export const NODE_KIND_LABELS: Record<string, string> = {
+    warehouse_table: 'Warehouse table',
+    saved_query: 'Saved query',
+    system_table: 'System table',
+    posthog_table: 'PostHog table',
+    metric: 'Metric',
+    event_definition: 'Event definition',
+    property_definition: 'Property definition',
+}
+
+/** Pretty label for a CatalogRelationship.kind. */
+export const RELATIONSHIP_KIND_LABELS: Record<string, string> = {
+    foreign_key: 'Foreign key',
+    same_entity: 'Same entity',
+    lineage: 'Lineage',
+    declared_join: 'Declared join',
+    join_candidate: 'Join candidate',
+    depends_on: 'Depends on',
 }

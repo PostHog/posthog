@@ -1,49 +1,77 @@
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { RelationshipProposal } from '../proposalTypes'
+import type { CatalogNodeDTOApi } from 'products/catalog/frontend/generated/api.schemas'
 
-const REL_LABEL: Record<RelationshipProposal['relationshipType'], string> = {
-    one_to_one: '1 ↔ 1',
-    one_to_many: '1 ↔ N',
-    many_to_many: 'N ↔ N',
-}
+import { NODE_KIND_LABELS, RelationshipProposal, RELATIONSHIP_KIND_LABELS } from '../proposalTypes'
 
+/**
+ * Detail view for a CatalogRelationship proposal.
+ * Renders source → target topology, the agent's reasoning, and confidence.
+ */
 export function RelationshipDetail({ proposal }: { proposal: RelationshipProposal }): JSX.Element {
+    const { relationship, sourceNode, targetNode } = proposal
+    const kindLabel = RELATIONSHIP_KIND_LABELS[relationship.kind] ?? relationship.kind
+
     return (
         <div className="flex flex-col gap-4">
             <section className="border rounded p-4 bg-surface-primary">
                 <div className="flex items-center justify-center gap-4">
-                    <EntityChip entity={proposal.leftSide.entity} field={proposal.leftSide.field} />
+                    <NodeChip
+                        node={sourceNode}
+                        fallbackId={relationship.source_node_id}
+                        columnName={relationship.source_column}
+                    />
                     <div className="flex flex-col items-center">
-                        <span className="text-xs text-muted-alt">join</span>
-                        <span className="font-mono text-sm">{REL_LABEL[proposal.relationshipType]}</span>
+                        <span className="text-xs text-muted-alt">{kindLabel}</span>
+                        <span className="font-mono text-sm">↔</span>
                     </div>
-                    <EntityChip entity={proposal.rightSide.entity} field={proposal.rightSide.field} />
+                    <NodeChip
+                        node={targetNode}
+                        fallbackId={relationship.target_node_id}
+                        columnName={relationship.target_column}
+                    />
                 </div>
             </section>
 
-            <section>
-                <h4 className="text-xs uppercase tracking-wide text-muted-alt mb-2">Sample matches</h4>
-                <div className="flex flex-col gap-1 text-xs font-mono">
-                    {proposal.sampleMatches.map((m, i) => (
-                        <div key={i} className="grid grid-cols-2 gap-2 p-2 border rounded bg-surface-primary">
-                            <span className="truncate">{m.left}</span>
-                            <span className="truncate text-muted-alt">→ {m.right}</span>
-                        </div>
-                    ))}
+            {relationship.reasoning ? (
+                <section>
+                    <h4 className="text-xs uppercase tracking-wide text-muted-alt mb-1">Reasoning</h4>
+                    <p className="text-sm">{relationship.reasoning}</p>
+                </section>
+            ) : null}
+
+            <section className="grid grid-cols-2 gap-4 text-xs text-muted-alt">
+                <div>
+                    <div className="uppercase tracking-wide mb-0.5">Discovered</div>
+                    <div className="text-default">{relationship.discovered_at}</div>
+                </div>
+                <div>
+                    <div className="uppercase tracking-wide mb-0.5">Last seen</div>
+                    <div className="text-default">{relationship.last_seen_at}</div>
                 </div>
             </section>
         </div>
     )
 }
 
-function EntityChip({ entity, field }: { entity: string; field: string }): JSX.Element {
+function NodeChip({
+    node,
+    fallbackId,
+    columnName,
+}: {
+    node: CatalogNodeDTOApi | null
+    fallbackId: string
+    columnName: string | null
+}): JSX.Element {
     return (
         <div className="border rounded p-3 min-w-32 text-center">
             <LemonTag type="primary" size="small">
-                {entity}
+                {node ? (NODE_KIND_LABELS[node.kind] ?? node.kind) : 'unknown'}
             </LemonTag>
-            <div className="font-mono text-xs mt-1.5">{field}</div>
+            <div className="font-mono text-xs mt-1.5 truncate">{node?.name ?? fallbackId}</div>
+            {columnName ? (
+                <div className="font-mono text-[10px] text-muted-alt mt-0.5 truncate">.{columnName}</div>
+            ) : null}
         </div>
     )
 }
