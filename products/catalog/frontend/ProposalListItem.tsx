@@ -1,20 +1,13 @@
 import clsx from 'clsx'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
-import { KIND_LABELS, PROPOSAL_CATEGORIES, Proposal } from './proposalTypes'
+import { KIND_LABELS, NODE_KIND_LABELS, PROPOSAL_CATEGORIES, Proposal, RELATIONSHIP_KIND_LABELS } from './proposalTypes'
 
-const TAG_TYPE_BY_KIND: Record<
-    Proposal['kind'],
-    'primary' | 'warning' | 'danger' | 'success' | 'highlight' | 'completion' | 'option'
-> = {
-    new_definition: 'primary',
-    drift: 'warning',
-    duplicate: 'highlight',
-    schema_sync: 'completion',
-    relationship: 'option',
-    metadata: 'success',
-    question: 'danger',
+const TAG_TYPE_BY_KIND: Record<Proposal['kind'], LemonTagType> = {
+    node_proposed: 'primary',
+    node_drift: 'warning',
+    relationship_proposed: 'option',
 }
 
 interface ProposalListItemProps {
@@ -25,6 +18,8 @@ interface ProposalListItemProps {
 
 export function ProposalListItem({ proposal, selected, onClick }: ProposalListItemProps): JSX.Element {
     const cat = PROPOSAL_CATEGORIES.find((c) => c.key === proposal.kind)
+    const { title, summary, confidence } = describeProposal(proposal)
+
     return (
         <button
             type="button"
@@ -45,25 +40,47 @@ export function ProposalListItem({ proposal, selected, onClick }: ProposalListIt
                         <LemonTag type={TAG_TYPE_BY_KIND[proposal.kind]} size="small">
                             {KIND_LABELS[proposal.kind]}
                         </LemonTag>
-                        <span className="tabular-nums">{Math.round(proposal.confidence * 100)}% confidence</span>
-                        <span aria-hidden>·</span>
-                        <span>{formatAge(proposal.ageHours)}</span>
+                        {confidence != null ? (
+                            <span className="tabular-nums">{Math.round(confidence * 100)}% confidence</span>
+                        ) : null}
                     </div>
-                    <div className="font-medium leading-tight truncate">{proposal.title}</div>
-                    <div className="text-xs text-muted-alt mt-0.5 truncate">{proposal.summary}</div>
+                    <div className="font-medium leading-tight truncate">{title}</div>
+                    <div className="text-xs text-muted-alt mt-0.5 truncate">{summary}</div>
                 </div>
             </div>
         </button>
     )
 }
 
-function formatAge(hours: number): string {
-    if (hours < 1) {
-        return 'just now'
+/**
+ * Map a real Proposal onto the title/summary/confidence the row needs.
+ * Lives here so the dispatcher in ProposalDetail and this row share zero
+ * derived-state logic — each pulls what it needs straight from the DTO.
+ */
+function describeProposal(proposal: Proposal): { title: string; summary: string; confidence: number | null } {
+    if (proposal.kind === 'relationship_proposed') {
+        const { relationship, sourceNode, targetNode } = proposal
+        const kindLabel = RELATIONSHIP_KIND_LABELS[relationship.kind] ?? relationship.kind
+        const source = sourceNode?.name ?? '?'
+        const target = targetNode?.name ?? '?'
+        return {
+            title: `${source} ↔ ${target}`,
+            summary: `${kindLabel}${relationship.reasoning ? ` · ${relationship.reasoning}` : ''}`,
+            confidence: relationship.confidence,
+        }
     }
-    if (hours < 24) {
-        return `${Math.round(hours)}h ago`
+    const { node } = proposal
+    const kindLabel = NODE_KIND_LABELS[node.kind] ?? node.kind
+    const summaryPieces: string[] = [kindLabel]
+    if (node.business_domain) {
+        summaryPieces.push(`domain: ${node.business_domain}`)
     }
-    const days = Math.round(hours / 24)
-    return `${days}d ago`
+    if (node.columns.length) {
+        summaryPieces.push(`${node.columns.length} col${node.columns.length === 1 ? '' : 's'}`)
+    }
+    return {
+        title: node.name,
+        summary: summaryPieces.join(' · '),
+        confidence: node.confidence,
+    }
 }

@@ -1,8 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { PROPOSAL_CATEGORIES } from './proposalTypes'
-import { CategoryKey, catalogProposalsLogic } from './catalogProposalsLogic'
+import { catalogProposalsLogic } from './catalogProposalsLogic'
+import { CategoryKey, PROPOSAL_CATEGORIES } from './proposalTypes'
 
 export function ProposalCategoryRail(): JSX.Element {
     const { activeCategory, categoryCounts } = useValues(catalogProposalsLogic)
@@ -15,9 +15,9 @@ export function ProposalCategoryRail(): JSX.Element {
                     key={cat.key}
                     label={cat.label}
                     icon={cat.iconLabel}
-                    count={categoryCounts[cat.key as CategoryKey] ?? 0}
+                    count={categoryCounts[cat.key] ?? 0}
                     active={activeCategory === cat.key}
-                    onClick={() => setActiveCategory(cat.key as CategoryKey)}
+                    onClick={() => setActiveCategory(cat.key)}
                 />
             ))}
             <div className="my-2 border-t" />
@@ -25,9 +25,9 @@ export function ProposalCategoryRail(): JSX.Element {
             <CategoryRow
                 label="Recently rejected"
                 icon="✕"
-                count={categoryCounts.rejected ?? 0}
-                active={activeCategory === 'rejected'}
-                onClick={() => setActiveCategory('rejected')}
+                count={categoryCounts.rejected_relationships ?? 0}
+                active={activeCategory === 'rejected_relationships'}
+                onClick={() => setActiveCategory('rejected_relationships' as CategoryKey)}
             />
         </nav>
     )
