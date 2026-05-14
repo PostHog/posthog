@@ -171,8 +171,12 @@ export function ManagedSourcesTable(): JSX.Element {
                                 schemas: syncingSchemas.filter((s) => s.status === status),
                             })).filter(({ schemas }) => schemas.length > 0)
 
-                            // No per-schema status data — fall back to the source-level tag.
                             if (counts.length === 0) {
+                                // Source has schemas but none are enabled — source.status can be stale
+                                // ("Running" from before they were disabled), so show a neutral tag instead.
+                                if (source.schemas.length > 0) {
+                                    return <LemonTag type="muted">Not syncing</LemonTag>
+                                }
                                 const tagContent = (
                                     <LemonTag type={StatusTagSetting[source.status] || 'default'}>
                                         {source.status}
