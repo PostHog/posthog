@@ -823,7 +823,11 @@ function printKnownList(toolName: string, result: unknown): boolean {
         return true
     }
 
-    if (toolName === 'insight-get-all' || toolName === 'insights-list') {
+    if (
+        toolName === 'insight-get-all' ||
+        toolName === 'insights-list' ||
+        toolName === 'insights-trending-retrieve'
+    ) {
         printInsights(result)
         return true
     }
