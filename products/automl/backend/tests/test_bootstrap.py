@@ -10,6 +10,7 @@ from products.automl.backend.facade import api, contracts
 from products.automl.backend.facade.enums import TaskType
 from products.automl.backend.training import bootstrap
 from products.tasks.backend.models import Task
+from products.tasks.backend.services.sandbox import SandboxTemplate
 
 
 def _make_pipeline(
@@ -122,11 +123,11 @@ def test_brief_mentions_each_canonical_contract_step(team):
     brief = bootstrap._build_orchestration_brief(pipeline)
 
     expected_anchors = [
-        # Step 1 — install the CLI from the bind-mounted source via uv (much
-        # faster resolver than pip on autogluon's transitive dep graph). Both
-        # commands need --break-system-packages on Ubuntu 24.04 per PEP 668.
-        "pip install --break-system-packages uv",
-        "uv pip install --system --break-system-packages -e /tmp/workspace/repos/posthog/automl-cli",
+        # Step 1 — install the CLI from the bind-mounted source. The heavy ML
+        # deps (autogluon, torch, polars, ...) are already preinstalled on the
+        # dedicated AutoML sandbox image, so the editable install just wires up
+        # the entry point. uv is preinstalled too — no bootstrap step needed.
+        "uv pip install --system -e /tmp/workspace/repos/posthog/automl-cli",
         "automl --version",
         # Step 2 — fetch the snapshot via the CLI.
         "automl prepare-from-hogql",
@@ -250,3 +251,24 @@ def test_enqueue_bootstrap_training_passes_canonical_args(team, user):
     # Description is the orchestration brief.
     assert "AutoML bootstrap" in kwargs["description"]
     assert pipeline.task_type in kwargs["description"]
+    # Routed onto the dedicated AutoML sandbox image — heavy ML deps preinstalled
+    # so the bind-mounted CLI's editable install resolves in seconds, not minutes.
+    assert kwargs["sandbox_template"] == SandboxTemplate.AUTOML
+
+
+@pytest.mark.django_db
+def test_brief_references_dedicated_automl_sandbox_image(team):
+    """Brief's step 1 names the dedicated image + drops the --break-system-packages
+    boilerplate the slim-sandbox era required."""
+    pipeline = _make_pipeline(team.id)
+    brief = bootstrap._build_orchestration_brief(pipeline)
+    # The brief should call out the preinstalled image so the agent knows it
+    # doesn't have to download autogluon / torch.
+    assert "posthog-sandbox-automl" in brief
+    # And it should no longer carry the EXTERNALLY-MANAGED workaround — that's
+    # been resolved by dropping the marker on the base image.
+    assert "--break-system-packages" not in brief
+    # The uv-bootstrap step (pip install uv) is gone too — uv comes preinstalled
+    # on the dedicated image now.
+    assert "pip install --break-system-packages uv" not in brief
+    assert "pip install" not in brief.split("automl --version")[0].replace("uv pip install", "")

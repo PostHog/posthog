@@ -40,25 +40,26 @@ do not invert their order, do not add steps that mutate user-visible state
 
 ### 1. Setup
 
-You are in a fresh sandbox with the `posthog-automl-cli` source bind-mounted
-at `/tmp/workspace/repos/posthog/automl-cli/`. Install it editable so the
-`automl` console command is on `PATH`. Use `uv` (not plain `pip`) — it
-parallelizes downloads + has a much faster resolver, which on a fresh
-sandbox cuts the AutoGluon dep install from ~18 min down to ~5 min:
+You are in a fresh sandbox provisioned on the **dedicated AutoML image**
+(`posthog-sandbox-automl`). That image extends the base with `uv`, AutoGluon,
+torch, polars, duckdb, pyarrow, and the CLI's other runtime deps already
+installed at the system Python level — so installing the `posthog-automl-cli`
+source editable just wires the entry point in, no multi-GB dep download.
+
+The `posthog-automl-cli` source is bind-mounted at
+`/tmp/workspace/repos/posthog/automl-cli/`. Install it editable so the
+`automl` console command is on `PATH`:
 
 ```bash
-pip install --break-system-packages uv
-uv pip install --system --break-system-packages -e /tmp/workspace/repos/posthog/automl-cli
+uv pip install --system -e /tmp/workspace/repos/posthog/automl-cli
 automl --version  # sanity check; non-zero exit aborts the run
 ```
 
-Both commands need `--break-system-packages` because the sandbox base image
-is Ubuntu 24.04, whose system Python is marked externally-managed per
-[PEP 668](https://peps.python.org/pep-0668/). `uv pip install --system` is
-uv's flag for "install into the system Python, do not create a venv" — the
-sandbox is single-use and disposable so a venv adds no value here. Do not
-fall back to plain `pip install -e` if `uv` errors — bail with
-`unknown_error: AutoML CLI install failed` and surface uv's stderr.
+`uv pip install --system` is uv's flag for "install into the system Python,
+do not create a venv" — the sandbox is single-use and disposable so a venv
+adds no value here. Do not fall back to plain `pip install -e` if `uv` errors
+— bail with `unknown_error: AutoML CLI install failed` and surface uv's
+stderr.
 
 The sandbox already has these env vars set — do **not** override them:
 

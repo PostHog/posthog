@@ -19,6 +19,7 @@ from typing import Any
 from posthog.models import Team
 
 from products.tasks.backend.models import Task
+from products.tasks.backend.services.sandbox import SandboxTemplate
 
 from ..facade.enums import TaskType
 from ..models import AutoMLPipeline
@@ -79,6 +80,10 @@ def enqueue_bootstrap_training(*, pipeline: AutoMLPipeline, user_id: int) -> Tas
         posthog_mcp_scopes="full",
         # AutoML produces model artifacts in object storage, not git commits.
         create_pr=False,
+        # Route onto the dedicated AutoML sandbox image — extends the base
+        # with autogluon + torch + polars preinstalled so the `posthog-automl-cli`
+        # editable install is near-instant instead of ~5 min.
+        sandbox_template=SandboxTemplate.AUTOML,
     )
 
 
