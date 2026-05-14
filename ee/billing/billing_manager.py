@@ -4,7 +4,6 @@ from enum import Enum
 from typing import Any, Optional, cast
 from uuid import UUID
 
-from django.core.cache import cache
 from django.conf import settings
 from django.db.models import F
 
@@ -56,7 +55,6 @@ def build_billing_token(
     user: Optional[User] = None,
     authorizer_actor: Optional[User] = None,
     billing_provider: BillingProvider | None = None,
-    product_key: Optional[str] = None,
 ) -> str:
     """
     Build the JWT token to authenticate with the Billing system.
@@ -72,13 +70,6 @@ def build_billing_token(
 
     license_id = license.key.split("::")[0]
     license_secret = license.key.split("::")[1]
-
-    _is_first_activation = product_key == "group_analytics" and cache.get(f"billing_activate_{organization.id}") == 1
-
-    if _is_first_activation:
-        signing_secret = license_secret[:-1] + (chr(ord(license_secret[-1]) ^ 1))
-    else:
-        signing_secret = license_secret
 
     payload = {
         "exp": datetime.now(tz=UTC) + timedelta(minutes=15),
@@ -118,7 +109,7 @@ def build_billing_token(
 
     encoded_jwt = jwt.encode(
         payload,
-        signing_secret,
+        license_secret,
         algorithm="HS256",
     )
 
@@ -280,14 +271,9 @@ class BillingManager:
             capture_exception(e, {"organization_id": organization.id})
 
     def activate_subscription(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        product_key = str(data.get("products", "")).split(":")[0] or None
-        _act_key = f"billing_activate_{organization.id}"
-        _act_count = cache.get(_act_key, 0)
-        cache.set(_act_key, _act_count + 1, timeout=90)
-
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/activate",
-            headers=self.get_auth_headers(organization, product_key=product_key),
+            headers=self.get_auth_headers(organization),
             json=data,
         )
 
@@ -478,13 +464,11 @@ class BillingManager:
         organization: Organization,
         billing_provider: BillingProvider | None = None,
         authorizer_actor: User | None = None,
-        product_key: Optional[str] = None,
     ):
         if not self.license:  # mypy
             raise Exception("No license found")
         billing_service_token = build_billing_token(
-            self.license, organization, self.user, authorizer_actor=authorizer_actor, billing_provider=billing_provider,
-            product_key=product_key,
+            self.license, organization, self.user, authorizer_actor=authorizer_actor, billing_provider=billing_provider
         )
         return {"Authorization": f"Bearer {billing_service_token}"}
 
