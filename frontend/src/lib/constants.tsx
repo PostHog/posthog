@@ -166,6 +166,7 @@ export const FEATURE_FLAGS = {
 
     // UX flags, used to control the UX of the app
     AI_FIRST: 'ai-first', // this a larger change, not released to team yet
+    SQL_EXPRESSION_AI_SNIPPET: 'sql-expression-ai-snippet', // owner: @lricoy, gates the PostHog AI snippet inside the SQL expression helper popover (TaxonomicFilter HogQL editor) to the PostHog Team cohort
     STARRED_REORDER: 'starred-reorder', // owner: #team-platform-ux, drag-and-drop reorder of starred shortcuts in the side panel
 
     // Feature flags used to control opt-in for different behaviors, should not be removed

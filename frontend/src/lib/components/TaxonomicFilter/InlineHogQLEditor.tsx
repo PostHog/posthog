@@ -1,5 +1,9 @@
+import { useValues } from 'kea'
+
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import MaxTool from 'scenes/max/MaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -20,42 +24,51 @@ export function InlineHogQLEditor({
     globals,
     showBreakdownLabelHint,
 }: InlineHogQLEditorProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const aiSnippetEnabled = !!featureFlags[FEATURE_FLAGS.SQL_EXPRESSION_AI_SNIPPET]
     const currentExpression = String(value ?? '')
+    const editor = (
+        <HogQLEditor
+            onChange={onChange}
+            value={currentExpression}
+            metadataSource={metadataSource}
+            globals={globals}
+            submitText={value ? 'Update SQL expression' : 'Add SQL expression'}
+            showBreakdownLabelHint={showBreakdownLabelHint}
+            disableAutoFocus // :TRICKY: No autofocus here. It's controlled in the TaxonomicFilter.
+        />
+    )
     return (
         <>
             <div className="taxonomic-group-title">SQL expression</div>
             <div className="px-2 pt-2">
-                <MaxTool
-                    identifier="fix_hogql_query"
-                    context={{
-                        hogql_query: currentExpression,
-                        error_message: '',
-                    }}
-                    contextDescription={{
-                        text: 'Current SQL expression',
-                        icon: iconForType('data_warehouse'),
-                    }}
-                    callback={(toolOutput: string) => {
-                        if (typeof toolOutput === 'string' && toolOutput.length > 0) {
-                            onChange(toolOutput)
-                        }
-                    }}
-                    suggestions={[]}
-                    introOverride={{
-                        headline: 'What SQL expression do you need?',
-                        description: 'Let me help you write or refine a SQL expression.',
-                    }}
-                >
-                    <HogQLEditor
-                        onChange={onChange}
-                        value={currentExpression}
-                        metadataSource={metadataSource}
-                        globals={globals}
-                        submitText={value ? 'Update SQL expression' : 'Add SQL expression'}
-                        showBreakdownLabelHint={showBreakdownLabelHint}
-                        disableAutoFocus // :TRICKY: No autofocus here. It's controlled in the TaxonomicFilter.
-                    />
-                </MaxTool>
+                {aiSnippetEnabled ? (
+                    <MaxTool
+                        identifier="fix_hogql_query"
+                        context={{
+                            hogql_query: currentExpression,
+                            error_message: '',
+                        }}
+                        contextDescription={{
+                            text: 'Current SQL expression',
+                            icon: iconForType('data_warehouse'),
+                        }}
+                        callback={(toolOutput: string) => {
+                            if (typeof toolOutput === 'string' && toolOutput.length > 0) {
+                                onChange(toolOutput)
+                            }
+                        }}
+                        suggestions={[]}
+                        introOverride={{
+                            headline: 'What SQL expression do you need?',
+                            description: 'Let me help you write or refine a SQL expression.',
+                        }}
+                    >
+                        {editor}
+                    </MaxTool>
+                ) : (
+                    editor
+                )}
             </div>
         </>
     )
