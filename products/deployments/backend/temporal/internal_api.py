@@ -1,0 +1,88 @@
+"""Thin HTTP client the build worker uses to call the Deployments internal API.
+
+The internal endpoints (`POST /api/internal/deployments/{id}/transitions/`
+and `.../events/`) live in `products/deployments/backend/api/internal.py`.
+The worker uses them to advance the deployment's state machine and to
+append timeline events as activities run.
+
+Auth is the shared `X-Internal-Api-Secret` header. URL is configurable
+via `DEPLOYMENTS_INTERNAL_API_BASE_URL` so the worker can target the
+cluster-internal Service rather than the public ingress.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+from uuid import UUID
+
+from django.conf import settings
+
+import httpx
+
+from ..domain.status import Status
+from ..domain.trigger import ErrorStep
+
+# Tight enough that activity heartbeats from a hung internal API surface
+# fast, but generous enough to ride out a routine pod restart.
+INTERNAL_API_TIMEOUT_SECONDS = 15
+
+
+class InternalApiError(Exception):
+    """Raised when the internal API returns a non-2xx response."""
+
+
+def _base_url() -> str:
+    base = getattr(settings, "DEPLOYMENTS_INTERNAL_API_BASE_URL", "") or getattr(settings, "SITE_URL", "")
+    if not base:
+        raise InternalApiError(
+            "Missing setting: DEPLOYMENTS_INTERNAL_API_BASE_URL (or SITE_URL). "
+            "The deployments worker needs a URL to call back to the web pods."
+        )
+    return base.rstrip("/")
+
+
+def _headers() -> dict[str, str]:
+    secret = getattr(settings, "INTERNAL_API_SECRET", "")
+    if not secret:
+        raise InternalApiError("Missing setting: INTERNAL_API_SECRET.")
+    return {"X-Internal-Api-Secret": secret, "Content-Type": "application/json"}
+
+
+async def post_transition(
+    *,
+    deployment_id: UUID | str,
+    status: Status,
+    cloudflare_deployment_id: str | None = None,
+    deployment_url: str | None = None,
+    error_message: str | None = None,
+    error_step: ErrorStep | None = None,
+) -> None:
+    """Post a status transition to the internal API."""
+    body: dict[str, Any] = {"status": status.value}
+    if cloudflare_deployment_id:
+        body["cloudflare_deployment_id"] = cloudflare_deployment_id
+    if deployment_url:
+        body["deployment_url"] = deployment_url
+    if error_message:
+        body["error_message"] = error_message
+    if error_step is not None:
+        body["error_step"] = error_step.value
+
+    url = f"{_base_url()}/api/internal/deployments/{deployment_id}/transitions/"
+    async with httpx.AsyncClient(timeout=INTERNAL_API_TIMEOUT_SECONDS) as client:
+        response = await client.post(url, json=body, headers=_headers())
+    if not response.is_success:
+        raise InternalApiError(f"Internal API transition POST failed: {response.status_code} {response.text[:200]}")
+
+
+async def post_event(*, deployment_id: UUID | str, event_type: str, payload: dict[str, Any] | None = None) -> None:
+    """Append a timeline event for the deployment."""
+    body: dict[str, Any] = {"event_type": event_type}
+    if payload is not None:
+        body["payload"] = payload
+
+    url = f"{_base_url()}/api/internal/deployments/{deployment_id}/events/"
+    async with httpx.AsyncClient(timeout=INTERNAL_API_TIMEOUT_SECONDS) as client:
+        response = await client.post(url, json=body, headers=_headers())
+    if not response.is_success:
+        raise InternalApiError(f"Internal API event POST failed: {response.status_code} {response.text[:200]}")
