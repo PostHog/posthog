@@ -8,6 +8,11 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
+import {
+    DEFAULT_AGENTIC_TEST_BROWSERBASE_REGION,
+    isAgenticTestBrowserbaseRegionCode,
+    normalizeAgenticTestRegionsFromApi,
+} from '../../agenticTestRegions'
 import { AgenticTestAssertion, AgenticTestAssertionType, defaultAssertion } from '../../assertions'
 import {
     agenticTestRunsList,
@@ -60,7 +65,7 @@ const emptyDraft: AgenticTestDraft = {
     status: 'active',
     assertions: [],
     schedule_cron: '',
-    regions: ['us-west-2'],
+    regions: [DEFAULT_AGENTIC_TEST_BROWSERBASE_REGION],
 }
 
 export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
@@ -85,9 +90,12 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
         pause: true,
         clearChanges: true,
         reject: true,
+        /** Applies region checkbox toggles using latest draft from listeners `values`. */
+        setAgenticTestFormRegion: (region: string, selected: boolean) => ({ region, selected }),
         addAssertion: (assertionType: AgenticTestAssertionType) => ({ assertionType }),
         updateAssertion: (index: number, patch: Partial<AgenticTestAssertion>) => ({ index, patch }),
         removeAssertion: (index: number) => ({ index }),
+        setSelectedRunId: (runId: string | null) => ({ runId }),
     }),
     reducers({
         liveEvents: [
@@ -103,6 +111,12 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
             {
                 streamRun: () => true,
                 setStreaming: (_, { streaming }) => streaming,
+            },
+        ],
+        selectedRunId: [
+            null as string | null,
+            {
+                setSelectedRunId: (_, { runId }) => runId,
             },
         ],
     }),
@@ -150,7 +164,11 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                     lemonToast.error('Pick at least one region for this test to run from')
                     return
                 }
-                draft = { ...draft, name }
+                draft = {
+                    ...draft,
+                    name,
+                    regions: normalizeAgenticTestRegionsFromApi(draft.regions),
+                }
                 const isNew = !props.id || props.id === 'new'
                 const saved = (isNew
                     ? await agenticTestsCreate(projectId(), draft as any)
@@ -189,7 +207,7 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                 assertions: test.assertions ?? [],
                 source_replay_id: test.source_replay_id,
                 schedule_cron: (test as any).schedule_cron ?? '',
-                regions: (test as any).regions ?? [],
+                regions: normalizeAgenticTestRegionsFromApi((test as any).regions),
             })
             actions.loadRuns()
         },
@@ -208,8 +226,24 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                 assertions: test.assertions ?? [],
                 source_replay_id: test.source_replay_id,
                 schedule_cron: (test as any).schedule_cron ?? '',
-                regions: (test as any).regions ?? [],
+                regions: normalizeAgenticTestRegionsFromApi((test as any).regions),
             })
+        },
+        setAgenticTestFormRegion: ({ region, selected }) => {
+            let base = (values.testForm.regions ?? []).filter(isAgenticTestBrowserbaseRegionCode)
+            if (base.length === 0) {
+                base = [DEFAULT_AGENTIC_TEST_BROWSERBASE_REGION]
+            }
+            if (!selected && base.length === 1 && base[0] === region) {
+                return
+            }
+            const next = new Set(base)
+            if (selected) {
+                next.add(region)
+            } else {
+                next.delete(region)
+            }
+            actions.setTestFormValue('regions', [...next])
         },
         addAssertion: ({ assertionType }) => {
             const current = values.testForm.assertions ?? []
