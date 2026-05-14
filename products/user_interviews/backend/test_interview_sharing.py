@@ -18,6 +18,7 @@ from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
+from products.user_interviews.backend.webhooks import EMBEDDING_CONTENT_MAX_BYTES
 
 
 class _FeatureFlagEnabledMixin(APIBaseTest):
@@ -424,26 +425,43 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         self.assertEqual(UserInterview.objects.filter(team=self.team).count(), 1)
 
+    @parameterized.expand(
+        [
+            ("transcript_only", True, False),
+            ("summary_only", False, True),
+            ("both", True, True),
+        ]
+    )
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     @patch("products.user_interviews.backend.webhooks.emit_embedding_request")
-    def test_webhook_truncates_oversized_transcript_before_emit(self, mock_emit):
-        from products.user_interviews.backend.webhooks import EMBEDDING_CONTENT_MAX_BYTES
-
+    def test_webhook_truncates_oversized_content_before_emit(
+        self, _name, oversize_transcript, oversize_summary, mock_emit
+    ):
         share = self._create_share()
         self.client.logout()
-        oversized_transcript = "a" * (EMBEDDING_CONTENT_MAX_BYTES + 1000)
         payload = self._end_of_call_payload(share.access_token)
-        payload["message"]["transcript"] = oversized_transcript
+        original_transcript = payload["message"]["transcript"]
+        original_summary = payload["message"]["summary"]
+        if oversize_transcript:
+            payload["message"]["transcript"] = "a" * (EMBEDDING_CONTENT_MAX_BYTES + 1000)
+        if oversize_summary:
+            payload["message"]["summary"] = "b" * (EMBEDDING_CONTENT_MAX_BYTES + 500)
 
         with self.captureOnCommitCallbacks(execute=True):
             response = self._signed_post("topsecret", payload)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
 
         emitted = {kwargs["document_type"]: kwargs for _, kwargs in mock_emit.call_args_list}
-        self.assertIn("transcript", emitted)
-        self.assertEqual(len(emitted["transcript"]["content"].encode("utf-8")), EMBEDDING_CONTENT_MAX_BYTES)
-        # Summary was under the limit so it's emitted untouched.
-        self.assertEqual(emitted["summary"]["content"], "User talked about replay.")
+
+        for document_type, was_oversized, original in (
+            ("transcript", oversize_transcript, original_transcript),
+            ("summary", oversize_summary, original_summary),
+        ):
+            content_bytes = emitted[document_type]["content"].encode("utf-8")
+            if was_oversized:
+                self.assertEqual(len(content_bytes), EMBEDDING_CONTENT_MAX_BYTES)
+            else:
+                self.assertEqual(emitted[document_type]["content"], original)
 
 
 class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
