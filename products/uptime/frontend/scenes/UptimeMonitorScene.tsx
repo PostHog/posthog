@@ -45,6 +45,7 @@ export function UptimeMonitorScene(): JSX.Element {
         declareIncidentFromOutage,
         startEditingIncident,
         promptResolveIncident,
+        promptPostIncidentUpdate,
         reopenIncident,
         confirmDeleteIncident,
     } = useActions(uptimeMonitorSceneLogic)
@@ -246,6 +247,7 @@ export function UptimeMonitorScene(): JSX.Element {
                         onResolve={promptResolveIncident}
                         onReopen={(id) => reopenIncident(id)}
                         onDelete={(incident) => confirmDeleteIncident({ id: incident.id, name: incident.name })}
+                        onPostUpdate={(incident) => promptPostIncidentUpdate(incident)}
                     />
                 </LemonCard>
             </div>
@@ -358,6 +360,7 @@ function IncidentsList({
     onResolve,
     onReopen,
     onDelete,
+    onPostUpdate,
 }: {
     incidents: Incident[]
     loading: boolean
@@ -366,6 +369,7 @@ function IncidentsList({
     onResolve: (incident: Incident) => void
     onReopen: (incidentId: string) => void
     onDelete: (incident: Incident) => void
+    onPostUpdate: (incident: Incident) => void
 }): JSX.Element {
     if (loading && incidents.length === 0) {
         return <LemonSkeleton className="h-24 w-full" />
@@ -392,6 +396,7 @@ function IncidentsList({
                     onResolve={() => onResolve(incident)}
                     onReopen={() => onReopen(incident.id)}
                     onDelete={() => onDelete(incident)}
+                    onPostUpdate={() => onPostUpdate(incident)}
                 />
             ))}
         </div>

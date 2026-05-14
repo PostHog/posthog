@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { openResolveIncidentDialog } from './incidentActions'
+import { openPostIncidentUpdateDialog, openResolveIncidentDialog } from './incidentActions'
 import type { uptimeSceneLogicType } from './uptimeSceneLogicType'
 
 export type MonitorMode = 'auto' | 'manual'
@@ -74,6 +74,16 @@ export interface OverallStats {
     avgLatencyMs: number | null
 }
 
+export type IncidentUpdateKeyword = 'investigating' | 'identified' | 'fixing' | 'monitoring' | 'resolved' | 'update'
+
+export interface IncidentUpdate {
+    id: string
+    keyword: IncidentUpdateKeyword
+    message: string
+    posted_at: string
+    posted_by_id: number | null
+}
+
 export interface Incident {
     id: string
     monitor_id: string
@@ -82,6 +92,7 @@ export interface Incident {
     started_at: string
     resolved_at: string | null
     resolution_note: string
+    updates: IncidentUpdate[]
     created_at: string
     updated_at: string
 }
@@ -123,6 +134,7 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
         startEditingIncident: (incident: Incident) => ({ incident }),
         stopEditingIncident: true,
         promptResolveIncident: (incident: Incident) => ({ incident }),
+        promptPostIncidentUpdate: (incident: Incident) => ({ incident }),
         reopenIncident: (incidentId: string) => ({ incidentId }),
         confirmDeleteIncident: (incident: { id: string; name: string }) => ({ incident }),
         deleteIncident: (incidentId: string) => ({ incidentId }),
@@ -373,6 +385,13 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
                 incident,
                 projectId: values.currentProjectId as string,
                 onResolved: () => actions.loadIncidents(),
+            })
+        },
+        promptPostIncidentUpdate: ({ incident }) => {
+            openPostIncidentUpdateDialog({
+                incident,
+                projectId: values.currentProjectId as string,
+                onPosted: () => actions.loadIncidents(),
             })
         },
         reopenIncident: async ({ incidentId }) => {

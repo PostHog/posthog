@@ -57,6 +57,11 @@ class Incident(ProductTeamModel):
     # A null resolved_at means the incident is still ongoing — that's the canonical "open" signal.
     resolved_at = models.DateTimeField(null=True, blank=True)
     resolution_note = models.TextField(blank=True, default="")
+    # Append-only timeline of operator-posted updates. Each entry is a dict shaped like
+    # {id, keyword, message, posted_at, posted_by_id}. Stored inline as JSON because the
+    # timeline is always read alongside the parent incident — a separate table buys nothing
+    # but join overhead at v1 scale.
+    updates = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

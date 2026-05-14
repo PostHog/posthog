@@ -118,6 +118,20 @@ class UpdateStatusPageInput:
     monitor_ids: list[UUID] | None = None
 
 
+IncidentUpdateKeyword = Literal["investigating", "identified", "fixing", "monitoring", "resolved", "update"]
+
+
+@dataclass(frozen=True)
+class IncidentUpdateDTO:
+    """One entry in an incident's timeline. Stored inline on Incident.updates as JSON."""
+
+    id: str
+    keyword: IncidentUpdateKeyword
+    message: str
+    posted_at: datetime
+    posted_by_id: int | None
+
+
 @dataclass(frozen=True)
 class IncidentDTO:
     id: UUID
@@ -127,6 +141,7 @@ class IncidentDTO:
     started_at: datetime
     resolved_at: datetime | None
     resolution_note: str
+    updates: list[IncidentUpdateDTO]
     created_at: datetime
     updated_at: datetime
 
@@ -168,6 +183,20 @@ class ResolveIncidentInput:
     team_id: int
     incident_id: UUID
     resolution_note: str
+
+
+@dataclass(frozen=True)
+class PostIncidentUpdateInput:
+    team_id: int
+    incident_id: UUID
+    keyword: IncidentUpdateKeyword
+    message: str
+    posted_at: datetime | None = None
+    posted_by_id: int | None = None
+    # If true (default), an "investigating"/"resolved"/etc. keyword also nudges the
+    # incident's open/closed state — keyword="resolved" closes the incident, anything
+    # else reopens it.
+    sync_status: bool = True
 
 
 @dataclass(frozen=True)

@@ -1,12 +1,13 @@
 import { router } from 'kea-router'
 
-import { IconCheck, IconPencil, IconPlay, IconTrash } from '@posthog/icons'
+import { IconCheck, IconNotification, IconPencil, IconPlay, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
+import { IncidentTimeline } from './IncidentTimeline'
 import { Incident } from './uptimeSceneLogic'
 
 interface IncidentTileProps {
@@ -17,6 +18,7 @@ interface IncidentTileProps {
     onResolve: () => void
     onReopen: () => void
     onDelete: () => void
+    onPostUpdate: () => void
 }
 
 export function IncidentTile({
@@ -27,6 +29,7 @@ export function IncidentTile({
     onResolve,
     onReopen,
     onDelete,
+    onPostUpdate,
 }: IncidentTileProps): JSX.Element {
     const ongoing = incident.resolved_at === null
     const stop = (e: React.MouseEvent): void => e.stopPropagation()
@@ -54,6 +57,12 @@ export function IncidentTile({
                     className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={stop}
                 >
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconNotification />}
+                        onClick={onPostUpdate}
+                        tooltip="Post timeline update"
+                    />
                     <LemonButton size="xsmall" icon={<IconPencil />} onClick={onEdit} tooltip="Edit" />
                     {ongoing ? (
                         <LemonButton
@@ -77,6 +86,12 @@ export function IncidentTile({
 
             {incident.description && (
                 <div className="text-xs text-secondary whitespace-pre-wrap line-clamp-3">{incident.description}</div>
+            )}
+
+            {incident.updates && incident.updates.length > 0 && (
+                <div onClick={stop}>
+                    <IncidentTimeline updates={incident.updates} limit={3} />
+                </div>
             )}
 
             {!ongoing && incident.resolution_note && (

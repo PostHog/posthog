@@ -6,6 +6,7 @@ import { dayjs } from 'lib/dayjs'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { cn } from 'lib/utils/css-classes'
 
+import { IncidentTimeline } from '../IncidentTimeline'
 import { DailyBucket, DailyStatus, Incident, MonitorStatus, MonitorSummary } from '../uptimeSceneLogic'
 
 interface StatusPagePreviewProps {
@@ -110,6 +111,9 @@ function PublicIncidentRow({ incident, monitorName }: { incident: Incident; moni
             </div>
             {incident.description && (
                 <div className="text-xs text-secondary whitespace-pre-wrap">{incident.description}</div>
+            )}
+            {incident.updates && incident.updates.length > 0 && (
+                <IncidentTimeline updates={incident.updates} limit={ongoing ? 5 : 3} className="mt-1" />
             )}
             {!ongoing && incident.resolution_note && (
                 <div className="text-xs whitespace-pre-wrap p-2 rounded bg-surface-secondary">

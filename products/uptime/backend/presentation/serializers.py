@@ -4,6 +4,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from ..facade.contracts import (
     DailyBucketDTO,
     IncidentDTO,
+    IncidentUpdateDTO,
     MonitorDTO,
     MonitorSummaryDTO,
     OutageDTO,
@@ -12,6 +13,8 @@ from ..facade.contracts import (
     StatusPageDTO,
     SuggestedUrlDTO,
 )
+
+INCIDENT_UPDATE_KEYWORDS = ("investigating", "identified", "fixing", "monitoring", "resolved", "update")
 
 
 class MonitorSerializer(DataclassSerializer):
@@ -129,9 +132,41 @@ class PublicStatusPageSerializer(DataclassSerializer):
         dataclass = PublicStatusPageDTO
 
 
+class IncidentUpdateEntrySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = IncidentUpdateDTO
+
+
 class IncidentSerializer(DataclassSerializer):
     class Meta:
         dataclass = IncidentDTO
+
+
+class PostIncidentUpdateSerializer(serializers.Serializer):
+    keyword = serializers.ChoiceField(
+        choices=INCIDENT_UPDATE_KEYWORDS,
+        help_text=(
+            "Status-style keyword for this update. One of investigating, identified, fixing, "
+            "monitoring, resolved, or update (a freeform note that doesn't change incident state)."
+        ),
+    )
+    message = serializers.CharField(
+        max_length=2000,
+        allow_blank=False,
+        help_text="Short freeform message describing the update. Shown verbatim on the timeline.",
+    )
+    posted_at = serializers.DateTimeField(
+        required=False,
+        help_text="When the update was posted. Defaults to the server's current time.",
+    )
+    sync_status = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "When true (default) the keyword also drives the incident's open/closed state: "
+            "'resolved' closes the incident, any other keyword reopens it."
+        ),
+    )
 
 
 class CreateIncidentSerializer(serializers.Serializer):

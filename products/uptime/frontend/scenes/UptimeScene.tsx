@@ -228,8 +228,13 @@ function MonitorsTab(): JSX.Element {
 
 function IncidentsTab(): JSX.Element {
     const { ongoingIncidents, resolvedIncidents, incidentsLoading, monitorSummaries } = useValues(uptimeSceneLogic)
-    const { startEditingIncident, promptResolveIncident, reopenIncident, confirmDeleteIncident } =
-        useActions(uptimeSceneLogic)
+    const {
+        startEditingIncident,
+        promptResolveIncident,
+        promptPostIncidentUpdate,
+        reopenIncident,
+        confirmDeleteIncident,
+    } = useActions(uptimeSceneLogic)
 
     const monitorsById = new Map(monitorSummaries.map((m: MonitorSummary) => [m.id, m]))
 
@@ -258,6 +263,7 @@ function IncidentsTab(): JSX.Element {
             onResolve={() => promptResolveIncident(incident)}
             onReopen={() => reopenIncident(incident.id)}
             onDelete={() => confirmDeleteIncident({ id: incident.id, name: incident.name })}
+            onPostUpdate={() => promptPostIncidentUpdate(incident)}
         />
     )
 

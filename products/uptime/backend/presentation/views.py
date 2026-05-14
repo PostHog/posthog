@@ -15,7 +15,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..facade import api, contracts
 from ..logic import SlugAlreadyTakenError
-from ..models import Monitor
+from ..models import Incident, Monitor
 from .serializers import (
     BulkCreateMonitorSerializer,
     CreateIncidentSerializer,
@@ -25,6 +25,7 @@ from .serializers import (
     MonitorSummarySerializer,
     OutageSerializer,
     PingSerializer,
+    PostIncidentUpdateSerializer,
     PublicStatusPageSerializer,
     ReorderMonitorsSerializer,
     ResolveIncidentSerializer,
@@ -319,6 +320,35 @@ class IncidentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             dto = api.reopen_incident(team_id=self.team_id, incident_id=UUID(str(pk)))
         except Exception as exc:
+            raise NotFound("Incident not found") from exc
+        return Response(IncidentSerializer(dto).data)
+
+    @extend_schema(
+        request=PostIncidentUpdateSerializer,
+        responses={200: IncidentSerializer},
+        description=(
+            "Append a timeline entry (keyword + message + optional posted_at) to the incident. "
+            "By default the keyword also drives the incident's open/closed state — set sync_status "
+            "to false to post a note without changing the incident."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="post_update", required_scopes=["uptime:write"])
+    def post_update(self, request: Request, pk: str | None = None, **kwargs) -> Response:
+        serializer = PostIncidentUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            dto = api.post_incident_update(
+                contracts.PostIncidentUpdateInput(
+                    team_id=self.team_id,
+                    incident_id=UUID(str(pk)),
+                    keyword=serializer.validated_data["keyword"],
+                    message=serializer.validated_data["message"],
+                    posted_at=serializer.validated_data.get("posted_at"),
+                    posted_by_id=request.user.id if request.user.is_authenticated else None,
+                    sync_status=serializer.validated_data.get("sync_status", True),
+                )
+            )
+        except Incident.DoesNotExist as exc:
             raise NotFound("Incident not found") from exc
         return Response(IncidentSerializer(dto).data)
 

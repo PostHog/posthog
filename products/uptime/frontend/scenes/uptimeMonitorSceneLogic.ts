@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { openResolveIncidentDialog } from './incidentActions'
+import { openPostIncidentUpdateDialog, openResolveIncidentDialog } from './incidentActions'
 import type { uptimeMonitorSceneLogicType } from './uptimeMonitorSceneLogicType'
 import { Incident, Monitor, MonitorSummary, Outage, Ping } from './uptimeSceneLogic'
 
@@ -37,6 +37,7 @@ export const uptimeMonitorSceneLogic = kea<uptimeMonitorSceneLogicType>([
         startEditingIncident: (incident: Incident) => ({ incident }),
         closeIncidentModal: true,
         promptResolveIncident: (incident: Incident) => ({ incident }),
+        promptPostIncidentUpdate: (incident: Incident) => ({ incident }),
         reopenIncident: (incidentId: string) => ({ incidentId }),
         confirmDeleteIncident: (incident: { id: string; name: string }) => ({ incident }),
         deleteIncident: (incidentId: string) => ({ incidentId }),
@@ -269,6 +270,13 @@ export const uptimeMonitorSceneLogic = kea<uptimeMonitorSceneLogicType>([
                 incident,
                 projectId: values.currentProjectId as string,
                 onResolved: () => actions.loadIncidents(),
+            })
+        },
+        promptPostIncidentUpdate: ({ incident }) => {
+            openPostIncidentUpdateDialog({
+                incident,
+                projectId: values.currentProjectId as string,
+                onPosted: () => actions.loadIncidents(),
             })
         },
         reopenIncident: async ({ incidentId }) => {
