@@ -13,6 +13,7 @@ import { GENERATED_TOOLS as core } from './core'
 import { GENERATED_TOOLS as customer_analytics } from './customer_analytics'
 import { GENERATED_TOOLS as dashboards } from './dashboards'
 import { GENERATED_TOOLS as data_warehouse } from './data_warehouse'
+import { GENERATED_TOOLS as deployments } from './deployments'
 import { GENERATED_TOOLS as docs } from './docs'
 import { GENERATED_TOOLS as early_access_features } from './early_access_features'
 import { GENERATED_TOOLS as endpoints } from './endpoints'
@@ -51,6 +52,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...customer_analytics,
     ...dashboards,
     ...data_warehouse,
+    ...deployments,
     ...docs,
     ...early_access_features,
     ...endpoints,
