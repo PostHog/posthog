@@ -4205,21 +4205,6 @@
             "readOnlyHint": true
         }
     },
-    "projects-list": {
-        "description": "List all projects (also called teams) the authenticated user can access. Returns each project's id, name, and key settings. Pair with `project-get` to fetch full details. Mirrors Vercel's `list_projects`.",
-        "category": "Core",
-        "feature": "core",
-        "summary": "List projects",
-        "title": "List projects",
-        "required_scopes": ["project:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "properties-list": {
         "description": "List properties for events or persons. If fetching event properties, you must provide an event name.",
         "category": "Events & properties",

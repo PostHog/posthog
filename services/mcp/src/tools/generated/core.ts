@@ -3,7 +3,6 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    OrganizationsProjectsListQueryParams,
     OrganizationsProjectsPartialUpdateBody,
     OrganizationsProjectsPartialUpdateParams,
     OrganizationsProjectsRetrieveParams,
@@ -233,40 +232,6 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
             body,
         })
         return result
-    },
-})
-
-const ProjectsListSchema = OrganizationsProjectsListQueryParams
-
-const projectsList = (): ToolBase<
-    typeof ProjectsListSchema,
-    WithPostHogUrl<Schemas.PaginatedProjectBackwardCompatBasicList>
-> => ({
-    name: 'projects-list',
-    schema: ProjectsListSchema,
-    handler: async (context: Context, params: z.infer<typeof ProjectsListSchema>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.PaginatedProjectBackwardCompatBasicList>({
-            method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-                search: params.search,
-            },
-        })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                omitResponseFields(item, [
-                    'results.*.secret_api_token',
-                    'results.*.secret_api_token_backup',
-                    'results.*.live_events_token',
-                    'results.*.default_modifiers',
-                ])
-            ),
-        } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
     },
 })
 
@@ -628,7 +593,6 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'project-get': projectGet,
     'project-settings-update': projectSettingsUpdate,
-    'projects-list': projectsList,
     'subscriptions-create': subscriptionsCreate,
     'subscriptions-deliveries-list': subscriptionsDeliveriesList,
     'subscriptions-deliveries-retrieve': subscriptionsDeliveriesRetrieve,

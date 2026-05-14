@@ -520,24 +520,7 @@ tools:
         enabled: false
     projects-list:
         operation: organizations_projects_list
-        enabled: true
-        scopes:
-            - project:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List projects
-        description: >
-            List all projects (also called teams) the authenticated user can access. Returns each project's id, name,
-            and key settings. Pair with `project-get` to fetch full details. Mirrors Vercel's `list_projects`.
-        response:
-            exclude:
-                - results.*.secret_api_token
-                - results.*.secret_api_token_backup
-                - results.*.live_events_token
-                - results.*.default_modifiers
+        enabled: false
     projects-update:
         operation: organizations_projects_update
         enabled: false
