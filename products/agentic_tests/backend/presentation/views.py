@@ -4,7 +4,10 @@ import json
 import asyncio
 import threading
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import Task
 
 from django.db.models import QuerySet
 from django.http import StreamingHttpResponse
@@ -23,7 +26,12 @@ from products.agentic_tests.backend.logic.execution import execute_agentic_test
 from products.agentic_tests.backend.logic.runner import AgentEvent, run_agent
 from products.agentic_tests.backend.models import AgenticTest, AgenticTestRun
 
-from .serializers import AgenticTestRunSerializer, AgenticTestSerializer
+from .serializers import (
+    AgenticTestRunSerializer,
+    AgenticTestSerializer,
+    DetectFlowsRequestSerializer,
+    DetectFlowsResponseSerializer,
+)
 
 
 class AgenticTestViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -38,6 +46,82 @@ class AgenticTestViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.save(
             team_id=self.team_id,
             created_by=self.request.user if self.request.user.is_authenticated else None,
+        )
+
+    @extend_schema(
+        methods=["GET"],
+        request=None,
+        responses={200: DetectFlowsResponseSerializer},
+        description="Get the latest flow-detection task for this team, if any.",
+    )
+    @extend_schema(
+        methods=["POST"],
+        request=DetectFlowsRequestSerializer,
+        responses={202: DetectFlowsResponseSerializer},
+        description="Launch a sandboxed agent to analyze a GitHub repository and propose test flows.",
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        request=None,
+        responses={204: None},
+        description="Dismiss the latest flow-detection task (soft-delete).",
+    )
+    @action(detail=False, methods=["get", "post", "delete"])
+    def detect_flows(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if request.method == "GET":
+            return self._get_detect_flows_status()
+        if request.method == "DELETE":
+            return self._dismiss_detect_flows()
+        return self._start_detect_flows(request)
+
+    def _get_detect_flows_status(self) -> Response:
+        task = self._get_latest_detect_flows_task()
+        if task is None:
+            return Response(None, status=status.HTTP_204_NO_CONTENT)
+
+        run = task.runs.order_by("-created_at").first()
+        if run is None:
+            return Response(None, status=status.HTTP_204_NO_CONTENT)
+
+        return Response(
+            DetectFlowsResponseSerializer({"task_id": task.id, "task_run_id": run.id, "status": run.status}).data,
+        )
+
+    def _dismiss_detect_flows(self) -> Response:
+        task = self._get_latest_detect_flows_task()
+        if task is not None:
+            task.soft_delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _get_latest_detect_flows_task(self) -> "Task | None":
+        from products.tasks.backend.models import Task
+
+        return (
+            Task.objects.filter(
+                team_id=self.team_id,
+                origin_product=Task.OriginProduct.AGENTIC_TESTS,
+                deleted=False,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+    def _start_detect_flows(self, request: Request) -> Response:
+        serializer = DetectFlowsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        from products.agentic_tests.backend.logic.detect_flows import launch_detect_flows_task
+
+        task = launch_detect_flows_task(
+            team=self.team,
+            user=request.user,
+            repository=serializer.validated_data["repository"],
+            domain=serializer.validated_data["domain"],
+        )
+        task_run = task.runs.order_by("-created_at").first()
+        return Response(
+            DetectFlowsResponseSerializer({"task_id": task.id, "task_run_id": task_run.id if task_run else None}).data,
+            status=status.HTTP_202_ACCEPTED,
         )
 
     @extend_schema(
