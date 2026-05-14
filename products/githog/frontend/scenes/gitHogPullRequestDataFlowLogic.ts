@@ -13,9 +13,29 @@ export interface GitHogPullRequestDataFlowLogicProps {
 }
 
 export interface GitHogDataFlowStep {
+    id: string
     title: string
     file: string
     detail: string
+}
+
+export interface GitHogFlowNode {
+    id: string
+    label: string
+    file: string
+    detail: string
+    kind: string
+}
+
+export interface GitHogFlowEdge {
+    source: string
+    target: string
+    label: string
+}
+
+export interface GitHogFlowGraph {
+    nodes: GitHogFlowNode[]
+    edges: GitHogFlowEdge[]
 }
 
 export interface GitHogDataFlow {
@@ -23,17 +43,23 @@ export interface GitHogDataFlow {
     pr_number: number
     head_sha: string
     base_sha: string
-    mermaid_before: string
-    mermaid_after: string
+    flow_before: GitHogFlowGraph
+    flow_after: GitHogFlowGraph
     steps_before: GitHogDataFlowStep[]
     steps_after: GitHogDataFlowStep[]
     summary: string
     truncated: boolean
+    files_total: number
+    files_with_content: number
     cached: boolean
     computed_at: string
 }
 
-export type DataFlowView = 'mermaid' | 'steps'
+export type DataFlowView = 'graphs' | 'diff' | 'steps'
+
+// Survives kea unmount/remount cycles (e.g. React StrictMode dev double-mount). The Refresh
+// button bypasses this set explicitly by calling refreshDataFlow → loadDataFlow({refresh:true}).
+const loadedKeys = new Set<string>()
 
 export const gitHogPullRequestDataFlowLogic = kea<gitHogPullRequestDataFlowLogicType>([
     props({} as GitHogPullRequestDataFlowLogicProps),
@@ -45,7 +71,7 @@ export const gitHogPullRequestDataFlowLogic = kea<gitHogPullRequestDataFlowLogic
     }),
     reducers({
         view: [
-            'mermaid' as DataFlowView,
+            'diff' as DataFlowView,
             {
                 setView: (_, { view }) => view,
             },
@@ -76,7 +102,14 @@ export const gitHogPullRequestDataFlowLogic = kea<gitHogPullRequestDataFlowLogic
             actions.loadDataFlow({ refresh: true })
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadDataFlow({})
+    afterMount(({ actions, values, props }) => {
+        // Guard against React StrictMode double-mount and back-to-back remounts (kea
+        // tears down state on unmount, so module-level memoization is the only place
+        // the prior-load fact survives an unmount/remount cycle).
+        const key = `${props.owner}/${props.name}#${props.number}`
+        if (values.dataFlow === null && !values.dataFlowLoading && !loadedKeys.has(key)) {
+            loadedKeys.add(key)
+            actions.loadDataFlow({})
+        }
     }),
 ])

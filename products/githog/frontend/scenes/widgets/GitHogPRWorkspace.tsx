@@ -12,13 +12,13 @@ import { IconCheck, IconCode, IconDrag, IconGitBranch, IconGithub, IconPlus, Ico
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
-import MermaidDiagram from 'lib/lemon-ui/LemonMarkdown/MermaidDiagram'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
+import { DataFlowGraph, computeFlowDiff } from '../DataFlowGraph'
 import {
     GitHogLayoutItem,
     GitHogPRLayoutLogicProps,
@@ -275,14 +275,105 @@ function StepList({ steps, emptyLabel }: { steps: GitHogDataFlowStep[]; emptyLab
     )
 }
 
+function LegendDot({ color, label }: { color: string; label: string }): JSX.Element {
+    return (
+        <span className="flex items-center gap-1">
+            <span
+                className="inline-block size-2.5 rounded-sm border"
+                style={{ background: color, borderColor: color }}
+            />
+            <span>{label}</span>
+        </span>
+    )
+}
+
 function DataFlowWidgetForPR({ owner, name, number }: GitHogPullRequestDataFlowLogicProps): JSX.Element {
     const logic = gitHogPullRequestDataFlowLogic({ owner, name, number })
     const { dataFlow, dataFlowLoading, view } = useValues(logic)
     const { setView, refreshDataFlow } = useActions(logic)
 
+    const diff = useMemo(() => {
+        if (!dataFlow) {
+            return null
+        }
+        return computeFlowDiff(dataFlow.flow_before, dataFlow.flow_after)
+    }, [dataFlow])
+
+    const renderBody = (): JSX.Element => {
+        if (dataFlowLoading && !dataFlow) {
+            return (
+                <>
+                    <LemonSkeleton className="h-4 w-3/4" />
+                    <LemonSkeleton className="h-64 w-full" />
+                </>
+            )
+        }
+        if (!dataFlow) {
+            return <p className="text-secondary text-sm my-0">No flow available yet. Click Refresh to generate one.</p>
+        }
+        if (view === 'steps') {
+            return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-2 min-w-0">
+                        <div className="text-xs uppercase tracking-wide text-muted">Before</div>
+                        <StepList steps={dataFlow.steps_before} emptyLabel="No prior flow." />
+                    </div>
+                    <div className="flex flex-col gap-2 min-w-0">
+                        <div className="text-xs uppercase tracking-wide text-muted">After</div>
+                        <StepList steps={dataFlow.steps_after} emptyLabel="No new flow." />
+                    </div>
+                </div>
+            )
+        }
+        if (view === 'graphs') {
+            return (
+                <div className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-2 min-w-0">
+                        <div className="text-xs uppercase tracking-wide text-muted">Before</div>
+                        <DataFlowGraph graph={dataFlow.flow_before} heightClass="h-[24rem]" />
+                    </div>
+                    <div className="flex flex-col gap-2 min-w-0">
+                        <div className="text-xs uppercase tracking-wide text-muted">After</div>
+                        <DataFlowGraph graph={dataFlow.flow_after} heightClass="h-[24rem]" />
+                    </div>
+                </div>
+            )
+        }
+        // diff
+        if (!diff) {
+            return <p className="text-secondary text-sm my-0">No diff available.</p>
+        }
+        return (
+            <DataFlowGraph
+                graph={diff.unionGraph}
+                nodeDiff={diff.nodeDiff}
+                edgeDiff={diff.edgeDiff}
+                heightClass="h-[32rem]"
+            />
+        )
+    }
+
+    const legend = (
+        <div className="flex items-center gap-x-4 gap-y-1 text-xs text-muted flex-wrap">
+            <span className="font-semibold uppercase tracking-wide text-[10px] opacity-70">Kinds</span>
+            <LegendDot color="rgb(59,130,246)" label="Entry" />
+            <LegendDot color="rgb(148,163,184)" label="Step" />
+            <LegendDot color="rgb(168,85,247)" label="Side effect" />
+            <LegendDot color="rgb(107,114,128)" label="Return" />
+            {view === 'diff' && (
+                <>
+                    <span className="font-semibold uppercase tracking-wide text-[10px] opacity-70 ml-2">Diff</span>
+                    <LegendDot color="rgb(34,197,94)" label="Added" />
+                    <LegendDot color="rgb(239,68,68)" label="Removed" />
+                    <LegendDot color="rgb(203,213,225)" label="Kept" />
+                </>
+            )}
+        </div>
+    )
+
     return (
         <div className="flex flex-col divide-y divide-border">
-            <div className="px-4 py-3 flex items-center justify-between gap-2">
+            <div className="px-4 py-3 flex items-center justify-between gap-2 flex-wrap">
                 <span className="font-semibold text-sm">Data flow</span>
                 <div className="flex items-center gap-2">
                     <LemonSegmentedButton
@@ -290,7 +381,8 @@ function DataFlowWidgetForPR({ owner, name, number }: GitHogPullRequestDataFlowL
                         value={view}
                         onChange={(v) => setView(v)}
                         options={[
-                            { value: 'mermaid', label: 'Diagram' },
+                            { value: 'graphs', label: 'Before & After' },
+                            { value: 'diff', label: 'Diff' },
                             { value: 'steps', label: 'Steps' },
                         ]}
                     />
@@ -307,54 +399,19 @@ function DataFlowWidgetForPR({ owner, name, number }: GitHogPullRequestDataFlowL
                 </div>
             </div>
             <div className="px-4 py-4 flex flex-col gap-3">
-                {dataFlowLoading && !dataFlow ? (
-                    <>
-                        <LemonSkeleton className="h-4 w-3/4" />
-                        <LemonSkeleton className="h-32 w-full" />
-                        <LemonSkeleton className="h-32 w-full" />
-                    </>
-                ) : !dataFlow ? (
-                    <p className="text-secondary text-sm my-0">No flow available yet. Click Refresh to generate one.</p>
-                ) : (
-                    <>
-                        {dataFlow.summary && (
-                            <p className="text-sm text-secondary my-0 leading-relaxed">{dataFlow.summary}</p>
-                        )}
-                        {dataFlow.truncated && (
-                            <LemonTag type="warning" size="small">
-                                Truncated — files were too large for full context, flow inferred from diff
-                            </LemonTag>
-                        )}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="flex flex-col gap-2 min-w-0">
-                                <div className="text-xs uppercase tracking-wide text-muted">Before</div>
-                                {view === 'mermaid' ? (
-                                    dataFlow.mermaid_before ? (
-                                        <MermaidDiagram code={dataFlow.mermaid_before} />
-                                    ) : (
-                                        <p className="text-sm text-secondary italic my-0">No prior flow.</p>
-                                    )
-                                ) : (
-                                    <StepList steps={dataFlow.steps_before} emptyLabel="No prior flow." />
-                                )}
-                            </div>
-                            <div className="flex flex-col gap-2 min-w-0">
-                                <div className="text-xs uppercase tracking-wide text-muted">After</div>
-                                {view === 'mermaid' ? (
-                                    dataFlow.mermaid_after ? (
-                                        <MermaidDiagram code={dataFlow.mermaid_after} />
-                                    ) : (
-                                        <p className="text-sm text-secondary italic my-0">No new flow.</p>
-                                    )
-                                ) : (
-                                    <StepList steps={dataFlow.steps_after} emptyLabel="No new flow." />
-                                )}
-                            </div>
-                        </div>
-                        <div className="text-xs text-muted">
-                            head {dataFlow.head_sha.slice(0, 7)} · {dataFlow.cached ? 'cached' : 'freshly computed'}
-                        </div>
-                    </>
+                {dataFlow?.summary && <p className="text-sm text-secondary my-0 leading-relaxed">{dataFlow.summary}</p>}
+                {dataFlow?.truncated && (
+                    <LemonTag type="warning" size="small">
+                        Truncated — files were too large for full context, flow inferred from diff
+                    </LemonTag>
+                )}
+                {dataFlow && view !== 'steps' && legend}
+                {renderBody()}
+                {dataFlow && (
+                    <div className="text-xs text-muted">
+                        head {dataFlow.head_sha.slice(0, 7)} · {dataFlow.cached ? 'cached' : 'freshly computed'} ·{' '}
+                        {dataFlow.files_with_content}/{dataFlow.files_total} files with full content
+                    </div>
                 )}
             </div>
         </div>

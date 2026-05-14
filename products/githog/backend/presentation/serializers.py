@@ -130,9 +130,29 @@ class GitHogDataFlowQuerySerializer(serializers.Serializer):
 
 
 class GitHogDataFlowStepSerializer(serializers.Serializer):
+    id = serializers.CharField(allow_blank=True, help_text="Matches the corresponding FlowNode id in the graph.")
     title = serializers.CharField(help_text="Short imperative phrase for this step.")
     file = serializers.CharField(help_text="Relative file path this step lives in.", allow_blank=True)
     detail = serializers.CharField(help_text="One sentence describing what happens in this step.", allow_blank=True)
+
+
+class GitHogFlowNodeSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable, slugified id reused across before/after for unchanged steps.")
+    label = serializers.CharField(help_text="Short human title for the step.")
+    file = serializers.CharField(allow_blank=True, help_text="Relative file path this node lives in, or empty.")
+    detail = serializers.CharField(allow_blank=True, help_text="One sentence describing what happens at this node.")
+    kind = serializers.CharField(help_text="entry | step | side_effect | return.")
+
+
+class GitHogFlowEdgeSerializer(serializers.Serializer):
+    source = serializers.CharField(help_text="Source FlowNode.id.")
+    target = serializers.CharField(help_text="Target FlowNode.id.")
+    label = serializers.CharField(allow_blank=True, help_text="Optional edge label.")
+
+
+class GitHogFlowGraphSerializer(serializers.Serializer):
+    nodes = GitHogFlowNodeSerializer(many=True, help_text="Graph nodes.")
+    edges = GitHogFlowEdgeSerializer(many=True, help_text="Directed edges between nodes.")
 
 
 class GitHogDataFlowResponseSerializer(serializers.Serializer):
@@ -140,18 +160,14 @@ class GitHogDataFlowResponseSerializer(serializers.Serializer):
     pr_number = serializers.IntegerField(help_text="Pull request number.")
     head_sha = serializers.CharField(help_text="Commit SHA at the PR head when the flow was computed.")
     base_sha = serializers.CharField(help_text="Commit SHA at the PR base when the flow was computed.")
-    mermaid_before = serializers.CharField(
-        help_text="Mermaid sequenceDiagram representing the execution flow BEFORE the change.",
-        allow_blank=True,
-    )
-    mermaid_after = serializers.CharField(
-        help_text="Mermaid sequenceDiagram representing the execution flow AFTER the change.",
-        allow_blank=True,
-    )
+    flow_before = GitHogFlowGraphSerializer(help_text="Execution-flow graph BEFORE the change.")
+    flow_after = GitHogFlowGraphSerializer(help_text="Execution-flow graph AFTER the change.")
     steps_before = GitHogDataFlowStepSerializer(many=True, help_text="Ordered execution-flow steps BEFORE the change.")
     steps_after = GitHogDataFlowStepSerializer(many=True, help_text="Ordered execution-flow steps AFTER the change.")
     summary = serializers.CharField(help_text="LLM-generated summary of how the flow changed.", allow_blank=True)
     truncated = serializers.BooleanField(help_text="True if file content was truncated for the LLM prompt.")
+    files_total = serializers.IntegerField(help_text="Number of files changed in the PR.")
+    files_with_content = serializers.IntegerField(help_text="Number of files whose full content was sent to the LLM.")
     cached = serializers.BooleanField(
         help_text="True if the response was served from cache (no LLM call this request)."
     )
