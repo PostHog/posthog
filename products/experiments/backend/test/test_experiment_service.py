@@ -711,10 +711,16 @@ class TestExperimentService(APIBaseTest):
         """Drift guard: every variant of the ExperimentMetric union must have an entry in
         _METRIC_TYPE_TO_CLASS. If a new metric_type is added to the schema, this fails so
         the mapping (used to filter pydantic errors to the matching variant) stays accurate."""
-        union_variants = ExperimentMetric.model_fields["root"].annotation.__args__
-        schema_pairs = {
-            variant.model_fields["metric_type"].annotation.__args__[0]: variant.__name__ for variant in union_variants
-        }
+        root_annotation = ExperimentMetric.model_fields["root"].annotation
+        assert root_annotation is not None, "ExperimentMetric.root has no annotation — schema is malformed"
+        union_variants = root_annotation.__args__
+        schema_pairs = {}
+        for variant in union_variants:
+            metric_type_annotation = variant.model_fields["metric_type"].annotation
+            assert metric_type_annotation is not None, (
+                f"{variant.__name__}.metric_type has no annotation — schema is malformed"
+            )
+            schema_pairs[metric_type_annotation.__args__[0]] = variant.__name__
         assert ExperimentService._METRIC_TYPE_TO_CLASS == schema_pairs, (
             "ExperimentMetric union changed — update ExperimentService._METRIC_TYPE_TO_CLASS. "
             f"Expected {schema_pairs}, got {ExperimentService._METRIC_TYPE_TO_CLASS}"
