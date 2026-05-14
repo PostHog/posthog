@@ -90,11 +90,12 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         self.assertEqual(sum(_split_distribution(variants)), 100)
         self.assertEqual(_split_distribution(variants), _expected_splits(n))
 
-        # Variant key naming: control + test-i, names use v{version}
+        # Variant key naming: control + test (2-variant) or test-i (N>=3); names use v{version}
         self.assertEqual(variants[0]["key"], "control")
         self.assertEqual(variants[0]["name"], f"v{versions[0]}")
         for i, variant in enumerate(variants[1:], start=1):
-            self.assertEqual(variant["key"], f"test-{i}")
+            expected_key = "test" if n == 2 else f"test-{i}"
+            self.assertEqual(variant["key"], expected_key)
             self.assertEqual(variant["name"], f"v{versions[i]}")
 
         # Feature flag was created with the variants

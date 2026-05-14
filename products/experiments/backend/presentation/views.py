@@ -67,7 +67,9 @@ def _build_prompt_variants(versions: list[int]) -> list[dict[str, Any]]:
     """Build N feature flag variants from an ordered list of prompt versions.
 
     First variant is keyed "control" (required by ExperimentService._validate_existing_flag
-    when the experiment is later launched). Subsequent variants are keyed "test-1", "test-2", ….
+    when the experiment is later launched). For the standard 2-variant case the second is
+    keyed "test", matching the rest of the codebase's defaults. For N >= 3 the trailing
+    variants are keyed "test-1", "test-2", … so each key stays unique.
     The human-readable prompt version goes in the variant name so chart legends stay readable.
     Splits are integers summing to 100; the last variant absorbs any remainder.
     """
@@ -77,7 +79,12 @@ def _build_prompt_variants(versions: list[int]) -> list[dict[str, Any]]:
     splits[-1] += 100 - base * n
     variants: list[dict[str, Any]] = []
     for i, (version, split) in enumerate(zip(versions, splits)):
-        key = "control" if i == 0 else f"test-{i}"
+        if i == 0:
+            key = "control"
+        elif n == 2:
+            key = "test"
+        else:
+            key = f"test-{i}"
         variants.append({"key": key, "name": f"v{version}", "rollout_percentage": split})
     return variants
 
