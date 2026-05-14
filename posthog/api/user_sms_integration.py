@@ -14,6 +14,7 @@ the database level.
 """
 
 import re
+import time
 import secrets
 from typing import cast
 
@@ -27,6 +28,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.clients.sendblue import SendBlueError, SendBlueNotConfigured, get_sendblue_client
@@ -102,7 +104,7 @@ class UserSMSIntegrationViewSet(viewsets.GenericViewSet):
     serializer_class = SMSIntegrationItemSerializer
     pagination_class = None
 
-    def get_throttles(self):
+    def get_throttles(self) -> list[BaseThrottle]:
         if self.action == "start_verification":
             return [SMSStartVerificationThrottle()]
         if self.action == "verify":
@@ -174,9 +176,10 @@ class UserSMSIntegrationViewSet(viewsets.GenericViewSet):
             raise exceptions.ValidationError("SMS integration is not configured on this PostHog instance.")
 
         code = "".join(secrets.choice("0123456789") for _ in range(SMS_VERIFICATION_CODE_LENGTH))
+        expires_at = time.time() + SMS_VERIFICATION_TTL_SECONDS
         cache.set(
             _verification_cache_key(user),
-            {"phone": phone, "code": code, "attempts": 0},
+            {"phone": phone, "code": code, "attempts": 0, "expires_at": expires_at},
             timeout=SMS_VERIFICATION_TTL_SECONDS,
         )
 
@@ -209,16 +212,24 @@ class UserSMSIntegrationViewSet(viewsets.GenericViewSet):
 
         cache_key = _verification_cache_key(user)
         cached = cache.get(cache_key)
-        if not cached or cached.get("phone") != phone:
+        if not cached or cached["phone"] != phone:
             raise exceptions.ValidationError("No active verification for this phone number. Request a new code.")
-        if not secrets.compare_digest(str(cached.get("code", "")), submitted_code):
+
+        expires_at = float(cached["expires_at"])
+        if time.time() >= expires_at:
+            cache.delete(cache_key)
+            raise exceptions.ValidationError("No active verification for this phone number. Request a new code.")
+
+        if not secrets.compare_digest(str(cached["code"]), submitted_code):
             # Cap brute-force guesses on the 6-digit OTP: after N wrong attempts the
             # challenge is invalidated and the user must request a new code.
-            attempts = int(cached.get("attempts", 0)) + 1
+            attempts = int(cached["attempts"]) + 1
             if attempts >= SMS_VERIFICATION_MAX_ATTEMPTS:
                 cache.delete(cache_key)
             else:
-                cache.set(cache_key, {**cached, "attempts": attempts}, timeout=SMS_VERIFICATION_TTL_SECONDS)
+                # Preserve the original expiry — do not reset the TTL on each wrong guess.
+                remaining = max(1, int(expires_at - time.time()))
+                cache.set(cache_key, {**cached, "attempts": attempts}, timeout=remaining)
             raise exceptions.ValidationError("Invalid verification code.")
 
         cache.delete(cache_key)
