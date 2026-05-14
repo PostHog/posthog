@@ -12,7 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.agentic_tests.backend.logic.execution import execute_agentic_test
+from products.agentic_tests.backend.logic.execution import queue_agentic_test_run
 from products.agentic_tests.backend.logic.scheduling import refresh_next_run_at
 from products.agentic_tests.backend.models import AgenticTest, AgenticTestRun
 
@@ -46,7 +46,7 @@ class AgenticTestViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def run_now(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         test: AgenticTest = self.get_object()
-        run = execute_agentic_test(test)
+        run = queue_agentic_test_run(test)
         return Response(AgenticTestRunSerializer(run).data, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(

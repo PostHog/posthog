@@ -15,6 +15,7 @@ import time
 from datetime import timedelta
 from typing import Any
 
+from django.db import transaction
 from django.utils import timezone
 
 import structlog
@@ -26,14 +27,30 @@ from products.agentic_tests.backend.models import AgenticTest, AgenticTestRun
 logger = structlog.get_logger(__name__)
 
 
-def execute_agentic_test(test: AgenticTest) -> AgenticTestRun:
-    """Run a single execution of an agentic test and persist the result."""
+def queue_agentic_test_run(test: AgenticTest) -> AgenticTestRun:
+    """
+    Create a run row in RUNNING state and dispatch a celery task to finish it.
+
+    The API returns the row immediately so the UI shows "Running" while the task
+    picks it up and updates the row to passed/failed.
+    """
+    from products.agentic_tests.backend.tasks.tasks import run_agentic_test_run
+
     run = AgenticTestRun.objects.create(
         agentic_test=test,
         status=AgenticTestRun.Status.RUNNING,
     )
-    start = time.monotonic()
+    run_id = str(run.id)
+    transaction.on_commit(lambda: run_agentic_test_run.delay(run_id))
+    return run
 
+
+def execute_agentic_test_run(run_id: str) -> None:
+    """Execute an existing running run row to completion. Called from the celery worker."""
+    run = AgenticTestRun.objects.select_related("agentic_test").get(id=run_id)
+    test = run.agentic_test
+
+    start = time.monotonic()
     try:
         result = _run_mock(test)
     except Exception as exc:  # noqa: BLE001 — surface anything as a failed run
@@ -68,7 +85,6 @@ def execute_agentic_test(test: AgenticTest) -> AgenticTestRun:
 
     test.last_run_at = run.started_at
     test.save(update_fields=["last_run_at", "updated_at"])
-    return run
 
 
 def _evaluate_assertions(
