@@ -130,7 +130,15 @@ class CloudflarePagesAdapter:
 
         if not response.ok or not body.get("success", False):
             errors = body.get("errors") or []
-            message = errors[0].get("message") if errors and isinstance(errors[0], dict) else response.reason
+            # Fall back to "Unknown error" rather than letting `None` slip
+            # into the user-facing message when the error dict is missing
+            # `"message"` (or `response.reason` is None for a malformed
+            # response).
+            message = (
+                errors[0].get("message", "Unknown error")
+                if errors and isinstance(errors[0], dict)
+                else (response.reason or "Unknown error")
+            )
             logger.warning(
                 "cloudflare_api_call_failed",
                 method=method,

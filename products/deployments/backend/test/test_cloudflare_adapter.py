@@ -71,6 +71,23 @@ class TestCloudflarePagesAdapter(SimpleTestCase):
         self.assertIn("Project name already taken", str(cm.exception))
 
     @responses.activate
+    def test_create_project_falls_back_when_cf_error_lacks_message_key(self) -> None:
+        # Some CF responses come back with an `errors` array of dicts
+        # that lack a `"message"` key — without a fallback, the user
+        # would see `"Cloudflare API call failed: None (status 500)"`.
+        responses.add(
+            responses.POST,
+            f"{CLOUDFLARE_API_BASE}/accounts/{ACCOUNT_ID}/pages/projects",
+            json={"success": False, "errors": [{"code": 9001}], "result": None},
+            status=500,
+        )
+
+        with self.assertRaises(CloudflareError) as cm:
+            CloudflarePagesAdapter().create_project(name="1-myapp", production_branch="main")
+        self.assertIn("Unknown error", str(cm.exception))
+        self.assertNotIn("None", str(cm.exception))
+
+    @responses.activate
     def test_create_project_error_does_not_leak_account_id(self) -> None:
         # CloudflareError is rendered into a public 502 response body by
         # the viewset, so the account ID (which appears in the API path)
