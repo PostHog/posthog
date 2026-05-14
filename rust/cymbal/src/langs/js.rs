@@ -118,8 +118,12 @@ impl RawJSFrame {
             return Err(JsResolveErr::NoSourceUrl);
         };
 
-        // We outright reject relative URLs, or ones that are not HTTP
-        if !source_url.starts_with("http://") && !source_url.starts_with("https://") {
+        // Accept http(s) for browser-fetched bundles, plus turbopack:// and webpack://
+        // for bundler-emitted frames (Turbopack is the default in Next.js 16+; webpack
+        // is used in earlier or opt-out builds). Relative URLs and other schemes are
+        // rejected because we cannot dedupe or look up sourcemaps for them reliably.
+        const ACCEPTED_SCHEMES: &[&str] = &["http://", "https://", "turbopack:///", "webpack:///"];
+        if !ACCEPTED_SCHEMES.iter().any(|s| source_url.starts_with(s)) {
             return Err(JsResolveErr::InvalidSourceUrl(source_url.clone()));
         }
 
@@ -336,32 +340,75 @@ impl From<&RawJSFrame> for Frame {
 
 #[cfg(test)]
 mod test {
+    use crate::error::JsResolveErr;
+
+    fn frame_with(source_url: &str) -> super::RawJSFrame {
+        super::RawJSFrame {
+            location: None,
+            source_url: Some(source_url.to_string()),
+            fn_name: "main".to_string(),
+            chunk_id: None,
+            meta: Default::default(),
+        }
+    }
+
     #[test]
     fn source_ref_generation() {
-        let frame = super::RawJSFrame {
-            location: None,
-            source_url: Some("http://example.com/path/to/file.js:1:2".to_string()),
-            fn_name: "main".to_string(),
-            chunk_id: None,
-            meta: Default::default(),
-        };
-
         assert_eq!(
-            frame.source_url().unwrap(),
+            frame_with("http://example.com/path/to/file.js:1:2")
+                .source_url()
+                .unwrap(),
             "http://example.com/path/to/file.js".parse().unwrap()
         );
 
-        let frame = super::RawJSFrame {
-            location: None,
-            source_url: Some("http://example.com/path/to/file.js".to_string()),
-            fn_name: "main".to_string(),
-            chunk_id: None,
-            meta: Default::default(),
-        };
-
         assert_eq!(
-            frame.source_url().unwrap(),
+            frame_with("http://example.com/path/to/file.js")
+                .source_url()
+                .unwrap(),
             "http://example.com/path/to/file.js".parse().unwrap()
         );
+    }
+
+    #[test]
+    fn accepts_turbopack_scheme() {
+        // Turbopack is the default bundler in Next.js 16+. Stack frames emitted
+        // from Turbopack builds use turbopack:/// — without this acceptance, every
+        // sourcemap upload from @posthog/nextjs-config is silently dropped.
+        for url in [
+            "turbopack:///[project]/src/app/page.tsx",
+            "turbopack:///[project]/src/app/page.tsx:42:17",
+        ] {
+            let parsed = frame_with(url).source_url().unwrap_or_else(|e| {
+                panic!("expected {url} to be accepted, got {e:?}");
+            });
+            assert_eq!(parsed.scheme(), "turbopack");
+            // Verify the parsed path is what we expect to land in Frame.source
+            // (no double leading slash, no trailing :line:col).
+            assert_eq!(parsed.path(), "/[project]/src/app/page.tsx");
+        }
+    }
+
+    #[test]
+    fn accepts_webpack_scheme() {
+        let parsed = frame_with("webpack:///./src/index.js:10:5")
+            .source_url()
+            .unwrap();
+        assert_eq!(parsed.scheme(), "webpack");
+    }
+
+    #[test]
+    fn rejects_non_bundler_schemes() {
+        for url in [
+            "file:///etc/passwd",
+            "./relative/path.js",
+            "javascript:alert(1)",
+            "data:text/javascript,foo",
+        ] {
+            let result = frame_with(url).source_url();
+            assert!(
+                matches!(result, Err(JsResolveErr::InvalidSourceUrl(_))),
+                "expected {url} to be rejected, got {result:?}"
+            );
+        }
     }
 }
