@@ -1,6 +1,5 @@
 from datetime import UTC, datetime
 
-import unittest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from django.test.client import Client
@@ -1498,7 +1497,6 @@ class TestLiveDebuggerSessionAPI(APIBaseTest):
         # Program is linked back to the session
         self.assertEqual(str(LiveDebuggerProgram.objects.get(id=program_id).session_id), sid)
 
-    @unittest.skip("Depends on Task 6: close endpoint")
     def test_install_program_rejected_when_session_closed(self):
         sid = self._start_session()
         self.client.post(self._url(f"{sid}/close/"), content_type="application/json")
@@ -1537,3 +1535,50 @@ class TestLiveDebuggerSessionAPI(APIBaseTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_close_session_transitions_status(self):
+        sid = self._start_session()
+        response = self.client.post(self._url(f"{sid}/close/"), content_type="application/json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "closed")
+        self.assertIsNotNone(response.json()["closed_at"])
+
+    def test_close_session_is_idempotent(self):
+        sid = self._start_session()
+        self.client.post(self._url(f"{sid}/close/"), content_type="application/json")
+        response = self.client.post(self._url(f"{sid}/close/"), content_type="application/json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "closed")
+
+    def test_close_session_with_conclusion_appends_entry(self):
+        sid = self._start_session()
+        response = self.client.post(
+            self._url(f"{sid}/close/"),
+            data={"conclusion_markdown": "Root cause was X."},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        entries = response.json()["entries"]
+        self.assertEqual(entries[-1]["kind"], "conclusion")
+        self.assertEqual(entries[-1]["payload"]["markdown"], "Root cause was X.")
+
+    def test_close_session_auto_uninstalls_installed_programs(self):
+        sid = self._start_session()
+        install = self.client.post(
+            self._url(f"{sid}/install_program/"),
+            data={"code": "probe foo {}", "description": ""},
+            content_type="application/json",
+        )
+        program_id = install.json()["id"]
+        self.client.post(self._url(f"{sid}/close/"), content_type="application/json")
+        self.assertEqual(LiveDebuggerProgram.objects.get(id=program_id).status, "uninstalled")
+
+    def test_close_session_rejects_subsequent_entries(self):
+        sid = self._start_session()
+        self.client.post(self._url(f"{sid}/close/"), content_type="application/json")
+        response = self.client.post(
+            self._url(f"{sid}/entries/"),
+            data={"kind": "note", "payload": {"markdown": "late note"}},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

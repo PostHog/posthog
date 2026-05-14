@@ -6,6 +6,7 @@ from typing import Optional
 from django.db import transaction
 from django.db.models import Prefetch, QuerySet
 from django.http import HttpResponse
+from django.utils import timezone
 
 from django_filters.rest_framework import DjangoFilterBackend, FilterSet
 from drf_spectacular.types import OpenApiTypes
@@ -805,6 +806,16 @@ class UninstallProgramInSessionRequestSerializer(serializers.Serializer):
     program_id = serializers.UUIDField(help_text="ID of the program to uninstall.")
 
 
+class CloseSessionRequestSerializer(serializers.Serializer):
+    conclusion_markdown = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text=(
+            "Optional markdown summary. If provided, a `conclusion` entry is appended before the session is closed."
+        ),
+    )
+
+
 class LiveDebuggerSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Start, list, inspect, and close debugging sessions.
@@ -981,3 +992,43 @@ class LiveDebuggerSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 payload={"program_id": str(program.id)},
             )
         return Response(LiveDebuggerProgramSerializer(program).data)
+
+    @extend_schema(
+        summary="Close a debugging session",
+        description=(
+            "Atomically transitions the session to `closed`, sets `closed_at`, optionally "
+            "appends a `conclusion` entry, and auto-uninstalls every program that still has "
+            "`installed` status in this session. Idempotent: closing an already-closed "
+            "session returns the session unchanged."
+        ),
+        request=CloseSessionRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=LiveDebuggerSessionSerializer, description="Session closed."),
+            400: OpenApiResponse(description="Invalid payload."),
+            404: OpenApiResponse(description="Session not found."),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="close")
+    def close(self, request: Request, *args, **kwargs) -> Response:
+        session = self.get_object()
+        if session.status == LiveDebuggerSession.Status.CLOSED:
+            return Response(LiveDebuggerSessionSerializer(session).data)
+        ser = CloseSessionRequestSerializer(data=request.data or {})
+        ser.is_valid(raise_exception=True)
+        conclusion = ser.validated_data.get("conclusion_markdown")
+        with transaction.atomic():
+            LiveDebuggerProgram.objects.filter(
+                session=session,
+                status=LiveDebuggerProgram.Status.INSTALLED,
+            ).update(status=LiveDebuggerProgram.Status.UNINSTALLED)
+            if conclusion:
+                LiveDebuggerSessionEntry.objects.create(
+                    session=session,
+                    kind=LiveDebuggerSessionEntry.Kind.CONCLUSION,
+                    payload={"markdown": conclusion},
+                )
+            session.status = LiveDebuggerSession.Status.CLOSED
+            session.closed_at = timezone.now()
+            session.save(update_fields=["status", "closed_at"])
+        session.refresh_from_db()
+        return Response(LiveDebuggerSessionSerializer(session).data)
