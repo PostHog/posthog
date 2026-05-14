@@ -135,6 +135,9 @@ def build_multipart(file_path: Path, remote_name: str) -> tuple[bytes, str]:
 
 
 def upload_one(file_path: Path, remote_name: str, jwt: str) -> tuple[int, str]:
+    # Returns (http_status, body). For non-HTTP failures (DNS, connection
+    # refused, socket timeout) returns (0, "<error description>") so the
+    # caller records a failed manifest entry instead of crashing the run.
     body, boundary = build_multipart(file_path, remote_name)
     req = urllib.request.Request(
         f"{STRAPI_BASE_URL}/api/upload",
@@ -150,6 +153,10 @@ def upload_one(file_path: Path, remote_name: str, jwt: str) -> tuple[int, str]:
             return resp.status, resp.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read().decode("utf-8", errors="replace")
+    except urllib.error.URLError as exc:
+        return 0, f"network error: {exc.reason}"
+    except (TimeoutError, OSError) as exc:
+        return 0, f"network error: {exc}"
 
 
 def extract_url(response_body: str) -> str:
@@ -244,6 +251,10 @@ def main() -> int:
             if status == 401 and attempt == 1:
                 jwt = None  # force re-mint and retry once
                 continue
+            if status == 0:
+                # Network failure already described in body (no token/HTML risk).
+                result.error = body
+                break
             # Don't echo response body verbatim - it can be HTML or include hints.
             result.error = f"HTTP {status}"
             break

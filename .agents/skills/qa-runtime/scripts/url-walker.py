@@ -73,17 +73,43 @@ def extract_core_routes() -> dict[str, list[str]]:
     return routes
 
 
+def find_object_body(text: str, key: str) -> str | None:
+    # Find the body of a top-level `<key>: { ... }` object by brace-balanced scan.
+    # The previous regex-only approach matched the first inner `},` and would
+    # collapse the outer `scenes: { ... }` container into a single scene named
+    # `scenes`, dropping the first real entry in the manifest.
+    match = re.search(rf"\b{re.escape(key)}\s*:\s*\{{", text)
+    if not match:
+        return None
+    start = match.end()
+    depth = 1
+    i = start
+    while i < len(text) and depth > 0:
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        i += 1
+    if depth != 0:
+        return None
+    return text[start : i - 1]
+
+
 def extract_product_scene_imports(manifest: Path) -> dict[str, str]:
     text = manifest.read_text()
+    body = find_object_body(text, "scenes")
+    if body is None:
+        return {}
     scenes: dict[str, str] = {}
     scene_pattern = re.compile(
         r"^\s*([A-Za-z0-9_]+)\s*:\s*\{(?P<body>.*?^\s*\},?)",
         re.MULTILINE | re.DOTALL,
     )
-    for match in scene_pattern.finditer(text):
+    for match in scene_pattern.finditer(body):
         scene = match.group(1)
-        body = match.group("body")
-        import_match = re.search(r"import\s*:\s*\(\)\s*=>\s*import\(['\"]([^'\"]+)['\"]\)", body)
+        scene_body = match.group("body")
+        import_match = re.search(r"import\s*:\s*\(\)\s*=>\s*import\(['\"]([^'\"]+)['\"]\)", scene_body)
         if import_match:
             scenes[scene] = normalize_import(manifest, import_match.group(1))
     return scenes
@@ -91,12 +117,12 @@ def extract_product_scene_imports(manifest: Path) -> dict[str, str]:
 
 def extract_product_routes(manifest: Path) -> dict[str, list[str]]:
     text = manifest.read_text()
-    routes_block = re.search(r"routes\s*:\s*\{(?P<body>.*?)^\s*\},", text, re.MULTILINE | re.DOTALL)
-    if not routes_block:
+    body = find_object_body(text, "routes")
+    if body is None:
         return {}
     routes: dict[str, list[str]] = {}
     route_pattern = re.compile(r"['\"]([^'\"]+)['\"]\s*:\s*\[\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]")
-    for route, scene, scene_key in route_pattern.findall(routes_block.group("body")):
+    for route, scene, scene_key in route_pattern.findall(body):
         routes.setdefault(scene, []).append(f"{route} [{scene_key}]")
     return routes
 

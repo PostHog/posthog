@@ -128,8 +128,18 @@ Record:
 
 - Current branch: `git branch --show-current`
 - Base ref: `origin/master` (or repo default branch)
-- Changed-file set: union of `git diff --name-only origin/master...HEAD` and
-  `git status --porcelain` (committed-on-branch plus uncommitted/staged).
+- Changed-file set: union of path-only commands so the result is a clean
+  list of paths (not status-prefixed porcelain output):
+
+  ```bash
+  git diff --name-only origin/master...HEAD          # committed on branch
+  git diff --name-only                               # unstaged
+  git diff --cached --name-only                      # staged
+  git ls-files --others --exclude-standard           # untracked
+  ```
+
+  For renames (`R` status), use `git diff --name-only -M` and accept the
+  new path; do not feed `oldname -> newname` strings to the walker.
 
 Treat the changed-file set as the only files an autonomous fix may touch.
 Apply the same lockfile/migration warning rules as PR mode.
