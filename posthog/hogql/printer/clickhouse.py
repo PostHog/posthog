@@ -9,7 +9,7 @@ from posthog.schema import PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
-from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
+from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
@@ -19,13 +19,18 @@ from posthog.hogql.database.models import (
     SavedQuery,
 )
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
-from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
+from posthog.hogql.printer.types import (
+    PrintableJSONSubcolumn,
+    PrintableMaterializedColumn,
+    PrintableMaterializedPropertyGroupItem,
+)
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import GetFieldsTraverser, TraversingVisitor, clone_expr
 
@@ -669,16 +674,8 @@ class ClickHousePrinter(BasePrinter):
             else:
                 return f"notEquals({materialized_column_sql}, {constant_sql})"
 
-    def _get_materialized_string_property_source(self, expr: ast.Expr) -> PrintableMaterializedColumn | None:
-        """
-        Extracts a PrintableMaterializedColumn from an expression if it's a simple string property access.
-
-        String properties can have their mat col returned even if they are wrapped in a toString() call. Sometimes this
-        wrapping is added for safety (as users can change the type of key properties), but this should not prevent us
-        from doing optimisations that are safe.
-        Returns None if the expression is not a valid string property access or doesn't have a
-        materialized column.
-        """
+    def _get_simple_string_property_type(self, expr: ast.Expr) -> ast.PropertyType | None:
+        """Extract a simple string property access from an expression, unwrapping toString() when safe."""
         property_type: ast.PropertyType | None = None
 
         # Check for direct property access
@@ -714,12 +711,121 @@ class ClickHousePrinter(BasePrinter):
             if prop_info is not None and prop_info.get("type") not in (None, "String"):
                 return None
 
+        return property_type
+
+    def _get_materialized_string_property_source(self, expr: ast.Expr) -> PrintableMaterializedColumn | None:
+        """
+        Extracts a PrintableMaterializedColumn from an expression if it's a simple string property access.
+
+        String properties can have their mat col returned even if they are wrapped in a toString() call. Sometimes this
+        wrapping is added for safety (as users can change the type of key properties), but this should not prevent us
+        from doing optimisations that are safe.
+        Returns None if the expression is not a valid string property access or doesn't have a
+        materialized column.
+        """
+        property_type = self._get_simple_string_property_type(expr)
+        if property_type is None:
+            return None
+
         # Check if this property uses an individually materialized column (not a property group)
         property_source = self._get_materialized_property_source_for_property_type(property_type)
         if not isinstance(property_source, PrintableMaterializedColumn):
             return None
 
         return property_source
+
+    def _get_native_json_string_property_source(self, expr: ast.Expr) -> PrintableJSONSubcolumn | None:
+        property_type = self._get_simple_string_property_type(expr)
+        if property_type is None:
+            return None
+
+        property_source = self._get_materialized_property_source_for_property_type(property_type)
+        if not isinstance(property_source, PrintableJSONSubcolumn):
+            return None
+        if property_source.cast_value_to_string:
+            return None
+        if property_source.typed_path_type not in ("String", "Nullable(String)"):
+            return None
+
+        return property_source
+
+    def _get_optimized_json_subcolumn_compare_operation(self, node: ast.CompareOperation) -> str | None:
+        """Use native JSON subcolumns directly for non-empty string comparisons so skip indexes remain usable."""
+        if node.op not in (
+            ast.CompareOperationOp.Eq,
+            ast.CompareOperationOp.NotEq,
+            ast.CompareOperationOp.In,
+            ast.CompareOperationOp.NotIn,
+        ):
+            return None
+
+        property_source: PrintableJSONSubcolumn | None = None
+        constant_expr: ast.Constant | None = None
+        values: list[ast.Constant] | None = None
+
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            if (ps := self._get_native_json_string_property_source(node.left)) and (
+                ce := self._get_string_pattern_constant(node.right)
+            ):
+                property_source, constant_expr = ps, ce
+            elif (ps := self._get_native_json_string_property_source(node.right)) and (
+                ce := self._get_string_pattern_constant(node.left)
+            ):
+                property_source, constant_expr = ps, ce
+
+            if property_source is None or constant_expr is None:
+                return None
+            if constant_expr.value == "":
+                return None
+            values = [constant_expr]
+        else:
+            left_type = resolve_field_type(node.left)
+            if not isinstance(left_type, ast.PropertyType) or len(left_type.chain) != 1:
+                return None
+
+            property_source = self._get_native_json_string_property_source(node.left)
+            if property_source is None:
+                return None
+
+            if isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
+                values = [node.right]
+            elif isinstance(node.right, (ast.Tuple, ast.Array)):
+                values = []
+                for value in node.right.exprs:
+                    if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+                        return None
+                    values.append(value)
+            else:
+                return None
+
+            if len(values) == 0 or any(value.value == "" for value in values):
+                return None
+
+        value_sql = property_source.value_expression()
+        is_nullable_path = property_source.typed_path_type == "Nullable(String)"
+
+        if node.op == ast.CompareOperationOp.Eq:
+            assert constant_expr is not None
+            constant_sql = self.visit(constant_expr)
+            if is_nullable_path:
+                return f"(equals({value_sql}, {constant_sql}) AND ({value_sql} IS NOT NULL))"
+            return f"equals({value_sql}, {constant_sql})"
+        if node.op == ast.CompareOperationOp.NotEq:
+            assert constant_expr is not None
+            constant_sql = self.visit(constant_expr)
+            if is_nullable_path:
+                return f"ifNull(notEquals({value_sql}, {constant_sql}), 1)"
+            return f"notEquals({value_sql}, {constant_sql})"
+
+        assert values is not None
+        values_sql = ", ".join(self.visit(value) for value in values)
+        if node.op == ast.CompareOperationOp.In:
+            if is_nullable_path:
+                return f"and(has([{values_sql}], {value_sql}), {value_sql} IS NOT NULL)"
+            return f"has([{values_sql}], {value_sql})"
+        if is_nullable_path:
+            return f"ifNull(notIn({value_sql}, tuple({values_sql})), 1)"
+        return f"notIn({value_sql}, tuple({values_sql}))"
 
     def _get_string_pattern_constant(self, expr: ast.Expr) -> ast.Constant | None:
         if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
@@ -889,8 +995,6 @@ class ClickHousePrinter(BasePrinter):
 
     def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
         """If the expression resolves to $session_id on the events table, return the table type."""
-        from posthog.hogql.database.schema.events import EventsTable
-
         expr_type = resolve_field_type(node)
 
         if isinstance(expr_type, ast.FieldType) and expr_type.name == "$session_id":
@@ -904,14 +1008,19 @@ class ClickHousePrinter(BasePrinter):
         else:
             return None
 
-        while isinstance(table_type, ast.TableAliasType):
-            table_type = table_type.table_type
-        if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
-            return table_type
+        if not isinstance(table_type, ast.BaseTableType):
+            return None
+
+        table_ref: ast.BaseTableType = table_type
+        unwrapped_table_type = table_type
+        while isinstance(unwrapped_table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+            unwrapped_table_type = unwrapped_table_type.table_type
+        if isinstance(unwrapped_table_type, ast.TableType) and isinstance(unwrapped_table_type.table, EventsTable):
+            return table_ref
         return None
 
     def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
-        """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""
+        """Rewrite $session_id comparisons against UUID constants to use the session id UUID skip-index expression."""
         op_name = {
             ast.CompareOperationOp.Eq: "equals",
             ast.CompareOperationOp.NotEq: "notEquals",
@@ -935,7 +1044,8 @@ class ClickHousePrinter(BasePrinter):
         if session_id_table is None or not constants:
             return None
 
-        field_sql = f"{self.visit(session_id_table)}.{self._print_identifier('$session_id_uuid')}"
+        properties_sql = f"{self.visit(session_id_table)}.{self._print_identifier('properties')}"
+        field_sql = f"toUInt128(toUUIDOrNull(({properties_sql}).{self._print_identifier('$session_id')}))"
         wrapped = [f"toUInt128(accurateCastOrNull({self.visit(c)}, 'UUID'))" for c in constants]
 
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
@@ -1143,6 +1253,9 @@ class ClickHousePrinter(BasePrinter):
 
         if optimized_property_group_compare_operation := self._get_optimized_property_group_compare_operation(node):
             return optimized_property_group_compare_operation
+
+        if optimized_json_subcolumn_compare := self._get_optimized_json_subcolumn_compare_operation(node):
+            return optimized_json_subcolumn_compare
 
         # When comparing an individually materialized column being compared to a string constant,
         # we can skip the nullIf wrapping to allow skip index usage.
@@ -1479,11 +1592,31 @@ class ClickHousePrinter(BasePrinter):
             else node.settings
         )
         if merged is not None:
-            printed = self._print_settings(merged)
-            if printed is not None:
-                clauses.append(printed)
+            merged_dict = dict(merged.model_dump()) if isinstance(merged, HogQLQuerySettings) else dict(merged)
+            if any(value is not None for value in merged_dict.values()):
+                merged_dict = self._with_inherited_enable_analyzer(merged_dict)
+                printed = self._print_settings(merged_dict)
+                if printed is not None:
+                    clauses.append(printed)
 
         return clauses
+
+    def _with_inherited_enable_analyzer(self, settings: HogQLQuerySettings | dict[str, object]) -> dict[str, object]:
+        merged = dict(settings.model_dump()) if isinstance(settings, HogQLQuerySettings) else dict(settings)
+        inherited_enable_analyzer = self.settings.enable_analyzer if self.settings is not None else True
+
+        existing_enable_analyzer = merged.get("enable_analyzer")
+        if (
+            existing_enable_analyzer is not None
+            and inherited_enable_analyzer is not None
+            and existing_enable_analyzer != inherited_enable_analyzer
+        ):
+            raise QueryError(
+                "Conflicting enable_analyzer settings: subqueries must use the same value as the top-level query"
+            )
+        if inherited_enable_analyzer is not None:
+            merged["enable_analyzer"] = inherited_enable_analyzer
+        return merged
 
     def _get_table_name(self, table: ast.TableType) -> str:
         return table.table.to_printed_clickhouse(self.context)

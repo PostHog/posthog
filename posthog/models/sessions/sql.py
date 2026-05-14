@@ -148,7 +148,7 @@ SESSION_TABLE_MV_SELECT_SQL = (
     lambda: """
 SELECT
 
-`$session_id` as session_id,
+{session_id_property} as session_id,
 team_id,
 
 -- it doesn't matter which distinct_id gets picked (it'll be somewhat random) as they can all join to the right person
@@ -189,10 +189,11 @@ sumIf(1, event='$pageview') as pageview_count,
 sumIf(1, event='$autocapture') as autocapture_count
 
 FROM {database}.sharded_events
-WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND team_id IN ({allowed_team_ids})
-GROUP BY `$session_id`, team_id
+WHERE {session_id_property} IS NOT NULL AND {session_id_property} != '' AND team_id IN ({allowed_team_ids})
+GROUP BY {session_id_property}, team_id
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
+        session_id_property=source_column("$session_id"),
         current_url_property=source_column("$current_url"),
         referring_domain_property=source_column("$referring_domain"),
         utm_source_property=source_column("utm_source"),

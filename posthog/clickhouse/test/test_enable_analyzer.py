@@ -41,7 +41,8 @@ class TestSyncExecuteEnableAnalyzer:
     @parameterized.expand(
         [
             ("injects_for_listed_team", [2], 2, None, 1),
-            ("skips_for_unlisted_team", [2], 99, None, None),
+            ("injects_for_unlisted_team", [2], 99, None, 1),
+            ("injects_without_team", [2], None, None, 1),
             ("does_not_override_explicit_zero", [2], 2, 0, 0),
         ]
     )
@@ -54,6 +55,20 @@ class TestSyncExecuteEnableAnalyzer:
 
         actual = mock_client.__enter__.return_value.execute.call_args[1]["settings"].get("enable_analyzer")
         assert actual == expected
+
+    def test_treats_explicit_none_as_unset(self):
+        mock_client = MagicMock()
+
+        sync_execute(
+            "SELECT 1",
+            settings={"enable_analyzer": None},
+            team_id=2,
+            flush=False,
+            sync_client=mock_client,
+        )
+
+        actual = mock_client.__enter__.return_value.execute.call_args[1]["settings"].get("enable_analyzer")
+        assert actual == 1
 
 
 class TestGetDefaultHogQLGlobalSettings:
@@ -71,7 +86,7 @@ class TestGetDefaultHogQLGlobalSettings:
     def test_no_override_for_unlisted_team(self):
         with patch(INSTANCE_SETTING_PATH, return_value=[2]):
             settings = get_default_hogql_global_settings(team_id=99)
-            assert settings.enable_analyzer is None
+            assert settings.enable_analyzer is True
 
     def test_does_not_override_explicit_false(self):
         with patch(INSTANCE_SETTING_PATH, return_value=[2]):
@@ -89,4 +104,4 @@ class TestGetDefaultHogQLGlobalSettings:
     def test_none_team_id(self):
         with patch(INSTANCE_SETTING_PATH, return_value=[2]):
             settings = get_default_hogql_global_settings(team_id=None)
-            assert settings.enable_analyzer is None
+            assert settings.enable_analyzer is True

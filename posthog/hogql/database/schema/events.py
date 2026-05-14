@@ -1,11 +1,11 @@
+from posthog.hogql import ast
 from posthog.hogql.database.models import (
-    DatabaseField,
     DateTimeDatabaseField,
+    ExpressionField,
     FieldOrTable,
     FieldTraverser,
     IntegerDatabaseField,
     LazyJoin,
-    StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
@@ -21,6 +21,52 @@ from posthog.hogql.database.schema.persons_revenue_analytics import (
     join_with_persons_revenue_analytics_table,
 )
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1, join_events_table_to_sessions_table
+
+
+def event_property_field(name: str, property_name: str | None = None) -> ExpressionField:
+    return ExpressionField(
+        name=name,
+        expr=ast.Field(chain=["properties", property_name or name]),
+        isolate_scope=True,
+        nullable=False,
+    )
+
+
+def session_id_uuid_field() -> ExpressionField:
+    return ExpressionField(
+        name="$session_id_uuid",
+        expr=ast.Call(
+            name="_toUInt128",
+            args=[
+                ast.Call(
+                    name="_toUUIDOrNull",
+                    args=[ast.Field(chain=["properties", "$session_id"])],
+                )
+            ],
+        ),
+        isolate_scope=True,
+        nullable=False,
+    )
+
+
+def elements_chain_field(name: str, expr: ast.Expr) -> ExpressionField:
+    return ExpressionField(name=name, expr=expr, isolate_scope=True, nullable=False)
+
+
+def elements_chain_extract(pattern: str) -> ast.Call:
+    return ast.Call(name="extract", args=[ast.Field(chain=["elements_chain"]), ast.Constant(value=pattern)])
+
+
+def elements_chain_extract_all(pattern: str) -> ast.Call:
+    return ast.Call(
+        name="arrayDistinct",
+        args=[
+            ast.Call(
+                name="extractAll",
+                args=[ast.Field(chain=["elements_chain"]), ast.Constant(value=pattern)],
+            )
+        ],
+    )
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -46,7 +92,7 @@ class EventsGroupSubTable(VirtualTable):
     def __init__(self, group_index: int):
         super().__init__(
             fields={
-                "key": StringDatabaseField(name=f"$group_{group_index}", nullable=False),
+                "key": event_property_field("key", f"$group_{group_index}"),
                 "created_at": DateTimeDatabaseField(name=f"group{group_index}_created_at", nullable=False),
                 "properties": StringJSONDatabaseField(name=f"group{group_index}_properties", nullable=False),
             }
@@ -72,9 +118,9 @@ class EventsTable(Table):
         "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
         "elements_chain": StringDatabaseField(name="elements_chain", nullable=False),
         "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
-        "$session_id": StringDatabaseField(name="$session_id", nullable=False),
-        "$session_id_uuid": DatabaseField(name="$session_id_uuid", nullable=False),
-        "$window_id": StringDatabaseField(name="$window_id", nullable=False),
+        "$session_id": event_property_field("$session_id"),
+        "$session_id_uuid": session_id_uuid_field(),
+        "$window_id": event_property_field("$window_id"),
         "person_mode": StringDatabaseField(name="person_mode", nullable=False),
         # Lazy table that adds a join to the persons table
         "pdi": LazyJoin(
@@ -92,31 +138,31 @@ class EventsTable(Table):
         # These are swapped out if the user has PoE enabled
         "person": FieldTraverser(chain=["pdi", "person"]),
         "person_id": FieldTraverser(chain=["pdi", "person_id"]),
-        "$group_0": StringDatabaseField(name="$group_0", nullable=False),
+        "$group_0": event_property_field("$group_0"),
         "group_0": LazyJoin(
             from_field=["$group_0"],
             join_table=GroupsTable(),
             join_function=join_with_group_n_table(0),
         ),
-        "$group_1": StringDatabaseField(name="$group_1", nullable=False),
+        "$group_1": event_property_field("$group_1"),
         "group_1": LazyJoin(
             from_field=["$group_1"],
             join_table=GroupsTable(),
             join_function=join_with_group_n_table(1),
         ),
-        "$group_2": StringDatabaseField(name="$group_2", nullable=False),
+        "$group_2": event_property_field("$group_2"),
         "group_2": LazyJoin(
             from_field=["$group_2"],
             join_table=GroupsTable(),
             join_function=join_with_group_n_table(2),
         ),
-        "$group_3": StringDatabaseField(name="$group_3", nullable=False),
+        "$group_3": event_property_field("$group_3"),
         "group_3": LazyJoin(
             from_field=["$group_3"],
             join_table=GroupsTable(),
             join_function=join_with_group_n_table(3),
         ),
-        "$group_4": StringDatabaseField(name="$group_4", nullable=False),
+        "$group_4": event_property_field("$group_4"),
         "group_4": LazyJoin(
             from_field=["$group_4"],
             join_table=GroupsTable(),
@@ -127,10 +173,22 @@ class EventsTable(Table):
             join_table=SessionsTableV1(),
             join_function=join_events_table_to_sessions_table,
         ),
-        "elements_chain_href": StringDatabaseField(name="elements_chain_href", nullable=False),
-        "elements_chain_texts": StringArrayDatabaseField(name="elements_chain_texts", nullable=False),
-        "elements_chain_ids": StringArrayDatabaseField(name="elements_chain_ids", nullable=False),
-        "elements_chain_elements": StringArrayDatabaseField(name="elements_chain_elements", nullable=False),
+        "elements_chain_href": elements_chain_field(
+            "elements_chain_href",
+            elements_chain_extract(r'(?::|\")href="(.*?)"'),
+        ),
+        "elements_chain_texts": elements_chain_field(
+            "elements_chain_texts",
+            elements_chain_extract_all(r'(?::|\")text="(.*?)"'),
+        ),
+        "elements_chain_ids": elements_chain_field(
+            "elements_chain_ids",
+            elements_chain_extract_all(r'(?::|\")attr_id="(.*?)"'),
+        ),
+        "elements_chain_elements": elements_chain_field(
+            "elements_chain_elements",
+            elements_chain_extract_all(r"(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)"),
+        ),
     }
 
     def to_printed_clickhouse(self, context):

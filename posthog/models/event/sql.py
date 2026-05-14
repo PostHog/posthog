@@ -10,7 +10,6 @@ from posthog.clickhouse.kafka_engine import (
     STORAGE_POLICY,
     kafka_engine,
 )
-from posthog.clickhouse.property_groups import property_groups
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
@@ -350,10 +349,6 @@ EVENTS_TABLE_JSON_COLUMN_FORMAT_ARGS = {
     "properties_column_type": EVENTS_PROPERTIES_COLUMN_TYPE,
     "person_properties_column_type": EVENTS_PERSON_PROPERTIES_COLUMN_TYPE,
 }
-EVENTS_JSON_PROPERTY_GROUP_SOURCE_EXPRESSIONS = {
-    "properties": "toJSONString(properties)",
-    "person_properties": "toJSONString(person_properties)",
-}
 
 
 def EVENTS_DATA_TABLE():
@@ -470,19 +465,7 @@ def MV_DYNAMICALLY_MATERIALIZED_COLUMNS() -> str:
     return ",\n".join(s)
 
 
-EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
-    , $group_0 VARCHAR MATERIALIZED properties.`$group_0` COMMENT 'column_materializer::$group_0'
-    , $group_1 VARCHAR MATERIALIZED properties.`$group_1` COMMENT 'column_materializer::$group_1'
-    , $group_2 VARCHAR MATERIALIZED properties.`$group_2` COMMENT 'column_materializer::$group_2'
-    , $group_3 VARCHAR MATERIALIZED properties.`$group_3` COMMENT 'column_materializer::$group_3'
-    , $group_4 VARCHAR MATERIALIZED properties.`$group_4` COMMENT 'column_materializer::$group_4'
-    , $window_id VARCHAR MATERIALIZED properties.`$window_id` COMMENT 'column_materializer::$window_id'
-    , $session_id VARCHAR MATERIALIZED properties.`$session_id` COMMENT 'column_materializer::$session_id'
-    , $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt128(toUUIDOrNull(properties.`$session_id`))
-    , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|\")href="(.*?)"')
-    , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"'))
-    , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"'))
-    , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
+EVENTS_TABLE_JSON_INDEXES = """
     , INDEX `minmax_$group_0` properties.`$group_0` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$group_1` properties.`$group_1` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$group_2` properties.`$group_2` TYPE minmax GRANULARITY 1
@@ -491,23 +474,6 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , INDEX `minmax_$window_id` properties.`$window_id` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$session_id` properties.`$session_id` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$session_id_uuid` toUInt128(toUUIDOrNull(properties.`$session_id`)) TYPE minmax GRANULARITY 1
-    , {", ".join(property_groups.get_create_table_pieces("sharded_events", EVENTS_JSON_PROPERTY_GROUP_SOURCE_EXPRESSIONS))}
-"""
-
-EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = f"""
-    , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
-    , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
-    , $group_2 VARCHAR COMMENT 'column_materializer::$group_2'
-    , $group_3 VARCHAR COMMENT 'column_materializer::$group_3'
-    , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
-    , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
-    , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
-    , $session_id_uuid Nullable(UInt128)
-    , elements_chain_href String COMMENT 'column_materializer::elements_chain::href'
-    , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
-    , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
-    , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
-    , {", ".join(property_groups.get_create_table_pieces("events"))}
 """
 
 
@@ -528,8 +494,8 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=EVENTS_DATA_TABLE_ENGINE(),
         extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
-        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
-        materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
+        dynamically_materialized_columns="",
+        materialized_columns=EVENTS_TABLE_JSON_INDEXES,
         indexes=f"""
     , {index_by_kafka_timestamp(EVENTS_DATA_TABLE())}
     """,
@@ -568,7 +534,7 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group=CONSUMER_GROUP_EVENTS_JSON),
         extra_fields="",
-        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
+        dynamically_materialized_columns="",
         materialized_columns="",
         indexes="",
         **EVENTS_TABLE_JSON_COLUMN_FORMAT_ARGS,
@@ -622,7 +588,6 @@ group3_created_at,
 group4_created_at,
 person_mode,
 historical_migration,
-{dynamically_materialized_columns},
 _timestamp,
 _offset,
 arrayMap(
@@ -637,7 +602,6 @@ FROM {database}.{kafka_table}
         mv_name=mv_name,
         kafka_table=kafka_table,
         target_table=target_table,
-        dynamically_materialized_columns=MV_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
         database=settings.CLICKHOUSE_DATABASE,
     )
@@ -667,7 +631,7 @@ def KAFKA_EVENTS_TABLE_JSON_WS_SQL():
             named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
         ),
         extra_fields="",
-        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
+        dynamically_materialized_columns="",
         materialized_columns="",
         indexes="",
         **EVENTS_TABLE_JSON_COLUMN_FORMAT_ARGS,
@@ -830,7 +794,7 @@ def WRITABLE_EVENTS_TABLE_SQL():
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
         extra_fields=KAFKA_COLUMNS + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
-        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
+        dynamically_materialized_columns="",
         materialized_columns="",
         indexes="",
         **EVENTS_TABLE_JSON_COLUMN_FORMAT_ARGS,
@@ -846,8 +810,8 @@ def DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
         extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
-        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
-        materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
+        dynamically_materialized_columns="",
+        materialized_columns="",
         indexes="",
         **EVENTS_TABLE_JSON_COLUMN_FORMAT_ARGS,
     )

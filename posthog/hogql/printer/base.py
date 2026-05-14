@@ -1323,13 +1323,14 @@ class BasePrinter(Visitor[str]):
                     is_nullable_typed_path = bool(typed_path_type and typed_path_type.startswith("Nullable("))
                     null_if_missing_or_null = not is_nullable_typed_path
                     yield PrintableJSONSubcolumn(
-                        self._get_property_source_table_prefix(field_type),
-                        self._print_identifier(field.name),
-                        printed_chain,
-                        [self._print_escaped_string(str(chain_part)) for chain_part in property_chain],
-                        tuple_element_chain,
-                        not is_typed_path,
-                        null_if_missing_or_null,
+                        table=self._get_property_source_table_prefix(field_type),
+                        column=self._print_identifier(field.name),
+                        chain=printed_chain,
+                        raw_path_args=[self._print_escaped_string(str(chain_part)) for chain_part in property_chain],
+                        tuple_element_chain=tuple_element_chain,
+                        typed_path_type=typed_path_type,
+                        cast_value_to_string=not is_typed_path,
+                        null_if_missing_or_null=null_if_missing_or_null,
                     )
                     return
 

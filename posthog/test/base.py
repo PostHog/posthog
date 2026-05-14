@@ -1020,9 +1020,11 @@ def cleanup_materialized_columns():
         if table == "events":
             sync_execute(f"ALTER TABLE sharded_events {drops} SETTINGS mutations_sync = 2")
 
+    event_materialized_columns = get_materialized_columns("events")
     default_column_names = {
-        get_materialized_columns("events")[(prop, "properties")].name
+        column.name
         for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
+        if (column := event_materialized_columns.get((prop, "properties"))) is not None
     }
 
     optionally_drop("events", lambda name: name not in default_column_names)

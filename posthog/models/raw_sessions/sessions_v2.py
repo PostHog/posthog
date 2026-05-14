@@ -190,7 +190,7 @@ RAW_SESSION_TABLE_BACKFILL_SELECT_SQL = (
     lambda: """
 SELECT
     team_id,
-    toUInt128(toUUID(`$session_id`)) as session_id_v7,
+    toUInt128(toUUID({session_id})) as session_id_v7,
 
     initializeAggregation('argMaxState', distinct_id, timestamp) as distinct_id,
 
@@ -263,9 +263,10 @@ SELECT
     -- vitals
     initializeAggregation('argMinState', {vitals_lcp}, timestamp) as vitals_lcp
 FROM {database}.events
-WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull({session_id}, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
+        session_id=source_string_column("$session_id"),
         current_url=source_url_column("$current_url"),
         current_url_string=source_string_column("$current_url"),
         external_click_url=source_string_column("$external_click_url"),
@@ -314,7 +315,7 @@ RAW_SESSION_TABLE_MV_SELECT_SQL = (
     lambda: """
 SELECT
     team_id,
-    toUInt128(toUUID(`$session_id`)) as session_id_v7,
+    toUInt128(toUUID({session_id})) as session_id_v7,
 
     argMaxState(distinct_id, timestamp) as distinct_id,
 
@@ -387,7 +388,7 @@ SELECT
     -- web vitals
     argMinState({vitals_lcp}, timestamp) as vitals_lcp
 FROM {database}.sharded_events
-WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
+WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull({session_id}, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
 GROUP BY
     team_id,
     toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
@@ -395,6 +396,7 @@ GROUP BY
     session_id_v7
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
+        session_id=source_string_column("$session_id"),
         current_url=source_url_column("$current_url"),
         current_url_string=source_string_column("$current_url"),
         external_click_url=source_string_column("$external_click_url"),

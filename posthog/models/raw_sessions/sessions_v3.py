@@ -2,7 +2,7 @@ from typing import Optional
 
 from django.conf import settings
 
-from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
+from posthog.hogql.escape_sql import escape_clickhouse_string
 
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- Both UInt128 and UUID are imperfect choices here
     -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
     -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
-    -- right now choose UInt128 as that's the type of events.$session_id_uuid, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
+    -- right now choose UInt128 as that's the type of the indexed events $session_id UUID expression, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
     session_id_v7 UInt128,
     -- Ideally we would not need to store this separately, as the ID *is* the timestamp
     -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
@@ -260,8 +260,7 @@ new_line = "\n"
 
 def source_json_string_column(column_name: str, source_column: str = "properties") -> str:
     raw_path = f"JSONExtractRaw({source_column}, {escape_clickhouse_string(column_name)})"
-    subcolumn = f"{source_column}.{escape_clickhouse_identifier(column_name)}"
-    return f"if(isNull(nullIf(nullIf({raw_path}, ''), 'null')), NULL, toString({subcolumn}))"
+    return f"replaceRegexpAll(nullIf(nullIf({raw_path}, ''), 'null'), '^\"|\"$', '')"
 
 
 def source_json_int_column(column_name: str, source_column: str = "properties") -> str:
@@ -302,7 +301,14 @@ PROPERTIES = f"""
         CAST(arrayFilter(x -> x IS NOT NULL, [
 {f",{new_line}".join([f"            if({ad_id} IS NOT NULL, '{ad_id}', NULL)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
         ]) AS Array(String)) as ad_ids_set,
-        {source_json_string_column("$host")} as _host"""
+        {source_json_string_column("$host")} as _host,
+        CAST(
+            mapFilter(
+                (key, _) -> key LIKE '$feature/%%',
+                CAST(JSONExtractKeysAndValues(toString(properties), 'String'), 'Map(String, String)')
+            ),
+            'Map(String, String)'
+        ) as feature_flags_map"""
 
 
 def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False):
@@ -314,7 +320,7 @@ WITH
     if (event = '$pageview' OR event = '$screen', timestamp, timestamp - toIntervalYear(1)) as pageview_prio_timestamp_max
 SELECT
     team_id,
-    `$session_id_uuid` AS session_id_v7,
+    toUInt128(toUUIDOrNull({SESSION_ID})) AS session_id_v7,
     {session_timestamp}
 
     initializeAggregation('argMaxState', source_table.distinct_id, timestamp) as distinct_id,
@@ -379,8 +385,8 @@ SELECT
     event = '$autocapture' as has_autocapture,
 
     -- flags
-    initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
-    mapKeys(properties_group_feature_flags) as flag_keys,
+    initializeAggregation('groupUniqArrayMapState', feature_flags_map) as flag_values,
+    mapKeys(feature_flags_map) as flag_keys,
 
     -- event names
     [event] as event_names,
@@ -393,13 +399,14 @@ SELECT
 
     false as has_replay_events
 FROM {source_table} AS source_table
-WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+WHERE bitAnd(bitShiftRight(toUInt128(toUUIDOrNull({SESSION_ID})), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 AND {where}
     """.format(
         source_table=source_table,
         where=where,
         PROPERTIES=PROPERTIES,
-        session_timestamp="fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) AS session_timestamp,"
+        SESSION_ID=source_json_string_column("$session_id"),
+        session_timestamp=f"fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(toUUIDOrNull({source_json_string_column('$session_id')})), 80))) AS session_timestamp,"
         if include_session_timestamp
         else "",
     )
@@ -574,7 +581,10 @@ def RAW_SESSION_TABLE_BACKFILL_SQL_V3(
     if not target_table:
         target_table = SHARDED_RAW_SESSIONS_TABLE_V3()
     if shard_index is not None and num_shards is not None:
-        shard_filter = f"modulo(cityHash64(`$session_id_uuid`), {num_shards}) = {shard_index}"
+        shard_filter = (
+            f"modulo(cityHash64(toUInt128(toUUIDOrNull({source_json_string_column('$session_id')}))), "
+            f"{num_shards}) = {shard_index}"
+        )
         combined_where = f"({where}) AND {shard_filter}"
     else:
         combined_where = where

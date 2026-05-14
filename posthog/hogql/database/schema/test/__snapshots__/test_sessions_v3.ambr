@@ -17,6 +17,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -50,6 +51,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -73,6 +75,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -100,6 +103,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -124,6 +128,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -148,6 +153,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -172,6 +178,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -199,6 +206,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -214,7 +222,7 @@
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
      WHERE equals(raw_sessions_v3.team_id, 99999)
-     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(toUInt128(toUUIDOrNull(nullIf((events.properties).`$session_id`, ''))), events__session.session_id_v7)
   WHERE and(equals(events.team_id, 99999), ifNull(equals(events__session.`$entry_pathname`, '/pathname'), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -222,6 +230,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -237,7 +246,7 @@
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
      WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))), greaterOrEquals(raw_sessions_v3.session_timestamp, minus('1970-01-01', toIntervalDay(3))))
-     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(toUInt128(toUUIDOrNull(nullIf((events.properties).`$session_id`, ''))), events__session.session_id_v7)
   WHERE and(equals(events.team_id, 99999), ifNull(equals(session_id, '00000000-0000-0000-0000-000000000000'), 0), greaterOrEquals(events.timestamp, toDateTime64('1970-01-01', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -245,6 +254,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -272,6 +282,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -295,6 +306,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -320,6 +332,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -336,15 +349,16 @@
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
      WHERE and(equals(raw_sessions_v3.team_id, 99999), or(equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80))))))
-     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(toUInt128(toUUIDOrNull(nullIf((events.properties).`$session_id`, ''))), events__session.session_id_v7)
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-  WHERE and(equals(events.team_id, 99999), or(equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID'))), equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))))
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                         enable_analyzer=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  WHERE and(equals(events.team_id, 99999), or(equals(toUInt128(toUUIDOrNull((events.properties).`$session_id`)), toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID'))), equals(toUInt128(toUUIDOrNull((events.properties).`$session_id`)), toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))))
   ORDER BY 2 ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -352,6 +366,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -375,6 +390,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -399,6 +415,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -546,6 +563,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
@@ -561,14 +579,15 @@
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
      WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
-     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
-  WHERE and(equals(events.team_id, 99999), equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID'))))
+     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(toUInt128(toUUIDOrNull(nullIf((events.properties).`$session_id`, ''))), events__session.session_id_v7)
+  WHERE and(equals(events.team_id, 99999), equals(toUInt128(toUUIDOrNull((events.properties).`$session_id`)), toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID'))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
+                     enable_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,

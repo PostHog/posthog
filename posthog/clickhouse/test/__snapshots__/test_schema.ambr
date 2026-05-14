@@ -27,46 +27,7 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-          , `dmat_string_0` Nullable(String)
-      , `dmat_string_1` Nullable(String)
-      , `dmat_string_2` Nullable(String)
-      , `dmat_string_3` Nullable(String)
-      , `dmat_string_4` Nullable(String)
-      , `dmat_string_5` Nullable(String)
-      , `dmat_string_6` Nullable(String)
-      , `dmat_string_7` Nullable(String)
-      , `dmat_string_8` Nullable(String)
-      , `dmat_string_9` Nullable(String)
-      , `dmat_numeric_0` Nullable(Float64)
-      , `dmat_numeric_1` Nullable(Float64)
-      , `dmat_numeric_2` Nullable(Float64)
-      , `dmat_numeric_3` Nullable(Float64)
-      , `dmat_numeric_4` Nullable(Float64)
-      , `dmat_numeric_5` Nullable(Float64)
-      , `dmat_numeric_6` Nullable(Float64)
-      , `dmat_numeric_7` Nullable(Float64)
-      , `dmat_numeric_8` Nullable(Float64)
-      , `dmat_numeric_9` Nullable(Float64)
-      , `dmat_bool_0` Nullable(UInt8)
-      , `dmat_bool_1` Nullable(UInt8)
-      , `dmat_bool_2` Nullable(UInt8)
-      , `dmat_bool_3` Nullable(UInt8)
-      , `dmat_bool_4` Nullable(UInt8)
-      , `dmat_bool_5` Nullable(UInt8)
-      , `dmat_bool_6` Nullable(UInt8)
-      , `dmat_bool_7` Nullable(UInt8)
-      , `dmat_bool_8` Nullable(UInt8)
-      , `dmat_bool_9` Nullable(UInt8)
-      , `dmat_datetime_0` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_1` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_2` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_3` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_4` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_5` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_6` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_7` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_8` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_9` Nullable(DateTime64(6, 'UTC'))
+      
       
       
       
@@ -253,46 +214,7 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-          , `dmat_string_0` Nullable(String)
-      , `dmat_string_1` Nullable(String)
-      , `dmat_string_2` Nullable(String)
-      , `dmat_string_3` Nullable(String)
-      , `dmat_string_4` Nullable(String)
-      , `dmat_string_5` Nullable(String)
-      , `dmat_string_6` Nullable(String)
-      , `dmat_string_7` Nullable(String)
-      , `dmat_string_8` Nullable(String)
-      , `dmat_string_9` Nullable(String)
-      , `dmat_numeric_0` Nullable(Float64)
-      , `dmat_numeric_1` Nullable(Float64)
-      , `dmat_numeric_2` Nullable(Float64)
-      , `dmat_numeric_3` Nullable(Float64)
-      , `dmat_numeric_4` Nullable(Float64)
-      , `dmat_numeric_5` Nullable(Float64)
-      , `dmat_numeric_6` Nullable(Float64)
-      , `dmat_numeric_7` Nullable(Float64)
-      , `dmat_numeric_8` Nullable(Float64)
-      , `dmat_numeric_9` Nullable(Float64)
-      , `dmat_bool_0` Nullable(UInt8)
-      , `dmat_bool_1` Nullable(UInt8)
-      , `dmat_bool_2` Nullable(UInt8)
-      , `dmat_bool_3` Nullable(UInt8)
-      , `dmat_bool_4` Nullable(UInt8)
-      , `dmat_bool_5` Nullable(UInt8)
-      , `dmat_bool_6` Nullable(UInt8)
-      , `dmat_bool_7` Nullable(UInt8)
-      , `dmat_bool_8` Nullable(UInt8)
-      , `dmat_bool_9` Nullable(UInt8)
-      , `dmat_datetime_0` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_1` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_2` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_3` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_4` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_5` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_6` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_7` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_8` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_9` Nullable(DateTime64(6, 'UTC'))
+      
       
       
       
@@ -1344,61 +1266,8 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-          , `dmat_string_0` Nullable(String)
-      , `dmat_string_1` Nullable(String)
-      , `dmat_string_2` Nullable(String)
-      , `dmat_string_3` Nullable(String)
-      , `dmat_string_4` Nullable(String)
-      , `dmat_string_5` Nullable(String)
-      , `dmat_string_6` Nullable(String)
-      , `dmat_string_7` Nullable(String)
-      , `dmat_string_8` Nullable(String)
-      , `dmat_string_9` Nullable(String)
-      , `dmat_numeric_0` Nullable(Float64)
-      , `dmat_numeric_1` Nullable(Float64)
-      , `dmat_numeric_2` Nullable(Float64)
-      , `dmat_numeric_3` Nullable(Float64)
-      , `dmat_numeric_4` Nullable(Float64)
-      , `dmat_numeric_5` Nullable(Float64)
-      , `dmat_numeric_6` Nullable(Float64)
-      , `dmat_numeric_7` Nullable(Float64)
-      , `dmat_numeric_8` Nullable(Float64)
-      , `dmat_numeric_9` Nullable(Float64)
-      , `dmat_bool_0` Nullable(UInt8)
-      , `dmat_bool_1` Nullable(UInt8)
-      , `dmat_bool_2` Nullable(UInt8)
-      , `dmat_bool_3` Nullable(UInt8)
-      , `dmat_bool_4` Nullable(UInt8)
-      , `dmat_bool_5` Nullable(UInt8)
-      , `dmat_bool_6` Nullable(UInt8)
-      , `dmat_bool_7` Nullable(UInt8)
-      , `dmat_bool_8` Nullable(UInt8)
-      , `dmat_bool_9` Nullable(UInt8)
-      , `dmat_datetime_0` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_1` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_2` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_3` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_4` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_5` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_6` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_7` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_8` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_9` Nullable(DateTime64(6, 'UTC'))
       
-      , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
-      , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
-      , $group_2 VARCHAR COMMENT 'column_materializer::$group_2'
-      , $group_3 VARCHAR COMMENT 'column_materializer::$group_3'
-      , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
-      , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
-      , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
-      , $session_id_uuid Nullable(UInt128)
-      , elements_chain_href String COMMENT 'column_materializer::elements_chain::href'
-      , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
-      , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
-      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
-      , properties_group_custom Map(String, String), properties_group_ai Map(String, String), properties_group_ai_large Map(String, String), properties_group_feature_flags Map(String, String), person_properties_map_custom Map(String, String)
-  
+      
       
   , _timestamp DateTime
   , _offset UInt64
@@ -1500,46 +1369,6 @@
   group4_created_at,
   person_mode,
   historical_migration,
-  dmat_string_0,
-  dmat_string_1,
-  dmat_string_2,
-  dmat_string_3,
-  dmat_string_4,
-  dmat_string_5,
-  dmat_string_6,
-  dmat_string_7,
-  dmat_string_8,
-  dmat_string_9,
-  dmat_numeric_0,
-  dmat_numeric_1,
-  dmat_numeric_2,
-  dmat_numeric_3,
-  dmat_numeric_4,
-  dmat_numeric_5,
-  dmat_numeric_6,
-  dmat_numeric_7,
-  dmat_numeric_8,
-  dmat_numeric_9,
-  dmat_bool_0,
-  dmat_bool_1,
-  dmat_bool_2,
-  dmat_bool_3,
-  dmat_bool_4,
-  dmat_bool_5,
-  dmat_bool_6,
-  dmat_bool_7,
-  dmat_bool_8,
-  dmat_bool_9,
-  dmat_datetime_0,
-  dmat_datetime_1,
-  dmat_datetime_2,
-  dmat_datetime_3,
-  dmat_datetime_4,
-  dmat_datetime_5,
-  dmat_datetime_6,
-  dmat_datetime_7,
-  dmat_datetime_8,
-  dmat_datetime_9,
   _timestamp,
   _offset,
   arrayMap(
@@ -2005,46 +1834,7 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-          , `dmat_string_0` Nullable(String)
-      , `dmat_string_1` Nullable(String)
-      , `dmat_string_2` Nullable(String)
-      , `dmat_string_3` Nullable(String)
-      , `dmat_string_4` Nullable(String)
-      , `dmat_string_5` Nullable(String)
-      , `dmat_string_6` Nullable(String)
-      , `dmat_string_7` Nullable(String)
-      , `dmat_string_8` Nullable(String)
-      , `dmat_string_9` Nullable(String)
-      , `dmat_numeric_0` Nullable(Float64)
-      , `dmat_numeric_1` Nullable(Float64)
-      , `dmat_numeric_2` Nullable(Float64)
-      , `dmat_numeric_3` Nullable(Float64)
-      , `dmat_numeric_4` Nullable(Float64)
-      , `dmat_numeric_5` Nullable(Float64)
-      , `dmat_numeric_6` Nullable(Float64)
-      , `dmat_numeric_7` Nullable(Float64)
-      , `dmat_numeric_8` Nullable(Float64)
-      , `dmat_numeric_9` Nullable(Float64)
-      , `dmat_bool_0` Nullable(UInt8)
-      , `dmat_bool_1` Nullable(UInt8)
-      , `dmat_bool_2` Nullable(UInt8)
-      , `dmat_bool_3` Nullable(UInt8)
-      , `dmat_bool_4` Nullable(UInt8)
-      , `dmat_bool_5` Nullable(UInt8)
-      , `dmat_bool_6` Nullable(UInt8)
-      , `dmat_bool_7` Nullable(UInt8)
-      , `dmat_bool_8` Nullable(UInt8)
-      , `dmat_bool_9` Nullable(UInt8)
-      , `dmat_datetime_0` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_1` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_2` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_3` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_4` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_5` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_6` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_7` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_8` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_9` Nullable(DateTime64(6, 'UTC'))
+      
       
       
       
@@ -4052,7 +3842,7 @@
   
   SELECT
       team_id,
-      toUInt128(toUUID(`$session_id`)) as session_id_v7,
+      toUInt128(toUUID(JSONExtractString(properties, '$session_id'))) as session_id_v7,
   
       argMaxState(distinct_id, timestamp) as distinct_id,
   
@@ -4125,7 +3915,7 @@
       -- web vitals
       argMinState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$web_vitals_LCP_value'), ''), 'null'), '^"|"$', ''), 'Float64'), timestamp) as vitals_lcp
   FROM posthog_test.sharded_events
-  WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
+  WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(JSONExtractString(properties, '$session_id'), 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
   GROUP BY
       team_id,
       toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
@@ -4145,7 +3935,7 @@
       -- Both UInt128 and UUID are imperfect choices here
       -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
       -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
-      -- right now choose UInt128 as that's the type of events.$session_id_uuid, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
+      -- right now choose UInt128 as that's the type of the indexed events $session_id UUID expression, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
       session_id_v7 UInt128,
       -- Ideally we would not need to store this separately, as the ID *is* the timestamp
       -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
@@ -4249,45 +4039,45 @@
   
   WITH
       
-          if(isNull(nullIf(nullIf(JSONExtractRaw(person_properties, 'email'), ''), 'null')), NULL, toString(person_properties.email)) as _person_email,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null')), NULL, toString(properties.`$current_url`)) as _current_url,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$external_click_url'), ''), 'null')), NULL, toString(properties.`$external_click_url`)) as _external_click_url,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null')), NULL, toString(properties.`$browser`)) as _browser,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$browser_version'), ''), 'null')), NULL, toString(properties.`$browser_version`)) as _browser_version,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$os'), ''), 'null')), NULL, toString(properties.`$os`)) as _os,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$os_version'), ''), 'null')), NULL, toString(properties.`$os_version`)) as _os_version,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$device_type'), ''), 'null')), NULL, toString(properties.`$device_type`)) as _device_type,
-          accurateCastOrNull(if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$viewport_width'), ''), 'null')), NULL, toString(properties.`$viewport_width`)), 'Int64') as _viewport_width,
-          accurateCastOrNull(if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$viewport_height'), ''), 'null')), NULL, toString(properties.`$viewport_height`)), 'Int64') as _viewport_height,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$geoip_country_code'), ''), 'null')), NULL, toString(properties.`$geoip_country_code`)) as _geoip_country_code,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$geoip_subdivision_1_code'), ''), 'null')), NULL, toString(properties.`$geoip_subdivision_1_code`)) as _geoip_subdivision_1_code,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$geoip_subdivision_1_name'), ''), 'null')), NULL, toString(properties.`$geoip_subdivision_1_name`)) as _geoip_subdivision_1_name,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$geoip_subdivision_city_name'), ''), 'null')), NULL, toString(properties.`$geoip_subdivision_city_name`)) as _geoip_subdivision_city_name,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$geoip_time_zone'), ''), 'null')), NULL, toString(properties.`$geoip_time_zone`)) as _geoip_time_zone,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$referring_domain'), ''), 'null')), NULL, toString(properties.`$referring_domain`)) as _referring_domain,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'utm_source'), ''), 'null')), NULL, toString(properties.utm_source)) as _utm_source,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'utm_campaign'), ''), 'null')), NULL, toString(properties.utm_campaign)) as _utm_campaign,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'utm_medium'), ''), 'null')), NULL, toString(properties.utm_medium)) as _utm_medium,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'utm_term'), ''), 'null')), NULL, toString(properties.utm_term)) as _utm_term,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'utm_content'), ''), 'null')), NULL, toString(properties.utm_content)) as _utm_content,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'gclid'), ''), 'null')), NULL, toString(properties.gclid)) as _gclid,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'gad_source'), ''), 'null')), NULL, toString(properties.gad_source)) as _gad_source,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'fbclid'), ''), 'null')), NULL, toString(properties.fbclid)) as _fbclid,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'gclsrc'), ''), 'null')), NULL, toString(properties.gclsrc)) as gclsrc,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'dclid'), ''), 'null')), NULL, toString(properties.dclid)) as dclid,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'gbraid'), ''), 'null')), NULL, toString(properties.gbraid)) as gbraid,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'wbraid'), ''), 'null')), NULL, toString(properties.wbraid)) as wbraid,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'msclkid'), ''), 'null')), NULL, toString(properties.msclkid)) as msclkid,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'twclid'), ''), 'null')), NULL, toString(properties.twclid)) as twclid,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'li_fat_id'), ''), 'null')), NULL, toString(properties.li_fat_id)) as li_fat_id,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'mc_cid'), ''), 'null')), NULL, toString(properties.mc_cid)) as mc_cid,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'igshid'), ''), 'null')), NULL, toString(properties.igshid)) as igshid,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'ttclid'), ''), 'null')), NULL, toString(properties.ttclid)) as ttclid,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'epik'), ''), 'null')), NULL, toString(properties.epik)) as epik,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'qclid'), ''), 'null')), NULL, toString(properties.qclid)) as qclid,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'sccid'), ''), 'null')), NULL, toString(properties.sccid)) as sccid,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '_kx'), ''), 'null')), NULL, toString(properties._kx)) as _kx,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, 'irclid'), ''), 'null')), NULL, toString(properties.irclid)) as irclid,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'email'), ''), 'null'), '^"|"$', '') as _person_email,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') as _current_url,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$external_click_url'), ''), 'null'), '^"|"$', '') as _external_click_url,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', '') as _browser,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser_version'), ''), 'null'), '^"|"$', '') as _browser_version,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$os'), ''), 'null'), '^"|"$', '') as _os,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$os_version'), ''), 'null'), '^"|"$', '') as _os_version,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$device_type'), ''), 'null'), '^"|"$', '') as _device_type,
+          accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$viewport_width'), ''), 'null'), '^"|"$', ''), 'Int64') as _viewport_width,
+          accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$viewport_height'), ''), 'null'), '^"|"$', ''), 'Int64') as _viewport_height,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$geoip_country_code'), ''), 'null'), '^"|"$', '') as _geoip_country_code,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$geoip_subdivision_1_code'), ''), 'null'), '^"|"$', '') as _geoip_subdivision_1_code,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$geoip_subdivision_1_name'), ''), 'null'), '^"|"$', '') as _geoip_subdivision_1_name,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$geoip_subdivision_city_name'), ''), 'null'), '^"|"$', '') as _geoip_subdivision_city_name,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$geoip_time_zone'), ''), 'null'), '^"|"$', '') as _geoip_time_zone,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$referring_domain'), ''), 'null'), '^"|"$', '') as _referring_domain,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'utm_source'), ''), 'null'), '^"|"$', '') as _utm_source,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'utm_campaign'), ''), 'null'), '^"|"$', '') as _utm_campaign,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'utm_medium'), ''), 'null'), '^"|"$', '') as _utm_medium,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'utm_term'), ''), 'null'), '^"|"$', '') as _utm_term,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'utm_content'), ''), 'null'), '^"|"$', '') as _utm_content,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'gclid'), ''), 'null'), '^"|"$', '') as _gclid,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'gad_source'), ''), 'null'), '^"|"$', '') as _gad_source,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'fbclid'), ''), 'null'), '^"|"$', '') as _fbclid,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'gclsrc'), ''), 'null'), '^"|"$', '') as gclsrc,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'dclid'), ''), 'null'), '^"|"$', '') as dclid,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'gbraid'), ''), 'null'), '^"|"$', '') as gbraid,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'wbraid'), ''), 'null'), '^"|"$', '') as wbraid,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'msclkid'), ''), 'null'), '^"|"$', '') as msclkid,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'twclid'), ''), 'null'), '^"|"$', '') as twclid,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'li_fat_id'), ''), 'null'), '^"|"$', '') as li_fat_id,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'mc_cid'), ''), 'null'), '^"|"$', '') as mc_cid,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'igshid'), ''), 'null'), '^"|"$', '') as igshid,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'ttclid'), ''), 'null'), '^"|"$', '') as ttclid,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'epik'), ''), 'null'), '^"|"$', '') as epik,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'qclid'), ''), 'null'), '^"|"$', '') as qclid,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'sccid'), ''), 'null'), '^"|"$', '') as sccid,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '_kx'), ''), 'null'), '^"|"$', '') as _kx,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'irclid'), ''), 'null'), '^"|"$', '') as irclid,
           CAST(mapFilter((k, v) -> v IS NOT NULL, map(
               'gclsrc', gclsrc,
               'dclid', dclid,
@@ -4322,13 +4112,20 @@
               if(_kx IS NOT NULL, '_kx', NULL),
               if(irclid IS NOT NULL, 'irclid', NULL)
           ]) AS Array(String)) as ad_ids_set,
-          if(isNull(nullIf(nullIf(JSONExtractRaw(properties, '$host'), ''), 'null')), NULL, toString(properties.`$host`)) as _host,
+          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$host'), ''), 'null'), '^"|"$', '') as _host,
+          CAST(
+              mapFilter(
+                  (key, _) -> key LIKE '$feature/%%',
+                  CAST(JSONExtractKeysAndValues(toString(properties), 'String'), 'Map(String, String)')
+              ),
+              'Map(String, String)'
+          ) as feature_flags_map,
       -- attribution properties from non-pageview/screen events should be deprioritized, so make the timestamp +/- 1 year so they sort last
       if (event = '$pageview' OR event = '$screen', timestamp, timestamp + toIntervalYear(1)) as pageview_prio_timestamp_min,
       if (event = '$pageview' OR event = '$screen', timestamp, timestamp - toIntervalYear(1)) as pageview_prio_timestamp_max
   SELECT
       team_id,
-      `$session_id_uuid` AS session_id_v7,
+      toUInt128(toUUIDOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$session_id'), ''), 'null'), '^"|"$', ''))) AS session_id_v7,
       
   
       initializeAggregation('argMaxState', source_table.distinct_id, timestamp) as distinct_id,
@@ -4393,8 +4190,8 @@
       event = '$autocapture' as has_autocapture,
   
       -- flags
-      initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
-      mapKeys(properties_group_feature_flags) as flag_keys,
+      initializeAggregation('groupUniqArrayMapState', feature_flags_map) as flag_values,
+      mapKeys(feature_flags_map) as flag_keys,
   
       -- event names
       [event] as event_names,
@@ -4407,7 +4204,7 @@
   
       false as has_replay_events
   FROM posthog_test.sharded_events AS source_table
-  WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+  WHERE bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$session_id'), ''), 'null'), '^"|"$', ''))), 76), 0xF) == 7 -- has a session id and is valid uuidv7
   AND TRUE
       
   
@@ -4864,7 +4661,7 @@
   
   SELECT
   
-  `$session_id` as session_id,
+  replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') as session_id,
   team_id,
   
   -- it doesn't matter which distinct_id gets picked (it'll be somewhat random) as they can all join to the right person
@@ -4905,8 +4702,8 @@
   sumIf(1, event='$autocapture') as autocapture_count
   
   FROM posthog_test.sharded_events
-  WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND team_id IN (1, 2, 13610, 19279, 21173, 29929, 32050, 9910, 11775, 21129, 31490)
-  GROUP BY `$session_id`, team_id
+  WHERE replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') IS NOT NULL AND replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') != '' AND team_id IN (1, 2, 13610, 19279, 21173, 29929, 32050, 9910, 11775, 21129, 31490)
+  GROUP BY replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', ''), team_id
   
   
   '''
@@ -5125,59 +4922,8 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-          , `dmat_string_0` Nullable(String)
-      , `dmat_string_1` Nullable(String)
-      , `dmat_string_2` Nullable(String)
-      , `dmat_string_3` Nullable(String)
-      , `dmat_string_4` Nullable(String)
-      , `dmat_string_5` Nullable(String)
-      , `dmat_string_6` Nullable(String)
-      , `dmat_string_7` Nullable(String)
-      , `dmat_string_8` Nullable(String)
-      , `dmat_string_9` Nullable(String)
-      , `dmat_numeric_0` Nullable(Float64)
-      , `dmat_numeric_1` Nullable(Float64)
-      , `dmat_numeric_2` Nullable(Float64)
-      , `dmat_numeric_3` Nullable(Float64)
-      , `dmat_numeric_4` Nullable(Float64)
-      , `dmat_numeric_5` Nullable(Float64)
-      , `dmat_numeric_6` Nullable(Float64)
-      , `dmat_numeric_7` Nullable(Float64)
-      , `dmat_numeric_8` Nullable(Float64)
-      , `dmat_numeric_9` Nullable(Float64)
-      , `dmat_bool_0` Nullable(UInt8)
-      , `dmat_bool_1` Nullable(UInt8)
-      , `dmat_bool_2` Nullable(UInt8)
-      , `dmat_bool_3` Nullable(UInt8)
-      , `dmat_bool_4` Nullable(UInt8)
-      , `dmat_bool_5` Nullable(UInt8)
-      , `dmat_bool_6` Nullable(UInt8)
-      , `dmat_bool_7` Nullable(UInt8)
-      , `dmat_bool_8` Nullable(UInt8)
-      , `dmat_bool_9` Nullable(UInt8)
-      , `dmat_datetime_0` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_1` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_2` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_3` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_4` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_5` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_6` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_7` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_8` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_9` Nullable(DateTime64(6, 'UTC'))
       
-      , $group_0 VARCHAR MATERIALIZED properties.`$group_0` COMMENT 'column_materializer::$group_0'
-      , $group_1 VARCHAR MATERIALIZED properties.`$group_1` COMMENT 'column_materializer::$group_1'
-      , $group_2 VARCHAR MATERIALIZED properties.`$group_2` COMMENT 'column_materializer::$group_2'
-      , $group_3 VARCHAR MATERIALIZED properties.`$group_3` COMMENT 'column_materializer::$group_3'
-      , $group_4 VARCHAR MATERIALIZED properties.`$group_4` COMMENT 'column_materializer::$group_4'
-      , $window_id VARCHAR MATERIALIZED properties.`$window_id` COMMENT 'column_materializer::$window_id'
-      , $session_id VARCHAR MATERIALIZED properties.`$session_id` COMMENT 'column_materializer::$session_id'
-      , $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt128(toUUIDOrNull(properties.`$session_id`))
-      , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
-      , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
-      , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
-      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)'))
+      
       , INDEX `minmax_$group_0` properties.`$group_0` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_1` properties.`$group_1` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_2` properties.`$group_2` TYPE minmax GRANULARITY 1
@@ -5186,37 +4932,6 @@
       , INDEX `minmax_$window_id` properties.`$window_id` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$session_id` properties.`$session_id` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$session_id_uuid` toUInt128(toUUIDOrNull(properties.`$session_id`)) TYPE minmax GRANULARITY 1
-      ,             properties_group_custom Map(String, String)
-              MATERIALIZED mapSort(
-                  mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'),
-                  CAST(JSONExtractKeysAndValues(toJSONString(properties), 'String'), 'Map(String, String)'))
-              )
-              CODEC(ZSTD(1))
-          , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter, INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter,             properties_group_ai Map(String, String)
-              MATERIALIZED mapSort(
-                  mapFilter((key, _) -> key LIKE '$ai_%' AND key NOT IN ('$ai_input', '$ai_input_state', '$ai_output', '$ai_output_choices', '$ai_output_state', '$ai_tools'),
-                  CAST(JSONExtractKeysAndValues(toJSONString(properties), 'String'), 'Map(String, String)'))
-              )
-              CODEC(ZSTD(1))
-          , INDEX properties_group_ai_keys_bf mapKeys(properties_group_ai) TYPE bloom_filter, INDEX properties_group_ai_values_bf mapValues(properties_group_ai) TYPE bloom_filter,             properties_group_ai_large Map(String, String)
-              MATERIALIZED mapSort(
-                  mapFilter((key, _) -> key IN ('$ai_input', '$ai_input_state', '$ai_output', '$ai_output_choices', '$ai_output_state', '$ai_tools'),
-                  CAST(JSONExtractKeysAndValues(toJSONString(properties), 'String'), 'Map(String, String)'))
-              )
-              CODEC(ZSTD(1))
-          , INDEX properties_group_ai_large_keys_bf mapKeys(properties_group_ai_large) TYPE bloom_filter, INDEX properties_group_ai_large_values_bf mapValues(properties_group_ai_large) TYPE bloom_filter,             properties_group_feature_flags Map(String, String)
-              MATERIALIZED mapSort(
-                  mapFilter((key, _) -> key like '$feature/%',
-                  CAST(JSONExtractKeysAndValues(toJSONString(properties), 'String'), 'Map(String, String)'))
-              )
-              CODEC(ZSTD(1))
-          , INDEX properties_group_feature_flags_keys_bf mapKeys(properties_group_feature_flags) TYPE bloom_filter, INDEX properties_group_feature_flags_values_bf mapValues(properties_group_feature_flags) TYPE bloom_filter,             person_properties_map_custom Map(String, String)
-              MATERIALIZED mapSort(
-                  mapFilter((key, _) -> key NOT LIKE '$%',
-                  CAST(JSONExtractKeysAndValues(toJSONString(person_properties), 'String'), 'Map(String, String)'))
-              )
-              CODEC(ZSTD(1))
-          , INDEX person_properties_map_custom_keys_bf mapKeys(person_properties_map_custom) TYPE bloom_filter, INDEX person_properties_map_custom_values_bf mapValues(person_properties_map_custom) TYPE bloom_filter
   
       
   , _timestamp DateTime
@@ -5717,7 +5432,7 @@
       -- Both UInt128 and UUID are imperfect choices here
       -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
       -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
-      -- right now choose UInt128 as that's the type of events.$session_id_uuid, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
+      -- right now choose UInt128 as that's the type of the indexed events $session_id UUID expression, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
       session_id_v7 UInt128,
       -- Ideally we would not need to store this separately, as the ID *is* the timestamp
       -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
@@ -6406,46 +6121,7 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-          , `dmat_string_0` Nullable(String)
-      , `dmat_string_1` Nullable(String)
-      , `dmat_string_2` Nullable(String)
-      , `dmat_string_3` Nullable(String)
-      , `dmat_string_4` Nullable(String)
-      , `dmat_string_5` Nullable(String)
-      , `dmat_string_6` Nullable(String)
-      , `dmat_string_7` Nullable(String)
-      , `dmat_string_8` Nullable(String)
-      , `dmat_string_9` Nullable(String)
-      , `dmat_numeric_0` Nullable(Float64)
-      , `dmat_numeric_1` Nullable(Float64)
-      , `dmat_numeric_2` Nullable(Float64)
-      , `dmat_numeric_3` Nullable(Float64)
-      , `dmat_numeric_4` Nullable(Float64)
-      , `dmat_numeric_5` Nullable(Float64)
-      , `dmat_numeric_6` Nullable(Float64)
-      , `dmat_numeric_7` Nullable(Float64)
-      , `dmat_numeric_8` Nullable(Float64)
-      , `dmat_numeric_9` Nullable(Float64)
-      , `dmat_bool_0` Nullable(UInt8)
-      , `dmat_bool_1` Nullable(UInt8)
-      , `dmat_bool_2` Nullable(UInt8)
-      , `dmat_bool_3` Nullable(UInt8)
-      , `dmat_bool_4` Nullable(UInt8)
-      , `dmat_bool_5` Nullable(UInt8)
-      , `dmat_bool_6` Nullable(UInt8)
-      , `dmat_bool_7` Nullable(UInt8)
-      , `dmat_bool_8` Nullable(UInt8)
-      , `dmat_bool_9` Nullable(UInt8)
-      , `dmat_datetime_0` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_1` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_2` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_3` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_4` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_5` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_6` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_7` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_8` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_9` Nullable(DateTime64(6, 'UTC'))
+      
       
       
   , _timestamp DateTime
@@ -6893,7 +6569,7 @@
       -- Both UInt128 and UUID are imperfect choices here
       -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
       -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
-      -- right now choose UInt128 as that's the type of events.$session_id_uuid, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
+      -- right now choose UInt128 as that's the type of the indexed events $session_id UUID expression, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
       session_id_v7 UInt128,
       -- Ideally we would not need to store this separately, as the ID *is* the timestamp
       -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
@@ -8341,59 +8017,8 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-          , `dmat_string_0` Nullable(String)
-      , `dmat_string_1` Nullable(String)
-      , `dmat_string_2` Nullable(String)
-      , `dmat_string_3` Nullable(String)
-      , `dmat_string_4` Nullable(String)
-      , `dmat_string_5` Nullable(String)
-      , `dmat_string_6` Nullable(String)
-      , `dmat_string_7` Nullable(String)
-      , `dmat_string_8` Nullable(String)
-      , `dmat_string_9` Nullable(String)
-      , `dmat_numeric_0` Nullable(Float64)
-      , `dmat_numeric_1` Nullable(Float64)
-      , `dmat_numeric_2` Nullable(Float64)
-      , `dmat_numeric_3` Nullable(Float64)
-      , `dmat_numeric_4` Nullable(Float64)
-      , `dmat_numeric_5` Nullable(Float64)
-      , `dmat_numeric_6` Nullable(Float64)
-      , `dmat_numeric_7` Nullable(Float64)
-      , `dmat_numeric_8` Nullable(Float64)
-      , `dmat_numeric_9` Nullable(Float64)
-      , `dmat_bool_0` Nullable(UInt8)
-      , `dmat_bool_1` Nullable(UInt8)
-      , `dmat_bool_2` Nullable(UInt8)
-      , `dmat_bool_3` Nullable(UInt8)
-      , `dmat_bool_4` Nullable(UInt8)
-      , `dmat_bool_5` Nullable(UInt8)
-      , `dmat_bool_6` Nullable(UInt8)
-      , `dmat_bool_7` Nullable(UInt8)
-      , `dmat_bool_8` Nullable(UInt8)
-      , `dmat_bool_9` Nullable(UInt8)
-      , `dmat_datetime_0` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_1` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_2` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_3` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_4` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_5` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_6` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_7` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_8` Nullable(DateTime64(6, 'UTC'))
-      , `dmat_datetime_9` Nullable(DateTime64(6, 'UTC'))
       
-      , $group_0 VARCHAR MATERIALIZED properties.`$group_0` COMMENT 'column_materializer::$group_0'
-      , $group_1 VARCHAR MATERIALIZED properties.`$group_1` COMMENT 'column_materializer::$group_1'
-      , $group_2 VARCHAR MATERIALIZED properties.`$group_2` COMMENT 'column_materializer::$group_2'
-      , $group_3 VARCHAR MATERIALIZED properties.`$group_3` COMMENT 'column_materializer::$group_3'
-      , $group_4 VARCHAR MATERIALIZED properties.`$group_4` COMMENT 'column_materializer::$group_4'
-      , $window_id VARCHAR MATERIALIZED properties.`$window_id` COMMENT 'column_materializer::$window_id'
-      , $session_id VARCHAR MATERIALIZED properties.`$session_id` COMMENT 'column_materializer::$session_id'
-      , $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt128(toUUIDOrNull(properties.`$session_id`))
-      , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
-      , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
-      , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
-      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)'))
+      
       , INDEX `minmax_$group_0` properties.`$group_0` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_1` properties.`$group_1` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_2` properties.`$group_2` TYPE minmax GRANULARITY 1
@@ -8402,37 +8027,6 @@
       , INDEX `minmax_$window_id` properties.`$window_id` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$session_id` properties.`$session_id` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$session_id_uuid` toUInt128(toUUIDOrNull(properties.`$session_id`)) TYPE minmax GRANULARITY 1
-      ,             properties_group_custom Map(String, String)
-              MATERIALIZED mapSort(
-                  mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'),
-                  CAST(JSONExtractKeysAndValues(toJSONString(properties), 'String'), 'Map(String, String)'))
-              )
-              CODEC(ZSTD(1))
-          , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter, INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter,             properties_group_ai Map(String, String)
-              MATERIALIZED mapSort(
-                  mapFilter((key, _) -> key LIKE '$ai_%' AND key NOT IN ('$ai_input', '$ai_input_state', '$ai_output', '$ai_output_choices', '$ai_output_state', '$ai_tools'),
-                  CAST(JSONExtractKeysAndValues(toJSONString(properties), 'String'), 'Map(String, String)'))
-              )
-              CODEC(ZSTD(1))
-          , INDEX properties_group_ai_keys_bf mapKeys(properties_group_ai) TYPE bloom_filter, INDEX properties_group_ai_values_bf mapValues(properties_group_ai) TYPE bloom_filter,             properties_group_ai_large Map(String, String)
-              MATERIALIZED mapSort(
-                  mapFilter((key, _) -> key IN ('$ai_input', '$ai_input_state', '$ai_output', '$ai_output_choices', '$ai_output_state', '$ai_tools'),
-                  CAST(JSONExtractKeysAndValues(toJSONString(properties), 'String'), 'Map(String, String)'))
-              )
-              CODEC(ZSTD(1))
-          , INDEX properties_group_ai_large_keys_bf mapKeys(properties_group_ai_large) TYPE bloom_filter, INDEX properties_group_ai_large_values_bf mapValues(properties_group_ai_large) TYPE bloom_filter,             properties_group_feature_flags Map(String, String)
-              MATERIALIZED mapSort(
-                  mapFilter((key, _) -> key like '$feature/%',
-                  CAST(JSONExtractKeysAndValues(toJSONString(properties), 'String'), 'Map(String, String)'))
-              )
-              CODEC(ZSTD(1))
-          , INDEX properties_group_feature_flags_keys_bf mapKeys(properties_group_feature_flags) TYPE bloom_filter, INDEX properties_group_feature_flags_values_bf mapValues(properties_group_feature_flags) TYPE bloom_filter,             person_properties_map_custom Map(String, String)
-              MATERIALIZED mapSort(
-                  mapFilter((key, _) -> key NOT LIKE '$%',
-                  CAST(JSONExtractKeysAndValues(toJSONString(person_properties), 'String'), 'Map(String, String)'))
-              )
-              CODEC(ZSTD(1))
-          , INDEX person_properties_map_custom_keys_bf mapKeys(person_properties_map_custom) TYPE bloom_filter, INDEX person_properties_map_custom_values_bf mapValues(person_properties_map_custom) TYPE bloom_filter
   
       
   , _timestamp DateTime
@@ -8933,7 +8527,7 @@
       -- Both UInt128 and UUID are imperfect choices here
       -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
       -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
-      -- right now choose UInt128 as that's the type of events.$session_id_uuid, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
+      -- right now choose UInt128 as that's the type of the indexed events $session_id UUID expression, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
       session_id_v7 UInt128,
       -- Ideally we would not need to store this separately, as the ID *is* the timestamp
       -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround

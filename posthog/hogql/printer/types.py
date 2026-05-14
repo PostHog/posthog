@@ -57,11 +57,15 @@ class PrintableJSONSubcolumn:
     chain: list[str]
     raw_path_args: list[str]
     tuple_element_chain: list[str] | None = None
+    typed_path_type: str | None = None
     cast_value_to_string: bool = False
     null_if_missing_or_null: bool = True
 
-    def __str__(self) -> str:
-        source_field = self.column if self.table is None else f"{self.table}.{self.column}"
+    def source_field(self) -> str:
+        return self.column if self.table is None else f"{self.table}.{self.column}"
+
+    def value_expression(self) -> str:
+        source_field = self.source_field()
         field = self.column if self.table is None else f"({source_field})"
         if self.tuple_element_chain is not None:
             expression = field
@@ -71,8 +75,16 @@ class PrintableJSONSubcolumn:
             expression = ".".join([field, *self.chain])
         if self.cast_value_to_string:
             expression = f"toString({expression})"
+        return expression
+
+    def raw_value_expression(self) -> str:
+        path_args = ", ".join(self.raw_path_args)
+        return f"JSONExtractRaw({self.source_field()}, {path_args})"
+
+    def __str__(self) -> str:
+        expression = self.value_expression()
         if self.null_if_missing_or_null:
-            path_args = ", ".join(self.raw_path_args)
-            raw_value = f"JSONExtractRaw({source_field}, {path_args})"
-            return f"if(isNull(nullIf(nullIf({raw_value}, ''), 'null')), NULL, {expression})"
+            if self.typed_path_type == "String":
+                return f"nullIf({expression}, '')"
+            return f"if(has(['', 'null'], {self.raw_value_expression()}), NULL, {expression})"
         return expression
