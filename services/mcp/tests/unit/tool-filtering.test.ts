@@ -649,6 +649,46 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(flags).toHaveLength(7)
     })
 
+    const deploymentToolNames = [
+        'deployment-projects-get',
+        'deployment-projects-list',
+        'deployments-deploy',
+        'deployments-events',
+        'deployments-get',
+        'deployments-list',
+    ]
+
+    it('should hide deployment tools when the deployments feature flag is off', async () => {
+        const context = createMockContext(['deployment:read', 'deployment:write'])
+        const tools = await getToolsFromContext(context, { featureFlags: { deployments: false } })
+        const toolNames = tools.map((tool) => tool.name)
+
+        for (const toolName of deploymentToolNames) {
+            expect(toolNames).not.toContain(toolName)
+        }
+    })
+
+    it('should show deployment tools when the deployments feature flag is on', async () => {
+        const context = createMockContext(['deployment:read', 'deployment:write'])
+        const tools = await getToolsFromContext(context, { featureFlags: { deployments: true } })
+        const toolNames = tools.map((tool) => tool.name)
+
+        for (const toolName of deploymentToolNames) {
+            expect(toolNames).toContain(toolName)
+        }
+    })
+
+    it('should fail closed for deployment tools when the deployments feature flag is not evaluated', async () => {
+        const context = createMockContext(['deployment:read', 'deployment:write'])
+        const toolsWithoutFlags = await getToolsFromContext(context)
+        const toolsWithMissingFlag = await getToolsFromContext(context, { featureFlags: {} })
+
+        for (const toolName of deploymentToolNames) {
+            expect(toolsWithoutFlags.map((tool) => tool.name)).not.toContain(toolName)
+            expect(toolsWithMissingFlag.map((tool) => tool.name)).not.toContain(toolName)
+        }
+    })
+
     // Test the filtering logic with a direct unit test approach using
     // a standalone implementation that mirrors getToolsForFeatures' logic
     describe('feature flag filter predicate', () => {
