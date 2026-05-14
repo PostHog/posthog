@@ -178,15 +178,16 @@ function truncate(value: string, maxLength: number): string {
     return `${value.slice(0, maxLength - 1)}…`
 }
 
-function printPrettyJson(result: unknown): void {
-    const json = JSON.stringify(result, null, 2)
-
+function printHighlightedJson(json: string): void {
     if (!process.stdout.isTTY) {
         console.log(json)
         return
     }
-
     console.log(highlight(json, { language: 'json', ignoreIllegals: true }))
+}
+
+function printPrettyJson(result: unknown): void {
+    printHighlightedJson(JSON.stringify(result, null, 2))
 }
 
 function printListTable(result: unknown, emptyMessage: string, columns: TableColumn[]): void {
@@ -1250,14 +1251,6 @@ export async function applyJqFilter(filter: string, result: unknown): Promise<st
         output: 'pretty',
     })
     return typeof output === 'string' ? output : JSON.stringify(output ?? null, null, 2)
-}
-
-function printHighlightedJson(json: string): void {
-    if (!process.stdout.isTTY) {
-        console.log(json)
-        return
-    }
-    console.log(highlight(json, { language: 'json', ignoreIllegals: true }))
 }
 
 export async function printResult(argv: unknown, toolName: string, result: unknown): Promise<void> {
