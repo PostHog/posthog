@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
-import { IconGitBranch, IconGithub } from '@posthog/icons'
+import { IconGithub, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -78,42 +78,33 @@ function PRListItem({
     const onClick = (): void => {
         push(urls.gitHogPullRequest(owner, name, pr.number))
     }
-    const stateTag = pr.draft
-        ? { type: 'default' as const, label: 'Draft' }
-        : pr.state === 'open'
-          ? { type: 'success' as const, label: 'Open' }
-          : { type: 'default' as const, label: pr.state }
 
     return (
         <button
             type="button"
             onClick={onClick}
-            className={`w-full text-left px-3 py-2.5 border-b border-border transition-colors hover:bg-fill-highlight-50 ${
+            className={`w-full text-left px-3 py-2 border-b border-border transition-colors hover:bg-fill-highlight-50 ${
                 selected ? 'bg-fill-highlight-100' : 'bg-bg-light'
             }`}
         >
             <div className="flex items-start justify-between gap-2">
                 <div className="flex flex-col gap-y-0.5 min-w-0 flex-1">
-                    <div className="flex items-center gap-x-1.5">
-                        <LemonTag type={stateTag.type} size="small">
-                            {stateTag.label}
-                        </LemonTag>
-                        <span className="text-xs text-muted font-mono">#{pr.number}</span>
+                    <div className="flex items-baseline gap-x-1.5 min-w-0">
+                        <span className="text-sm font-semibold text-primary truncate leading-snug">{pr.title}</span>
                     </div>
-                    <span className="text-sm font-semibold text-primary line-clamp-2 leading-snug">{pr.title}</span>
-                    <div className="flex items-center gap-x-2 text-xs text-secondary mt-0.5">
+                    <div className="flex items-center gap-x-1.5 text-xs text-secondary min-w-0">
+                        <span className="text-muted font-mono shrink-0">#{pr.number}</span>
+                        {pr.draft && (
+                            <LemonTag type="default" size="small">
+                                Draft
+                            </LemonTag>
+                        )}
                         <span className="truncate">{pr.author || 'unknown'}</span>
                         <span className="text-muted">·</span>
                         <TZLabel time={pr.updated_at} />
                     </div>
-                    <div className="flex items-center gap-x-1 text-xs text-muted font-mono truncate mt-0.5">
-                        <IconGitBranch className="size-3 shrink-0" />
-                        <span className="truncate">
-                            {pr.head_branch} → {pr.base_branch}
-                        </span>
-                    </div>
                 </div>
-                <div className="shrink-0 pt-0.5">
+                <div className="shrink-0">
                     <RiskScoreBadge owner={owner} name={name} number={pr.number} />
                 </div>
             </div>
@@ -124,6 +115,7 @@ function PRListItem({
 export function GitHogRepoScene({ owner, name, number }: GitHogRepoSceneProps): JSX.Element {
     const { pullRequests, pullRequestsLoading } = useValues(gitHogRepoLogic({ owner, name }))
     const repository = `${owner}/${name}`
+    const [inboxCollapsed, setInboxCollapsed] = useState(false)
 
     const sortedPRs = useMemo(
         () => [...pullRequests].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()),
@@ -149,39 +141,70 @@ export function GitHogRepoScene({ owner, name, number }: GitHogRepoSceneProps): 
                 }
             />
             <div className="flex gap-4 items-start min-h-[60vh]">
-                {/* Inbox column */}
-                <aside className="w-96 shrink-0 border border-border rounded-lg overflow-hidden bg-bg-light flex flex-col max-h-[80vh]">
-                    <div className="px-3 py-2 border-b border-border flex items-center justify-between bg-bg-3000">
-                        <span className="text-sm font-semibold">Pull requests</span>
-                        <span className="text-xs text-secondary">
-                            {pullRequestsLoading ? 'loading…' : `${sortedPRs.length} open`}
-                        </span>
-                    </div>
-                    <div className="overflow-y-auto flex-1">
-                        {pullRequestsLoading && sortedPRs.length === 0 ? (
-                            <div className="p-3 flex flex-col gap-y-3">
-                                {[0, 1, 2, 3].map((i) => (
-                                    <div key={i} className="flex flex-col gap-y-1.5">
-                                        <LemonSkeleton className="h-4 w-3/4" />
-                                        <LemonSkeleton className="h-3 w-1/2" />
-                                    </div>
-                                ))}
-                            </div>
-                        ) : sortedPRs.length === 0 ? (
-                            <div className="p-6 text-center text-sm text-secondary">No open pull requests</div>
-                        ) : (
-                            sortedPRs.map((pr) => (
-                                <PRListItem
-                                    key={pr.number}
-                                    pr={pr}
-                                    owner={owner}
-                                    name={name}
-                                    selected={number === pr.number}
-                                />
-                            ))
+                {/* Inbox column — collapses to a narrow rail */}
+                {inboxCollapsed ? (
+                    <aside className="w-10 shrink-0 border border-border rounded-lg overflow-hidden bg-bg-light flex flex-col items-center py-2 gap-y-2">
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
+                            icon={<IconSidebarOpen />}
+                            onClick={() => setInboxCollapsed(false)}
+                            tooltip="Expand inbox"
+                            aria-label="Expand inbox"
+                        />
+                        {!pullRequestsLoading && (
+                            <span
+                                className="text-xs text-secondary tabular-nums"
+                                title={`${sortedPRs.length} open pull requests`}
+                            >
+                                {sortedPRs.length}
+                            </span>
                         )}
-                    </div>
-                </aside>
+                    </aside>
+                ) : (
+                    <aside className="w-72 shrink-0 border border-border rounded-lg overflow-hidden bg-bg-light flex flex-col max-h-[80vh]">
+                        <div className="px-3 py-1.5 border-b border-border flex items-center justify-between bg-bg-3000 gap-x-2">
+                            <div className="flex items-center gap-x-2 min-w-0">
+                                <span className="text-sm font-semibold">Pull requests</span>
+                                <span className="text-xs text-secondary shrink-0">
+                                    {pullRequestsLoading ? 'loading…' : sortedPRs.length}
+                                </span>
+                            </div>
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                icon={<IconSidebarClose />}
+                                onClick={() => setInboxCollapsed(true)}
+                                tooltip="Collapse inbox"
+                                aria-label="Collapse inbox"
+                            />
+                        </div>
+                        <div className="overflow-y-auto flex-1">
+                            {pullRequestsLoading && sortedPRs.length === 0 ? (
+                                <div className="p-3 flex flex-col gap-y-3">
+                                    {[0, 1, 2, 3].map((i) => (
+                                        <div key={i} className="flex flex-col gap-y-1.5">
+                                            <LemonSkeleton className="h-4 w-3/4" />
+                                            <LemonSkeleton className="h-3 w-1/2" />
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : sortedPRs.length === 0 ? (
+                                <div className="p-6 text-center text-sm text-secondary">No open pull requests</div>
+                            ) : (
+                                sortedPRs.map((pr) => (
+                                    <PRListItem
+                                        key={pr.number}
+                                        pr={pr}
+                                        owner={owner}
+                                        name={name}
+                                        selected={number === pr.number}
+                                    />
+                                ))
+                            )}
+                        </div>
+                    </aside>
+                )}
 
                 {/* Workspace column */}
                 <section className="flex-1 min-w-0">
