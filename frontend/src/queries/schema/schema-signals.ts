@@ -11,6 +11,7 @@ export enum SignalSourceProduct {
     CONVERSATIONS = 'conversations',
     ERROR_TRACKING = 'error_tracking',
     ENDPOINTS = 'endpoints',
+    CSP_REPORTING = 'csp_reporting',
 }
 
 export enum SignalSourceType {
@@ -24,6 +25,7 @@ export enum SignalSourceType {
     ISSUE_REOPENED = 'issue_reopened',
     ISSUE_SPIKING = 'issue_spiking',
     ENDPOINT_EXECUTION_FAILED = 'endpoint_execution_failed',
+    VIOLATION = 'violation',
 }
 
 // ── Per-product signal extras & inputs ──────────────────────────────────────────
@@ -259,6 +261,29 @@ export interface EndpointExecutionFailedSignalInput {
     extra: EndpointExecutionFailedSignalExtra
 }
 
+// CSP (Content Security Policy) violation
+
+export interface CspViolationSignalExtra {
+    document_url: string | null
+    violated_directive: string | null
+    effective_directive: string | null
+    blocked_url: string | null
+    source_file: string | null
+    line_number: number | null
+    column_number: number | null
+    disposition: string | null
+    user_agent: string | null
+}
+
+export interface CspViolationSignalInput {
+    source_type: 'violation'
+    source_product: 'csp_reporting'
+    source_id: string
+    description: string
+    weight: number
+    extra: CspViolationSignalExtra
+}
+
 // ── Report reviewer types ────────────────────────────────────────────────────────
 
 export interface RelevantCommit {
@@ -297,3 +322,4 @@ export type SignalInput =
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
     | EndpointExecutionFailedSignalInput
+    | CspViolationSignalInput

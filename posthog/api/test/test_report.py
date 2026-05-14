@@ -469,3 +469,109 @@ class TestCspReport(BaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         mock_capture.assert_called_once()
+
+    @patch("posthog.api.report.capture_internal")
+    @patch("posthog.api.report.enqueue_csp_violation_signal")
+    def test_csp_violation_enqueues_signal_with_team_id(self, mock_enqueue, mock_capture):
+        mock_capture.return_value = MagicMock(status_code=204)
+        from posthog.models.team import set_team_in_cache
+
+        set_team_in_cache(self.team.api_token, self.team)
+
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+                "blocked-uri": "https://evil.com/malicious-image.png",
+            }
+        }
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_enqueue.assert_called_once()
+        args, _ = mock_enqueue.call_args
+        assert args[0] == self.team.id
+        assert args[1]["$csp_blocked_url"] == "https://evil.com/malicious-image.png"
+
+    @patch("posthog.api.report.capture_internal")
+    @patch("posthog.api.report.enqueue_csp_violation_signal")
+    def test_csp_signal_skipped_when_team_cache_misses(self, mock_enqueue, mock_capture):
+        mock_capture.return_value = MagicMock(status_code=204)
+
+        from django.core.cache import cache
+
+        cache.delete(f"team_token:{self.team.api_token}")
+
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+        with patch("posthog.api.report.get_team_in_cache", return_value=None):
+            response = self.client.post(
+                f"/report/?token={self.team.api_token}",
+                data=json.dumps(csp_report),
+                content_type="application/csp-report",
+            )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_enqueue.assert_not_called()
+
+    @patch("posthog.api.report.capture_internal")
+    @patch("posthog.api.report.enqueue_csp_violation_signal")
+    def test_csp_signal_called_per_violation_in_batch(self, mock_enqueue, mock_capture):
+        mock_capture.return_value = MagicMock(status_code=204)
+        from posthog.models.team import set_team_in_cache
+
+        set_team_in_cache(self.team.api_token, self.team)
+
+        batch = [
+            {
+                "type": "csp-violation",
+                "body": {
+                    "documentURL": "https://example.com/a",
+                    "effectiveDirective": "script-src",
+                    "blockedURL": "https://evil.com/a.js",
+                },
+            },
+            {
+                "type": "csp-violation",
+                "body": {
+                    "documentURL": "https://example.com/b",
+                    "effectiveDirective": "script-src",
+                    "blockedURL": "https://evil.com/b.js",
+                },
+            },
+        ]
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(batch),
+            content_type="application/reports+json",
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert mock_enqueue.call_count == 2
+
+    @patch("posthog.api.report.capture_internal")
+    @patch("posthog.api.report.enqueue_csp_violation_signal", side_effect=RuntimeError("boom"))
+    def test_csp_signal_failure_does_not_break_response(self, mock_enqueue, mock_capture):
+        mock_capture.return_value = MagicMock(status_code=204)
+        from posthog.models.team import set_team_in_cache
+
+        set_team_in_cache(self.team.api_token, self.team)
+
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_enqueue.assert_called_once()
