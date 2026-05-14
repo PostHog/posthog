@@ -11,18 +11,22 @@ The feature flag gate (`DeploymentsAccessPermission`) is mocked via
 from __future__ import annotations
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
 from posthog.models.utils import uuid7
 
+from products.deployments.backend.adapters.github import GitHubBranch, GitHubRepository
 from products.deployments.backend.models import Deployment, DeploymentProject
 from products.deployments.backend.test._helpers import DeploymentsTeamScopedTestMixin
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class _BaseDeploymentsAPITest(DeploymentsTeamScopedTestMixin, APIBaseTest):
@@ -40,6 +44,40 @@ class _BaseDeploymentsAPITest(DeploymentsTeamScopedTestMixin, APIBaseTest):
 
 
 class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
+    def _enable_advanced_permissions(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+
+    def _restrict_integrations_resource(self) -> None:
+        self._enable_advanced_permissions()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="integration",
+            resource_id=None,
+            access_level="none",
+        )
+
+    def _restrict_integration(self, integration: Integration) -> None:
+        self._enable_advanced_permissions()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="integration",
+            resource_id=str(integration.id),
+            access_level="none",
+        )
+
+    def _github_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GITHUB.value,
+            integration_id="12345",
+            config={"account": {"name": "PostHog", "type": "Organization"}},
+            sensitive_config={"access_token": "ghs_test"},
+            errors="",
+        )
+
     def test_list_returns_empty_when_no_projects(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/deployment_projects/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -65,35 +103,21 @@ class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
         slugs = [p["slug"] for p in results]
         self.assertEqual(slugs, ["alive"])
 
-    def test_github_integration_is_persisted_and_returned(self) -> None:
-        # POST accepts a github_integration id pointing at the team's
-        # `posthog.Integration` row; the FK is returned on GETs (it's a
-        # reference, not a secret — the access token lives on Integration).
-        integration = Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="42",
-            sensitive_config={"access_token": "ghs_short_lived"},
-        )
+    def test_create_project_rejects_repo_url_input(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/deployment_projects/",
             {
                 "name": "Site",
                 "slug": "site",
                 "repo_url": "https://github.com/example-org/site",
-                "github_integration": integration.id,
+                "github_integration_id": 42,
+                "github_repo_id": 42,
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
-        body = response.json()
-        self.assertEqual(body["github_integration"], integration.id)
-        # Verify the FK is stored on the row.
-        project = DeploymentProject.all_teams.get(pk=body["id"])
-        self.assertEqual(project.github_integration_id, integration.id)
-        # No secrets exposed via the API surface.
-        self.assertNotIn("access_token", body)
-        self.assertNotIn("sensitive_config", body)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json().get("attr"), "repo_url")
 
     def test_github_integration_must_belong_to_team(self) -> None:
         # An integration from another team is not selectable.
@@ -109,13 +133,12 @@ class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
             {
                 "name": "Site",
                 "slug": "site",
-                "repo_url": "https://github.com/example-org/site",
-                "github_integration": outsider.id,
+                "github_integration_id": outsider.id,
+                "github_repo_id": 42,
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
-        self.assertEqual(response.json().get("attr"), "github_integration")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
 
     def test_github_integration_kind_must_be_github(self) -> None:
         slack = Integration.objects.create(
@@ -129,21 +152,32 @@ class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
             {
                 "name": "Site",
                 "slug": "site",
-                "repo_url": "https://github.com/example-org/site",
-                "github_integration": slack.id,
+                "github_integration_id": slack.id,
+                "github_repo_id": 42,
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
-        self.assertEqual(response.json().get("attr"), "github_integration")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
 
-    def test_create_provisions_cloudflare_via_null_adapter(self) -> None:
+    @patch("products.deployments.backend.api.deployment_projects.get_github_adapter")
+    def test_create_provisions_cloudflare_via_null_adapter(self, mock_get_github_adapter: MagicMock) -> None:
+        integration = self._github_integration()
+        adapter = mock_get_github_adapter.return_value
+        adapter.get_repository_by_id.return_value = GitHubRepository(
+            id=42,
+            full_name="example-org/site",
+            default_branch="main",
+            html_url="https://github.com/example-org/site",
+        )
+        adapter.get_branch.return_value = GitHubBranch(name="main", sha="abc123")
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/deployment_projects/",
             {
                 "name": "Site",
                 "slug": "site",
-                "repo_url": "https://github.com/example-org/site",
+                "github_integration_id": integration.id,
+                "github_repo_id": 42,
             },
             format="json",
         )
@@ -157,6 +191,173 @@ class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
         self.assertIn(f"{self.team.id}-site", body["cloudflare_project_name"])
         self.assertEqual(body["subdomain"], f"{self.team.id}-site.pages.dev")
         self.assertIsNotNone(body["cloudflare_ready_at"])
+
+    @patch("products.deployments.backend.api.deployment_projects.get_github_adapter")
+    def test_create_project_uses_existing_github_integration(self, mock_get_github_adapter: MagicMock) -> None:
+        integration = self._github_integration()
+        adapter = mock_get_github_adapter.return_value
+        adapter.get_repository_by_id.return_value = GitHubRepository(
+            id=42,
+            full_name="PostHog/posthog",
+            default_branch="master",
+            html_url="https://github.com/PostHog/posthog",
+        )
+        adapter.get_branch.return_value = GitHubBranch(name="master", sha="abc123")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/",
+            {
+                "name": "Site",
+                "slug": "site",
+                "github_integration_id": integration.id,
+                "github_repo_id": 42,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        body = response.json()
+        self.assertEqual(body["github_integration_id"], integration.id)
+        self.assertEqual(body["github_repo_id"], 42)
+        self.assertEqual(body["repo_url"], "https://github.com/PostHog/posthog")
+        self.assertEqual(body["default_branch"], "master")
+        project = DeploymentProject.all_teams.get(team_id=self.team.id, github_repo_id=42)
+        self.assertEqual(project.github_integration_id, integration.id)
+
+    @patch("products.deployments.backend.api.deployment_projects.get_github_adapter")
+    def test_update_project_rejects_repo_url_input(self, mock_get_github_adapter: MagicMock) -> None:
+        integration = self._github_integration()
+        project = DeploymentProject.objects.create(
+            team_id=self.team.id,
+            name="Site",
+            slug="site",
+            repo_url="https://github.com/PostHog/posthog",
+            github_integration_id=integration.id,
+            github_repo_id=42,
+            default_branch="master",
+        )
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/deployment_projects/{project.id}/",
+            {
+                "name": "Renamed site",
+                "slug": "site",
+                "repo_url": "https://github.com/Other/repo",
+                "github_integration_id": integration.id,
+                "github_repo_id": 42,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json().get("attr"), "repo_url")
+        mock_get_github_adapter.assert_not_called()
+        project.refresh_from_db()
+        self.assertEqual(project.repo_url, "https://github.com/PostHog/posthog")
+
+    @parameterized.expand(
+        [
+            ("resource",),
+            ("object",),
+        ]
+    )
+    @patch("products.deployments.backend.api.deployment_projects.get_github_adapter")
+    def test_create_project_rejects_restricted_github_integration(
+        self, restriction_kind: str, mock_get_github_adapter: MagicMock
+    ) -> None:
+        integration = self._github_integration()
+        if restriction_kind == "resource":
+            self._restrict_integrations_resource()
+        else:
+            self._restrict_integration(integration)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/",
+            {
+                "name": "Site",
+                "slug": "site",
+                "github_integration_id": integration.id,
+                "github_repo_id": 42,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        mock_get_github_adapter.return_value.get_repository_by_id.assert_not_called()
+
+    def test_create_project_rejects_non_project_github_integration(self) -> None:
+        other_team = self.organization.teams.create(name="Other team")
+        integration = Integration.objects.create(
+            team=other_team,
+            kind=Integration.IntegrationKind.GITHUB.value,
+            integration_id="12345",
+            config={},
+            sensitive_config={"access_token": "ghs_test"},
+            errors="",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/",
+            {
+                "name": "Site",
+                "slug": "site",
+                "github_integration_id": integration.id,
+                "github_repo_id": 42,
+                "default_branch": "master",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("products.deployments.backend.api.deployment_projects.get_github_adapter")
+    def test_refresh_project_returns_current_branch_sha(self, mock_get_github_adapter: MagicMock) -> None:
+        integration = self._github_integration()
+        project = DeploymentProject.objects.create(
+            team_id=self.team.id,
+            name="Site",
+            slug="site",
+            repo_url="https://github.com/PostHog/posthog",
+            github_integration_id=integration.id,
+            github_repo_id=42,
+            default_branch="master",
+        )
+        adapter = mock_get_github_adapter.return_value
+        adapter.get_repository_by_id.return_value = GitHubRepository(
+            id=42,
+            full_name="PostHog/posthog",
+            default_branch="main",
+            html_url="https://github.com/PostHog/posthog",
+        )
+        adapter.get_branch.return_value = GitHubBranch(name="master", sha="new-sha")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/deployment_projects/{project.id}/refresh/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()
+        self.assertEqual(body["default_branch"], "master")
+        self.assertEqual(body["commit_sha"], "new-sha")
+        project.refresh_from_db()
+        self.assertEqual(project.default_branch, "master")
+
+    @patch("products.deployments.backend.api.deployment_projects.get_github_adapter")
+    def test_refresh_project_rejects_restricted_github_integration(self, mock_get_github_adapter: MagicMock) -> None:
+        integration = self._github_integration()
+        self._restrict_integration(integration)
+        project = DeploymentProject.objects.create(
+            team_id=self.team.id,
+            name="Site",
+            slug="site",
+            repo_url="https://github.com/PostHog/posthog",
+            github_integration_id=integration.id,
+            github_repo_id=42,
+            default_branch="master",
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/deployment_projects/{project.id}/refresh/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        mock_get_github_adapter.return_value.get_repository_by_id.assert_not_called()
 
     def test_destroy_is_soft_delete(self) -> None:
         project = DeploymentProject.objects.create(
@@ -312,6 +513,28 @@ class TestDeploymentsAPINested(_BaseDeploymentsAPITest):
 
 class TestDeploymentsFeatureFlag(_BaseDeploymentsAPITest):
     """Re-verifies the feature-flag gate over the new nested URL."""
+
+    @patch("products.deployments.backend.api.deployment_projects.get_github_adapter")
+    def test_create_feature_flag_off_does_not_call_github(self, mock_get_github_adapter: MagicMock) -> None:
+        self._flag_patcher.stop()
+        with patch(
+            "products.deployments.backend.access.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/deployment_projects/",
+                {
+                    "name": "Site",
+                    "slug": "site",
+                    "github_integration_id": 42,
+                    "github_repo_id": 42,
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_github_adapter.assert_not_called()
+        self._flag_patcher.start()
 
     @parameterized.expand(
         [

@@ -22,20 +22,25 @@ export interface DeploymentProjectApi {
      */
     slug: string
     /**
-     * HTTPS URL of the source repository this project deploys from.
+     * HTTPS URL of the connected GitHub repository, resolved from the selected repository id.
      * @maxLength 1024
      */
-    repo_url: string
+    readonly repo_url: string
     /**
-     * Branch the project deploys from when no commit SHA is pinned. Defaults to `main`.
+     * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
      * @maxLength 255
      */
     default_branch?: string
     /**
-     * ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.
+     * Existing PostHog GitHub integration id used for repository access.
      * @nullable
      */
-    github_integration?: number | null
+    github_integration_id?: number | null
+    /**
+     * Stable GitHub repository identifier selected from the existing integration's repository list.
+     * @nullable
+     */
+    github_repo_id?: number | null
     /**
      * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
      * @nullable
@@ -83,6 +88,47 @@ export interface PaginatedDeploymentProjectListApi {
     /** @nullable */
     previous?: string | null
     results: DeploymentProjectApi[]
+}
+
+export interface DeploymentProjectCreateApi {
+    /**
+     * Human-readable project name shown in the UI.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * URL-safe handle. Becomes the subdomain `{slug}.posthog-app.com`. Must be unique per team.
+     * @maxLength 80
+     * @pattern ^[-a-zA-Z0-9_]+$
+     */
+    slug: string
+    /**
+     * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
+     * @maxLength 255
+     */
+    default_branch?: string
+    /** Existing PostHog GitHub integration id used for repository access. */
+    github_integration_id: number
+    /** Stable GitHub repository identifier selected from the existing integration's repository list. */
+    github_repo_id: number
+    /**
+     * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+     * @nullable
+     */
+    build_command?: string | null
+    /**
+     * Directory containing the built static site, relative to the repository root.
+     * @maxLength 255
+     */
+    output_dir?: string
+    /**
+     * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
+     * @maxLength 50
+     * @nullable
+     */
+    framework?: string | null
+    /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
+    inject_posthog_snippet?: boolean
 }
 
 /**
@@ -314,35 +360,33 @@ export interface PaginatedDeploymentEventListApi {
     results: DeploymentEventApi[]
 }
 
-export interface PatchedDeploymentProjectApi {
-    /** Unique identifier for the deployment project. */
-    readonly id?: string
+export interface DeploymentProjectWriteApi {
     /**
      * Human-readable project name shown in the UI.
      * @maxLength 200
      */
-    name?: string
+    name: string
     /**
      * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
      * @maxLength 80
      * @pattern ^[-a-zA-Z0-9_]+$
      */
-    slug?: string
+    slug: string
     /**
-     * HTTPS URL of the source repository this project deploys from.
-     * @maxLength 1024
-     */
-    repo_url?: string
-    /**
-     * Branch the project deploys from when no commit SHA is pinned. Defaults to `main`.
+     * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
      * @maxLength 255
      */
     default_branch?: string
     /**
-     * ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.
+     * Existing PostHog GitHub integration id used for repository access.
      * @nullable
      */
-    github_integration?: number | null
+    github_integration_id?: number | null
+    /**
+     * Stable GitHub repository identifier selected from the existing integration's repository list.
+     * @nullable
+     */
+    github_repo_id?: number | null
     /**
      * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
      * @nullable
@@ -361,26 +405,67 @@ export interface PatchedDeploymentProjectApi {
     framework?: string | null
     /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
     inject_posthog_snippet?: boolean
-    /** Cloudflare Pages project name, assigned during provisioning. */
-    readonly cloudflare_project_name?: string
-    /** Public subdomain at which deployments of this project serve. */
-    readonly subdomain?: string
+}
+
+export interface PatchedDeploymentProjectWriteApi {
     /**
-     * Timestamp when the Cloudflare project was fully provisioned and ready to receive deploys.
+     * Human-readable project name shown in the UI.
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
+     * @maxLength 80
+     * @pattern ^[-a-zA-Z0-9_]+$
+     */
+    slug?: string
+    /**
+     * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
+     * @maxLength 255
+     */
+    default_branch?: string
+    /**
+     * Existing PostHog GitHub integration id used for repository access.
      * @nullable
      */
-    readonly cloudflare_ready_at?: string | null
+    github_integration_id?: number | null
     /**
-     * The deployment currently serving traffic for this project. Null if no deployment has ever succeeded.
+     * Stable GitHub repository identifier selected from the existing integration's repository list.
      * @nullable
      */
-    readonly current_deployment?: string | null
-    /** True when the project has both a provisioned Cloudflare backend and a configured GitHub credential — meaning a deploy can be triggered right now. */
-    readonly is_ready_to_deploy?: boolean
-    /** Timestamp when the project was created. */
-    readonly created_at?: string
-    /** Timestamp when the project was last modified. */
-    readonly updated_at?: string
+    github_repo_id?: number | null
+    /**
+     * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
+     * @nullable
+     */
+    build_command?: string | null
+    /**
+     * Directory containing the built static site, relative to the repository root.
+     * @maxLength 255
+     */
+    output_dir?: string
+    /**
+     * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
+     * @maxLength 50
+     * @nullable
+     */
+    framework?: string | null
+    /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
+    inject_posthog_snippet?: boolean
+}
+
+/**
+ * Response shape for refreshing a deployment project's GitHub branch.
+ */
+export interface DeploymentProjectRefreshResponseApi {
+    /** Human-readable explanation of the refresh result. */
+    detail: string
+    /** HTTPS URL of the connected GitHub repository. */
+    repo_url: string
+    /** Branch checked by the refresh action. */
+    default_branch: string
+    /** Current GitHub HEAD SHA for default_branch. */
+    commit_sha: string
 }
 
 export type DeploymentProjectsListParams = {

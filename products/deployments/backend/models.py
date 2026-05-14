@@ -41,12 +41,11 @@ class DeploymentProject(ModelActivityMixin, ProductTeamModel, DeletedMetaFields)
     # Source
     repo_url = models.URLField(max_length=1024)
     default_branch = models.CharField(max_length=255, default="main")
-    # Pointer to the team's `posthog.Integration` row for the GitHub App that
-    # owns access to this repo. We resolve to a short-lived access token at
-    # deploy-time via `GitHubIntegration(integration).integration.sensitive_config`.
-    # BigIntegerField (no FK) keeps the ProductTeamModel cross-app boundary clean,
-    # matching the pattern used for `created_by_id`.
+    # Existing PostHog GitHub integration used for repo/branch access. These
+    # are plain ids because integrations live in the main app and Deployments
+    # keeps product-owned tenant data behind ProductTeamModel.team_id.
     github_integration_id = models.BigIntegerField(null=True, blank=True)
+    github_repo_id = models.BigIntegerField(null=True, blank=True)
 
     # Build config
     # Null = build worker infers the command from `framework` (or auto-detects
@@ -83,8 +82,17 @@ class DeploymentProject(ModelActivityMixin, ProductTeamModel, DeletedMetaFields)
                 condition=models.Q(deleted=False) | models.Q(deleted__isnull=True),
                 name="unique_deploymentproject_slug_per_team",
             ),
+            models.UniqueConstraint(
+                fields=("team_id", "github_repo_id"),
+                condition=models.Q(github_repo_id__isnull=False)
+                & (models.Q(deleted=False) | models.Q(deleted__isnull=True)),
+                name="deploy_project_team_repo_uniq",
+            ),
         ]
-        indexes = [models.Index(fields=["team_id", "-created_at"])]
+        indexes = [
+            models.Index(fields=["team_id", "-created_at"]),
+            models.Index(fields=("team_id", "github_integration_id"), name="deploy_project_team_int_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"DeploymentProject {self.slug} ({self.id})"

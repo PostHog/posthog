@@ -13,31 +13,17 @@ import type {
     DeploymentApi,
     DeploymentCreateInputApi,
     DeploymentProjectApi,
+    DeploymentProjectCreateApi,
+    DeploymentProjectRefreshResponseApi,
+    DeploymentProjectWriteApi,
     DeploymentProjectsDeploymentsEventsListParams,
     DeploymentProjectsDeploymentsListParams,
     DeploymentProjectsListParams,
     PaginatedDeploymentEventListApi,
     PaginatedDeploymentListApi,
     PaginatedDeploymentProjectListApi,
-    PatchedDeploymentProjectApi,
+    PatchedDeploymentProjectWriteApi,
 } from './api.schemas'
-
-// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
-type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
-
-type WritableKeys<T> = {
-    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
-}[keyof T]
-
-type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
-type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
-
-type Writable<T> = Pick<T, WritableKeys<T>>
-type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
-    ? {
-          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
-      }
-    : DistributeReadOnlyOverUnions<T>
 
 export const getDeploymentProjectsListUrl = (projectId: string, params?: DeploymentProjectsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -88,14 +74,14 @@ task.
  */
 export const deploymentProjectsCreate = async (
     projectId: string,
-    deploymentProjectApi: NonReadonly<DeploymentProjectApi>,
+    deploymentProjectCreateApi: DeploymentProjectCreateApi,
     options?: RequestInit
 ): Promise<DeploymentProjectApi> => {
     return apiMutator<DeploymentProjectApi>(getDeploymentProjectsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(deploymentProjectApi),
+        body: JSON.stringify(deploymentProjectCreateApi),
     })
 }
 
@@ -434,14 +420,14 @@ task.
 export const deploymentProjectsUpdate = async (
     projectId: string,
     id: string,
-    deploymentProjectApi: NonReadonly<DeploymentProjectApi>,
+    deploymentProjectWriteApi: DeploymentProjectWriteApi,
     options?: RequestInit
 ): Promise<DeploymentProjectApi> => {
     return apiMutator<DeploymentProjectApi>(getDeploymentProjectsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(deploymentProjectApi),
+        body: JSON.stringify(deploymentProjectWriteApi),
     })
 }
 
@@ -460,14 +446,14 @@ task.
 export const deploymentProjectsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDeploymentProjectApi?: NonReadonly<PatchedDeploymentProjectApi>,
+    patchedDeploymentProjectWriteApi?: PatchedDeploymentProjectWriteApi,
     options?: RequestInit
 ): Promise<DeploymentProjectApi> => {
     return apiMutator<DeploymentProjectApi>(getDeploymentProjectsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDeploymentProjectApi),
+        body: JSON.stringify(patchedDeploymentProjectWriteApi),
     })
 }
 
@@ -491,5 +477,29 @@ export const deploymentProjectsDestroy = async (
     return apiMutator<void>(getDeploymentProjectsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDeploymentProjectsRefreshCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/deployment_projects/${id}/refresh/`
+}
+
+/**
+ * CRUD for DeploymentProject (the connected-repo + hosting-target entity).
+
+Create-time provisioning calls Cloudflare BEFORE writing the DB row
+(see services/provision_project.py for the rationale). Delete is a
+soft-delete; Cloudflare-side cleanup is deferred to a periodic Celery
+task.
+ * @summary Refresh a deployment project's GitHub branch
+ */
+export const deploymentProjectsRefreshCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DeploymentProjectRefreshResponseApi> => {
+    return apiMutator<DeploymentProjectRefreshResponseApi>(getDeploymentProjectsRefreshCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }

@@ -18,13 +18,19 @@ from products.deployments.backend.test._helpers import DeploymentsTeamScopedTest
 
 
 class TestDeploymentProject(DeploymentsTeamScopedTestMixin, BaseTest):
-    def _make_project(self, slug: str = "alpha") -> DeploymentProject:
+    def _make_project(
+        self,
+        slug: str = "alpha",
+        *,
+        github_repo_id: int | None = None,
+    ) -> DeploymentProject:
         return DeploymentProject.objects.create(
             team_id=self.team.id,
             name=f"Project {slug}",
             slug=slug,
             repo_url="https://github.com/example-org/site",
             default_branch="main",
+            github_repo_id=github_repo_id,
             cloudflare_project_name=f"{self.team.id}-{slug}",
             subdomain=f"{slug}.posthog-app.com",
             cloudflare_ready_at=timezone.now(),
@@ -46,6 +52,28 @@ class TestDeploymentProject(DeploymentsTeamScopedTestMixin, BaseTest):
         # slug can be reused.
         reused = self._make_project(slug="alpha")
         self.assertNotEqual(reused.pk, original.pk)
+
+    def test_github_repo_uniqueness_per_team(self) -> None:
+        self._make_project(slug="alpha", github_repo_id=42)
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                self._make_project(slug="beta", github_repo_id=42)
+
+    def test_soft_deleted_project_releases_github_repo(self) -> None:
+        original = self._make_project(slug="alpha", github_repo_id=42)
+        original.deleted = True
+        original.deleted_at = timezone.now()
+        original.save(update_fields=["deleted", "deleted_at"])
+
+        reused = self._make_project(slug="beta", github_repo_id=42)
+        self.assertNotEqual(reused.pk, original.pk)
+
+    def test_projects_without_github_repo_id_are_not_repo_constrained(self) -> None:
+        self._make_project(slug="alpha")
+        project = self._make_project(slug="beta")
+
+        self.assertIsNone(project.github_repo_id)
 
     def test_current_deployment_accepts_null(self) -> None:
         project = self._make_project()

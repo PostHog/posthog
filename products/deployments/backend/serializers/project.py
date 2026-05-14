@@ -1,22 +1,29 @@
 """Serializer for DeploymentProject.
 
-`github_integration` is the id of a `posthog.Integration` row with `kind="github"`
-that belongs to the same team. The serializer validates ownership and kind at
-write time. Secrets (the access token) never travel through the serializer —
-they live on the Integration row and are resolved at deploy time.
+Repository selection is keyed by ``github_integration_id`` + ``github_repo_id``.
+``repo_url`` is derived from GitHub and exposed as read-only display metadata.
+Secrets (the access token) never travel through the serializer — they live on
+the Integration row and are resolved at deploy time.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
-from urllib.parse import urlparse
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from posthog.models.integration import Integration
-
 from ..models import DeploymentProject
+
+
+class RejectUnknownFieldsMixin(serializers.Serializer):
+    def to_internal_value(self, data: Any) -> Any:
+        if isinstance(data, Mapping):
+            unknown_fields = set(data) - set(self.fields)
+            if unknown_fields:
+                raise serializers.ValidationError(dict.fromkeys(sorted(unknown_fields), "Unknown field."))
+        return super().to_internal_value(data)
 
 
 class DeploymentProjectSerializer(serializers.ModelSerializer):
@@ -32,25 +39,24 @@ class DeploymentProjectSerializer(serializers.ModelSerializer):
     )
     repo_url = serializers.URLField(
         max_length=1024,
-        help_text="HTTPS URL of the source repository this project deploys from.",
+        read_only=True,
+        help_text="HTTPS URL of the connected GitHub repository, resolved from the selected repository id.",
     )
     default_branch = serializers.CharField(
         max_length=255,
         required=False,
-        default="main",
-        help_text="Branch the project deploys from when no commit SHA is pinned. Defaults to `main`.",
+        help_text="Branch PostHog tracks for deployment updates. Defaults to the repository default branch.",
     )
-    github_integration = serializers.IntegerField(
-        source="github_integration_id",
+    github_integration_id = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text=(
-            "ID of the `posthog.Integration` row (kind=github) the project uses to read this "
-            "repository. Must belong to the same team. The actual access token lives on the "
-            "Integration row and is never exposed through this serializer."
-        ),
+        help_text="Existing PostHog GitHub integration id used for repository access.",
     )
-
+    github_repo_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Stable GitHub repository identifier selected from the existing integration's repository list.",
+    )
     build_command = serializers.CharField(
         required=False,
         allow_null=True,
@@ -127,7 +133,8 @@ class DeploymentProjectSerializer(serializers.ModelSerializer):
             "slug",
             "repo_url",
             "default_branch",
-            "github_integration",
+            "github_integration_id",
+            "github_repo_id",
             "build_command",
             "output_dir",
             "framework",
@@ -142,6 +149,7 @@ class DeploymentProjectSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "repo_url",
             "cloudflare_project_name",
             "subdomain",
             "cloudflare_ready_at",
@@ -155,27 +163,124 @@ class DeploymentProjectSerializer(serializers.ModelSerializer):
     def get_is_ready_to_deploy(self, obj: DeploymentProject) -> bool:
         return obj.cloudflare_ready_at is not None and obj.github_integration_id is not None
 
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # The field uses `source="github_integration_id"`, so the int lands under that key.
-        integration_id = attrs.get("github_integration_id")
-        if integration_id is None:
-            return attrs
-        team = self.context["get_team"]()
-        if not Integration.objects.filter(id=integration_id, team_id=team.id, kind="github").exists():
-            raise serializers.ValidationError(
-                {"github_integration": "Integration not found or is not a GitHub integration for this team."}
-            )
-        return attrs
 
-    def validate_repo_url(self, value: str) -> str:
-        # v1 deploys from github.com only. Without this check the field
-        # would accept any URL — including http://169.254.169.254/... or
-        # other internal/link-local hosts the build worker / GitHub
-        # adapter would then connect to (SSRF). Restricting scheme +
-        # host is the smallest fix that closes that vector.
-        parsed = urlparse(value)
-        if parsed.scheme != "https":
-            raise serializers.ValidationError("repo_url must use HTTPS.")
-        if (parsed.hostname or "").lower() != "github.com":
-            raise serializers.ValidationError("repo_url must point to github.com.")
-        return value
+class DeploymentProjectWriteSerializer(RejectUnknownFieldsMixin, serializers.ModelSerializer):
+    name = serializers.CharField(max_length=200, help_text="Human-readable project name shown in the UI.")
+    slug = serializers.SlugField(
+        max_length=80,
+        help_text=(
+            "URL-safe handle. Combined with the team id to form the Cloudflare project name; "
+            "the actual subdomain comes from Cloudflare and is returned in the read-only "
+            "`subdomain` field. Must be unique per team."
+        ),
+    )
+    default_branch = serializers.CharField(
+        max_length=255,
+        required=False,
+        help_text="Branch PostHog tracks for deployment updates. Defaults to the repository default branch.",
+    )
+    github_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Existing PostHog GitHub integration id used for repository access.",
+    )
+    github_repo_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Stable GitHub repository identifier selected from the existing integration's repository list.",
+    )
+    build_command = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text=(
+            "Optional shell command run inside the build container. Null = the build worker "
+            "infers it from `framework` (or auto-detection if framework is also null)."
+        ),
+    )
+    output_dir = serializers.CharField(
+        max_length=255,
+        required=False,
+        default="dist",
+        help_text="Directory containing the built static site, relative to the repository root.",
+    )
+    framework = serializers.CharField(
+        max_length=50,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.",
+    )
+    inject_posthog_snippet = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "If true, the build injects a PostHog snippet into every HTML file that registers "
+            "`release = deployment_id` as a super-property — runtime exceptions are then linked "
+            "back to the deployment that introduced them."
+        ),
+    )
+
+    class Meta:
+        model = DeploymentProject
+        fields = [
+            "name",
+            "slug",
+            "default_branch",
+            "github_integration_id",
+            "github_repo_id",
+            "build_command",
+            "output_dir",
+            "framework",
+            "inject_posthog_snippet",
+        ]
+
+
+class DeploymentProjectCreateSerializer(RejectUnknownFieldsMixin, serializers.Serializer):
+    name = serializers.CharField(max_length=200, help_text="Human-readable project name shown in the UI.")
+    slug = serializers.SlugField(
+        max_length=80,
+        help_text="URL-safe handle. Becomes the subdomain `{slug}.posthog-app.com`. Must be unique per team.",
+    )
+    default_branch = serializers.CharField(
+        max_length=255,
+        required=False,
+        help_text="Branch PostHog tracks for deployment updates. Defaults to the repository default branch.",
+    )
+    github_integration_id = serializers.IntegerField(
+        help_text="Existing PostHog GitHub integration id used for repository access."
+    )
+    github_repo_id = serializers.IntegerField(
+        help_text="Stable GitHub repository identifier selected from the existing integration's repository list."
+    )
+    build_command = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text=(
+            "Optional shell command run inside the build container. Null = the build worker "
+            "infers it from `framework` (or auto-detection if framework is also null)."
+        ),
+    )
+    output_dir = serializers.CharField(
+        max_length=255,
+        required=False,
+        default="dist",
+        help_text="Directory containing the built static site, relative to the repository root.",
+    )
+    framework = serializers.CharField(
+        max_length=50,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.",
+    )
+    inject_posthog_snippet = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "If true, the build injects a PostHog snippet into every HTML file that registers "
+            "`release = deployment_id` as a super-property — runtime exceptions are then linked "
+            "back to the deployment that introduced them."
+        ),
+    )

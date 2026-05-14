@@ -181,6 +181,7 @@ layer = "modules"
 [[modules]]
 path = "products.deployments"
 depends_on = [
+    "ee",
     "posthog",
     # `error_tracking` is not isolated (no contract-check script), so we
     # import its model directly to upsert an ErrorTrackingRelease row on
