@@ -34,7 +34,14 @@ export const REACTION_GIFS: Record<ReactionKey, string> = {
     // https://media.giphy.com/media/RILsqUte1MME7TzQJ9/giphy.gif — "um what"
 }
 
+// TEMP: globally disable GIF rendering without touching the catalog or call sites.
+// Flip back to `false` (or remove this constant) to re-enable.
+const REACTIONS_DISABLED = true
+
 export function reactionGifUrl(key: ReactionKey | null | undefined): string | null {
+    if (REACTIONS_DISABLED) {
+        return null
+    }
     if (!key) {
         return null
     }
