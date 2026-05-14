@@ -69,3 +69,30 @@ def list_mcp_tool_calls(
     date_to: datetime | None = None,
 ) -> contracts.MCPToolCallList:
     return logic.list_mcp_tool_calls(team, session_id=session_id, date_from=date_from, date_to=date_to)
+
+
+def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
+    return logic.get_intent_cluster_snapshot(team)
+
+
+def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
+    """Kick off the intent cluster recompute Celery task.
+
+    Returns immediately. Use ``get_intent_cluster_snapshot`` to poll status.
+    """
+    # Imports here to avoid loading Celery at module import time.
+    from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
+    from products.mcp_analytics.backend.tasks.tasks import compute_intent_clusters
+
+    # Flip to COMPUTING before enqueuing so the 202 response and any
+    # immediate poll see consistent state. The task re-asserts COMPUTING
+    # on pickup; both writes are idempotent.
+    MCPIntentClusterSnapshot.objects.update_or_create(
+        team=team,
+        defaults={
+            "status": MCPIntentClusterSnapshot.Status.COMPUTING,
+            "error_message": "",
+            "last_computed_by": user,
+        },
+    )
+    compute_intent_clusters.delay(team.id, user.id if user else None)

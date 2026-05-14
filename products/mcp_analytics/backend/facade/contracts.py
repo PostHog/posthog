@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
 
@@ -81,3 +81,43 @@ class MCPToolCall:
 class MCPToolCallList:
     tool_calls: list[MCPToolCall]
     truncated: bool
+
+
+@dataclass(frozen=True)
+class IntentClusterToolEntry:
+    tool: str
+    count: int
+    pct: float
+    errors: int
+    error_rate_pct: float
+
+
+@dataclass(frozen=True)
+class IntentCluster:
+    id: int
+    label: str
+    intent_count: int
+    call_count: int
+    error_count: int
+    error_rate_pct: float
+    routing_entropy: float
+    tool_distribution: list[IntentClusterToolEntry]
+    sample_intents: list[str]
+
+
+@dataclass(frozen=True)
+class IntentClusterSnapshotMeta:
+    distance_threshold: float
+    embedding_model: str
+    n_intents: int
+    n_clusters: int
+
+
+@dataclass(frozen=True)
+class IntentClusterSnapshot:
+    status: str
+    error_message: str
+    last_computed_at: datetime | None
+    last_computed_by_email: str
+    clusters: list[IntentCluster] = field(default_factory=list)
+    computed_with: IntentClusterSnapshotMeta | None = None

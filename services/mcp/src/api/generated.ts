@@ -20162,6 +20162,87 @@ export namespace Schemas {
       category?: MCPFeedbackCreateCategoryEnum;
     }
 
+    export interface MCPIntentClusterToolEntry {
+      /** MCP tool name that received calls for this cluster. */
+      readonly tool: string;
+      /** Number of tool calls routed to this tool across the cluster. */
+      readonly count: number;
+      /** Percentage of the cluster's calls that went to this tool, 0–100. */
+      readonly pct: number;
+      /** Number of error responses observed for this tool within the cluster. */
+      readonly errors: number;
+      /** Error rate for this tool within the cluster, 0–100. */
+      readonly error_rate_pct: number;
+    }
+
+    export interface MCPIntentCluster {
+      /** Stable cluster identifier within this snapshot. */
+      readonly id: number;
+      /** Representative intent text for the cluster (the medoid intent closest to the cluster centroid). */
+      readonly label: string;
+      /** Number of distinct intent texts that belong to this cluster. */
+      readonly intent_count: number;
+      /** Total number of mcp_tool_call events represented by this cluster. */
+      readonly call_count: number;
+      /** Total number of error responses observed across the cluster. */
+      readonly error_count: number;
+      /** Aggregate error rate across all tool calls in the cluster, 0–100. */
+      readonly error_rate_pct: number;
+      /** Normalised Shannon entropy of the tool distribution. 0 means perfectly consistent routing (one tool dominates); 1 means uniformly spread across all tools called for this intent cluster. */
+      readonly routing_entropy: number;
+      /** Per-tool breakdown of calls and errors within the cluster. */
+      readonly tool_distribution: readonly MCPIntentClusterToolEntry[];
+      /** Up to three representative intent strings from the cluster, ordered by frequency desc. */
+      readonly sample_intents: readonly string[];
+    }
+
+    /**
+     * * `idle` - Idle
+    * `computing` - Computing
+    * `error` - Error
+     */
+    export type MCPIntentClusterSnapshotStatusEnum = typeof MCPIntentClusterSnapshotStatusEnum[keyof typeof MCPIntentClusterSnapshotStatusEnum];
+
+
+    export const MCPIntentClusterSnapshotStatusEnum = {
+      Idle: 'idle',
+      Computing: 'computing',
+      Error: 'error',
+    } as const;
+
+    export interface MCPIntentClusterSnapshotMeta {
+      /** Cosine distance threshold used by the clustering algorithm. */
+      readonly distance_threshold: number;
+      /** Embedding model used to vectorise intents. */
+      readonly embedding_model: string;
+      /** Number of distinct intents that fed into the clustering run. */
+      readonly n_intents: number;
+      /** Number of clusters produced by the run. */
+      readonly n_clusters: number;
+    }
+
+    export interface MCPIntentClusterSnapshot {
+      /** Whether a snapshot is current (idle), being recomputed (computing), or failed (error).
+
+      * `idle` - Idle
+      * `computing` - Computing
+      * `error` - Error */
+      readonly status: MCPIntentClusterSnapshotStatusEnum;
+      /** Error message from the most recent failed run, otherwise empty. */
+      readonly error_message: string;
+      /**
+         * When the latest snapshot finished computing.
+         * @nullable
+         */
+      readonly last_computed_at: string | null;
+      /** Email of the user who triggered the latest recompute, empty for system-triggered runs. */
+      readonly last_computed_by_email: string;
+      /** All clusters in the snapshot. */
+      readonly clusters: readonly MCPIntentCluster[];
+      /** Settings used to produce the snapshot. Null when no snapshot has been computed yet. */
+      readonly computed_with: MCPIntentClusterSnapshotMeta | null;
+    }
+
     export interface MCPMissingCapabilityCreate {
       /**
          * The tool the user tried before leaving feedback, if known.
