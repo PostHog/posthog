@@ -222,52 +222,6 @@ def copy_host_gitconfig(uid: int, gid: int) -> None:
             run(["git", "config", "--file", str(dst), config_key, str(mount_path)])
 
 
-def copy_user_tool_auth(uid: int, gid: int) -> None:
-    """Copy host CLI tool auth files into the sandbox home.
-
-    Direct analog of copy_claude_auth / copy_host_gitconfig. Reads
-    SANDBOX_TOOL_AUTH_PATHS (colon-joined target paths from the user's
-    tools.yaml), walks the matching /tmp/sandbox-tool-auth/N bind mounts,
-    and copies each into the sandbox user's $HOME.
-
-    Slots whose host source is missing fall back to /dev/null at the
-    mount layer; those are silently skipped here so a contributor can
-    list `~/.config/gh` before ever running `gh auth login`.
-    """
-    raw = os.environ.get("SANDBOX_TOOL_AUTH_PATHS", "")
-    if not raw:
-        return
-
-    copied_anything = False
-    for index, target_str in enumerate(raw.split(":")):
-        target_str = target_str.strip()
-        if not target_str:
-            continue
-        src = Path(f"/tmp/sandbox-tool-auth/{index}")
-        # /dev/null mounts show up as character devices; missing host
-        # paths just won't be a file or dir either way.
-        if src.is_file():
-            dst = Path(target_str)
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-            copied_anything = True
-        elif src.is_dir():
-            dst = Path(target_str)
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            # dirs_exist_ok=True so re-runs (or partial mounts) merge instead
-            # of crashing; copy_function=copy2 preserves modes for files like
-            # gh's hosts.yml that need to stay 0600.
-            shutil.copytree(src, dst, dirs_exist_ok=True, copy_function=shutil.copy2)
-            copied_anything = True
-
-    if copied_anything:
-        # Recursive chown so intermediate dirs we just created
-        # (e.g. ~/.config when only ~/.config/gh was declared) end up
-        # writable by the sandbox user. Without this, tools like gt try
-        # to mkdir alongside the copied data and hit EACCES.
-        run(["chown", "-R", f"{uid}:{gid}", str(SANDBOX_HOME)])
-
-
 def root_phase() -> None:
     uid = int(os.environ.get("SANDBOX_UID", "1000"))
     gid = int(os.environ.get("SANDBOX_GID", "1000"))
@@ -290,7 +244,6 @@ def root_phase() -> None:
         configure_user_ssh(uid, gid)
         copy_claude_auth(uid, gid)
         copy_host_gitconfig(uid, gid)
-        copy_user_tool_auth(uid, gid)
 
     # Re-exec as the sandbox user.
     os.execvp("gosu", ["gosu", f"{uid}:{gid}", sys.executable, __file__, *sys.argv[1:]])

@@ -158,10 +158,6 @@ services:
             - ${SANDBOX_SSH_AUTHORIZED_KEYS:-/dev/null}:/tmp/sandbox-authorized-keys:ro
             # Forwarded SSH agent. Host path resolved by bin/sandbox.
             - ${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent
-            # Tool auth bind mounts (one per tools.yaml copy entry) are merged
-            # in by bin/sandbox via a generated docker-compose.tool-auth.yml
-            # override. The entrypoint reads SANDBOX_TOOL_AUTH_PATHS (also set
-            # by that override) to copy each mount to its in-sandbox target.
             # Shared caches — persist across sandboxes so the second one is fast.
             # uv and pnpm download packages here; subsequent sandboxes get cache hits.
             - uv-cache:/cache/uv

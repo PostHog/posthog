@@ -16,6 +16,8 @@ TOOLS_FILE = REGISTRY_DIR / "tools.yaml"
 TOOL_AUTH_COMPOSE_FILE = REGISTRY_DIR / "docker-compose.tool-auth.yml"
 USER_DOCKERFILE = REGISTRY_DIR / "Dockerfile.user"
 
+SANDBOX_DOCKERFILE = Path(__file__).resolve().parent.parent / "Dockerfile.sandbox"
+
 # In-sandbox $HOME. Must stay in sync with SANDBOX_HOME in
 # bin/sandbox-entrypoint.py; tools.yaml copy targets resolve here.
 SANDBOX_HOME_IN_CONTAINER = "/tmp/sandbox-home"
@@ -27,8 +29,8 @@ class ToolsError(Exception):
 
 @dataclass
 class ToolCopy:
-    # Transport is a bind mount under /tmp/sandbox-tool-auth/N; the entrypoint
-    # copies from there to `target` at boot — snapshot copy, not live mount.
+    # Seeded once at create time via `docker cp` from the host; the container
+    # owns the file thereafter (token refresh, re-auth, etc. stay inside).
     source: str
     target: str
 
@@ -175,7 +177,7 @@ def save_user_tools(tools: list[Tool]) -> None:
     )
 
 
-def write_user_dockerfile(tools: list[Tool], *, base_dockerfile: Path, out: Path = USER_DOCKERFILE) -> Path:
+def write_user_dockerfile(tools: list[Tool], *, out: Path = USER_DOCKERFILE) -> Path:
     # Inlines the base Dockerfile and appends a RUN block per tool. Docker's
     # BuildKit layer cache shares the base content across users by content,
     # so there is no separate base-image tag to manage.
@@ -183,7 +185,7 @@ def write_user_dockerfile(tools: list[Tool], *, base_dockerfile: Path, out: Path
     # Creates the sandbox user at build time so `npm install -g` etc. resolve
     # against /home/sandbox; the entrypoint's create_sandbox_user is idempotent.
     parts = [
-        base_dockerfile.read_text().rstrip(),
+        SANDBOX_DOCKERFILE.read_text().rstrip(),
         "\n\n# --- Personal tool layers (generated from ~/.posthog-sandboxes/tools.yaml) ---\n",
         "ARG SANDBOX_UID\nARG SANDBOX_GID\n\n",
         "RUN groupadd -g ${SANDBOX_GID} sandbox 2>/dev/null || true \\\n",
@@ -208,29 +210,16 @@ def write_user_dockerfile(tools: list[Tool], *, base_dockerfile: Path, out: Path
     return out
 
 
-def write_tool_auth_compose(tools: list[Tool], *, dockerfile: Path | None) -> Path:
-    # Rewritten before every `docker compose` call; tools.yaml is the source
-    # of truth so there's no cache to invalidate. Missing host sources are
-    # skipped entirely, letting tools that initialize their own state on
-    # first run (e.g. `gh auth login`) keep working.
-    volumes: list[str] = []
-    targets: list[str] = []
-    for c in (c for t in tools for c in t.copy):
-        src_path = Path(c.source)
-        if not (src_path.is_file() or src_path.is_dir()):
-            continue
-        idx = len(volumes)
-        volumes.append(f"{c.source}:/tmp/sandbox-tool-auth/{idx}:ro")
-        targets.append(c.target)
-
-    app: dict = {
-        "volumes": volumes,
-        "environment": {"SANDBOX_TOOL_AUTH_PATHS": ":".join(targets)},
-    }
-    if dockerfile is not None:
-        app["build"] = {"dockerfile": str(dockerfile)}
-
+def write_user_image_compose(*, dockerfile: Path) -> Path:
+    # Override that points `build.dockerfile` at the per-user Dockerfile
+    # generated from tools.yaml. Rewritten before every `docker compose`
+    # call; tools.yaml is the source of truth so there's no cache to
+    # invalidate.
     TOOL_AUTH_COMPOSE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(TOOL_AUTH_COMPOSE_FILE, "w") as f:
-        yaml.safe_dump({"services": {"app": app}}, f, sort_keys=False)
+        yaml.safe_dump(
+            {"services": {"app": {"build": {"dockerfile": str(dockerfile)}}}},
+            f,
+            sort_keys=False,
+        )
     return TOOL_AUTH_COMPOSE_FILE
