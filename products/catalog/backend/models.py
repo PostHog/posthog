@@ -14,6 +14,9 @@ class CatalogNode(UUIDModel):
         SAVED_QUERY = "saved_query", "Saved query"
         SYSTEM_TABLE = "system_table", "System table"
         POSTHOG_TABLE = "posthog_table", "PostHog table"
+        METRIC = "metric", "Metric"
+        EVENT_DEFINITION = "event_definition", "Event definition"
+        PROPERTY_DEFINITION = "property_definition", "Property definition"
 
     class Status(models.TextChoices):
         PROPOSED = "proposed", "Proposed"
@@ -168,6 +171,7 @@ class CatalogRelationship(UUIDModel):
         LINEAGE = "lineage", "Lineage"
         DECLARED_JOIN = "declared_join", "Declared join"
         JOIN_CANDIDATE = "join_candidate", "Join candidate"
+        DEPENDS_ON = "depends_on", "Depends on"
 
     class Status(models.TextChoices):
         PROPOSED = "proposed", "Proposed"
@@ -209,3 +213,46 @@ class CatalogRelationship(UUIDModel):
             models.Index(fields=["source_node"]),
             models.Index(fields=["target_node"]),
         ]
+
+
+class CatalogMetric(UUIDModel):
+    """Backing row for a CatalogNode of kind=metric.
+
+    Holds how the metric is computed. Display metadata (description, semantic_role,
+    business_domain, tags, status) lives on the CatalogNode of kind=metric that
+    points at this row via content_type/object_id.
+
+    `definition` holds the same node shape an Insight series item uses — exactly
+    one of EventsNode / DataWarehouseNode / HogQLQuery, discriminated by `kind`.
+    See `posthog/schema.py`. Examples:
+
+        {"kind": "EventsNode", "event": "$pageview", "math": "dau",
+         "properties": [{"key": "$current_url", "operator": "icontains", "value": "/pricing", "type": "event"}]}
+
+        {"kind": "DataWarehouseNode", "id": "stripe_charges", "id_field": "id",
+         "distinct_id_field": "customer_id", "timestamp_field": "created",
+         "math": "sum", "math_property": "amount"}
+
+        {"kind": "HogQLQuery", "query": "SELECT count() FROM events WHERE event = 'pageview'"}
+
+    Edges from the metric node to event_definition / property_definition /
+    warehouse_table / saved_query nodes are emitted into CatalogRelationship
+    (kind=depends_on) by the graph filler walking this definition.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    name = models.CharField(max_length=400)
+    description = models.TextField(blank=True, default="")
+    definition = models.JSONField(default=dict, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "name"], name="catalog_metric_unique_per_team"),
+        ]
+        indexes = [models.Index(fields=["team"])]
+
+    def __str__(self) -> str:
+        return f"metric:{self.name}"

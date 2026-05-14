@@ -369,12 +369,14 @@ class ProposeRelationshipInputSerializer(serializers.Serializer):
         )
     )
     kind = serializers.ChoiceField(
-        choices=["foreign_key", "same_entity", "lineage", "declared_join", "join_candidate"],
+        choices=["foreign_key", "same_entity", "lineage", "declared_join", "join_candidate", "depends_on"],
         help_text=(
             "Relationship type. `foreign_key` when the source column references a target PK. `same_entity` "
             "when two columns identify the same business object (Stripe.customer_id ≈ Postgres.users.id). "
-            "`lineage` when the target table is derived from the source. `declared_join` for an officially "
-            "supported join. `join_candidate` for an inferred-but-unconfirmed join."
+            "`lineage` when the target table is derived from the source (data-flow lineage). "
+            "`declared_join` for an officially supported join. `join_candidate` for an inferred-but-unconfirmed "
+            "join. `depends_on` for a logical dependency that isn't data-flow lineage (e.g. a metric "
+            "built from an event definition or property)."
         ),
     )
     confidence = serializers.FloatField(
