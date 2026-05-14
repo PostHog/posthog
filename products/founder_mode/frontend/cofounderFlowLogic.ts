@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
 
@@ -88,6 +88,8 @@ export const cofounderFlowLogic = kea<cofounderFlowLogicType>([
         setIdeaError: (error: string | null) => ({ error }),
         submitIdeaLoading: (loading: boolean) => ({ loading }),
         persistAnswers: true,
+        loadExistingIdeation: true,
+        restoreAnswers: (answers: CofounderAnswers) => ({ answers }),
     }),
     reducers({
         stepIndex: [
@@ -111,6 +113,7 @@ export const cofounderFlowLogic = kea<cofounderFlowLogicType>([
             EMPTY_ANSWERS,
             {
                 setAnswer: (state, { key, value }) => ({ ...state, [key]: value }),
+                restoreAnswers: (_, { answers }) => answers,
             },
         ],
         projectId: [
@@ -191,6 +194,36 @@ export const cofounderFlowLogic = kea<cofounderFlowLogicType>([
                 // see note above
             }
         },
+        loadExistingIdeation: async () => {
+            const projectId = founderLogic.values.currentProjectId
+            if (!projectId) {
+                return
+            }
+            try {
+                const project = await api.get<{
+                    id: string
+                    ideation: Record<string, string> | null
+                }>(`${FOUNDER_PROJECTS_URL}${projectId}/`)
+                const ideation = project.ideation
+                if (!ideation) {
+                    return
+                }
+                actions.setProjectId(project.id)
+                const restored: CofounderAnswers = {
+                    idea: ideation.idea || ideation.problem || '',
+                    gtmItem: ideation.gtm_item || '',
+                    gtmPositioning: ideation.gtm_positioning || '',
+                    happyPath: ideation.happy_path || '',
+                    marketing: ideation.marketing || '',
+                }
+                actions.restoreAnswers(restored)
+                actions.setDraft(restored.idea)
+                actions.goToStep('idea')
+            } catch {
+                // Fall through to fresh flow
+            }
+        },
+
         // Auto-advance the GTM loading step after a fixed delay so the user
         // gets a beat of "we're preparing the next thing" before the question lands.
         advance: async (_, breakpoint) => {
@@ -199,5 +232,17 @@ export const cofounderFlowLogic = kea<cofounderFlowLogicType>([
                 actions.advance()
             }
         },
+
+        [founderLogic.actionTypes.advanceStep]: ({ currentStep }: { currentStep: string }) => {
+            if (currentStep === 'ideation' && founderLogic.values.currentProjectId) {
+                actions.loadExistingIdeation()
+            }
+        },
     })),
+
+    afterMount(({ actions }) => {
+        if (founderLogic.values.currentProjectId) {
+            actions.loadExistingIdeation()
+        }
+    }),
 ])

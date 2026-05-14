@@ -33,7 +33,7 @@ function Step2Inner({ projectId }: { projectId: string }): JSX.Element {
     // mount before any project has loaded.
     const { project, report, ideation, validation, status, errorMessage, isRunning, isStale } = useValues(logic)
     const { regenerate } = useActions(logic)
-    const { setStep } = useActions(founderLogic)
+    const { advanceStep } = useActions(founderLogic)
 
     if (!project) {
         return (
@@ -96,8 +96,8 @@ function Step2Inner({ projectId }: { projectId: string }): JSX.Element {
             {report && !isRunning && (
                 <ValidationNextStep
                     verdict={report.verdict}
-                    onRefine={() => setStep(1)}
-                    onContinue={() => setStep(3)}
+                    onRefine={() => advanceStep('ideation')}
+                    onContinue={() => advanceStep('gtm')}
                 />
             )}
         </div>
