@@ -184,16 +184,26 @@ many dashboards; only a few become reference points. Use these tools:
     for event discovery. It reads metadata from Postgres and returns
     instantly.
 
-**Do NOT scan the `events` ClickHouse table for discovery.** It is
-billions of rows in production and slow even locally. Specifically:
+**The `events` ClickHouse table is off-limits. Do not query it at all.**
+You have already learned everything you need about events from
+`read-data-schema {"kind": "events"}` above — that's the canonical list
+of which events the team tracks, and it's all you need to write metric
+definitions. The `events` table is billions of rows in production and
+slow even locally, and you will not learn anything from scanning it
+that the metadata doesn't already tell you.
 
-  - Never run `count()` / `count(DISTINCT …)` over `events` with a
-    window longer than **1 day**.
-  - Never use it to "verify an event has volume" — if it appears in the
-    event definitions list above, it has volume.
-  - Never re-run an identical query you already ran.
-  - If you absolutely must look at a row of `events`, use
-    `LIMIT 10` and a 1-day window.
+Concretely, do not write any query that mentions `FROM events` —
+no `SELECT count() FROM events`, no `SELECT DISTINCT event FROM events`,
+no "let me peek with LIMIT 10". Skip it. Also: never re-run an identical
+query you already ran.
+
+Your inputs for choosing metrics are:
+  1. Dashboard contents (from `dashboards-get-all` + `dashboard-get`)
+  2. Event definitions (from `read-data-schema {"kind": "events"}`)
+  3. Warehouse table names + columns (from `system.tables` / `system.columns`)
+  4. Dashboard popularity (from `app_metrics` if needed)
+
+That's it. Once you have those, **write the metrics**. Don't explore further.
 
 If the team has fewer than 3 multi-viewer dashboards, fall back to:
 "propose the standard AARRR metrics that the team *could* track given
