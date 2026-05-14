@@ -1,21 +1,39 @@
+import datetime as dt
 from typing import Any, NoReturn, cast
 
+from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import QuerySet
 
+import structlog
 import django_filters
+from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.request import Request
+from rest_framework.response import Response
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
+from posthog.temporal.common.client import sync_connect
 
+from products.replay_vision.backend.api.constants import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_lens import LensModel, LensProvider, LensType, ReplayLens
+from products.replay_vision.backend.models.replay_observation import ObservationTrigger
+from products.replay_vision.backend.temporal.constants import (
+    APPLY_LENS_WORKFLOW_NAME,
+    MAX_SESSION_ID_LENGTH,
+    build_apply_lens_workflow_id,
+)
+from products.replay_vision.backend.temporal.types import ApplyLensInputs
 
-VISION_TAG = "replay_vision"
+logger = structlog.get_logger(__name__)
 
 
 class ReplayLensSerializer(serializers.ModelSerializer):
@@ -32,11 +50,11 @@ class ReplayLensSerializer(serializers.ModelSerializer):
         choices=LensType.choices,
         help_text="What the lens does: monitor, classifier, scorer, summarizer, or indexer.",
     )
-    # TODO: validate `lens_config` shape per `lens_type` via Pydantic discriminated union (deferred to follow-up PR)
+    # TODO: validate `lens_config` shape per `lens_type` via Pydantic discriminated union.
     lens_config = serializers.JSONField(
         help_text="Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc.",
     )
-    # TODO: type `query` against `posthog.schema.RecordingsQuery` (deferred to follow-up PR)
+    # TODO: type `query` against `posthog.schema.RecordingsQuery`.
     query = serializers.JSONField(
         required=False,
         help_text="Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user.",
@@ -171,11 +189,33 @@ class ReplayLensFilter(django_filters.FilterSet):
         fields = ["enabled", "lens_type", "emits_signals"]
 
 
+class ObserveRequestSerializer(serializers.Serializer):
+    """Body of POST /vision/lenses/{id}/observe/."""
+
+    session_id = serializers.CharField(
+        max_length=MAX_SESSION_ID_LENGTH,
+        help_text="ID of the session recording to apply the lens to.",
+    )
+
+
+class ObserveResponseSerializer(serializers.Serializer):
+    """Async-accepted response for POST /vision/lenses/{id}/observe/."""
+
+    workflow_id = serializers.CharField(
+        help_text=(
+            "Temporal workflow id for this lens application. Look up the resulting "
+            "ReplayObservation via GET /vision/lenses/{id}/observations/?session_id=<session_id>."
+        ),
+    )
+
+
 @extend_schema(tags=[VISION_TAG])
 class ReplayLensViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for Replay Vision lenses."""
 
     scope_object = "replay_lens"
+    # Custom actions must be listed explicitly or personal-API-key callers 403 silently.
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "observe"]
     permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayLensSerializer
     queryset = ReplayLens.objects.all()
@@ -185,3 +225,62 @@ class ReplayLensViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet[ReplayLens]) -> QuerySet[ReplayLens]:
         return queryset.filter(team_id=self.team_id).select_related("created_by").order_by("name", "id")
+
+    @extend_schema(
+        request=ObserveRequestSerializer,
+        responses={202: ObserveResponseSerializer},
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="observe",
+        required_scopes=["replay_lens:write", "session_recording:read"],
+    )
+    def observe(self, request: Request, **kwargs: Any) -> Response:
+        """Apply this lens to one specific session, on demand. Returns 202 with the workflow handle."""
+        lens = self.get_object()
+        # Observation output exposes recording contents, so observe requires session_recording read.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
+
+        body = ObserveRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        session_id: str = body.validated_data["session_id"]
+        user = cast(User, request.user)
+
+        workflow_id = build_apply_lens_workflow_id(lens.id, session_id)
+        try:
+            client = sync_connect()
+            async_to_sync(client.start_workflow)(  # type: ignore[misc]
+                APPLY_LENS_WORKFLOW_NAME,  # type: ignore[arg-type]
+                ApplyLensInputs(  # type: ignore[arg-type]
+                    lens_id=lens.id,
+                    session_id=session_id,
+                    team_id=lens.team_id,
+                    triggered_by=ObservationTrigger.ON_DEMAND,
+                    triggered_by_user_id=user.id,
+                ),
+                id=workflow_id,
+                task_queue=settings.REPLAY_VISION_TASK_QUEUE,
+                execution_timeout=dt.timedelta(hours=1),
+            )
+        except WorkflowAlreadyStartedError as exc:
+            # Pin to our own workflow_id so a future id_reuse_policy change can't silently 202 an unrelated run.
+            if exc.workflow_id != workflow_id:
+                logger.exception("replay_vision.observe.workflow_id_mismatch", workflow_id=workflow_id)
+                return Response(
+                    {"error": "Failed to start observation workflow"},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            logger.info("replay_vision.observe.workflow_already_started", workflow_id=workflow_id)
+        except Exception:
+            logger.exception("replay_vision.observe.workflow_start_failed", workflow_id=workflow_id)
+            return Response(
+                {"error": "Failed to start observation workflow"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(
+            ObserveResponseSerializer({"workflow_id": workflow_id}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
