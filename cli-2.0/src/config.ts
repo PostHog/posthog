@@ -39,6 +39,21 @@ function isSecretKey(key: keyof CLIConfig): key is SecretKey {
     return (SECRET_KEYS as readonly string[]).includes(key)
 }
 
+// Picks the project id to persist alongside a freshly issued OAuth token.
+// When the token explicitly scopes a set of teams, only an existingProjectId
+// that is *in* that set survives — otherwise we fall back to auto-selecting a
+// single scoped team, or returning undefined so the caller re-prompts.
+export function resolveProjectId(scopedTeams: number[] | undefined, existingProjectId?: string): string | undefined {
+    if (scopedTeams && scopedTeams.length > 0) {
+        const scoped = new Set(scopedTeams.map((id) => String(id)))
+        if (existingProjectId && scoped.has(existingProjectId)) {
+            return existingProjectId
+        }
+        return scopedTeams.length === 1 ? String(scopedTeams[0]) : undefined
+    }
+    return existingProjectId
+}
+
 interface SecretStore {
     get(key: SecretKey): string | undefined
     set(key: SecretKey, value: string): void
@@ -243,6 +258,11 @@ export class ConfigManager {
         console.log(chalk.yellow('\n🔐 Authentication required'))
         console.log('Opening PostHog OAuth login in your browser...')
 
+        // An explicit login is a fresh session — drop the stored project so we
+        // re-resolve it from the new token's scope rather than reusing a stale
+        // id the new grant may not have access to.
+        this.conf.delete('projectId')
+
         const oauthConfig = await this.loginWithOAuth()
         return this.ensureProject(oauthConfig)
     }
@@ -333,7 +353,7 @@ export class ConfigManager {
     private saveOAuthToken(token: OAuthTokenResponse, clientId: string, existingProjectId?: string): CLIConfig {
         const expiresAt = token.expires_in ? Date.now() + token.expires_in * 1000 : undefined
         const host = token.posthog_base_url || this.get('host') || DEFAULT_HOST
-        const projectId = existingProjectId || this.inferProjectId(token.scoped_teams)
+        const projectId = resolveProjectId(token.scoped_teams, existingProjectId)
 
         this.set('accessToken', token.access_token)
         this.set('clientId', clientId)
@@ -347,16 +367,14 @@ export class ConfigManager {
         }
         if (projectId) {
             this.set('projectId', projectId)
+        } else {
+            // Drop any stale projectId from the previous grant so ensureProject
+            // re-resolves instead of letting downstream calls 403 on a project
+            // the new token can't access.
+            this.conf.delete('projectId')
         }
 
         return this.getAll()
-    }
-
-    private inferProjectId(scopedTeams: number[] | undefined): string | undefined {
-        if (!scopedTeams || scopedTeams.length !== 1) {
-            return undefined
-        }
-        return String(scopedTeams[0])
     }
 
     private async ensureProject(config: CLIConfig): Promise<CLIConfig> {
