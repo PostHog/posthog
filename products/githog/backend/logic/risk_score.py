@@ -79,7 +79,7 @@ multiple conditions match, take the highest. Never score below the floor.
 
 >= 90  (critical)
 - Exposes / prints / echoes / logs / commits any secret, token, credential, API key, private key,
-  or password — including referencing `${SECRETS.*}`, `$GITHUB_TOKEN`, `env | grep`, `printenv`,
+  or password — including referencing `${{SECRETS.*}}`, `$GITHUB_TOKEN`, `env | grep`, `printenv`,
   `set -x` with secret-bearing env, or embedding a secret in a URL that lands in CI output.
 - CI workflow change that grants `pull_request_target`, `permissions: write-all`, adds a
   self-hosted runner, or runs untrusted PR code with secrets attached.
@@ -194,7 +194,7 @@ class _LLMRiskJudgment(BaseModel):
 
 # Bump when prompt calibration or composite logic changes so existing cached
 # scores are abandoned and the next read recomputes under the new rules.
-CACHE_KEY_VERSION = "v3"
+CACHE_KEY_VERSION = "v4"
 
 
 def _redis_cache_key(team_id: int, repository: str, pr_number: int) -> str:
