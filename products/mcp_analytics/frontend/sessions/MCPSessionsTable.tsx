@@ -38,17 +38,17 @@ export function MCPSessionsTable(): JSX.Element {
         },
         {
             title: 'Started',
-            key: 'first_seen',
-            render: (_, record) => <TZLabel time={record.first_seen} />,
-            sorter: (a, b) => a.first_seen.localeCompare(b.first_seen),
+            key: 'session_start',
+            render: (_, record) => <TZLabel time={record.session_start} />,
+            sorter: (a, b) => a.session_start.localeCompare(b.session_start),
         },
         {
             title: 'Tool calls',
-            key: 'event_count',
-            dataIndex: 'event_count',
+            key: 'tool_calls',
+            dataIndex: 'tool_calls',
             align: 'right',
-            render: (_, record) => <span className="text-xs whitespace-nowrap">{record.event_count}</span>,
-            sorter: (a, b) => a.event_count - b.event_count,
+            render: (_, record) => <span className="text-xs whitespace-nowrap">{record.tool_calls}</span>,
+            sorter: (a, b) => a.tool_calls - b.tool_calls,
         },
         {
             title: 'Duration',
@@ -56,13 +56,13 @@ export function MCPSessionsTable(): JSX.Element {
             align: 'right',
             render: (_, record) => (
                 <span className="text-xs whitespace-nowrap">
-                    {humanFriendlyDuration(sessionDurationMs(record.first_seen, record.last_seen) / 1000, {
+                    {humanFriendlyDuration(sessionDurationMs(record.session_start, record.session_end) / 1000, {
                         secondsFixed: 1,
                     })}
                 </span>
             ),
             sorter: (a, b) =>
-                sessionDurationMs(a.first_seen, a.last_seen) - sessionDurationMs(b.first_seen, b.last_seen),
+                sessionDurationMs(a.session_start, a.session_end) - sessionDurationMs(b.session_start, b.session_end),
         },
     ]
 
@@ -96,7 +96,7 @@ export function MCPSessionsTable(): JSX.Element {
                         rowKey="session_id"
                         columns={columns}
                         loading={allSessionsLoading}
-                        defaultSorting={{ columnKey: 'first_seen', order: -1 }}
+                        defaultSorting={{ columnKey: 'session_start', order: -1 }}
                         emptyState="No MCP sessions yet — try the seed_mcp_sessions management command for local data."
                         nouns={['session', 'sessions']}
                         onRow={(record) => ({

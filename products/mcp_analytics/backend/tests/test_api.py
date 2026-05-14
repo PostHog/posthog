@@ -107,13 +107,13 @@ class TestListMCPSessions(APIBaseTest):
         assert sessions[0].session_id == session_b
         assert sessions[0].mcp_client_name == "Cursor"
         assert sorted(sessions[0].tools_used) == ["dashboard_get", "query_run"]
-        # event_count is approximated by the size of tools_used
-        assert sessions[0].event_count == 2
+        # tool_calls reflects the persisted total from the backfill activity
+        assert sessions[0].tool_calls == 0
 
         assert sessions[1].session_id == session_a
         assert sessions[1].mcp_client_name == "Claude Desktop"
         assert sorted(sessions[1].tools_used) == ["insight_get", "query_run"]
-        assert sessions[1].event_count == 2
+        assert sessions[1].tool_calls == 0
 
     def test_returns_empty_list_when_no_sessions(self) -> None:
         assert api.list_mcp_sessions(self.team, limit=50, offset=0) == []

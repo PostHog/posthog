@@ -29,8 +29,8 @@ export function MCPSessionDetail(): JSX.Element {
         )
     }
 
-    const durationMs = sessionDurationMs(selectedSession.first_seen, selectedSession.last_seen)
-    const calls = selectedSession.event_count
+    const durationMs = sessionDurationMs(selectedSession.session_start, selectedSession.session_end)
+    const calls = selectedSession.tool_calls
     const identifiedPerson = !!(selectedSession.person_name || selectedSession.person_email)
     const primaryLabel = identifiedPerson
         ? selectedSession.person_name || selectedSession.person_email || selectedSession.distinct_id
@@ -143,7 +143,7 @@ export function MCPSessionDetail(): JSX.Element {
                                                 ·
                                             </span>
                                         ) : null}
-                                        <span>{relativeOffset(selectedSession.first_seen, toolCall.timestamp)}</span>
+                                        <span>{relativeOffset(selectedSession.session_start, toolCall.timestamp)}</span>
                                     </div>
                                 </div>
 

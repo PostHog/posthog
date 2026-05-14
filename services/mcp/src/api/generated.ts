@@ -20303,12 +20303,12 @@ export namespace Schemas {
     export interface MCPSession {
       /** PostHog $session_id grouping all mcp_tool_call events. */
       readonly session_id: string;
-      /** Number of mcp_tool_call events in the session. */
-      readonly event_count: number;
+      /** Total number of mcp_tool_call events in the session. */
+      readonly tool_calls: number;
       /** Timestamp of the first mcp_tool_call event in the session. */
-      readonly first_seen: string;
+      readonly session_start: string;
       /** Timestamp of the most recent mcp_tool_call event in the session. */
-      readonly last_seen: string;
+      readonly session_end: string;
       /** Number of distinct PostHog distinct_ids that produced events in the session. */
       readonly distinct_id_count: number;
       /** Distinct $mcp_tool_name values seen in the session. */
