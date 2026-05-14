@@ -392,10 +392,18 @@ mod test {
 
     #[test]
     fn accepts_webpack_scheme() {
-        let parsed = frame_with("webpack:///./src/index.js:10:5")
-            .source_url()
-            .unwrap();
-        assert_eq!(parsed.scheme(), "webpack");
+        for url in [
+            "webpack:///./src/index.js",
+            "webpack:///./src/index.js:10:5",
+        ] {
+            let parsed = frame_with(url).source_url().unwrap_or_else(|e| {
+                panic!("expected {url} to be accepted, got {e:?}");
+            });
+            assert_eq!(parsed.scheme(), "webpack");
+            // Url::parse normalizes the `./` segment away, so what lands in
+            // Frame.source is /src/index.js — not /./src/index.js.
+            assert_eq!(parsed.path(), "/src/index.js");
+        }
     }
 
     #[test]
