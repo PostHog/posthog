@@ -3233,6 +3233,7 @@ export type FileSystemIconType =
     | 'llm_prompts'
     | 'llm_clusters'
     | 'exports'
+    | 'deployments'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -3614,11 +3615,20 @@ export type ExperimentMetricTypeProps =
     | ExperimentRatioMetricTypeProps
     | ExperimentRetentionMetricTypeProps
 
-export type ExperimentMetric =
+// Named separately from `ExperimentMetric` so the JSDoc `@discriminator` tag below
+// can attach without colliding with the `NodeKind.ExperimentMetric` enum value
+// (which trips ts-json-schema-generator's deduplication). The alias is the public
+// type — callers continue to use `ExperimentMetric`.
+/**
+ * @discriminator metric_type
+ */
+export type ExperimentMetricUnion =
     | ExperimentMeanMetric
     | ExperimentFunnelMetric
     | ExperimentRatioMetric
     | ExperimentRetentionMetric
+
+export type ExperimentMetric = ExperimentMetricUnion
 
 export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     kind: NodeKind.ExperimentQuery
@@ -6277,6 +6287,7 @@ export enum ProductKey {
     CUSTOMER_ANALYTICS = 'customer_analytics',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
+    DEPLOYMENTS = 'deployments',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     ENDPOINTS = 'endpoints',
     ERROR_TRACKING = 'error_tracking',

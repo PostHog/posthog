@@ -67,7 +67,7 @@ procs:
             tech: Node
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
         # Set by hogli dev:generate based on selected nodejs_* capabilities
-        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, traces, feature_flags
+        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, traces, metrics, feature_flags
         # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
 
     ingestion-errortracking:
@@ -86,8 +86,13 @@ procs:
             layer: Ingestion pipeline
             tech: Node
 
+    ingestion-metrics:
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-metrics HTTP_SERVER_PORT=6744 ./bin/posthog-node'
+        capability: nodejs_metrics
+        ready_pattern: 'All systems go'
+
     ingestion-traces:
-        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-traces HTTP_SERVER_PORT=6744 ./bin/posthog-node'
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-traces HTTP_SERVER_PORT=6745 ./bin/posthog-node'
         capability: nodejs_traces
         ready_pattern: 'All systems go'
         groups:
@@ -312,6 +317,12 @@ procs:
         groups:
             layer: Ingestion pipeline
             tech: Rust
+
+    capture-logs:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service capture-logs
+        capability: logs_ingestion
 
     batch-import-worker:
         shell: |-

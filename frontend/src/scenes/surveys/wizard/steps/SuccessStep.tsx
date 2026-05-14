@@ -5,7 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { Survey } from '~/types'
+import { Survey, SurveySchedule } from '~/types'
 
 import { SurveyAppearancePreview } from '../../SurveyAppearancePreview'
 
@@ -64,11 +64,17 @@ export function SuccessStep({ survey }: SuccessStepProps): JSX.Element {
                     <div className="flex justify-between">
                         <dt className="text-secondary">Frequency</dt>
                         <dd>
-                            {survey.conditions?.seenSurveyWaitPeriodInDays == null
+                            {survey.schedule === SurveySchedule.Once || !survey.iteration_frequency_days
                                 ? 'Once ever'
-                                : `Every ${survey.conditions?.seenSurveyWaitPeriodInDays} days`}
+                                : `Up to ${survey.iteration_count ?? 10} times, every ${survey.iteration_frequency_days} days`}
                         </dd>
                     </div>
+                    {survey.conditions?.seenSurveyWaitPeriodInDays != null && (
+                        <div className="flex justify-between">
+                            <dt className="text-secondary">Wait period across all surveys</dt>
+                            <dd>{survey.conditions.seenSurveyWaitPeriodInDays} days</dd>
+                        </div>
+                    )}
                 </dl>
             </div>
         </div>

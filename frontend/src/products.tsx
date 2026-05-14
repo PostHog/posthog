@@ -70,6 +70,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
     DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
+    Deployments: () => import('../../products/deployments/frontend/Deployments'),
+    Deployment: () => import('../../products/deployments/frontend/Deployment'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
@@ -169,6 +171,8 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
+    '/deployments': ['Deployments', 'deployments'],
+    '/deployments/:id': ['Deployment', 'deployment'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
@@ -370,6 +374,13 @@ export const productConfiguration: Record<string, any> = {
     DataWarehouseSource: { projectBased: true, name: 'Data warehouse source' },
     DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
     DataWarehouseSourceSchema: { projectBased: true, name: 'Data warehouse schema' },
+    Deployments: {
+        projectBased: true,
+        name: 'Deployments',
+        iconType: 'deployments',
+        description: 'Build and ship your project site straight from PostHog.',
+    },
+    Deployment: { projectBased: true, name: 'Deployment' },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -696,6 +707,8 @@ export const productUrls = {
         const queryString = params.toString()
         return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
     },
+    deployments: (): string => '/deployments',
+    deployment: (id: string): string => `/deployments/${id}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
@@ -1413,6 +1426,22 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalyticsClusters',
             'LLMAnalyticsCluster',
         ],
+    },
+    {
+        path: 'Deployments',
+        intents: [ProductKey.DEPLOYMENTS],
+        category: ProductItemCategory.TOOLS,
+        href: urls.deployments(),
+        type: 'deployments',
+        iconType: 'deployments' as FileSystemIconType,
+        iconColor: [
+            'var(--color-product-deployments-light)',
+            'var(--color-product-deployments-dark)',
+        ] as FileSystemIconColor,
+        sceneKey: 'Deployments',
+        sceneKeys: ['Deployments', 'Deployment'],
+        flag: FEATURE_FLAGS.DEPLOYMENTS,
+        tags: ['alpha'],
     },
     {
         path: 'Early access features',

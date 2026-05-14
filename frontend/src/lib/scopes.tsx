@@ -29,6 +29,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
+    { key: 'deployment', objectName: 'Deployment', objectPlural: 'deployments' },
     { key: 'desktop_recording', objectName: 'Desktop recording', objectPlural: 'desktop recordings' },
     { key: 'early_access_feature', objectName: 'Early access feature', objectPlural: 'early access features' },
     { key: 'element', objectName: 'Element', objectPlural: 'elements' },
@@ -190,6 +191,11 @@ export const API_KEY_SCOPE_PRESETS: {
                 : `${key}:read`
         ),
         access_type: 'all',
+    },
+    {
+        value: 'read_only_access',
+        label: 'Read-only access',
+        scopes: API_SCOPES.map(({ key }) => `${key}:read`),
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
