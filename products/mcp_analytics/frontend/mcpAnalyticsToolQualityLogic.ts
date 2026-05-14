@@ -5,7 +5,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, PropertyMathType } from '~/types'
 
-import toolQualityQueryTemplate from '../backend/queries/tool_quality.sql?raw'
+import toolQualityQueryTemplate from '../backend/templates/tool_quality.sql?raw'
 import type { mcpAnalyticsToolQualityLogicType } from './mcpAnalyticsToolQualityLogicType'
 
 export type SortDirection = 'ASC' | 'DESC'
