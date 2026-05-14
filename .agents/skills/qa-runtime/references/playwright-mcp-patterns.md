@@ -55,6 +55,46 @@ One retry is mandatory before a finding is real:
 If it fails once and passes on retry, record it as discarded-as-flaky in local
 notes but do not include it as an actionable PR finding unless the user asks.
 
+## Theme Toggle
+
+To exercise dark/light variants of a scene, patch the authenticated user's
+`theme_mode` via the API and reload. This is the same path the in-app theme
+switcher uses and is the only reliable lever:
+
+```js
+// via mcp__playwright__browser_evaluate, in the authenticated page context
+;async () => {
+  const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1]
+  const r = await fetch('/api/users/@me/', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+    body: JSON.stringify({ theme_mode: 'dark' }), // or 'light' / 'system'
+  })
+  return { status: r.status, theme_mode: (await r.json()).theme_mode }
+}
+```
+
+Then `browser_navigate` to the target route (a navigation reloads kea state).
+Verify the toggle took effect by reading the computed background color, not
+DOM attributes: PostHog does not set a `dark` class, `data-theme`, or
+`data-color-mode` on `<html>` - the kea state drives CSS variables directly.
+
+```js
+;() => getComputedStyle(document.body).backgroundColor
+// dark: ~rgb(19, 19, 22); light: ~rgb(243, 244, 240)
+```
+
+Do not try:
+
+- `document.documentElement.classList.add('dark')` - themeLogic does not read it.
+- `data-theme` / `data-color-mode` attributes - not consulted.
+- `window.getKeaContext()` - not exposed in production builds.
+- `emulateMedia({colorScheme:'dark'})` alone - only effective if the user's
+  `theme_mode === 'system'`, and the seed user defaults to `null` / `'light'`.
+
+Restore the original `theme_mode` (usually `'light'`) at the end of the run so
+the dev environment is left as found.
+
 ## Evidence Naming
 
 Use stable, readable names:
