@@ -2,9 +2,15 @@
 {% block section %}
 <p>Hey {% if user_name %}{{ user_name }}{% else %}there{% endif %},</p>
 
-<p><strong>{{ referee_organization_name }}</strong> is live on PostHog thanks to your referral — nice work.</p>
+<p><strong>{{ referee_organization_name }}</strong> is live on PostHog. That's on you. Well done, recruiter.</p>
 
-<p>You have a <strong>PostHog merch coupon</strong> waiting as a thank-you. Open <a href="{% absolute_uri referrals_path %}">referrals</a> in PostHog to see your code and use it at checkout on our store.</p>
+<p>Your merch coupon:</p>
 
-<p>If you did not expect this email, reply and let us know.</p>
+<p style="font-size: 18px; font-weight: bold; letter-spacing: 0.05em;">REFERRAL-KJ3E9W</p>
+
+<p>Use it at checkout on the PostHog merch store. Buy something with a hedgehog on it.</p>
+
+<p>You can also open <a href="{% absolute_uri referrals_path %}">referrals</a> in PostHog to track your progress up the pyramide.</p>
+
+<p>If you did not expect this email, reply and let us know. We'll pretend this never happened.</p>
 {% endblock %}
