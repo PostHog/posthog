@@ -478,7 +478,7 @@ function GalacticMode({ message }: { message: string }): JSX.Element {
                     }}
                     initial={{ y: '120%' }}
                     animate={{ y: '-200%' }}
-                    transition={{ duration: 20, ease: 'linear' }}
+                    transition={{ duration: 12, ease: 'linear' }}
                 >
                     <p
                         className="leading-relaxed"
