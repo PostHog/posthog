@@ -84,6 +84,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
         resyncSchema,
         cancelSchema,
         deleteTable,
+        setSelectedSchemas,
     } = useActions(sourceSettingsLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -168,6 +169,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                 resyncSchema={resyncSchema}
                 cancelSchema={cancelSchema}
                 deleteTable={deleteTable}
+                setSelectedSchemas={setSelectedSchemas}
                 showMetrics={showMetrics}
             />
             {source?.source_type &&
@@ -209,6 +211,7 @@ interface ManagedSchemaTableProps {
     resyncSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     deleteTable: (schema: ExternalDataSourceSchema) => void
+    setSelectedSchemas: (schemaNames: string[]) => void
     showMetrics: boolean
 }
 
@@ -223,6 +226,7 @@ function ManagedSchemaTable({
     resyncSchema,
     cancelSchema,
     deleteTable,
+    setSelectedSchemas,
     showMetrics,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
@@ -271,8 +275,18 @@ function ManagedSchemaTable({
                         if (!schema.status) {
                             return <span className="text-muted">—</span>
                         }
+                        const openSyncsForSchema = (): void => {
+                            setSelectedSchemas([schema.name])
+                            router.actions.push(urls.dataWarehouseSource(prefixedSourceId, 'syncs'))
+                        }
                         const tagContent = (
-                            <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
+                            <LemonTag
+                                type={StatusTagSetting[schema.status] || 'default'}
+                                forceClickable
+                                onClick={openSyncsForSchema}
+                            >
+                                {schema.status}
+                            </LemonTag>
                         )
                         return schema.latest_error && schema.status === 'Failed' ? (
                             <Tooltip title={schema.latest_error} interactive>
