@@ -54,3 +54,18 @@ def list_mcp_sessions(team: Team, limit: int, offset: int) -> list[contracts.MCP
 
 def list_mcp_tool_calls(team: Team, session_id: str) -> list[contracts.MCPToolCall]:
     return logic.list_mcp_tool_calls(team, session_id=session_id)
+
+
+def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
+    return logic.get_intent_cluster_snapshot(team)
+
+
+def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
+    """Kick off the intent cluster recompute Celery task.
+
+    Returns immediately. Use ``get_intent_cluster_snapshot`` to poll status.
+    """
+    # Import here to avoid loading Celery at module import time.
+    from products.mcp_analytics.backend.tasks.tasks import compute_intent_clusters
+
+    compute_intent_clusters.delay(team.id, user.id if user else None)

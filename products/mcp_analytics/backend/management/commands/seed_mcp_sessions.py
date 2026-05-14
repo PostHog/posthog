@@ -10,6 +10,8 @@ from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 
+from products.mcp_analytics.backend.models import MCPSession
+
 TOOL_NAMES = [
     "query_run",
     "insight_get",
@@ -80,6 +82,28 @@ INTENTS_BY_TOOL: dict[str, list[str]] = {
 DEFAULT_INTENT = "Helping the user investigate a recent product-analytics question without a specific recorded intent."
 
 
+# Session-level summarised intents. These intentionally repeat themes so the
+# clustering pipeline has something to cluster: variants of "check a feature
+# flag rollout" should land in one cluster, variants of "look up the reporter
+# of a billing issue" in another, etc.
+SESSION_INTENTS: list[str] = [
+    "Investigate yesterday's spike in checkout failures using revenue and error events.",
+    "Look into the unusual drop in checkout completion that started overnight.",
+    "Pull funnel conversion numbers for the new pricing page for the weekly product review.",
+    "Compare pricing page funnel performance week over week ahead of the product review.",
+    "Check whether the new pricing feature flag is fully rolled out to the affected cohort.",
+    "Confirm rollout status of the pricing feature flag for a support escalation.",
+    "Review the active pricing experiment and decide whether we have the power to call a winner.",
+    "Pull active users metrics to share growth trends in the leadership Slack channel.",
+    "Compare last cohort's retention curve to the previous one for the product review.",
+    "Triage user-reported latency complaints from this morning using the platform health dashboard.",
+    "Look up the reporter of a paid plan billing complaint before processing a refund.",
+    "Replay the signup session where the user got stuck so we can file a precise bug report.",
+    "Pull the latest exception issue tied to the deploy so on-call can triage the regression.",
+]
+CONVERSATION_CONTINUE_PROBABILITY = 0.4
+
+
 class Command(BaseCommand):
     help = "Seed mcp_tool_call events into ClickHouse for local testing of MCP analytics."
 
@@ -132,8 +156,14 @@ class Command(BaseCommand):
             )
             persona_person_ids[persona["distinct_id"]] = person_uuid
 
+        active_conversation_id: str | None = None
         for session_idx in range(session_count):
             session_id = str(uuid7())
+            if active_conversation_id and rng.random() < CONVERSATION_CONTINUE_PROBABILITY:
+                conversation_id = active_conversation_id
+            else:
+                conversation_id = str(uuid7())
+                active_conversation_id = conversation_id
             if rng.random() < IDENTIFIED_PROBABILITY:
                 persona = rng.choice(IDENTIFIED_PERSONAS)
                 distinct_id = persona["distinct_id"]
@@ -145,6 +175,13 @@ class Command(BaseCommand):
             calls = rng.randint(min_calls, max_calls)
             # Spread the session across a 5-minute window, anchored a random number of hours in the past.
             session_start = now - timedelta(hours=rng.randint(0, 48), minutes=rng.randint(0, 59))
+            session_intent = rng.choice(SESSION_INTENTS)
+            MCPSession.objects.create(
+                team=team,
+                session_id=session_id,
+                conversation_id=conversation_id,
+                intent=session_intent,
+            )
 
             for call_idx in range(calls):
                 timestamp = session_start + timedelta(seconds=call_idx * rng.randint(15, 90))

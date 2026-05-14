@@ -11,7 +11,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.mcp_analytics.backend.facade import contracts, enums
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot
 
 MCP_TOOL_CALL_EVENT = "mcp_tool_call"
 
@@ -137,6 +137,70 @@ def _parse_int(value: str | int | None) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
+    """Return the current intent cluster snapshot for a team.
+
+    When no snapshot exists yet, returns an empty IDLE one so callers can
+    render the "compute" CTA without distinguishing "missing" from "empty".
+    """
+    snapshot = MCPIntentClusterSnapshot.objects.filter(team=team).select_related("last_computed_by").first()
+    if snapshot is None:
+        return contracts.IntentClusterSnapshot(
+            status=MCPIntentClusterSnapshot.Status.IDLE,
+            error_message="",
+            last_computed_at=None,
+            last_computed_by_email="",
+            clusters=[],
+            computed_with=None,
+        )
+
+    blob = snapshot.clusters or {}
+    clusters_raw = blob.get("clusters", []) if isinstance(blob, dict) else []
+    meta_raw = blob.get("computed_with") if isinstance(blob, dict) else None
+
+    return contracts.IntentClusterSnapshot(
+        status=snapshot.status,
+        error_message=snapshot.error_message,
+        last_computed_at=snapshot.last_computed_at,
+        last_computed_by_email=snapshot.last_computed_by.email if snapshot.last_computed_by else "",
+        clusters=[_to_cluster_dto(item) for item in clusters_raw if isinstance(item, dict)],
+        computed_with=_to_meta_dto(meta_raw) if isinstance(meta_raw, dict) else None,
+    )
+
+
+def _to_cluster_dto(item: dict[str, Any]) -> contracts.IntentCluster:
+    return contracts.IntentCluster(
+        id=int(item.get("id", 0)),
+        label=str(item.get("label", "")),
+        intent_count=int(item.get("intent_count", 0)),
+        call_count=int(item.get("call_count", 0)),
+        error_count=int(item.get("error_count", 0)),
+        error_rate_pct=float(item.get("error_rate_pct", 0.0)),
+        routing_entropy=float(item.get("routing_entropy", 0.0)),
+        tool_distribution=[
+            contracts.IntentClusterToolEntry(
+                tool=str(entry.get("tool", "")),
+                count=int(entry.get("count", 0)),
+                pct=float(entry.get("pct", 0.0)),
+                errors=int(entry.get("errors", 0)),
+                error_rate_pct=float(entry.get("error_rate_pct", 0.0)),
+            )
+            for entry in item.get("tool_distribution", [])
+            if isinstance(entry, dict)
+        ],
+        sample_intents=[str(s) for s in item.get("sample_intents", []) if isinstance(s, str)],
+    )
+
+
+def _to_meta_dto(meta: dict[str, Any]) -> contracts.IntentClusterSnapshotMeta:
+    return contracts.IntentClusterSnapshotMeta(
+        distance_threshold=float(meta.get("distance_threshold", 0.0)),
+        embedding_model=str(meta.get("embedding_model", "")),
+        n_intents=int(meta.get("n_intents", 0)),
+        n_clusters=int(meta.get("n_clusters", 0)),
+    )
 
 
 def create_feedback_submission(
