@@ -201,7 +201,8 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                     <Field name="prompt" label="Prompt">
                         <LemonTextArea
                             placeholder="Sign in with test@hedgebox.dev, upload demo.pdf, and verify the file appears in the recent uploads list."
-                            rows={16}
+                            minRows={16}
+                            maxRows={32}
                             className="text-base"
                             data-attr="agentic-test-prompt"
                         />
