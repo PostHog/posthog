@@ -4,7 +4,7 @@ import pytest
 
 from posthog.models import OAuthApplication
 
-from products.tasks.backend.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from products.tasks.backend.temporal.oauth import POSTHOG_CODE_OAUTH_CLIENT_ID_DEV
 
 
 def _runs_on_internal_pr() -> bool:
@@ -25,9 +25,9 @@ def posthog_code_oauth_app(request):
     if not _runs_on_internal_pr():
         pytest.skip("Skipping test that requires internal secrets on external PRs")
     app, _ = OAuthApplication.objects.get_or_create(
-        client_id=ARRAY_APP_CLIENT_ID_DEV,
+        client_id=POSTHOG_CODE_OAUTH_CLIENT_ID_DEV,
         defaults={
-            "name": "Array Test App",
+            "name": "PostHog Code Test App",
             "client_type": OAuthApplication.CLIENT_PUBLIC,
             "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
             "redirect_uris": "https://app.posthog.com/callback",

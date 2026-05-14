@@ -11,7 +11,7 @@ from posthog.temporal.common.logger import configure_logger
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.create_snapshot.activities.get_snapshot_context import SnapshotContext
-from products.tasks.backend.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from products.tasks.backend.temporal.oauth import POSTHOG_CODE_OAUTH_CLIENT_ID_DEV
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 
@@ -30,13 +30,13 @@ def activity_environment():
 
 @pytest.fixture(autouse=True)
 def posthog_code_oauth_app():
-    """Create the Array OAuth application for tests."""
+    """Create the PostHog Code OAuth application for tests."""
     if not _runs_on_internal_pr():
         pytest.skip("Skipping test that requires internal secrets on external PRs")
     app, _ = OAuthApplication.objects.get_or_create(
-        client_id=ARRAY_APP_CLIENT_ID_DEV,
+        client_id=POSTHOG_CODE_OAUTH_CLIENT_ID_DEV,
         defaults={
-            "name": "Array Test App",
+            "name": "PostHog Code Test App",
             "client_type": OAuthApplication.CLIENT_PUBLIC,
             "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
             "redirect_uris": "https://app.posthog.com/callback",

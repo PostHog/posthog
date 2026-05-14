@@ -11,7 +11,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models import OAuthApplication, Team
 from posthog.models.feature_flag import FeatureFlag
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_CLIENT_ID_DEV
 
 AUTO_FILL_KEYS = [
     "OIDC_RSA_PRIVATE_KEY",
@@ -21,7 +21,7 @@ AUTO_FILL_KEYS = [
     "SANDBOX_MCP_URL",
 ]
 GITHUB_APP_KEYS = ["GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY"]
-# Canonical local-dev redirect URIs for the Array OAuth app (matches
+# Canonical local-dev redirect URIs for the PostHog Code OAuth app (matches
 # posthog/demo/products/hedgebox/matrix.py and docs/published/handbook/engineering/oauth-development-guide.md).
 EXPECTED_REDIRECT_URIS = (
     "http://localhost:3000/callback "
@@ -98,14 +98,14 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING("Setting up OAuth application..."))
 
         defaults = {
-            "name": "Array Dev App",
+            "name": "PostHog Code Dev App",
             "client_type": OAuthApplication.CLIENT_PUBLIC,
             "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
             "redirect_uris": EXPECTED_REDIRECT_URIS,
             "algorithm": "RS256",
         }
         app, created = OAuthApplication.objects.get_or_create(
-            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_id=POSTHOG_CODE_OAUTH_CLIENT_ID_DEV,
             defaults=defaults,
         )
         if created:

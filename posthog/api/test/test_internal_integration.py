@@ -16,7 +16,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.redis import get_client
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_CLIENT_ID_DEV
 
 VALID_SECRET = "posthog123"  # LOCAL_DEV_INTERNAL_API_SECRET; accepted under TEST mode
 AUTH_HEADER = {"HTTP_X_INTERNAL_API_SECRET": VALID_SECRET}
@@ -26,17 +26,17 @@ _TEST_RSA_KEY = generate_rsa_key()
 
 
 @pytest.fixture
-def array_app(db, settings):
-    """Provision the Array OAuth app the lookup endpoint mints tokens under.
+def posthog_code_app(db, settings):
+    """Provision the PostHog Code OAuth app the lookup endpoint mints tokens under.
 
     OAuthApplication.full_clean rejects RS256 unless OAUTH2_PROVIDER carries an
     RSA key, so we override the provider config for the test session.
     """
     settings.OAUTH2_PROVIDER = {**django_settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _TEST_RSA_KEY}
     app, _ = OAuthApplication.objects.get_or_create(
-        client_id=ARRAY_APP_CLIENT_ID_DEV,
+        client_id=POSTHOG_CODE_OAUTH_CLIENT_ID_DEV,
         defaults={
-            "name": "Array Test App",
+            "name": "PostHog Code Test App",
             "client_type": OAuthApplication.CLIENT_PUBLIC,
             "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
             "redirect_uris": "https://app.posthog.com/callback",
@@ -73,7 +73,7 @@ def _fresh_scope() -> str:
 
 class TestInternalIntegrationLookupTeam:
     @pytest.fixture(autouse=True)
-    def setup_integration(self, db, array_app):
+    def setup_integration(self, db, posthog_code_app):
         self.organization = Organization.objects.create(name="Acme")
         self.team = Team.objects.create(organization=self.organization, name="Acme Prod")
         self.connector = User.objects.create_user(email="connector@acme.test", first_name="Conn", password="password")
@@ -149,7 +149,7 @@ class TestInternalIntegrationLookupTeam:
 
 class TestInternalIntegrationLookupUser:
     @pytest.fixture(autouse=True)
-    def setup_user_integration(self, db, array_app):
+    def setup_user_integration(self, db, posthog_code_app):
         self.organization = Organization.objects.create(name="Acme")
         self.team = Team.objects.create(organization=self.organization, name="Acme Prod")
         self.user = User.objects.create(
@@ -216,7 +216,7 @@ class TestInternalIntegrationLookupUser:
 
 class TestInternalIntegrationLookupCaching:
     @pytest.fixture(autouse=True)
-    def setup_integration(self, db, array_app):
+    def setup_integration(self, db, posthog_code_app):
         self.organization = Organization.objects.create(name="Acme")
         self.team = Team.objects.create(organization=self.organization, name="Acme Prod")
         self.connector = User.objects.create_user(email="cache@acme.test", first_name="Cache", password="password")

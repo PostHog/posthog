@@ -1,8 +1,8 @@
 from posthog.models import OAuthApplication
 from posthog.temporal.oauth import (
-    ARRAY_APP_CLIENT_ID_DEV,
-    ARRAY_APP_CLIENT_ID_EU,
-    ARRAY_APP_CLIENT_ID_US,
+    POSTHOG_CODE_OAUTH_CLIENT_ID_DEV,
+    POSTHOG_CODE_OAUTH_CLIENT_ID_EU,
+    POSTHOG_CODE_OAUTH_CLIENT_ID_US,
     PosthogMcpScopes,
     create_oauth_access_token_for_user as _create_oauth_access_token_for_user,
     get_posthog_code_oauth_application,
@@ -12,16 +12,16 @@ from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.exceptions import OAuthTokenError, TaskInvalidStateError
 
 __all__ = [
-    "ARRAY_APP_CLIENT_ID_DEV",
-    "ARRAY_APP_CLIENT_ID_EU",
-    "ARRAY_APP_CLIENT_ID_US",
+    "POSTHOG_CODE_OAUTH_CLIENT_ID_DEV",
+    "POSTHOG_CODE_OAUTH_CLIENT_ID_EU",
+    "POSTHOG_CODE_OAUTH_CLIENT_ID_US",
     "create_oauth_access_token",
     "create_oauth_access_token_for_user",
 ]
 
 
 def create_oauth_access_token(task: Task, *, scopes: PosthogMcpScopes = "read_only") -> str:
-    """Create an OAuth access token for the Array app, scoped to the task's team.
+    """Create an OAuth access token for the PostHog Code app, scoped to the task's team.
 
     OAuth tokens auto-expire after 6 hours, so no cleanup is needed.
     """
@@ -40,7 +40,7 @@ def create_oauth_access_token(task: Task, *, scopes: PosthogMcpScopes = "read_on
 def create_oauth_access_token_for_user(
     user, team_id: int, *, app: OAuthApplication, scopes: PosthogMcpScopes = "read_only"
 ) -> str:
-    """Create an OAuth access token for the Array app, scoped to a specific team."""
+    """Create an OAuth access token for the PostHog Code app, scoped to a specific team."""
     try:
         return _create_oauth_access_token_for_user(user, team_id, app=app, scopes=scopes)
     except RuntimeError as err:
