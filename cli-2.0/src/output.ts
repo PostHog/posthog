@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 
 import {
     buildLabelRow,
+    CHARTABLE_INSIGHT_TOOLS,
     type ChartSeries,
     formatYValue,
     getInsightType,
@@ -59,7 +60,7 @@ function getAsciichart(): AsciiChart | undefined {
     }
 
     try {
-        // asciichart is a CommonJS module, use it directly
+        // asciichart is a CommonJS module, use it directly.
         const module = require('asciichart') as AsciiChart
         cachedAsciichart = module
     } catch {
@@ -1117,19 +1118,88 @@ function printInsightDetail(result: unknown): void {
     const seriesData = Array.isArray(result.result) ? result.result : []
     const plottable = seriesData.filter(isChartSeries)
 
-    if (plottable.length === 0) {
-        console.log(chalk.gray('No trends-style result to plot — showing JSON:'))
+    if (plottable.length > 0) {
+        if (shouldUseBarChart(plottable)) {
+            plotBarChart(plottable)
+        } else {
+            plotTrendsSeries(plottable)
+        }
         console.log('')
-        printPrettyJson(result)
         return
     }
 
-    if (shouldUseBarChart(plottable)) {
-        plotBarChart(plottable)
-    } else {
-        plotTrendsSeries(plottable)
+    if (printFunnelSteps(seriesData)) {
+        return
     }
+
+    console.log(chalk.gray('No chartable data for this insight type. Run with --json for the raw response.'))
+}
+
+interface FunnelStep {
+    name?: unknown
+    custom_name?: unknown
+    order?: unknown
+    count?: unknown
+    breakdown_value?: unknown
+    average_conversion_time?: unknown
+}
+
+function isFunnelStep(value: unknown): value is FunnelStep {
+    return isRecord(value) && typeof value.count === 'number' && (typeof value.order === 'number' || 'name' in value)
+}
+
+function isFunnelBreakdown(value: unknown): value is FunnelStep[] {
+    return Array.isArray(value) && value.length > 0 && value.every(isFunnelStep)
+}
+
+function formatBreakdownValue(value: unknown): string {
+    if (Array.isArray(value)) return value.map((v) => stringify(v)).join(' / ')
+    return stringify(value)
+}
+
+function printFunnelSteps(result: unknown[]): boolean {
+    // Funnel results come back as either a flat list of steps or a list of
+    // breakdown buckets, each itself a list of steps. Normalize to breakdowns.
+    // Note the explicit length checks: `[].every(...)` returns true vacuously,
+    // so without them an empty result would pass the breakdown check and crash
+    // on `breakdowns[0]` below.
+    if (result.length === 0) {
+        return false
+    }
+    let breakdowns: FunnelStep[][]
+    if (result.every(isFunnelStep)) {
+        breakdowns = [result as FunnelStep[]]
+    } else if (result.every(isFunnelBreakdown)) {
+        breakdowns = result as FunnelStep[][]
+    } else {
+        return false
+    }
+
+    const stepHeaders = breakdowns[0].map(
+        (step) => stringify(step.custom_name) || stringify(step.name) || `Step ${stringify(step.order)}`
+    )
+
+    const head = breakdowns.length > 1 ? ['Breakdown', ...stepHeaders] : stepHeaders
+    const table = new Table({ head, wordWrap: true })
+
+    for (const breakdown of breakdowns) {
+        const firstCount = Number(breakdown[0]?.count ?? 0)
+        const cells = breakdown.map((step) => {
+            const count = Number(step.count ?? 0)
+            const pct = firstCount > 0 ? ((count / firstCount) * 100).toFixed(1) : '0.0'
+            return `${count.toLocaleString()}  ${chalk.gray(`(${pct}%)`)}`
+        })
+        if (breakdowns.length > 1) {
+            const label = formatBreakdownValue(breakdown[0]?.breakdown_value) || '—'
+            table.push([label, ...cells])
+        } else {
+            table.push(cells)
+        }
+    }
+
+    console.log(table.toString())
     console.log('')
+    return true
 }
 
 function printHumanResult(toolName: string, result: unknown): void {
@@ -1138,7 +1208,7 @@ function printHumanResult(toolName: string, result: unknown): void {
         return
     }
 
-    if (toolName === 'insight-get' || toolName === 'insights-get') {
+    if (CHARTABLE_INSIGHT_TOOLS.has(toolName)) {
         printInsightDetail(result)
         return
     }

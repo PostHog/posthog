@@ -8,6 +8,7 @@ import { hideBin } from 'yargs/helpers'
 import { getProjectIdOverride, buildCommandParams } from './cli-args.js'
 import { config } from './config.js'
 import { commands, executeToolCall } from './generated/commands.js'
+import { CHARTABLE_INSIGHT_TOOLS } from './insight-display.js'
 import { createMCPContext, type AuthenticatedConfig, type Context } from './mcp-context.js'
 import { printResult } from './output.js'
 
@@ -174,6 +175,12 @@ async function main() {
                         },
                         async (argv) => {
                             const params = buildCommandParams(argv)
+                            // The bare GET only returns insight metadata, so for chart-rendering
+                            // tools we default to a blocking refresh — users can still override
+                            // with `--refresh async`. Tool list lives in CHARTABLE_INSIGHT_TOOLS.
+                            if (CHARTABLE_INSIGHT_TOOLS.has(subcommand.mcp_tool) && params.refresh === undefined) {
+                                params.refresh = 'blocking'
+                            }
                             await executeGeneratedTool(argv, subcommand.mcp_tool, params)
                         }
                     )

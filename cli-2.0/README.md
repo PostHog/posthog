@@ -7,10 +7,12 @@ The package provides a `ph` binary with semantic command names that reflect actu
 ```bash
 ph auth login
 ph feature-flags list
+ph feature-flags view --id 660245
 ph feature-flags status --id 660245
 ph cohorts list
-ph cohorts get --id 123
+ph cohorts view --id 123
 ph insights list
+ph insights view --id ueWYzLgD     # plots a trends insight as an ASCII chart
 ph dashboards list
 ```
 
@@ -70,6 +72,7 @@ pnpm dev auth --help
 pnpm dev auth login
 pnpm dev feature-flags --help
 pnpm dev cohorts list
+pnpm dev insights view --id ueWYzLgD
 ```
 
 `dev` does not compile TypeScript and does not regenerate command definitions.
@@ -86,10 +89,11 @@ This reads MCP tool definitions from `../services/mcp/schema/tool-definitions-al
 
 The enhanced mappings system:
 
-- Maps 312+ MCP tools to semantic command names
-- Extracts real API endpoints from MCP tool implementations
-- Uses simple template placeholders (`{project_id}`, `{id}`)
-- Groups commands logically (feature-flags, cohorts, insights, etc.)
+- Maps 365 MCP tools across 44 command groups
+- Derives subcommand names from each tool's structure: strips the resource alias prefix and the CRUD verb suffix; what remains becomes the modifier (e.g. `feature-flags-evaluation-reasons-retrieve` → `evaluation-reasons`)
+- Falls back to gh-style verbs when no modifier is left: `get`/`retrieve` → `view`, `get-all`/`list` → `list`, `partial-update`/`update` → `update`, `destroy`/`delete` → `delete`
+- Groups by source file (`services/mcp/src/tools/generated/<file>.ts` → `FILE_GROUPS` in `scripts/generate-command-mappings.ts`); heterogeneous files like `core.ts` and `platform_features.ts` use per-tool-prefix routing
+- Treats name collisions as a hard error — the script fails with both tool names and points at the `EXPLICIT_NAMES` override map (no silent `-1`/`-2` suffixes)
 
 Run this when MCP tool definitions change or when generated files are missing/out of date.
 
@@ -168,16 +172,22 @@ ph --project-id 12345 feature-flags list
 ph insights list --project-id 12345
 ```
 
+Commands print a human-friendly summary by default. Pass `--json` to get the raw API response — useful for scripting:
+
+```bash
+ph insights view --id ueWYzLgD --json | jq .result
+```
+
 ## Available Commands
 
-The CLI provides 40+ command groups with 312+ subcommands:
+The CLI provides 44 command groups across 365 subcommands:
 
 **Core Resources:**
 
-- `ph feature-flags` - Feature flag management (list, get, status, create, etc.)
-- `ph cohorts` - Cohort operations (list, get, create, update, etc.)
-- `ph insights` - Insight and query management
-- `ph dashboards` - Dashboard operations
+- `ph feature-flags` - Feature flag management (list, view, status, create, etc.)
+- `ph cohorts` - Cohort operations (list, view, create, update, add-persons, remove-persons)
+- `ph insights` - Insight management; `ph insights view --id <short_id>` plots trends as ASCII charts and renders funnels as conversion tables
+- `ph dashboards` - Dashboard operations; `ph dashboards run --id <id>` runs every insight on a dashboard
 - `ph experiments` - A/B test management
 - `ph persons` - Person and user data
 
@@ -205,8 +215,8 @@ CLI command groups are generated from MCP tool definitions using an enhanced map
 ### Command Generation Process
 
 1. **MCP Tool Definitions** - Source definitions from `../services/mcp/schema/tool-definitions-all.json`
-2. **Enhanced Mapping Generator** - `scripts/generate-command-mappings-v2.ts` creates semantic command mappings
-3. **Command Generator** - `scripts/generate-commands.ts` creates the final CLI structure
+2. **Enhanced Mapping Generator** - `scripts/generate-command-mappings.ts` produces `schema/command-mappings-enhanced.json` from those definitions plus the generated tool sources in `../services/mcp/src/tools/generated/`
+3. **Command Generator** - `scripts/generate-commands.ts` consumes the enhanced mappings and writes `src/generated/commands.ts`
 
 ### Making Changes
 
@@ -216,17 +226,16 @@ CLI command groups are generated from MCP tool definitions using an enhanced map
 2. Run `pnpm generate:commands` to regenerate mappings and commands
 3. Test with `pnpm dev <group> <command> --help`
 
-**For command naming improvements:**
+**For naming or grouping changes:**
 
-1. Update patterns in `scripts/generate-command-mappings-v2.ts`
-2. Add specific mappings for tools that don't follow general patterns
-3. Regenerate with `pnpm generate:commands`
+1. Tool naming follows the alias-strip + verb-strip algorithm in `scripts/generate-command-mappings.ts`. To force a specific name, add an entry to the `EXPLICIT_NAMES` map in that file
+2. To change which group a tool lands in, update `FILE_GROUPS` (per source file) or `NON_GENERATED_GROUPS` (for hand-written tools that aren't in `generated/*.ts`)
+3. Regenerate with `pnpm generate:commands` — if two tools resolve to the same subcommand name, the script fails loudly and tells you which `EXPLICIT_NAMES` entry to add
 
 **For endpoint/API issues:**
 
 1. Check enhanced mappings in `schema/command-mappings-enhanced.json`
-2. Verify endpoint extraction in `extractEndpointFromGeneratedTool()`
-3. Add specific mappings if needed
+2. Endpoints are parsed from the generated tool sources by `parseGeneratedTools()` in `scripts/generate-command-mappings.ts`
 
 ### Testing Changes
 
