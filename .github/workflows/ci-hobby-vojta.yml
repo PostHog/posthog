@@ -99,7 +99,7 @@ jobs:
                   echo "Timed out waiting for switch task"
                   exit 1
 
-            - name: Wait for services healthy
+            - name: Wait for PostHog healthy
               env:
                   BRANCH: ${{ github.ref_name }}
               run: |
@@ -107,24 +107,18 @@ jobs:
                   for i in $(seq 1 90); do
                     status=$(curl -fsSL "$HOBBYCTL_URL/status")
                     cur_branch=$(echo "$status" | jq -r '.branch')
-                    unhealthy=$(echo "$status" | jq -r '
-                      [.services[]
-                       | select(.health != null and .health != "healthy")
-                       | .name] | join(",")')
-                    starting=$(echo "$status" | jq -r '
-                      [.services[]
-                       | select(.state != "running")
-                       | .name] | join(",")')
-                    echo "[$i] branch=$cur_branch unhealthy=[$unhealthy] not-running=[$starting]"
-                    if [ "$cur_branch" = "$BRANCH" ] \
-                       && [ -z "$unhealthy" ] && [ -z "$starting" ]; then
-                      echo "All services healthy on $BRANCH"
+                    ok=$(echo "$status" | jq -r '.posthog_health.ok // false')
+                    code=$(echo "$status" | jq -r '.posthog_health.code // "?"')
+                    latency=$(echo "$status" | jq -r '.posthog_health.latency_ms // "?"')
+                    echo "[$i] branch=$cur_branch posthog_health.ok=$ok code=$code latency_ms=$latency"
+                    if [ "$cur_branch" = "$BRANCH" ] && [ "$ok" = "true" ]; then
+                      echo "PostHog healthy on $BRANCH"
                       echo "$status" | jq .
                       exit 0
                     fi
                     sleep 10
                   done
-                  echo "Timed out waiting for healthy status"
+                  echo "Timed out waiting for posthog_health.ok"
                   curl -fsSL "$HOBBYCTL_URL/status" | jq .
                   exit 1
 
