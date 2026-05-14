@@ -66,7 +66,7 @@ export function SuccessStep({ survey }: SuccessStepProps): JSX.Element {
                         <dd>
                             {survey.schedule === SurveySchedule.Once || !survey.iteration_frequency_days
                                 ? 'Once ever'
-                                : `Up to ${survey.iteration_count ?? 1} times, every ${survey.iteration_frequency_days} days`}
+                                : `Up to ${survey.iteration_count ?? 10} times, every ${survey.iteration_frequency_days} days`}
                         </dd>
                     </div>
                     {survey.conditions?.seenSurveyWaitPeriodInDays != null && (
