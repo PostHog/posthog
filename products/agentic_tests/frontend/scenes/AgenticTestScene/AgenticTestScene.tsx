@@ -26,6 +26,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { AGENTIC_TEST_REGION_OPTIONS } from '../../agenticTestRegions'
 import {
     AgenticTestAssertion,
     AgenticTestAssertionType,
@@ -42,13 +43,6 @@ const SCHEDULE_PRESETS: { value: string; label: string }[] = [
     { value: '0 * * * *', label: 'Every hour' },
     { value: '0 */6 * * *', label: 'Every 6 hours' },
     { value: '0 0 * * *', label: 'Every day' },
-]
-
-const REGION_OPTIONS: { value: string; label: string }[] = [
-    { value: 'us-west-2', label: 'US West (Oregon)' },
-    { value: 'us-east-1', label: 'US East (Virginia)' },
-    { value: 'eu-central-1', label: 'EU Central (Frankfurt)' },
-    { value: 'ap-southeast-1', label: 'Asia Pacific (Singapore)' },
 ]
 
 const STATUS_BADGE: Record<string, { type: LemonTagType; label: string }> = {
@@ -177,7 +171,8 @@ function CardSection({
 function ConfigurationTab({ id }: { id: string | 'new' }): JSX.Element {
     const logic = agenticTestSceneLogic({ id })
     const { test, testForm, isNew } = useValues(logic)
-    const { setTestFormValue, addAssertion, updateAssertion, removeAssertion } = useActions(logic)
+    const { setTestFormValue, setAgenticTestFormRegion, addAssertion, updateAssertion, removeAssertion } =
+        useActions(logic)
 
     const persistedStatus = test?.status ?? 'proposed'
     const statusBadge = STATUS_BADGE[persistedStatus] ?? {
@@ -251,25 +246,24 @@ function ConfigurationTab({ id }: { id: string | 'new' }): JSX.Element {
 
                     <CardSection title="Regions">
                         <p className="text-xs text-muted mb-0">
-                            Browser regions this test may run from. If multiple are selected, each run picks one at
-                            random. Leave empty to use the Browserbase default (US West).
+                            Where Browserbase runs the browser. Each time the test runs (schedule or Run), you get one
+                            execution per selected region.
                         </p>
                         <div className="flex flex-col gap-1">
-                            {REGION_OPTIONS.map((opt) => {
-                                const selected = (testForm.regions ?? []).includes(opt.value)
+                            {AGENTIC_TEST_REGION_OPTIONS.map((opt) => {
+                                const regions = testForm.regions ?? []
+                                const selected = regions.includes(opt.value)
+                                const soleSelected = selected && regions.length === 1
                                 return (
                                     <LemonCheckbox
                                         key={opt.value}
                                         checked={selected}
                                         label={opt.label}
+                                        disabledReason={
+                                            soleSelected ? 'Add another region before deselecting this one' : undefined
+                                        }
                                         onChange={(checked) => {
-                                            const current = new Set(testForm.regions ?? [])
-                                            if (checked) {
-                                                current.add(opt.value)
-                                            } else {
-                                                current.delete(opt.value)
-                                            }
-                                            setTestFormValue('regions', Array.from(current))
+                                            setAgenticTestFormRegion(opt.value, checked)
                                         }}
                                         data-attr={`agentic-test-region-${opt.value}`}
                                     />
@@ -323,8 +317,8 @@ function ConfigurationTab({ id }: { id: string | 'new' }): JSX.Element {
 
 function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
     const logic = agenticTestSceneLogic({ id })
-    const { runs, runsLoading, logsUrl, liveEvents, streaming } = useValues(logic)
-    const { clearLiveEvents } = useActions(logic)
+    const { runs, runsLoading, logsUrl, liveEvents, streaming, selectedRunId } = useValues(logic)
+    const { clearLiveEvents, setSelectedRunId } = useActions(logic)
     const liveLogRef = useRef<HTMLDivElement>(null)
     useEffect(() => {
         const el = liveLogRef.current
@@ -480,8 +474,33 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
                                 <span className="text-muted">—</span>
                             ),
                     },
+                    {
+                        title: '',
+                        key: 'investigation',
+                        render: (_, run) => {
+                            const convId = (run as any).investigation_conversation_id as string | undefined
+                            if (!convId) {
+                                return null
+                            }
+                            return (
+                                <LemonButton
+                                    size="xsmall"
+                                    type={selectedRunId === run.id ? 'primary' : 'tertiary'}
+                                    onClick={() => setSelectedRunId(selectedRunId === run.id ? null : run.id)}
+                                >
+                                    Investigation
+                                </LemonButton>
+                            )
+                        },
+                    },
                 ]}
             />
+            {selectedRunId &&
+                (() => {
+                    const selectedRun = runs.find((r) => r.id === selectedRunId)
+                    const convId = (selectedRun as any)?.investigation_conversation_id as string | undefined
+                    return convId ? <InvestigationThread conversationId={convId} /> : null
+                })()}
         </section>
     )
 }
@@ -609,10 +628,24 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                         router.actions.push(`/agentic_tests/${id}${tab === 'configuration' ? '' : `?tab=${tab}`}`)
                     }
                     tabs={tabs}
-                    sceneInset
                 />
             )}
         </SceneContent>
+    )
+}
+
+function InvestigationThread({ conversationId }: { conversationId: string }): JSX.Element {
+    return (
+        <div className="mt-4 border rounded p-4">
+            <h3 className="font-semibold mb-2">Investigation</h3>
+            <p className="text-sm text-muted mb-3">
+                PostHog AI is investigating this failure. View the full conversation in{' '}
+                <Link to={`/ai/${conversationId}`}>PostHog AI</Link>.
+            </p>
+            <LemonButton type="primary" size="small" to={`/ai/${conversationId}`}>
+                Open investigation thread
+            </LemonButton>
+        </div>
     )
 }
 
