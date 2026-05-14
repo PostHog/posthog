@@ -95,6 +95,73 @@ Do not try:
 Restore the original `theme_mode` (usually `'light'`) at the end of the run so
 the dev environment is left as found.
 
+## Seeding Test Data
+
+A PR that adds "show counts of X" / "filter by Y" / "highlight rows when Z"
+behavior often depends on data shapes that do not exist in a fresh local
+stack. Empty states render fine, but the in-diff behavior never triggers.
+Seed the minimum data needed to exercise the change before declaring
+coverage, otherwise the run is a coverage gap, not a PASS.
+
+Two backing stores:
+
+- **Postgres** for app models (surveys, dashboards, cohorts, data warehouse
+  sources, feature flags, organizations, etc.). Drive the Django ORM through
+  a shell so model invariants stay intact:
+
+  ```bash
+  flox activate -- bash -c "uv run python manage.py shell <<'PY'
+  from posthog.models import Team
+  team = Team.objects.first()
+  # create the minimum rows needed to exercise the diff
+  PY"
+  ```
+
+- **ClickHouse** for events, person properties, session recordings, LLM
+  spans, etc. Prefer the existing factory utilities under `posthog/test/` and
+  `posthog/clickhouse/`; only drop to raw `INSERT INTO ... VALUES (...)` when
+  no factory covers the shape you need.
+
+Discipline:
+
+- Seed the smallest possible set; do not bulk-load production-like volumes.
+- Tag seeded rows with a recognizable marker (name prefix, fixed
+  description, etc.) so you can identify and recover them later if needed.
+- Reload the affected scene after seeding and assert the UI now reflects
+  the data shape you set up.
+- Note the seeding step in `run-notes.md` and in the PR comment's "What was
+  tested" row so reviewers know what prerequisites were created.
+- Do not delete the seeded rows at end of run by default; leave them for
+  debugging. Clean up only if the user asked for it.
+
+## Feature Flag Override
+
+If the PR's behavior is gated behind a feature flag that is not enabled for
+the seed user's project, the new UI stays hidden and the QA loop never
+exercises it. Override the flag from the browser console via Playwright
+MCP - no backend changes needed:
+
+```js
+// Enable a boolean flag
+posthog.featureFlags.overrideFeatureFlags({ flags: { 'my-flag-key': true } })
+
+// Set a multivariate flag to a specific variant
+posthog.featureFlags.overrideFeatureFlags({ flags: { 'my-flag-key': 'variant-name' } })
+
+// Clear all overrides
+posthog.featureFlags.overrideFeatureFlags(false)
+```
+
+Issue these via `mcp__playwright__browser_evaluate` in the authenticated
+page context, then navigate to the target route (a navigation reloads the
+flag-driven render). Verify by snapshotting the page and confirming the
+gated UI is now present.
+
+At end of the QA loop, call `overrideFeatureFlags(false)` to clear the
+override so the dev environment is left as found. Note the override step in
+`run-notes.md` and surface it in the PR comment so reviewers know the test
+ran with non-default flag state.
+
 ## Evidence Naming
 
 Use stable, readable names:
