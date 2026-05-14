@@ -155,7 +155,11 @@ function tenantQueryTableRows(
               ? TENANT_QUERY_NO_TENANT_FIELD
               : (tenantColumnName ?? '')
         const tenantColumnOptions = [
-            { label: 'Table disabled (can not query)', value: TENANT_QUERY_TABLE_DISABLED },
+            {
+                label: 'Table disabled (can not query)',
+                labelInMenu: <span className="text-muted">Table disabled (can not query)</span>,
+                value: TENANT_QUERY_TABLE_DISABLED,
+            },
             { label: 'No tenancy field (expose entire table)', value: TENANT_QUERY_NO_TENANT_FIELD },
             ...allColumns
                 .filter((column) => isTenantQueryColumnTypeCompatible(column.type, tenantColumnType))
@@ -456,7 +460,6 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                         <LemonInput
                             value={value}
                             onChange={onChange}
-                            allowClear
                             onKeyDown={(event) => {
                                 if (event.key === 'Enter') {
                                     event.preventDefault()
@@ -606,6 +609,13 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                                                         : 'Select tenant column'
                                                 }
                                                 fullWidth
+                                                renderButtonContent={(activeOption) =>
+                                                    activeOption?.value === TENANT_QUERY_TABLE_DISABLED ? (
+                                                        <span className="text-muted">{activeOption.label}</span>
+                                                    ) : (
+                                                        (activeOption?.label ?? 'Select tenant column')
+                                                    )
+                                                }
                                                 loading={savingTenantQueryTableColumnOverride === row.id}
                                                 disabledReason={
                                                     tenantColumnEditDisabledReason ||
