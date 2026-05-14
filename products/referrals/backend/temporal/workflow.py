@@ -15,13 +15,13 @@ from products.referrals.backend.temporal.activities import (
     referral_status_list_pending_ingestion_activity,
     referral_status_process_single_ingestion_activity,
     referral_status_record_ingestion_check_failure_activity,
-    referral_status_send_shopify_reward_emails_activity,
+    referral_status_send_referral_ingestion_notice_emails_activity,
 )
 from products.referrals.backend.temporal.types import (
     IssueShopifyCodesInput,
     ProcessSingleReferralIngestionInput,
     RecordIngestionCheckFailureInput,
-    SendShopifyRewardEmailsInput,
+    SendReferralIngestionNoticeEmailsInput,
     SocialReferralStatusInputs,
 )
 
@@ -94,19 +94,21 @@ class SocialReferralStatusWorkflow(PostHogWorkflow):
                 orgs_flipped = int(flip_result["orgs_flipped"])
                 flipped_keys: list[str] = list(flip_result.get("flipped_org_keys") or [])
                 if flipped_keys:
-                    rewards = await workflow.execute_activity(
+                    await workflow.execute_activity(
                         referral_status_issue_shopify_codes_activity,
                         IssueShopifyCodesInput(social_referral_id=referral_row_id, flipped_org_keys=flipped_keys),
                         start_to_close_timeout=_PER_REFERRAL_TIMEOUT,
                         retry_policy=PER_REFERRAL_RETRY,
                     )
-                    if rewards:
-                        await workflow.execute_activity(
-                            referral_status_send_shopify_reward_emails_activity,
-                            SendShopifyRewardEmailsInput(rewards=list(rewards)),
-                            start_to_close_timeout=_SEND_REWARD_EMAIL_TIMEOUT,
-                            retry_policy=FAILURE_RECORD_RETRY,
-                        )
+                    await workflow.execute_activity(
+                        referral_status_send_referral_ingestion_notice_emails_activity,
+                        SendReferralIngestionNoticeEmailsInput(
+                            social_referral_id=referral_row_id,
+                            flipped_org_keys=flipped_keys,
+                        ),
+                        start_to_close_timeout=_SEND_REWARD_EMAIL_TIMEOUT,
+                        retry_policy=FAILURE_RECORD_RETRY,
+                    )
                 return {"orgs_flipped": orgs_flipped}
 
         results = await asyncio.gather(*(_run_one(rid) for rid in referral_ids), return_exceptions=True)

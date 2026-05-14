@@ -1,0 +1,10 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block section %}
+<p>Hey {% if user_name %}{{ user_name }}{% else %}there{% endif %},</p>
+
+<p><strong>{{ referee_organization_name }}</strong> is live on PostHog thanks to your referral — nice work.</p>
+
+<p>You have a <strong>PostHog merch coupon</strong> waiting as a thank-you. Open <a href="{% absolute_uri referrals_path %}">referrals</a> in PostHog to see your code and use it at checkout on our store.</p>
+
+<p>If you did not expect this email, reply and let us know.</p>
+{% endblock %}

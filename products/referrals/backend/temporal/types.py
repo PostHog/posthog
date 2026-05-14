@@ -47,5 +47,8 @@ class ShopifyRewardEmailItem:
 
 
 @dataclass(frozen=True, slots=True)
-class SendShopifyRewardEmailsInput:
-    rewards: list[ShopifyRewardEmailItem]
+class SendReferralIngestionNoticeEmailsInput:
+    """After Shopify issuance (or skip), send test notices for each flipped referee org."""
+
+    social_referral_id: str
+    flipped_org_keys: list[str]
