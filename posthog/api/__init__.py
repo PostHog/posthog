@@ -109,6 +109,7 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.notifications.backend.presentation.views import NotificationsViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
+from products.referrals.backend.api import SocialReferralViewSet
 from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
@@ -715,6 +716,12 @@ organizations_router.register(
     r"role_external_references",
     role_external_reference.RoleExternalReferenceViewSet,
     "organization_role_external_references",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"social_referrals",
+    SocialReferralViewSet,
+    "organization_social_referrals",
     ["organization_id"],
 )
 organizations_router.register(

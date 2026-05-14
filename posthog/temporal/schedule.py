@@ -76,6 +76,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.referrals.backend.temporal.schedule import create_social_referral_status_schedule
 from products.referrals.backend.temporal.schedules import (
     create_internal_referral_research_schedule,
     create_twitter_referral_research_schedule,
@@ -603,6 +604,7 @@ schedules = [
     create_all_realtime_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
     create_warehouse_sources_queue_partition_management_schedule,
+    create_social_referral_status_schedule,
     create_health_check_schedules,
     create_conversations_signals_coordinator_schedule,
     create_wa_weekly_digest_schedule,

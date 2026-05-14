@@ -43,6 +43,8 @@ from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, Si
 from posthog.utils import get_can_create_org, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
+from products.referrals.backend.models import record_signup_social_referral_attribution
+
 logger = structlog.get_logger(__name__)
 
 
@@ -103,6 +105,13 @@ class SignupSerializer(serializers.Serializer):
     referral_source: serializers.Field = serializers.CharField(max_length=1000, required=False, allow_blank=True)
     referral_source_ai_prompt: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True
+    )
+    referral_program_id: serializers.Field = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Distinct id of the referring user (`User.distinct_id`), typically from signup URL `referral_program_id`.",
     )
     turnstile_token: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
     challenge_nonce: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
@@ -190,7 +199,10 @@ class SignupSerializer(serializers.Serializer):
 
     def create(self, validated_data, **kwargs):
         if settings.DEMO:
+            validated_data.pop("referral_program_id", None)
             return self.enter_demo(validated_data)
+
+        referral_distinct_id = validated_data.pop("referral_program_id", "") or ""
 
         request = self.context["request"]
         passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY)
@@ -296,6 +308,12 @@ class SignupSerializer(serializers.Serializer):
         )
 
         verify_email_or_login(request, user)
+
+        record_signup_social_referral_attribution(
+            referral_distinct_id=referral_distinct_id,
+            referee_organization=self._organization,
+            new_user=user,
+        )
 
         return user
 
@@ -690,6 +708,13 @@ class SocialSignupSerializer(serializers.Serializer):
     referral_source_ai_prompt: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True, default=""
     )
+    referral_program_id: serializers.Field = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Distinct id of the referring user (`User.distinct_id`), from signup URL `referral_program_id`.",
+    )
 
     def validate_first_name(self, value: str) -> str:
         return validate_display_name(value)
@@ -710,6 +735,7 @@ class SocialSignupSerializer(serializers.Serializer):
         role_at_organization = validated_data["role_at_organization"]
         referral_source = validated_data.get("referral_source", "")
         referral_source_ai_prompt = validated_data.get("referral_source_ai_prompt", "")
+        referral_program_distinct_id = validated_data.get("referral_program_id", "") or ""
         first_name = validated_data["first_name"]
 
         serializer = SignupSerializer(
@@ -721,6 +747,7 @@ class SocialSignupSerializer(serializers.Serializer):
                 "role_at_organization": role_at_organization,
                 "referral_source": referral_source,
                 "referral_source_ai_prompt": referral_source_ai_prompt,
+                "referral_program_id": referral_program_distinct_id,
             },
             context={"request": request},
         )

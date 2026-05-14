@@ -22777,6 +22777,40 @@ export namespace Schemas {
       results: Snapshot[];
     }
 
+    export interface SocialReferralRefereeInvite {
+      /** UUID of the organization that signed up via this referral link. */
+      organization_id: string;
+      /** Current display name of the invited organization. */
+      organization_name: string;
+      /** Whether this organization has sent its first ingested event. */
+      first_event_sent: boolean;
+    }
+
+    /**
+     * Map of invited organization UUID (string) to `{"first_event_sent": boolean}`.
+     */
+    export type SocialReferralRefereeState = { [key: string]: unknown };
+
+    export interface SocialReferral {
+      readonly id: string;
+      readonly organization: string;
+      readonly user: number;
+      /** Map of invited organization UUID (string) to `{"first_event_sent": boolean}`. */
+      referee_state?: SocialReferralRefereeState;
+      /** Invited organizations from referee_state with names resolved from the Organization table. */
+      readonly referee_invites: readonly SocialReferralRefereeInvite[];
+      readonly created_at: string;
+    }
+
+    export interface PaginatedSocialReferralList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SocialReferral[];
+    }
+
     /**
      * * `starting` - Starting
     * `completed` - Completed
@@ -28384,6 +28418,22 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** @nullable */
       readonly status?: string | null;
+    }
+
+    /**
+     * Map of invited organization UUID (string) to `{"first_event_sent": boolean}`.
+     */
+    export type PatchedSocialReferralRefereeState = { [key: string]: unknown };
+
+    export interface PatchedSocialReferral {
+      readonly id?: string;
+      readonly organization?: string;
+      readonly user?: number;
+      /** Map of invited organization UUID (string) to `{"first_event_sent": boolean}`. */
+      referee_state?: PatchedSocialReferralRefereeState;
+      /** Invited organizations from referee_state with names resolved from the Organization table. */
+      readonly referee_invites?: readonly SocialReferralRefereeInvite[];
+      readonly created_at?: string;
     }
 
     /**
@@ -39493,6 +39543,17 @@ export namespace Schemas {
     };
 
     export type RolesRoleMembershipsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SocialReferralsListParams = {
     /**
      * Number of results to return per page.
      */

@@ -48,6 +48,7 @@ import type {
     PatchedOrganizationDomainApi,
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
+    PatchedSocialReferralApi,
     PatchedSubscriptionApi,
     PatchedUserApi,
     ProjectBackwardCompatApi,
@@ -55,6 +56,7 @@ import type {
     ProjectSecretApiKeysListParams,
     PropertyDefinitionsListParams,
     SharingConfigurationApi,
+    SocialReferralApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
     SubscriptionsDeliveriesListParams,
@@ -867,6 +869,88 @@ export const organizationsProjectsRotateSecretTokenPartialUpdate = async (
             body: JSON.stringify(patchedProjectBackwardCompatApi),
         }
     )
+}
+
+export const getSocialReferralsRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/social_referrals/${id}/`
+}
+
+/**
+ * CRUD for referral share links under an organization.
+ * @summary Retrieve social referral
+ */
+export const socialReferralsRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SocialReferralApi> => {
+    return apiMutator<SocialReferralApi>(getSocialReferralsRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSocialReferralsUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/social_referrals/${id}/`
+}
+
+/**
+ * CRUD for referral share links under an organization.
+ * @summary Update social referral
+ */
+export const socialReferralsUpdate = async (
+    organizationId: string,
+    id: string,
+    socialReferralApi?: NonReadonly<SocialReferralApi>,
+    options?: RequestInit
+): Promise<SocialReferralApi> => {
+    return apiMutator<SocialReferralApi>(getSocialReferralsUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(socialReferralApi),
+    })
+}
+
+export const getSocialReferralsPartialUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/social_referrals/${id}/`
+}
+
+/**
+ * CRUD for referral share links under an organization.
+ * @summary Partially update social referral
+ */
+export const socialReferralsPartialUpdate = async (
+    organizationId: string,
+    id: string,
+    patchedSocialReferralApi?: NonReadonly<PatchedSocialReferralApi>,
+    options?: RequestInit
+): Promise<SocialReferralApi> => {
+    return apiMutator<SocialReferralApi>(getSocialReferralsPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSocialReferralApi),
+    })
+}
+
+export const getSocialReferralsDestroyUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/social_referrals/${id}/`
+}
+
+/**
+ * CRUD for referral share links under an organization.
+ * @summary Delete social referral
+ */
+export const socialReferralsDestroy = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSocialReferralsDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
 export const getDashboardTemplatesRetrieveUrl = (projectId: string, id: string) => {

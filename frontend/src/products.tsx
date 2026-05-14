@@ -116,6 +116,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
+    Referrals: () => import('../../products/referrals/frontend/scenes/ReferralsScene'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
@@ -224,6 +225,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
     '/metrics': ['Metrics', 'metrics'],
+    '/referrals': ['Referrals', 'referrals'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
@@ -549,6 +551,13 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Metrics',
         description: 'Monitor and analyze application metrics to understand system performance and health.',
         iconType: 'metrics',
+    },
+    Referrals: {
+        name: 'Referrals',
+        projectBased: true,
+        description:
+            'Drop your referral link wherever you talk up PostHog. Signups that land through it show up below, with timing and who joined.',
+        iconType: 'link',
     },
     RevenueAnalytics: {
         name: 'Revenue Analytics',
@@ -945,6 +954,7 @@ export const productUrls = {
     insightQuickStart: (): string => '/insights/quick-start',
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,
+    referrals: (): string => '/referrals',
     replay: (
         tab?: ReplayTabs,
         filters?: Partial<RecordingUniversalFilters>,
