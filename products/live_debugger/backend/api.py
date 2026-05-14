@@ -763,9 +763,12 @@ class LiveDebuggerSessionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     http_method_names = ["get", "post", "head", "options"]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.order_by("-created_at").prefetch_related(
-            Prefetch("entries", queryset=LiveDebuggerSessionEntry.objects.order_by("created_at"))
-        )
+        queryset = queryset.order_by("-created_at")
+        if self.action == "retrieve":
+            queryset = queryset.prefetch_related(
+                Prefetch("entries", queryset=LiveDebuggerSessionEntry.objects.order_by("created_at"))
+            )
+        return queryset
 
     def get_serializer_context(self) -> dict:
         context = super().get_serializer_context()

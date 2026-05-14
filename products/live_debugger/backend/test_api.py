@@ -7,10 +7,10 @@ from django.test.client import Client
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import PersonalAPIKey, Team
+from posthog.models import Organization, PersonalAPIKey, Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 
-from products.live_debugger.backend.models import LiveDebuggerBreakpoint, LiveDebuggerProgram
+from products.live_debugger.backend.models import LiveDebuggerBreakpoint, LiveDebuggerProgram, LiveDebuggerSession
 
 
 class TestLiveDebuggerBreakpointAPI(APIBaseTest):
@@ -1405,12 +1405,8 @@ class TestLiveDebuggerSessionAPI(APIBaseTest):
         self.assertEqual(response.json()["entries"], [])
 
     def test_team_isolation_on_retrieve(self):
-        from posthog.models import Organization
-
         other_org = Organization.objects.create(name="Other org")
         other_team = Team.objects.create(organization=other_org, name="Other team")
-        from products.live_debugger.backend.models import LiveDebuggerSession
-
         their_session = LiveDebuggerSession.objects.create(team=other_team, title="Theirs", description="")
         response = self.client.get(self._url(f"{their_session.id}/"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
