@@ -51,20 +51,31 @@ function describePath(path: JourneyPath): string {
     return labels.filter((label, idx) => label !== ENDED_LABEL || idx === labels.indexOf(ENDED_LABEL)).join(' → ')
 }
 
+// Saturated palette matching the PostHog-for-Agents mockup. Theme-neutral —
+// reads fine on both light and dark backgrounds (tested against the design system).
+const NODE_FILL: Record<NodeKind, string> = {
+    init: '#444441',
+    tool: '#378ADD',
+    ended: '#888780',
+    completed: '#0F6E56',
+    error: '#A32D2D',
+}
+
+// Lighter text-on-fill for the in-node labels (ramp's 50 stop equivalent).
+const NODE_TEXT: Record<NodeKind, string> = {
+    init: '#F1EFE8',
+    tool: '#E6F1FB',
+    ended: '#F1EFE8',
+    completed: '#E1F5EE',
+    error: '#FCEBEB',
+}
+
 function nodeFill(kind: NodeKind): string {
-    switch (kind) {
-        case 'init':
-            return 'var(--muted)'
-        case 'ended':
-            return 'var(--muted-3000)'
-        case 'completed':
-            return 'var(--success)'
-        case 'error':
-            return 'var(--danger)'
-        case 'tool':
-        default:
-            return 'var(--accent)'
-    }
+    return NODE_FILL[kind]
+}
+
+function nodeText(kind: NodeKind): string {
+    return NODE_TEXT[kind]
 }
 
 function buildGraph(paths: readonly JourneyPath[]): {
@@ -143,11 +154,11 @@ export function JourneySankey({
             return null
         }
         const layoutFn = sankey<JourneyNode, JourneyLink>()
-            .nodeWidth(18)
-            .nodePadding(10)
+            .nodeWidth(32)
+            .nodePadding(8)
             .nodeAlign(sankeyLeft)
             .extent([
-                [4, 14],
+                [4, 22],
                 [width - 4, height - 14],
             ])
         return layoutFn({
@@ -170,19 +181,22 @@ export function JourneySankey({
             </div>
             <div className="overflow-x-auto">
                 <svg width={width} height={height} className="block">
+                    <defs>
+                        <linearGradient id="journey-flow-ok" x1="0%" x2="100%" y1="0%" y2="0%">
+                            <stop offset="0%" stopColor="#B5D4F4" />
+                            <stop offset="100%" stopColor="#85B7EB" />
+                        </linearGradient>
+                        <linearGradient id="journey-flow-err" x1="0%" x2="100%" y1="0%" y2="0%">
+                            <stop offset="0%" stopColor="#F7C1C1" />
+                            <stop offset="100%" stopColor="#F09595" />
+                        </linearGradient>
+                    </defs>
                     <g>
                         {columnLabels.map((label, idx) => {
                             const colWidth = (width - 8) / columnLabels.length
                             const x = 4 + colWidth * idx + colWidth / 2
                             return (
-                                <text
-                                    key={label}
-                                    x={x}
-                                    y={10}
-                                    textAnchor="middle"
-                                    className="fill-[var(--muted)]"
-                                    fontSize={9}
-                                >
+                                <text key={label} x={x} y={12} textAnchor="middle" fill="#5F5E5A" fontSize={10}>
                                     {label}
                                 </text>
                             )
@@ -191,7 +205,8 @@ export function JourneySankey({
                     <g>
                         {layout.links.map((link, idx) => {
                             const path = linkGen(link) ?? ''
-                            const stroke = link.outcome === 'error' ? 'var(--danger)' : 'var(--accent)'
+                            const gradient =
+                                link.outcome === 'error' ? 'url(#journey-flow-err)' : 'url(#journey-flow-ok)'
                             const sourceName = (link.source as unknown as JourneyNode).name
                             const targetName = (link.target as unknown as JourneyNode).name
                             const pct = totalSessions > 0 ? Math.round((link.value / totalSessions) * 1000) / 10 : 0
@@ -217,8 +232,8 @@ export function JourneySankey({
                                         fill="none"
                                         // eslint-disable-next-line react/forbid-dom-props
                                         style={{
-                                            stroke,
-                                            strokeOpacity: 0.45,
+                                            stroke: gradient,
+                                            strokeOpacity: 0.55,
                                             strokeWidth: Math.max(1, link.width),
                                         }}
                                     />
@@ -227,28 +242,50 @@ export function JourneySankey({
                         })}
                     </g>
                     <g>
-                        {layout.nodes.map((node, idx) => (
-                            <g key={idx}>
-                                <rect
-                                    x={node.x0}
-                                    y={node.y0}
-                                    width={node.x1 - node.x0}
-                                    height={Math.max(1, node.y1 - node.y0)}
-                                    rx={2}
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ fill: nodeFill(node.kind) }}
-                                />
-                                <text
-                                    x={node.x0 + (node.x1 - node.x0) / 2}
-                                    y={node.y1 + 10}
-                                    textAnchor="middle"
-                                    className="fill-[var(--text-primary)]"
-                                    fontSize={10}
-                                >
-                                    <tspan>{node.name}</tspan>
-                                </text>
-                            </g>
-                        ))}
+                        {layout.nodes.map((node, idx) => {
+                            const w = node.x1 - node.x0
+                            const h = Math.max(1, node.y1 - node.y0)
+                            const cx = node.x0 + w / 2
+                            const cy = node.y0 + h / 2
+                            // Only draw labels inside rects that are tall enough to fit them.
+                            const fitsLabel = h >= 20
+                            const truncatedName = node.name.length > 12 ? node.name.slice(0, 10) + '…' : node.name
+                            return (
+                                <g key={idx}>
+                                    <rect
+                                        x={node.x0}
+                                        y={node.y0}
+                                        width={w}
+                                        height={h}
+                                        rx={2}
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{ fill: nodeFill(node.kind) }}
+                                    />
+                                    {fitsLabel ? (
+                                        <text
+                                            x={cx}
+                                            y={cy + 3}
+                                            textAnchor="middle"
+                                            fill={nodeText(node.kind)}
+                                            fontSize={10}
+                                            fontWeight={500}
+                                        >
+                                            {truncatedName}
+                                        </text>
+                                    ) : (
+                                        <text
+                                            x={node.x1 + 4}
+                                            y={cy + 3}
+                                            textAnchor="start"
+                                            fill="var(--text-primary)"
+                                            fontSize={9}
+                                        >
+                                            {node.name}
+                                        </text>
+                                    )}
+                                </g>
+                            )
+                        })}
                     </g>
                 </svg>
             </div>

@@ -129,6 +129,9 @@ export interface DashboardJourney {
 
 const MAX_DASHBOARD_JOURNEY_PATHS = 10
 const MIN_PATH_SHARE_PCT = 1
+// Truncate dashboard journeys to first 2 tool steps so the Sankey stays at 4
+// columns (Init → 1st → 2nd → Outcome). Cluster-detail journeys keep all steps.
+const DASHBOARD_MAX_STEPS = 2
 
 const EMPTY_METRIC: KPIMetric = { value: 0, previousValue: 0, deltaPct: null, sparkline: [], goodDirection: 'up' }
 const EMPTY_KPIS: KPIData = {
@@ -257,7 +260,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         ],
     }),
     selectors({
-        topToolRows: [(s) => [s.toolRows], (toolRows: ToolRow[]): ToolRow[] => toolRows.slice(0, 5)],
+        topToolRows: [(s) => [s.toolRows], (toolRows: ToolRow[]): ToolRow[] => toolRows.slice(0, 7)],
         toolRowsTotal: [(s) => [s.toolRows], (toolRows: ToolRow[]): number => toolRows.length],
         notableSessions: [
             (s) => [s.sessionRows],
@@ -313,7 +316,12 @@ function buildDashboardJourney(clusters: readonly MCPIntentClusterApi[]): Dashbo
         }
         totalSessions += journey.total_sessions
         for (const path of journey.paths) {
-            byKey.set(pathKey(path), mergePath(byKey.get(pathKey(path)), path))
+            const truncated: MCPIntentClusterJourneyPathApi = {
+                steps: normalizeDashboardSteps(path.steps),
+                outcome: path.outcome,
+                count: path.count,
+            }
+            byKey.set(pathKey(truncated), mergePath(byKey.get(pathKey(truncated)), truncated))
         }
     }
 
@@ -335,6 +343,25 @@ function buildDashboardJourney(clusters: readonly MCPIntentClusterApi[]): Dashbo
 
 function pathKey(path: MCPIntentClusterJourneyPathApi | JourneyPath): string {
     return `${path.outcome}::${path.steps.map((s) => s ?? '∅').join('>')}`
+}
+
+// Collapse consecutive duplicate steps, truncate to DASHBOARD_MAX_STEPS, then
+// pad with null so every dashboard path has exactly DASHBOARD_MAX_STEPS entries.
+// This keeps the visualization at a uniform 4 columns (Init + 2 steps + outcome)
+// and avoids the "same tool in two adjacent columns" artifact that backend
+// paths like [query_run, query_run, null, null] would otherwise produce.
+function normalizeDashboardSteps(steps: readonly (string | null)[]): (string | null)[] {
+    const deduped: (string | null)[] = []
+    for (const step of steps) {
+        if (deduped.length === 0 || deduped[deduped.length - 1] !== step) {
+            deduped.push(step)
+        }
+    }
+    const truncated = deduped.slice(0, DASHBOARD_MAX_STEPS)
+    while (truncated.length < DASHBOARD_MAX_STEPS) {
+        truncated.push(null)
+    }
+    return truncated
 }
 
 function mergePath(existing: JourneyPath | undefined, incoming: MCPIntentClusterJourneyPathApi): JourneyPath {

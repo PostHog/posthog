@@ -4,6 +4,7 @@ import { IconBolt } from '@posthog/icons'
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { JourneySankey } from './JourneySankey'
@@ -16,6 +17,7 @@ import {
 } from './mcpDashboardOverviewLogic'
 
 type TileColor = 'blue' | 'red' | 'green'
+type DeltaKind = 'pct' | 'pp' | 'ms' | 'count'
 
 interface TileSpec {
     label: string
@@ -24,6 +26,7 @@ interface TileSpec {
     format: (n: number) => string
     color: TileColor
     loading: boolean
+    deltaKind: DeltaKind
 }
 
 const COLOR_STROKE: Record<TileColor, string> = {
@@ -80,23 +83,51 @@ function Sparkline({ values, stroke }: { values: number[]; stroke: string }): JS
     )
 }
 
-function DeltaPill({ metric }: { metric: KPIMetric }): JSX.Element {
-    if (metric.deltaPct === null) {
+function formatDelta(metric: KPIMetric, kind: DeltaKind): { text: string; signed: number } | null {
+    const absDelta = metric.value - metric.previousValue
+    switch (kind) {
+        case 'pct':
+            if (metric.deltaPct === null) {
+                return null
+            }
+            return { text: `${formatSigned(metric.deltaPct, 0)}%`, signed: metric.deltaPct }
+        case 'pp': {
+            // Absolute percent-point delta — for metrics that are themselves percentages.
+            const rounded = Math.round(absDelta * 10) / 10
+            return { text: `${formatSigned(rounded, 1)}pp`, signed: rounded }
+        }
+        case 'ms': {
+            const rounded = Math.round(absDelta)
+            return { text: `${formatSigned(rounded, 0)}ms`, signed: rounded }
+        }
+        case 'count':
+        default: {
+            const rounded = Math.round(absDelta)
+            return { text: formatSigned(rounded, 0), signed: rounded }
+        }
+    }
+}
+
+function formatSigned(n: number, decimals: number): string {
+    if (n === 0) {
+        return '0'
+    }
+    const sign = n > 0 ? '+' : '−'
+    return `${sign}${Math.abs(n).toFixed(decimals)}`
+}
+
+function DeltaPill({ metric, kind }: { metric: KPIMetric; kind: DeltaKind }): JSX.Element {
+    const delta = formatDelta(metric, kind)
+    if (!delta) {
         return <span className="text-[11px] font-medium text-secondary">—</span>
     }
-    const rounded = Math.round(metric.deltaPct)
-    if (rounded === 0) {
-        return <span className="text-[11px] font-medium text-secondary">0%</span>
+    if (delta.signed === 0) {
+        return <span className="text-[11px] font-medium text-secondary">{delta.text}</span>
     }
-    const isUp = rounded > 0
+    const isUp = delta.signed > 0
     const isGood = isUp ? metric.goodDirection === 'up' : metric.goodDirection === 'down'
     const colorClass = isGood ? 'text-success' : 'text-danger'
-    const arrow = isUp ? '↑' : '↓'
-    return (
-        <span className={`text-[11px] font-medium ${colorClass}`}>
-            {arrow} {Math.abs(rounded)}%
-        </span>
-    )
+    return <span className={`text-[11px] font-medium ${colorClass}`}>{delta.text}</span>
 }
 
 function KPITile({ tile }: { tile: TileSpec }): JSX.Element {
@@ -113,7 +144,7 @@ function KPITile({ tile }: { tile: TileSpec }): JSX.Element {
             )}
             <div className="mt-1 flex items-center justify-between">
                 <Sparkline values={tile.metric.sparkline} stroke={COLOR_STROKE[tile.color]} />
-                <DeltaPill metric={tile.metric} />
+                <DeltaPill metric={tile.metric} kind={tile.deltaKind} />
             </div>
         </Link>
     )
@@ -136,62 +167,85 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         {
             label: 'Sessions',
             metric: kpis.sessions,
-            href: urls.mcpAnalyticsSessions(),
+            href: urls.mcpAnalyticsConversations(),
             format: formatNumber,
             color: 'blue',
             loading: kpisLoading,
+            deltaKind: 'pct',
         },
         {
             label: 'Tool calls',
             metric: kpis.toolCalls,
-            href: urls.mcpAnalyticsToolQuality(),
+            href: urls.mcpAnalyticsTools(),
             format: formatNumber,
             color: 'blue',
             loading: kpisLoading,
+            deltaKind: 'pct',
         },
         {
             label: 'Error rate',
             metric: kpis.errorRatePct,
-            href: urls.mcpAnalyticsSessions(),
+            href: urls.mcpAnalyticsConversations(),
             format: formatPercent,
             color: 'red',
             loading: kpisLoading,
+            deltaKind: 'pp',
         },
         {
             label: 'p95 latency',
             metric: kpis.p95LatencyMs,
-            href: urls.mcpAnalyticsToolQuality(),
+            href: urls.mcpAnalyticsTools(),
             format: formatMs,
             color: 'blue',
             loading: kpisLoading,
+            deltaKind: 'ms',
         },
         {
-            label: 'Intent clusters',
+            label: 'Task clusters',
             metric: intentClusterCount,
-            href: urls.mcpAnalyticsIntentClustering(),
+            href: urls.mcpAnalyticsTasks(),
             format: formatNumber,
             color: 'green',
             loading: false,
+            deltaKind: 'count',
         },
     ]
 
     return (
         <div className="flex flex-col gap-[22px]">
             <BrandingStrip />
-            <Block kicker="Health" question="Is the MCP healthy right now?">
+            <Block question="Is the MCP healthy right now?" title="Last 7 days vs prior 7 days">
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
                     {tiles.map((tile) => (
                         <KPITile key={tile.label} tile={tile} />
                     ))}
                 </div>
             </Block>
-            <Block kicker="Tool quality" question="Which tools are the weak links?">
+            <Block
+                question="Which tools are the weak links?"
+                title="Tool reliability matrix"
+                headerRight={<span className="text-[11px] text-tertiary">Sorted by call volume</span>}
+            >
                 <ToolReliabilityMatrix rows={topToolRows} loading={toolRowsLoading} totalTools={toolRowsTotal} />
             </Block>
-            <Block kicker="Agent journeys" question="How are agents actually using the MCP?">
+            <Block
+                question="How are agents actually using the MCP?"
+                title="Agent journeys"
+                headerRight={
+                    <>
+                        <span
+                            className="rounded px-1.5 py-0.5 text-[10px] font-medium"
+                            style={{ background: '#EEEDFE', color: '#3C3489' }}
+                        >
+                            Top 10 paths
+                        </span>
+                        <span className="text-[11px] text-tertiary">Init → tool → tool → outcome</span>
+                    </>
+                }
+            >
                 <AgentJourneysBlock journey={dashboardJourney} />
             </Block>
-            <Block kicker="Triage" question="Which sessions should I look at?">
+            <Block question="Which sessions should I look at?" title="Notable sessions">
                 <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
             </Block>
         </div>
@@ -199,6 +253,8 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
 }
 
 function BrandingStrip(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const projectName = currentTeam?.name ?? 'project'
     return (
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -213,24 +269,29 @@ function BrandingStrip(): JSX.Element {
                     Preview
                 </span>
             </div>
-            <span className="text-[11px] text-tertiary">Last 7 days</span>
+            <span className="text-[11px] text-tertiary">Project: {projectName} · mcp-server</span>
         </div>
     )
 }
 
 function Block({
-    kicker,
     question,
+    title,
+    headerRight,
     children,
 }: {
-    kicker: string
     question: string
+    title: string
+    headerRight?: React.ReactNode
     children: React.ReactNode
 }): JSX.Element {
     return (
         <section className="flex flex-col">
-            <div className="text-[11px] text-secondary mb-1">{kicker}</div>
-            <h1 className="text-sm font-medium mb-3">{question}</h1>
+            <p className="mb-1 text-[11px] text-secondary">{question}</p>
+            <div className="mb-3 flex items-center justify-between gap-2">
+                <h1 className="text-sm font-medium">{title}</h1>
+                {headerRight ? <div className="flex items-center gap-2">{headerRight}</div> : null}
+            </div>
             {children}
         </section>
     )
@@ -273,7 +334,10 @@ function ToolRowItem({ row, maxVolume, isLast }: { row: ToolRow; maxVolume: numb
     const callsPct = maxVolume ? (row.total_calls / maxVolume) * 100 : 0
     const errorsPct = maxVolume ? (row.errors / maxVolume) * 100 : 0
     const successPct = Math.max(callsPct - errorsPct, 0)
-    const nameClass = row.error_rate_pct > 5 ? 'text-[#791F1F]' : 'text-primary'
+    const isWeak = row.error_rate_pct > 5
+    const nameClass = isWeak ? 'text-[#791F1F]' : 'text-primary'
+    // Weak tools get a washed-pink success bar to signal trouble even before the eye lands on the pill.
+    const successFill = isWeak ? '#F7C1C1' : '#B5D4F4'
     return (
         <div
             className="grid items-center gap-2.5 py-1.5"
@@ -283,7 +347,7 @@ function ToolRowItem({ row, maxVolume, isLast }: { row: ToolRow; maxVolume: numb
             }}
         >
             <Link
-                to={`${urls.mcpAnalyticsToolQuality()}?tool=${encodeURIComponent(row.tool)}`}
+                to={`${urls.mcpAnalyticsTools()}?tool=${encodeURIComponent(row.tool)}`}
                 className={`truncate font-mono text-xs ${nameClass}`}
                 title={row.tool}
             >
@@ -293,10 +357,16 @@ function ToolRowItem({ row, maxVolume, isLast }: { row: ToolRow; maxVolume: numb
                 className="relative flex h-[14px] overflow-hidden rounded-[3px] bg-surface-secondary"
                 title={`${row.total_calls} calls · ${row.errors} errors`}
             >
-                <div className="h-full bg-[#B5D4F4]" style={{ width: `${successPct}%` }} />
+                <div className="h-full" style={{ width: `${successPct}%`, background: successFill }} />
                 <div className="h-full bg-[#F09595]" style={{ width: `${errorsPct}%` }} />
             </div>
-            <ErrorRatePill pct={row.error_rate_pct} />
+            {row.error_rate_pct >= 1 ? (
+                <ErrorRatePill pct={row.error_rate_pct} />
+            ) : (
+                <span className="text-right text-[11px] font-mono text-secondary">
+                    {row.error_rate_pct.toFixed(1)}%
+                </span>
+            )}
             <span className="text-right font-mono text-xs text-primary">
                 {row.p95_duration_ms ? `${Math.round(row.p95_duration_ms)}ms` : '—'}
             </span>
@@ -348,9 +418,27 @@ function ToolReliabilityMatrix({
             )}
             {rows.length > 0 && (
                 <div className="mt-1.5 flex justify-end">
-                    <Link to={urls.mcpAnalyticsToolQuality()} className="text-[10px]">
-                        View all {totalTools} tools ↗
-                    </Link>
+                    {(() => {
+                        // Worst tool = highest error_rate_pct with at least 1 error. Falls back to View all when nothing failed.
+                        const worst = [...rows]
+                            .filter((r) => r.errors > 0)
+                            .sort((a, b) => b.error_rate_pct - a.error_rate_pct || b.total_calls - a.total_calls)[0]
+                        if (worst) {
+                            return (
+                                <Link
+                                    to={`${urls.mcpAnalyticsTools()}?tool=${encodeURIComponent(worst.tool)}`}
+                                    className="text-[11px]"
+                                >
+                                    Investigate {worst.tool} failures ↗
+                                </Link>
+                            )
+                        }
+                        return (
+                            <Link to={urls.mcpAnalyticsTools()} className="text-[11px]">
+                                View all {totalTools} tools ↗
+                            </Link>
+                        )
+                    })()}
                 </div>
             )}
         </Card>
@@ -390,52 +478,42 @@ function AgentJourneysBlock({ journey }: { journey: DashboardJourney }): JSX.Ele
     }
 
     return (
-        <div className="flex flex-col gap-2">
-            <Card>
-                <JourneySankey
-                    paths={paths}
-                    totalSessions={totalSessions}
-                    leak={leak}
-                    showLeakSentence={false}
-                    width={640}
-                    height={280}
-                />
-            </Card>
+        <Card>
+            <JourneySankey
+                paths={paths}
+                totalSessions={totalSessions}
+                leak={leak}
+                showLeakSentence={false}
+                width={640}
+                height={280}
+                columnLabels={['Session start', 'First tool', 'Second tool', 'Outcome']}
+            />
             <LeakCallout leak={leak} totalSessions={totalSessions} />
-        </div>
+        </Card>
     )
 }
 
 function LeakCallout({ leak, totalSessions }: { leak: DashboardJourney['leak']; totalSessions: number }): JSX.Element {
     if (!leak) {
         return (
-            <div
-                className="flex items-center justify-between rounded-md px-3.5 py-2 text-[11px]"
-                style={{ background: 'rgba(29,158,117,0.10)', color: '#27500A' }}
-            >
-                <span>
-                    <span className="font-medium">No leaks:</span> every top path completed without an error this
-                    period.
-                </span>
+            <div className="mt-3 flex items-center justify-between border-t border-tertiary pt-2.5 text-[11px] text-secondary">
+                <span>Every top path completed without an error this period.</span>
             </div>
         )
     }
 
     const pct = totalSessions > 0 ? Math.round((leak.count / totalSessions) * 1000) / 10 : 0
     return (
-        <div
-            className="flex items-center justify-between gap-3 rounded-md px-3.5 py-2 text-[11px]"
-            style={{ background: 'rgba(228,75,74,0.10)', color: '#791F1F' }}
-        >
-            <span className="truncate">
-                <span className="font-medium">Leak:</span> {describeLeakSteps(leak.steps)} drains{' '}
-                <span className="font-medium">
+        <div className="mt-3 flex items-center justify-between gap-3 border-t border-tertiary pt-2.5 text-[11px]">
+            <span className="truncate text-secondary">
+                The {describeLeakSteps(leak.steps)} loop drains{' '}
+                <span className="font-medium text-[#791F1F]">
                     {leak.count} session{leak.count === 1 ? '' : 's'} ({pct}%)
                 </span>{' '}
-                into {leak.outcome === 'error' ? 'Error' : 'Other'} — the single biggest drop-off.
+                into {leak.outcome === 'error' ? 'Error / Abandoned' : 'Other'} — the single biggest leak.
             </span>
-            <Link to={urls.mcpAnalyticsSessions()} className="shrink-0 whitespace-nowrap text-[11px]">
-                See sessions ↗
+            <Link to={urls.mcpAnalyticsConversations()} className="shrink-0 whitespace-nowrap text-[11px]">
+                See {leak.count} sessions ↗
             </Link>
         </div>
     )
@@ -523,7 +601,7 @@ function NotableSessionsTable({ sessions, loading }: { sessions: NotableSession[
                         }}
                     >
                         <Link
-                            to={urls.mcpAnalyticsSessions()}
+                            to={urls.mcpAnalyticsConversations()}
                             className="truncate font-mono text-[11px]"
                             title={entry.session.session_id}
                         >
@@ -540,7 +618,7 @@ function NotableSessionsTable({ sessions, loading }: { sessions: NotableSession[
             )}
             {sessions.length > 0 && (
                 <div className="mt-1.5 flex justify-end">
-                    <Link to={urls.mcpAnalyticsSessions()} className="text-[10px]">
+                    <Link to={urls.mcpAnalyticsConversations()} className="text-[10px]">
                         Open all flagged sessions in Sessions tab ↗
                     </Link>
                 </div>
