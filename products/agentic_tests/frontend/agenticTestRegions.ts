@@ -15,10 +15,10 @@ export type AgenticTestBrowserbaseRegionCode = (typeof AGENTIC_TEST_BROWSERBASE_
 export const DEFAULT_AGENTIC_TEST_BROWSERBASE_REGION: AgenticTestBrowserbaseRegionCode = 'us-west-2'
 
 const REGION_LABELS: Record<AgenticTestBrowserbaseRegionCode, string> = {
-    'us-west-2': 'US West (Oregon)',
-    'us-east-1': 'US East (Virginia)',
-    'eu-central-1': 'EU Central (Frankfurt)',
-    'ap-southeast-1': 'Asia Pacific (Singapore)',
+    'us-west-2': '🇺🇸 US West (Oregon)',
+    'us-east-1': '🇺🇸 US East (Virginia)',
+    'eu-central-1': '🇪🇺 EU Central (Frankfurt)',
+    'ap-southeast-1': '🇸🇬 Asia Pacific (Singapore)',
 }
 
 export const AGENTIC_TEST_REGION_OPTIONS: { value: AgenticTestBrowserbaseRegionCode; label: string }[] =

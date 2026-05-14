@@ -425,7 +425,8 @@ function RunLogEntries({ entries, streaming }: { entries: any[]; streaming: bool
 
 function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
     const logic = agenticTestSceneLogic({ id })
-    const { runs, runsLoading, logsUrl } = useValues(logic)
+    const { runs, runsLoading, logsUrl, selectedRunId } = useValues(logic)
+    const { setSelectedRunId } = useActions(logic)
 
     return (
         <section>
