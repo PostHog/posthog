@@ -215,10 +215,18 @@ procs:
             layer: Processing
             tech: Rust
 
+    agent-core-watch:
+        shell: 'pnpm --filter @posthog/agent-core exec tsc -b --watch --preserveWatchOutput'
+        capability: agent_runtime
+        ready_pattern: 'Watching for file changes'
+        groups:
+            layer: Infrastructure
+            tech: Node
+
     agent-ingress:
         shell: |-
             bin/wait-for-docker && \
-            pnpm --filter @posthog/agent-core build && \
+            until [ -f services/agent-core/dist/index.js ]; do sleep 0.5; done && \
             AGENT_RUNTIME_QUEUE_DATABASE_URL=${AGENT_RUNTIME_QUEUE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/agent_runtime_queue} \
             INTERNAL_API_BASE_URL=${INTERNAL_API_BASE_URL:-http://localhost:8000} \
             REDIS_URL=${REDIS_URL:-redis://localhost:6379/0} \
@@ -234,7 +242,7 @@ procs:
     agent-runner:
         shell: |-
             bin/wait-for-docker && \
-            pnpm --filter @posthog/agent-core build && \
+            until [ -f services/agent-core/dist/index.js ]; do sleep 0.5; done && \
             AGENT_RUNTIME_QUEUE_DATABASE_URL=${AGENT_RUNTIME_QUEUE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/agent_runtime_queue} \
             INTERNAL_API_BASE_URL=${INTERNAL_API_BASE_URL:-http://localhost:8000} \
             REDIS_URL=${REDIS_URL:-redis://localhost:6379/0} \
@@ -248,7 +256,7 @@ procs:
     agent-janitor:
         shell: |-
             bin/wait-for-docker && \
-            pnpm --filter @posthog/agent-core build && \
+            until [ -f services/agent-core/dist/index.js ]; do sleep 0.5; done && \
             AGENT_RUNTIME_QUEUE_DATABASE_URL=${AGENT_RUNTIME_QUEUE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/agent_runtime_queue} \
             AGENT_INTERNAL_API_SHARED_KEY=${AGENT_INTERNAL_API_SHARED_KEY:-dev-shared-key} \
             PORT=${AGENT_JANITOR_PORT:-3031} \
