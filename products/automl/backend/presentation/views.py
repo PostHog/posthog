@@ -66,6 +66,7 @@ class AutoMLPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "pause",
         "resume",
         "archive",
+        "retrain",
         "record_model_version",
         "promote_model_version",
         "record_eda_result",
@@ -187,6 +188,41 @@ class AutoMLPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def archive(self, request: Request, pk: str, **kwargs) -> Response:
         """Soft-archive a pipeline. Inference stops; history is preserved."""
         return self._run_transition(pk, "archive")
+
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        request=None,
+        responses={200: AutoMLPipelineRunSerializer},
+    )
+    @action(detail=True, methods=["post"])
+    def retrain(self, request: Request, pk: str, **kwargs) -> Response:
+        """Dispatch a retraining iteration on an active pipeline.
+
+        The pipeline must be ``ACTIVE`` and have a winning run to iterate on
+        (bootstrap must have landed a champion first). Opens a new
+        ``AutoMLPipelineRun(run_kind=RETRAIN)`` chained via ``parent_run_id``
+        to the previous winning run, then enqueues a Task that runs the
+        ``automl-retrain`` agent skill inside the AutoML sandbox.
+
+        Returns the new run DTO. Pipeline status stays ``ACTIVE`` — retraining
+        failures don't fail the pipeline (the existing champion keeps serving).
+        """
+        user_id = cast(int | None, getattr(request.user, "id", None))
+        if user_id is None:
+            return Response(
+                {"detail": "Authentication required to retrain a pipeline."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        try:
+            dto = api.retrain(team_id=self.team_id, pipeline_id=UUID(pk), user_id=user_id)
+        except api.PipelineNotFoundError:
+            return Response({"detail": "Pipeline not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.RetrainNotApplicableError as e:
+            return Response(
+                {"detail": str(e), "code": "retrain_not_applicable"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(AutoMLPipelineRunSerializer(instance=dto).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
         request_serializer=CreatePipelineInputSerializer,

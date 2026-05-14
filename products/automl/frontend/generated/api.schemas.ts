@@ -281,6 +281,10 @@ export interface RecordTrainingResultInputApi {
     run_id?: string | null
 }
 
+export type AutoMLPipelineRunDTOApiEdaResult = { [key: string]: unknown }
+
+export type AutoMLPipelineRunDTOApiTrainingResult = { [key: string]: unknown }
+
 /**
  * * `bootstrap` - BOOTSTRAP
  * `retrain` - RETRAIN
@@ -308,10 +312,6 @@ export const AutoMLRunStatusEnumApi = {
     Failed: 'failed',
     Aborted: 'aborted',
 } as const
-
-export type AutoMLPipelineRunDTOApiEdaResult = { [key: string]: unknown }
-
-export type AutoMLPipelineRunDTOApiTrainingResult = { [key: string]: unknown }
 
 /**
  * Output shape of one bootstrap / retrain / inference run on a pipeline.

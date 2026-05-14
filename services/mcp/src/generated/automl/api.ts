@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 17 enabled ops
+ * PostHog API - MCP 18 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -274,6 +274,27 @@ export const AutomlPipelinesPauseCreateParams = /* @__PURE__ */ zod.object({
  * Resume a paused pipeline.
  */
 export const AutomlPipelinesResumeCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Dispatch a retraining iteration on an active pipeline.
+
+The pipeline must be ``ACTIVE`` and have a winning run to iterate on
+(bootstrap must have landed a champion first). Opens a new
+``AutoMLPipelineRun(run_kind=RETRAIN)`` chained via ``parent_run_id``
+to the previous winning run, then enqueues a Task that runs the
+``automl-retrain`` agent skill inside the AutoML sandbox.
+
+Returns the new run DTO. Pipeline status stays ``ACTIVE`` — retraining
+failures don't fail the pipeline (the existing champion keeps serving).
+ */
+export const AutomlPipelinesRetrainCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
     project_id: zod
         .string()

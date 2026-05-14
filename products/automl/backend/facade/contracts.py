@@ -172,6 +172,13 @@ class PipelineRunNotFoundError(Exception):
     """Raised by the facade when a pipeline-run lookup misses (wrong team or wrong id)."""
 
 
+class RetrainNotApplicableError(Exception):
+    """Raised when retraining can't proceed — pipeline is in the wrong state
+    (not ``ACTIVE``) or has no winning run to iterate on (champion never landed).
+    Maps to 409 at the DRF boundary; the user fixes by transitioning the pipeline
+    or running bootstrap first."""
+
+
 @dataclass(frozen=True)
 class AutoMLPipelineRunDTO:
     """The public shape of a single pipeline run.

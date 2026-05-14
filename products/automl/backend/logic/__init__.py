@@ -14,7 +14,7 @@ from uuid import UUID
 from django.db import transaction
 
 from ..facade import contracts
-from ..facade.enums import ModelRole, PipelineStatus, RunStatus
+from ..facade.enums import ModelRole, PipelineStatus, RunKind, RunStatus
 from ..models import AutoMLModelVersion, AutoMLPipeline, AutoMLPipelineRun
 from .validation import run_validation
 
@@ -36,6 +36,7 @@ __all__ = [
     "record_eda_result",
     "record_bootstrap_outcome",
     "mark_run_failed",
+    "find_latest_winning_run",
 ]
 
 # Allowed status transitions: source -> set of allowed destinations.
@@ -45,6 +46,10 @@ _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     PipelineStatus.DRAFT.value: {PipelineStatus.BOOTSTRAP_PENDING.value, PipelineStatus.ARCHIVED.value},
     PipelineStatus.BOOTSTRAP_PENDING.value: {
         PipelineStatus.BOOTSTRAP_RUNNING.value,
+        # Direct to ACTIVE when the run records a successful outcome with a champion —
+        # we don't pass through BOOTSTRAP_RUNNING because there's no separate runtime
+        # state for the agent's mid-flight phase yet (the run row tracks that already).
+        PipelineStatus.ACTIVE.value,
         PipelineStatus.PAUSED.value,
         PipelineStatus.ARCHIVED.value,
         PipelineStatus.FAILED.value,
@@ -412,26 +417,67 @@ def record_bootstrap_outcome(
         # is friendlier than a 409.
         return run
 
-    run.status = params.status.value
-    run.outcome_report = params.outcome_report
-    run.failure_reason = params.failure_reason
-    if params.cli_run_id:
-        run.cli_run_id = params.cli_run_id
-    if params.agent_session_id:
-        run.agent_session_id = params.agent_session_id
-    run.completed_at = datetime.now(UTC)
-    run.save(
-        update_fields=[
-            "status",
-            "outcome_report",
-            "failure_reason",
-            "cli_run_id",
-            "agent_session_id",
-            "completed_at",
-            "updated_at",
-        ]
-    )
+    with transaction.atomic():
+        run.status = params.status.value
+        run.outcome_report = params.outcome_report
+        run.failure_reason = params.failure_reason
+        if params.cli_run_id:
+            run.cli_run_id = params.cli_run_id
+        if params.agent_session_id:
+            run.agent_session_id = params.agent_session_id
+        run.completed_at = datetime.now(UTC)
+        run.save(
+            update_fields=[
+                "status",
+                "outcome_report",
+                "failure_reason",
+                "cli_run_id",
+                "agent_session_id",
+                "completed_at",
+                "updated_at",
+            ]
+        )
+
+        # Pipeline-state reconciliation only applies to bootstrap runs — that's
+        # the run that owns the DRAFT → ACTIVE / DRAFT → FAILED transition.
+        # Retrain runs leave pipeline status alone (the pipeline is already
+        # ACTIVE while iterating); inference runs same.
+        if run.run_kind == RunKind.BOOTSTRAP.value:
+            pipeline = run.pipeline  # FK in-memory; safe to dereference here
+            if params.status == RunStatus.SUCCEEDED and run.created_model_version_id:
+                # Bootstrap landed a champion. Lift the pipeline into ACTIVE so
+                # scheduled inference + retraining can begin.
+                if pipeline.status == PipelineStatus.BOOTSTRAP_PENDING.value:
+                    pipeline.status = PipelineStatus.ACTIVE.value
+                    pipeline.save(update_fields=["status", "updated_at"])
+            elif params.status in (RunStatus.FAILED, RunStatus.ABORTED):
+                # Bootstrap bailed without a champion. Lift the pipeline into
+                # FAILED so the user can see why and retry via `start`.
+                if pipeline.status == PipelineStatus.BOOTSTRAP_PENDING.value:
+                    pipeline.status = PipelineStatus.FAILED.value
+                    pipeline.save(update_fields=["status", "updated_at"])
+
     return run
+
+
+def find_latest_winning_run(*, team_id: int, pipeline_id: UUID) -> AutoMLPipelineRun | None:
+    """Find the most recent succeeded run on a pipeline that landed a model version.
+
+    Used by the retraining flow to pick the `parent_run_id` — the run whose
+    recipe we're iterating on. Excludes runs that finished but never produced
+    a version (e.g., the agent bailed before training). Returns ``None`` if no
+    winning run exists (pipeline hasn't bootstrapped a champion yet).
+    """
+    return (
+        AutoMLPipelineRun.objects.filter(
+            team_id=team_id,
+            pipeline_id=pipeline_id,
+            status=RunStatus.SUCCEEDED.value,
+            created_model_version_id__isnull=False,
+        )
+        .order_by("-completed_at")
+        .first()
+    )
 
 
 def mark_run_failed(

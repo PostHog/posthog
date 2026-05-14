@@ -17,6 +17,7 @@ import {
     AutomlPipelinesPartialUpdateParams,
     AutomlPipelinesPauseCreateParams,
     AutomlPipelinesResumeCreateParams,
+    AutomlPipelinesRetrainCreateParams,
     AutomlPipelinesRetrieveParams,
     AutomlPipelinesRunsListParams,
     AutomlPipelinesRunsListQueryParams,
@@ -511,6 +512,25 @@ const automlPromoteModelVersion = (): ToolBase<
     },
 })
 
+const AutomlRetrainSchema = AutomlPipelinesRetrainCreateParams.omit({ project_id: true }).extend({
+    id: AutomlPipelinesRetrainCreateParams.shape['id'].describe(
+        'Pipeline UUID to retrain. Must be ACTIVE and have a winning run. Returns 409 with code=retrain_not_applicable otherwise.'
+    ),
+})
+
+const automlRetrain = (): ToolBase<typeof AutomlRetrainSchema, WithPostHogUrl<Schemas.AutoMLPipelineRunDTO>> => ({
+    name: 'automl-retrain',
+    schema: AutomlRetrainSchema,
+    handler: async (context: Context, params: z.infer<typeof AutomlRetrainSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AutoMLPipelineRunDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/automl_pipelines/${encodeURIComponent(String(params.id))}/retrain/`,
+        })
+        return await withPostHogUrl(context, result, `/automl/${result.id}`)
+    },
+})
+
 const AutomlResumeSchema = AutomlPipelinesResumeCreateParams.omit({ project_id: true })
 
 const automlResume = (): ToolBase<typeof AutomlResumeSchema, WithPostHogUrl<Schemas.AutoMLPipelineDTO>> => ({
@@ -679,6 +699,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'automl-list-runs': automlListRuns,
     'automl-list-model-versions': automlListModelVersions,
     'automl-promote-model-version': automlPromoteModelVersion,
+    'automl-retrain': automlRetrain,
     'automl-resume': automlResume,
     'automl-start': automlStart,
     'automl-update': automlUpdate,

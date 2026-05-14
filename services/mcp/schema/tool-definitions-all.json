@@ -605,6 +605,21 @@
             "readOnlyHint": false
         }
     },
+    "automl-retrain": {
+        "description": "Open a new retraining run on an active pipeline. Picks the previous winning run as parent (via parent_run_id), opens a fresh AutoMLPipelineRun(run_kind=retrain), and enqueues the automl-retrain agent skill inside the AutoML sandbox. The agent will load the parent's metrics + EDA, vary one knob (AutoGluon preset / feature edits / sample size) based on what the parent missed, train a challenger, and conditionally displace the champion via the three-gate logic (offline + realized + autonomy). Requires the pipeline to be ACTIVE and to have a winning run already. Pipeline status stays ACTIVE even if the retraining run fails — the existing champion keeps serving.",
+        "category": "AutoML",
+        "feature": "automl",
+        "summary": "Dispatch an AutoML retraining iteration",
+        "title": "Dispatch an AutoML retraining iteration",
+        "required_scopes": ["automl:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "automl-start": {
         "description": "Transition a draft pipeline into bootstrap-pending state, which queues the initial training run. Only valid from the \"draft\" state. Returns the updated pipeline. The actual Temporal training workflow is wired separately.",
         "category": "AutoML",

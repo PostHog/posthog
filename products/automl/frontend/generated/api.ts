@@ -311,6 +311,33 @@ export const automlPipelinesResumeCreate = async (
     })
 }
 
+export const getAutomlPipelinesRetrainCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/automl_pipelines/${id}/retrain/`
+}
+
+/**
+ * Dispatch a retraining iteration on an active pipeline.
+
+The pipeline must be ``ACTIVE`` and have a winning run to iterate on
+(bootstrap must have landed a champion first). Opens a new
+``AutoMLPipelineRun(run_kind=RETRAIN)`` chained via ``parent_run_id``
+to the previous winning run, then enqueues a Task that runs the
+``automl-retrain`` agent skill inside the AutoML sandbox.
+
+Returns the new run DTO. Pipeline status stays ``ACTIVE`` — retraining
+failures don't fail the pipeline (the existing champion keeps serving).
+ */
+export const automlPipelinesRetrainCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoMLPipelineRunDTOApi> => {
+    return apiMutator<AutoMLPipelineRunDTOApi>(getAutomlPipelinesRetrainCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getAutomlPipelinesRunsListUrl = (
     projectId: string,
     id: string,

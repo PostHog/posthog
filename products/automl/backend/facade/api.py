@@ -12,7 +12,10 @@ from uuid import UUID
 
 from .. import logic
 from ..models import AutoMLModelVersion, AutoMLPipeline, AutoMLPipelineRun
-from ..training import bootstrap
+from ..training import (
+    bootstrap,
+    retrain as retrain_training,
+)
 from . import contracts
 from .enums import AutonomyLevel, Cadence, ModelRole, PipelineStatus, RunKind, RunStatus, TaskType
 
@@ -21,6 +24,7 @@ PipelineNotFoundError = contracts.PipelineNotFoundError
 PipelineStateTransitionError = contracts.PipelineStateTransitionError
 ModelVersionNotFoundError = contracts.ModelVersionNotFoundError
 PipelineRunNotFoundError = contracts.PipelineRunNotFoundError
+RetrainNotApplicableError = contracts.RetrainNotApplicableError
 
 
 def _run_to_dto(obj: AutoMLPipelineRun) -> contracts.AutoMLPipelineRunDTO:
@@ -183,6 +187,80 @@ def start(*, team_id: int, pipeline_id: UUID, user_id: int) -> contracts.AutoMLP
 
     obj = logic.set_runtime(pipeline=obj, bootstrap_task_id=str(task.id))
     return _to_dto(obj)
+
+
+def retrain(*, team_id: int, pipeline_id: UUID, user_id: int) -> contracts.AutoMLPipelineRunDTO:
+    """Dispatch a retraining iteration for an active pipeline.
+
+    Preconditions:
+      - Pipeline must be ``ACTIVE``. Retraining doesn't apply to bootstrap-pending
+        or failed pipelines — those need ``start`` first.
+      - A previous winning run must exist (something to iterate on). If none,
+        raises ``RetrainNotApplicableError``.
+
+    Three-phase, mirroring ``start``:
+      1. Find the parent run (latest succeeded run with a model version).
+      2. Open an ``AutoMLPipelineRun`` row with ``run_kind=RETRAIN`` and
+         ``parent_run_id`` pointing at the parent.
+      3. Enqueue the orchestrating Task. On enqueue failure the run flips to
+         ``failed`` with ``failure_reason=task_create_failed``; the pipeline
+         stays ``ACTIVE`` (retraining failures don't fail the pipeline — the
+         champion keeps serving).
+
+    Returns the run DTO (not the pipeline DTO) — the user is dispatching a
+    new run, not changing pipeline state, so the run is what matters.
+    """
+    pipeline = logic.get_pipeline(team_id=team_id, pipeline_id=pipeline_id)
+    if pipeline is None:
+        raise contracts.PipelineNotFoundError(f"pipeline {pipeline_id} not found in team {team_id}")
+    if pipeline.status != PipelineStatus.ACTIVE.value:
+        raise contracts.RetrainNotApplicableError(
+            f"cannot retrain pipeline in status {pipeline.status!r}; must be ACTIVE"
+        )
+
+    parent_run = logic.find_latest_winning_run(team_id=team_id, pipeline_id=pipeline_id)
+    if parent_run is None:
+        raise contracts.RetrainNotApplicableError(
+            "no winning run on this pipeline yet — bootstrap a first model before retraining"
+        )
+
+    task_slug = bootstrap.derive_task_slug(pipeline)
+    task_workspace_root = bootstrap.derive_task_workspace_root(task_slug)
+
+    run = logic.create_pipeline_run(
+        team_id=team_id,
+        pipeline_id=pipeline_id,
+        params=contracts.CreatePipelineRunInput(
+            run_kind=RunKind.RETRAIN,
+            task_slug=task_slug,
+            task_workspace_root=task_workspace_root,
+            parent_run_id=parent_run.id,
+        ),
+    )
+
+    try:
+        task = retrain_training.enqueue_retraining(
+            pipeline=pipeline,
+            user_id=user_id,
+            run_id=run.id,
+            task_slug=task_slug,
+            task_workspace_root=task_workspace_root,
+            parent_run=parent_run,
+        )
+    except Exception:
+        # Retrain failures don't fail the pipeline — champion keeps serving.
+        # Just mark the run failed so the durable record reflects the attempt.
+        logic.mark_run_failed(run=run, failure_reason="task_create_failed")
+        raise
+
+    run.task_id = task.id
+    run.save(update_fields=["task_id", "updated_at"])
+
+    # Refresh and return the DTO (the manual run-row mutation above doesn't
+    # round-trip through the facade's DTO conversion otherwise).
+    refreshed = logic.get_pipeline_run(team_id=team_id, run_id=run.id)
+    assert refreshed is not None
+    return _run_to_dto(refreshed)
 
 
 def pause(*, team_id: int, pipeline_id: UUID) -> contracts.AutoMLPipelineDTO:

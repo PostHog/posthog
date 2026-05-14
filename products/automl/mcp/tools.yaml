@@ -362,6 +362,30 @@ tools:
             version_id:
                 description: >
                     UUID of the model version to promote. Must be a version on this pipeline; 404 otherwise.
+    automl-retrain:
+        operation: automl_pipelines_retrain_create
+        enabled: true
+        scopes:
+            - automl:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Dispatch an AutoML retraining iteration
+        description: >
+            Open a new retraining run on an active pipeline. Picks the previous winning run as parent (via
+            parent_run_id), opens a fresh AutoMLPipelineRun(run_kind=retrain), and enqueues the automl-retrain agent
+            skill inside the AutoML sandbox. The agent will load the parent's metrics + EDA, vary one knob (AutoGluon
+            preset / feature edits / sample size) based on what the parent missed, train a challenger, and
+            conditionally displace the champion via the three-gate logic (offline + realized + autonomy). Requires the
+            pipeline to be ACTIVE and to have a winning run already. Pipeline status stays ACTIVE even if the
+            retraining run fails — the existing champion keeps serving.
+        param_overrides:
+            id:
+                description: >
+                    Pipeline UUID to retrain. Must be ACTIVE and have a winning run. Returns 409 with
+                    code=retrain_not_applicable otherwise.
     automl-resume:
         operation: automl_pipelines_resume_create
         enabled: true
