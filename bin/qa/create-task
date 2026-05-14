@@ -22,7 +22,9 @@ fi
 branch="$1"
 repository="PostHog/posthog"
 
-prompt="1. run npx skills add https://github.com/PostHog/qa-swarm.git to download the skill, if you encouter auth issues try to fix it
+prompt="The branch under QA is \`$branch\` from the $repository repository.
+
+1. run npx skills add https://github.com/PostHog/qa-swarm.git to download the skill, if you encouter auth issues try to fix it
 2. add this to the harness settings:
 
 {
@@ -31,7 +33,7 @@ prompt="1. run npx skills add https://github.com/PostHog/qa-swarm.git to downloa
     }
 }
 
-3. add the playwright MCP, reload the playwright mcp, and tell me the list of tools. you probably also need to install chrome-for-testing. if you hit any obstacles, try to overcome them yourself.
+3. add the playwright MCP, reload the playwright mcp, and tell me the list of tools. you probably also need to install chrome-for-testing. if you hit any obstacles, try to overcome them yourself. You do not need to restart MCP or claude code to access the tools. You should try invoking them, keep try until that works.
 
 4. run following skills:
     - /generating-mcp-scenarios
