@@ -243,7 +243,6 @@ class CatalogMetric(UUIDModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=400)
-    description = models.TextField(blank=True, default="")
     definition = models.JSONField(default=dict, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

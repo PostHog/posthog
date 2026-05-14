@@ -57,7 +57,7 @@ def to_metric_dto(metric: CatalogMetric, node: CatalogNode) -> contracts.Catalog
         id=metric.id,
         team_id=metric.team_id,
         name=metric.name,
-        description=metric.description,
+        description=node.synthetic_description or "",
         definition=metric.definition or {},
         node=to_node_dto(node),
         created_at=metric.created_at,
@@ -205,9 +205,6 @@ def update_metric(params: contracts.UpdateMetricParams) -> contracts.CatalogMetr
     if metric is None:
         return None
     fields: list[str] = []
-    if params.description is not None:
-        metric.description = params.description
-        fields.append("description")
     if params.definition is not None:
         metric.definition = params.definition
         fields.append("definition")
@@ -216,6 +213,9 @@ def update_metric(params: contracts.UpdateMetricParams) -> contracts.CatalogMetr
     node = _metric_nodes_by_metric_id(params.team_id, [metric.id]).get(metric.id)
     if node is None:
         return None
+    if params.description is not None:
+        node.synthetic_description = params.description
+        node.save(update_fields=["synthetic_description"])
     return to_metric_dto(metric, node=node)
 
 
@@ -232,7 +232,6 @@ def upsert_metric(params: contracts.UpsertMetricParams) -> contracts.CatalogMetr
         team_id=params.team_id,
         name=params.name,
         defaults={
-            "description": params.description,
             "definition": params.definition,
         },
     )
@@ -240,6 +239,7 @@ def upsert_metric(params: contracts.UpsertMetricParams) -> contracts.CatalogMetr
         "content_type": ContentType.objects.get_for_model(CatalogMetric),
         "object_id": metric.id,
         "last_traversed_at": timezone.now(),
+        "synthetic_description": params.description,
     }
     if params.generator_model is not None:
         node_defaults["generator_model"] = params.generator_model
