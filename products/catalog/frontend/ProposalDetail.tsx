@@ -22,7 +22,7 @@ export function ProposalDetail({ proposal }: ProposalDetailProps): JSX.Element {
 
     if (!proposal) {
         return (
-            <div className="flex flex-col items-center justify-center text-muted-alt p-8 border rounded bg-surface-primary flex-1">
+            <div className="flex flex-col items-center justify-center text-muted-alt p-8 flex-1">
                 <span className="text-4xl mb-2" aria-hidden>
                     ✓
                 </span>
@@ -37,8 +37,9 @@ export function ProposalDetail({ proposal }: ProposalDetailProps): JSX.Element {
     const isClosed = isRelationship && proposal.relationship.status !== 'proposed'
 
     return (
-        <div className="flex flex-col gap-4 flex-1 min-w-0">
-            <header className="flex flex-col gap-2 pb-3 border-b">
+        <div className="flex flex-col flex-1 min-h-0 min-w-0">
+            {/* Fixed header */}
+            <header className="flex flex-col gap-2 px-4 pt-4 pb-3 border-b shrink-0">
                 <div className="flex items-center gap-2 flex-wrap">
                     <LemonTag type="primary" size="small">
                         {KIND_LABELS[proposal.kind]}
@@ -65,18 +66,22 @@ export function ProposalDetail({ proposal }: ProposalDetailProps): JSX.Element {
                 <p className="text-sm text-muted-alt">{summary}</p>
             </header>
 
-            {detailViewMode === 'code' ? (
-                <CodeView proposal={proposal} />
-            ) : (
-                <>
-                    <ProposalBody proposal={proposal} />
-                    <LemonDivider className="my-0" />
-                    <WhySection proposal={proposal} />
-                </>
-            )}
+            {/* Scrollable body — only this region scrolls, header and footer stay put */}
+            <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 flex flex-col gap-4">
+                {detailViewMode === 'code' ? (
+                    <CodeView proposal={proposal} />
+                ) : (
+                    <>
+                        <ProposalBody proposal={proposal} />
+                        <LemonDivider className="my-0" />
+                        <WhySection proposal={proposal} />
+                    </>
+                )}
+            </div>
 
+            {/* Pinned footer */}
             {!isClosed ? (
-                <footer className="flex flex-col gap-2 pt-3 border-t mt-auto">
+                <footer className="flex flex-col gap-2 px-4 py-3 border-t shrink-0 bg-surface-primary">
                     {rejectMode && isRelationship ? (
                         <div className="flex flex-col gap-2">
                             <LemonTextArea

@@ -38,7 +38,7 @@ export function CatalogProposalsScene(): JSX.Element {
             />
             <CatalogPageTabs activeTab="proposals" />
 
-            <div className="flex gap-4 min-h-[640px] items-stretch">
+            <div className="flex gap-4 h-[calc(100vh-280px)] min-h-[480px] items-stretch">
                 <ProposalCategoryRail />
 
                 <div className="flex flex-col gap-2 w-96 shrink-0">
@@ -74,7 +74,7 @@ export function CatalogProposalsScene(): JSX.Element {
                     </div>
                 </div>
 
-                <div className="flex-1 min-w-0 flex flex-col border rounded bg-surface-primary p-4">
+                <div className="flex-1 min-w-0 min-h-0 flex flex-col border rounded bg-surface-primary overflow-hidden">
                     <ProposalDetail proposal={selectedProposal} />
                 </div>
             </div>
