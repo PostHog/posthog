@@ -1,3 +1,6 @@
+from django.conf import settings
+
+import structlog
 from celery import shared_task
 
 from posthog.models.integration import (
@@ -8,6 +11,8 @@ from posthog.models.integration import (
 )
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
+
+logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
@@ -86,3 +91,19 @@ def push_vercel_secrets(team_id: int) -> None:
 
     team = Team.objects.get(id=team_id)
     VercelIntegration.push_secrets_to_vercel(team)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
+@skip_team_scope_audit
+def proxy_github_webhook_to_hognipotent(body: bytes, headers: dict[str, str]) -> None:
+    # Runs out-of-band so a slow or unreachable hognipotent never eats GitHub's
+    # 10-second delivery budget and forces retries.
+    if not settings.HOGNIPOTENT_WEBHOOK_URL:
+        return
+
+    import requests
+
+    try:
+        requests.post(settings.HOGNIPOTENT_WEBHOOK_URL, data=body, headers=headers, timeout=10)
+    except Exception as e:
+        logger.warning("hognipotent_webhook_proxy_failed", error=str(e))

@@ -109,23 +109,22 @@ HOGNIPOTENT_FORWARDED_HEADERS = (
 def _proxy_to_hognipotent(request: HttpRequest) -> None:
     """Forward the original GitHub webhook request to hognipotent unchanged.
 
-    The original ``X-Hub-Signature-256`` header is preserved so that the
-    downstream receiver verifies it against the shared webhook secret exactly
-    as if GitHub had delivered the event directly.
+    The original ``X-Hub-Signature-256`` header is preserved so the downstream
+    receiver verifies it against the shared webhook secret exactly as if GitHub
+    had delivered the event directly.
 
-    Skipped when ``HOGNIPOTENT_WEBHOOK_URL`` is unset so self-hosted installs
-    don't forward GitHub webhook payloads off-instance.
+    Dispatched to a Celery task because GitHub treats deliveries that don't get
+    a 2xx within 10 seconds as failures and retries them, so synchronous
+    forwarding would compound any hognipotent slowness into webhook loss.
+    Skipped entirely when ``HOGNIPOTENT_WEBHOOK_URL`` is unset.
     """
     if not settings.HOGNIPOTENT_WEBHOOK_URL:
         return
 
-    import requests
+    from posthog.tasks.integrations import proxy_github_webhook_to_hognipotent
 
     headers = {name: request.headers[name] for name in HOGNIPOTENT_FORWARDED_HEADERS if name in request.headers}
-    try:
-        requests.post(settings.HOGNIPOTENT_WEBHOOK_URL, data=request.body, headers=headers, timeout=10)
-    except Exception as e:
-        logger.warning("hognipotent_webhook_proxy_failed", error=str(e))
+    proxy_github_webhook_to_hognipotent.delay(request.body, headers)
 
 
 @csrf_exempt
