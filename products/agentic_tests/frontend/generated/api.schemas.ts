@@ -120,12 +120,6 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
-/**
- * Most recent run for this test, or null if none have completed yet.
- * @nullable
- */
-export type AgenticTestApiLastRun = { [key: string]: unknown } | null
-
 export interface AgenticTestApi {
     readonly id: string
     /** @maxLength 255 */
@@ -158,11 +152,8 @@ export interface AgenticTestApi {
     readonly updated_at: string
     /** @nullable */
     readonly last_run_at: string | null
-    /**
-     * Most recent run for this test, or null if none have completed yet.
-     * @nullable
-     */
-    readonly last_run: AgenticTestApiLastRun
+    /** Most recent run for this test, or null if none have completed yet. */
+    readonly last_run: AgenticTestRunApi | null
 }
 
 export interface PaginatedAgenticTestListApi {
@@ -173,12 +164,6 @@ export interface PaginatedAgenticTestListApi {
     previous?: string | null
     results: AgenticTestApi[]
 }
-
-/**
- * Most recent run for this test, or null if none have completed yet.
- * @nullable
- */
-export type PatchedAgenticTestApiLastRun = { [key: string]: unknown } | null
 
 export interface PatchedAgenticTestApi {
     readonly id?: string
@@ -212,11 +197,36 @@ export interface PatchedAgenticTestApi {
     readonly updated_at?: string
     /** @nullable */
     readonly last_run_at?: string | null
+    /** Most recent run for this test, or null if none have completed yet. */
+    readonly last_run?: AgenticTestRunApi | null
+}
+
+export interface DetectFlowsResponseApi {
+    /** ID of the created task. */
+    task_id: string
     /**
-     * Most recent run for this test, or null if none have completed yet.
+     * ID of the task run to stream logs from.
      * @nullable
      */
-    readonly last_run?: PatchedAgenticTestApiLastRun
+    task_run_id: string | null
+    /**
+     * Current status of the task run: queued, in_progress, completed, failed, or cancelled.
+     * @nullable
+     */
+    status?: string | null
+}
+
+export interface DetectFlowsRequestApi {
+    /**
+     * GitHub repository in 'owner/repo' format, e.g. 'posthog/posthog-js'.
+     * @maxLength 256
+     */
+    repository: string
+    /**
+     * Domain where the product is deployed, e.g. 'us.posthog.com'.
+     * @maxLength 256
+     */
+    domain: string
 }
 
 export type AgenticTestRunsListParams = {

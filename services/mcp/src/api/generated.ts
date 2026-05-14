@@ -3572,12 +3572,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Most recent run for this test, or null if none have completed yet.
-     * @nullable
-     */
-    export type AgenticTestLastRun = { [key: string]: unknown } | null;
-
-    /**
      * * `active` - Active
     * `paused` - Paused
     * `proposed` - Proposed
@@ -3592,45 +3586,6 @@ export namespace Schemas {
       Proposed: 'proposed',
       Rejected: 'rejected',
     } as const;
-
-    export interface AgenticTest {
-      readonly id: string;
-      /** @maxLength 255 */
-      name: string;
-      description?: string;
-      /** @maxLength 2048 */
-      target_url: string;
-      /** Natural-language instructions for the browser agent. */
-      prompt: string;
-      status?: AgenticTestStatusEnum;
-      /** List of post-run checks the test must satisfy in addition to the agent's own self-evaluation. Each item: {type, ...config}. Supported types: url_contains, event_captured. */
-      assertions?: unknown;
-      /**
-         * Cron expression (5 fields, UTC) describing the run cadence. Empty means manual-only — no automatic runs.
-         * @maxLength 128
-         */
-      schedule_cron?: string;
-      /**
-         * When the next scheduled run is due. Null when the test is not on a schedule.
-         * @nullable
-         */
-      readonly next_run_at: string | null;
-      /**
-         * @maxLength 255
-         * @nullable
-         */
-      source_replay_id?: string | null;
-      readonly created_by: UserBasic;
-      readonly created_at: string;
-      readonly updated_at: string;
-      /** @nullable */
-      readonly last_run_at: string | null;
-      /**
-         * Most recent run for this test, or null if none have completed yet.
-         * @nullable
-         */
-      readonly last_run: AgenticTestLastRun;
-    }
 
     /**
      * * `running` - Running
@@ -3665,6 +3620,42 @@ export namespace Schemas {
       /** Runner-specific session id (e.g. browserbase) so we can deep-link back to the agent run. */
       readonly external_session_id: string;
       readonly screenshot_url: string;
+    }
+
+    export interface AgenticTest {
+      readonly id: string;
+      /** @maxLength 255 */
+      name: string;
+      description?: string;
+      /** @maxLength 2048 */
+      target_url: string;
+      /** Natural-language instructions for the browser agent. */
+      prompt: string;
+      status?: AgenticTestStatusEnum;
+      /** List of post-run checks the test must satisfy in addition to the agent's own self-evaluation. Each item: {type, ...config}. Supported types: url_contains, event_captured. */
+      assertions?: unknown;
+      /**
+         * Cron expression (5 fields, UTC) describing the run cadence. Empty means manual-only — no automatic runs.
+         * @maxLength 128
+         */
+      schedule_cron?: string;
+      /**
+         * When the next scheduled run is due. Null when the test is not on a schedule.
+         * @nullable
+         */
+      readonly next_run_at: string | null;
+      /**
+         * @maxLength 255
+         * @nullable
+         */
+      source_replay_id?: string | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** @nullable */
+      readonly last_run_at: string | null;
+      /** Most recent run for this test, or null if none have completed yet. */
+      readonly last_run: AgenticTestRun | null;
     }
 
     export interface AggregatedSpanRow {
@@ -12140,6 +12131,34 @@ export namespace Schemas {
       completed_at?: string | null;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface DetectFlowsRequest {
+      /**
+         * GitHub repository in 'owner/repo' format, e.g. 'posthog/posthog-js'.
+         * @maxLength 256
+         */
+      repository: string;
+      /**
+         * Domain where the product is deployed, e.g. 'us.posthog.com'.
+         * @maxLength 256
+         */
+      domain: string;
+    }
+
+    export interface DetectFlowsResponse {
+      /** ID of the created task. */
+      task_id: string;
+      /**
+         * ID of the task run to stream logs from.
+         * @nullable
+         */
+      task_run_id: string | null;
+      /**
+         * Current status of the task run: queued, in_progress, completed, failed, or cancelled.
+         * @nullable
+         */
+      status?: string | null;
     }
 
     /**
@@ -20924,6 +20943,7 @@ export namespace Schemas {
     * `support_queue` - Support Queue
     * `session_summaries` - Session Summaries
     * `signal_report` - Signal Report
+    * `agentic_tests` - Agentic Tests
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -20937,6 +20957,7 @@ export namespace Schemas {
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       SignalReport: 'signal_report',
+      AgenticTests: 'agentic_tests',
     } as const;
 
     /**
@@ -24754,12 +24775,6 @@ export namespace Schemas {
       person_ids?: string[];
     }
 
-    /**
-     * Most recent run for this test, or null if none have completed yet.
-     * @nullable
-     */
-    export type PatchedAgenticTestLastRun = { [key: string]: unknown } | null;
-
     export interface PatchedAgenticTest {
       readonly id?: string;
       /** @maxLength 255 */
@@ -24792,11 +24807,8 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** @nullable */
       readonly last_run_at?: string | null;
-      /**
-         * Most recent run for this test, or null if none have completed yet.
-         * @nullable
-         */
-      readonly last_run?: PatchedAgenticTestLastRun;
+      /** Most recent run for this test, or null if none have completed yet. */
+      readonly last_run?: AgenticTestRun | null;
     }
 
     export interface PatchedAlert {

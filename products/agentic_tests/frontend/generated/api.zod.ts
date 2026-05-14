@@ -107,3 +107,21 @@ export const AgenticTestsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     source_replay_id: zod.string().max(agenticTestsPartialUpdateBodySourceReplayIdMax).nullish(),
 })
+
+/**
+ * Launch a sandboxed agent to analyze a GitHub repository and propose test flows.
+ */
+export const agenticTestsDetectFlowsCreateBodyRepositoryMax = 256
+
+export const agenticTestsDetectFlowsCreateBodyDomainMax = 256
+
+export const AgenticTestsDetectFlowsCreateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .max(agenticTestsDetectFlowsCreateBodyRepositoryMax)
+        .describe("GitHub repository in 'owner\/repo' format, e.g. 'posthog\/posthog-js'."),
+    domain: zod
+        .string()
+        .max(agenticTestsDetectFlowsCreateBodyDomainMax)
+        .describe("Domain where the product is deployed, e.g. 'us.posthog.com'."),
+})
