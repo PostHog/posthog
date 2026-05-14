@@ -21,10 +21,10 @@ export function DetectFlowsBanner(): JSX.Element | null {
 
     const doneLabel = isFailed
         ? 'Failed'
-        : proposedCount !== null && proposedCount > 0
+        : isTerminal && proposedCount !== null
           ? `${proposedCount} test${proposedCount !== 1 ? 's' : ''} proposed`
           : isTerminal
-            ? 'Tests proposed'
+            ? 'Done'
             : 'Proposing tests'
 
     return (
@@ -50,7 +50,7 @@ export function DetectFlowsBanner(): JSX.Element | null {
                                 ) : completed ? (
                                     <IconCheck className="text-success w-4 h-4" />
                                 ) : (
-                                    <span className="text-muted text-xs">{stepNum}</span>
+                                    <span className="text-tertiary text-xs">{stepNum}</span>
                                 )}
                                 <span className={completed ? 'text-success' : active ? 'font-semibold' : 'text-muted'}>
                                     {completed ? s.done : s.active}
@@ -77,7 +77,7 @@ export function DetectFlowsBanner(): JSX.Element | null {
                         ) : step === 3 ? (
                             <Spinner className="text-primary" />
                         ) : (
-                            <span className="text-muted text-xs">3</span>
+                            <span className="text-tertiary text-xs">3</span>
                         )}
                         <span
                             className={

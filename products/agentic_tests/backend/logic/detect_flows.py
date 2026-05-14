@@ -103,7 +103,14 @@ def handle_detect_flows_completion(task_run: "TaskRun") -> list["AgenticTest"]:
     """Parse the agent's structured output and create proposed AgenticTest instances."""
     from products.agentic_tests.backend.models import AgenticTest
 
-    output = DetectFlowsOutput.model_validate(task_run.output)
+    raw = task_run.output
+    logger.info(
+        "detect_flows.parsing_output",
+        task_run_id=str(task_run.id),
+        output_type=type(raw).__name__,
+        output_keys=list(raw.keys()) if isinstance(raw, dict) else None,
+    )
+    output = DetectFlowsOutput.model_validate(raw)
 
     tests_to_create: list[AgenticTest] = []
     for flow in output.qa_spec:

@@ -22,6 +22,15 @@ def register_task_run_signal() -> None:
         if not instance.output:
             return
 
+        # Only react to saves that actually wrote the output field.
+        # set_output uses update_fields=["output", "updated_at"], while
+        # mark_completed uses update_fields=["status", "completed_at"].
+        # Without this, the signal fires twice across processes and
+        # _processed_run_ids (in-memory, per-process) can't deduplicate.
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and "output" not in update_fields:
+            return
+
         run_id = str(instance.id)
         if run_id in _processed_run_ids:
             return
@@ -29,6 +38,15 @@ def register_task_run_signal() -> None:
         # Avoid loading the full Task for non-matching runs
         if not Task.objects.filter(id=instance.task_id, origin_product=Task.OriginProduct.AGENTIC_TESTS).exists():
             return
+
+        logger.info(
+            "agentic_tests.detect_flows_signal_fired",
+            task_run_id=run_id,
+            task_id=str(instance.task_id),
+            output_keys=list(instance.output.keys())
+            if isinstance(instance.output, dict)
+            else type(instance.output).__name__,
+        )
 
         try:
             from products.agentic_tests.backend.logic.detect_flows import handle_detect_flows_completion
