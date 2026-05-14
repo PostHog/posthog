@@ -1,0 +1,14 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "ordered_ids": {
+            "description": "Monitor IDs in their desired display order. Position 0 renders first.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["ordered_ids"],
+    "type": "object"
+}
