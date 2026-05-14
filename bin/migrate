@@ -58,6 +58,14 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ] && [ "${DEPLOYMENT:-}" != "hobby" ]; then
     fi
 fi
 
+if run_scope "agent_runtime"; then
+    bash $SCRIPT_DIR/../services/agent-core/bin/migrate-agent-runtime
+    if [ $? -ne 0 ]; then
+        echo "Error in services/agent-core/bin/migrate-agent-runtime, exiting."
+        exit 1
+    fi
+fi
+
 if run_scope "clickhouse"; then RUN_CLICKHOUSE=1; else RUN_CLICKHOUSE=0; fi
 if run_scope "postgres"; then RUN_POSTGRES=1; else RUN_POSTGRES=0; fi
 

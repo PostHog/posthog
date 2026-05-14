@@ -215,6 +215,49 @@ procs:
             layer: Processing
             tech: Rust
 
+    agent-ingress:
+        shell: |-
+            bin/wait-for-docker && \
+            pnpm --filter @posthog/agent-core build && \
+            AGENT_RUNTIME_QUEUE_DATABASE_URL=${AGENT_RUNTIME_QUEUE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/agent_runtime_queue} \
+            INTERNAL_API_BASE_URL=${INTERNAL_API_BASE_URL:-http://localhost:8000} \
+            REDIS_URL=${REDIS_URL:-redis://localhost:6379/0} \
+            PORT=${AGENT_INGRESS_PORT:-3030} \
+            pnpm --filter @posthog/agent-ingress start:dev
+        capability: agent_runtime
+        ready_pattern: 'agent-ingress listening'
+        groups:
+            layer: Product services
+            tech: Node
+
+    agent-runner:
+        shell: |-
+            bin/wait-for-docker && \
+            pnpm --filter @posthog/agent-core build && \
+            AGENT_RUNTIME_QUEUE_DATABASE_URL=${AGENT_RUNTIME_QUEUE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/agent_runtime_queue} \
+            INTERNAL_API_BASE_URL=${INTERNAL_API_BASE_URL:-http://localhost:8000} \
+            REDIS_URL=${REDIS_URL:-redis://localhost:6379/0} \
+            pnpm --filter @posthog/agent-runner start:dev
+        capability: agent_runtime
+        ready_pattern: 'agent-runner started'
+        groups:
+            layer: Processing
+            tech: Node
+
+    agent-janitor:
+        shell: |-
+            bin/wait-for-docker && \
+            pnpm --filter @posthog/agent-core build && \
+            AGENT_RUNTIME_QUEUE_DATABASE_URL=${AGENT_RUNTIME_QUEUE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/agent_runtime_queue} \
+            AGENT_INTERNAL_API_SHARED_KEY=${AGENT_INTERNAL_API_SHARED_KEY:-dev-shared-key} \
+            PORT=${AGENT_JANITOR_PORT:-3031} \
+            pnpm --filter @posthog/agent-janitor start:dev
+        capability: agent_runtime
+        ready_pattern: 'agent-janitor listening'
+        groups:
+            layer: Processing
+            tech: Node
+
     cymbal:
         shell: |-
             bin/wait-for-docker && \
@@ -439,6 +482,14 @@ procs:
     migrate-cyclotron:
         shell: 'bin/wait-for-docker && bin/migrate --scope=cyclotron'
         capability: cyclotron
+        ready_pattern: 'All migrations completed successfully'
+        groups:
+            layer: Infrastructure
+            tech: Migrations
+
+    migrate-agent-runtime:
+        shell: 'bin/wait-for-docker && bin/migrate --scope=agent_runtime'
+        capability: agent_runtime
         ready_pattern: 'All migrations completed successfully'
         groups:
             layer: Infrastructure
