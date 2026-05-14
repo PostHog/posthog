@@ -287,13 +287,14 @@ class FounderProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=TurnRequest,
         responses={200: TurnResponse},
         description=(
-            "**Stage 1 (Ideation).** One turn of the cofounder chat. Synchronous Gemini call. "
-            "The request carries the full conversation state (chat is ephemeral on the FE until "
-            "the founder commits at end-of-chat); the response carries the agent's next message "
-            "plus an optional canvas-slot decision and an end-of-chat signal. When "
-            "`should_end_chat=true`, the response also includes a synthesized "
-            "`ideation_payload` that the FE then POSTs to `founder_projects/` to commit the "
-            "ideation and auto-fire validation (stage 2)."
+            "**Stage 1 (Ideation).** One turn of a topic-scoped cofounder mini-chat. Synchronous "
+            "Gemini call. The request carries `{topic, goal, user_answer, messages, founder_mode}` "
+            "— the topic's whole thread so far (chat is ephemeral on the FE). The response carries "
+            "the agent's next `agent_message`, a `satisfied` flag, and — when satisfied — a "
+            "`crystallized_value` dict whose keys are defined by the request `goal` (for the "
+            "`idea` topic: `{what, how, who, problem}`). On `satisfied=true` the FE POSTs the "
+            "crystallized value to `founder_projects/` to commit the ideation and auto-fire "
+            "validation (stage 2)."
         ),
     )
     @action(detail=False, methods=["POST"], url_path="cofounder_turn")

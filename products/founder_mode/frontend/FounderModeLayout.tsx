@@ -5,7 +5,7 @@ import { Button, cn, Spinner } from '@posthog/quill'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { cofounderFlowLogic, STEP_ORDER, StepKey } from './cofounderFlowLogic'
+import { cofounderFlowLogic, FounderMode, STEP_ORDER, StepKey } from './cofounderFlowLogic'
 import { founderValidationLogic, ValidationReport } from './components/founderValidationLogic'
 import { Step2 } from './components/Step2'
 import { Step3 } from './components/Step3'
@@ -291,42 +291,123 @@ function IntroStep({ isActive }: { isActive: boolean }): JSX.Element {
     )
 }
 
+/**
+ * Ideation step — a topic-scoped mini-chat. The heading is the cofounder's opening question;
+ * the founder answers, and the cofounder either probes for more (the thread emerges) or is
+ * satisfied and the flow advances. If the founder nails it in one shot, this looks and
+ * behaves exactly like the old one-shot textarea.
+ */
 function IdeaStep({ isActive }: { isActive: boolean }): JSX.Element {
-    const { draft, ideaSubmitting, ideaError } = useValues(cofounderFlowLogic)
-    const { setDraft, submitIdea } = useActions(cofounderFlowLogic)
+    const { draft, ideaSubmitting, ideaError, ideaMessages } = useValues(cofounderFlowLogic)
+    const { setDraft, sendIdeaAnswer, resetIdeaChat } = useActions(cofounderFlowLogic)
     const ref = React.useRef<HTMLTextAreaElement>(null)
     React.useEffect(() => {
         if (isActive) {
             ref.current?.focus()
         }
     }, [isActive])
+
+    const hasThread = ideaMessages.length > 0
+    const canSend = isActive && !!draft.trim() && !ideaSubmitting
+
     return (
         <div>
-            <h2 className="text-2xl font-semibold mb-3">So what's your idea?</h2>
+            <div className="flex items-baseline justify-between gap-3 mb-3">
+                <h2 className="text-2xl font-semibold">So what's your idea?</h2>
+                {hasThread && (
+                    <button
+                        type="button"
+                        onClick={resetIdeaChat}
+                        disabled={!isActive || ideaSubmitting}
+                        className="text-xs text-text-secondary hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shrink-0"
+                    >
+                        ↻ Start over
+                    </button>
+                )}
+            </div>
+            <ModeToggle disabled={!isActive} />
+
+            {hasThread && (
+                <div className="flex flex-col gap-3 mb-4">
+                    {ideaMessages.map((m, i) => (
+                        <div
+                            key={i}
+                            className={cn(
+                                'text-sm rounded-md px-3 py-2 max-w-[90%] whitespace-pre-wrap',
+                                m.author === 'agent'
+                                    ? 'bg-bg-3000 text-text-primary self-start'
+                                    : 'bg-text-primary text-bg-primary self-end'
+                            )}
+                        >
+                            {m.value}
+                        </div>
+                    ))}
+                    {ideaSubmitting && (
+                        <div className="text-sm text-text-secondary self-start px-3 py-2">JT is thinking…</div>
+                    )}
+                </div>
+            )}
+
             <textarea
                 ref={ref}
                 className="w-full border border-border-bold/40 rounded-md p-3 text-sm bg-white focus:outline-none focus:border-text-primary min-h-[140px] resize-none disabled:opacity-60 disabled:bg-bg-3000"
-                placeholder="Pitch me in a few sentences."
+                placeholder={hasThread ? 'Answer JT…' : 'Pitch me in a few sentences.'}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
                     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                         e.preventDefault()
-                        submitIdea()
+                        if (canSend) {
+                            sendIdeaAnswer(draft)
+                        }
                     }
                 }}
                 disabled={!isActive || ideaSubmitting}
             />
             {ideaError && <p className="text-danger text-sm mt-2">{ideaError}</p>}
             <div className="mt-4">
-                <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={submitIdea}
-                    disabled={!isActive || !draft.trim() || ideaSubmitting}
-                >
-                    {ideaSubmitting ? 'Sending…' : 'Send it'}
+                <Button variant="primary" size="sm" onClick={() => sendIdeaAnswer(draft)} disabled={!canSend}>
+                    {ideaSubmitting ? 'Sending…' : hasThread ? 'Send' : 'Send it'}
                 </Button>
+            </div>
+        </div>
+    )
+}
+
+// Small inline switcher for which half of the founding team the cofounder plays. Mode is
+// rolled 50/50 on mount; this lets the founder flip it if the draw doesn't fit them.
+// Switching keeps the conversation — the next /cofounder_turn/ runs with the new mode.
+function ModeToggle({ disabled }: { disabled: boolean }): JSX.Element {
+    const { founderMode } = useValues(cofounderFlowLogic)
+    const { setFounderMode } = useActions(cofounderFlowLogic)
+    const options: { mode: FounderMode; label: string }[] = [
+        { mode: 'technical_cofounder', label: 'Technical' },
+        { mode: 'commercial_cofounder', label: 'Commercial' },
+    ]
+    return (
+        <div className="mb-4 flex items-center gap-2 text-xs text-text-secondary">
+            <span>Your cofounder:</span>
+            <div className="inline-flex rounded-full border border-border-bold/40 bg-bg-3000 p-0.5">
+                {options.map(({ mode, label }) => {
+                    const isSelected = founderMode === mode
+                    return (
+                        <button
+                            key={mode}
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => setFounderMode(mode)}
+                            className={cn(
+                                'px-3 py-1 rounded-full transition-all',
+                                disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                                isSelected
+                                    ? 'bg-text-primary text-bg-primary font-semibold shadow-sm'
+                                    : 'text-text-tertiary hover:text-text-primary'
+                            )}
+                        >
+                            {label}
+                        </button>
+                    )
+                })}
             </div>
         </div>
     )
