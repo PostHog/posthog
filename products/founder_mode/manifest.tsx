@@ -26,12 +26,19 @@ export const manifest: ProductManifest = {
             projectBased: true,
             layout: 'plain',
         },
+        FounderModeLandingPreview: {
+            name: 'Landing page preview',
+            import: () => import('./frontend/scenes/FounderModeLandingPreview'),
+            projectBased: true,
+            layout: 'plain',
+        },
     },
     routes: {
         '/init': ['FounderMode', 'founderMode'],
         '/founder': ['FounderModeLayout', 'founderModeLayout'],
         '/founder/workspace': ['FounderModeWorkspace', 'founderModeWorkspace'],
         '/founder/workspace/:path': ['FounderModeWorkspace', 'founderModeWorkspace'],
+        '/founder/landing-preview': ['FounderModeLandingPreview', 'founderModeLandingPreview'],
     },
     redirects: {},
     urls: {
@@ -39,6 +46,7 @@ export const manifest: ProductManifest = {
         founderModeLayout: (): string => '/founder',
         founderModeWorkspace: (path?: string): string =>
             path ? `/founder/workspace/${encodeURIComponent(path)}` : '/founder/workspace',
+        founderModeLandingPreview: (): string => '/founder/landing-preview',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

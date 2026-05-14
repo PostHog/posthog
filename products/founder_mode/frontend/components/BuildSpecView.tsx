@@ -10,6 +10,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { renderBuildSpecMarkdown } from './buildSpecMarkdown'
 import type { LandingPageBuildSpec } from './founderLandingPageLogic'
+import { LandingPageMockup } from './LandingPageMockup'
 
 interface Props {
     spec: LandingPageBuildSpec
@@ -82,6 +83,17 @@ export function BuildSpecView({ spec }: Props): JSX.Element {
                     </div>
                 </div>
             </LemonCard>
+
+            <div className="flex flex-col gap-2">
+                <h4 className="text-sm font-semibold text-text-primary">
+                    This is what your landing page could look like
+                </h4>
+                <p className="text-xs text-text-secondary">
+                    Rendered live from the spec below. Hit "Open in new tab" to view it full-screen and share the link
+                    while it's open.
+                </p>
+                <LandingPageMockup spec={spec} />
+            </div>
 
             <LemonCard className="p-6">
                 <LemonMarkdown lowKeyHeadings={false} disableDocsRedirect>
