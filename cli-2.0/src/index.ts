@@ -27,7 +27,7 @@ async function main() {
 
     const cli = yargs(hideBin(process.argv))
         .scriptName('ph')
-        .usage('$0 <command> [options]')
+        .usage('Work with PostHog from the command line.\n\n$0 <command> [options]')
         .help()
         .version('0.1.0')
         .wrap(120)
