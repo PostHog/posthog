@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconDrag, IconEllipsis, IconPencil, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
+import { IconDrag, IconEllipsis, IconPencil, IconPlay, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonCard,
@@ -55,8 +55,9 @@ export const scene: SceneExport = {
 }
 
 export function UptimeScene(): JSX.Element {
-    const { activeTab, suggestedUrls, ongoingIncidentsCount } = useValues(uptimeSceneLogic)
-    const { setActiveTab, setCreateModalOpen, setSuggestModalOpen } = useActions(uptimeSceneLogic)
+    const { activeTab, suggestedUrls, ongoingIncidentsCount, monitorSummariesLoading } = useValues(uptimeSceneLogic)
+    const { setActiveTab, setCreateModalOpen, setSuggestModalOpen, loadMonitorSummaries, loadSuggestedUrls } =
+        useActions(uptimeSceneLogic)
     const { createNewStatusPage } = useActions(statusPagesListLogic)
 
     const hasSuggestions = suggestedUrls.length > 0
@@ -101,6 +102,20 @@ export function UptimeScene(): JSX.Element {
     const headerActions =
         activeTab === 'monitors' ? (
             <div className="flex gap-2">
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconRefresh />}
+                    loading={monitorSummariesLoading}
+                    data-attr="refresh-monitors"
+                    tooltip="Refresh monitor data"
+                    onClick={() => {
+                        loadMonitorSummaries()
+                        loadSuggestedUrls()
+                    }}
+                >
+                    Refresh
+                </LemonButton>
                 {hasSuggestions && (
                     <LemonButton
                         type="secondary"
