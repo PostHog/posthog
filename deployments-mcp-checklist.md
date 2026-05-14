@@ -11,9 +11,9 @@
 - [ ] Disable or implement `deployments-logs`
   - [ ] Either implement the real log query path, or set `deployments-logs.enabled: false` until it works.
 
-- [ ] Remove unused `LogEntryMixin` from `DeploymentViewSet`
-  - [ ] Drop the import.
-  - [ ] Remove it from the viewset inheritance list.
+- [x] Remove unused `LogEntryMixin` from `DeploymentViewSet`
+  - [x] Drop the import.
+  - [x] Remove it from the viewset inheritance list.
 
 - [ ] Add feature-flag visibility validation for deployment MCP tools
   - [ ] Test that deployment MCP tools are not presented when the `deployments` feature flag is off.

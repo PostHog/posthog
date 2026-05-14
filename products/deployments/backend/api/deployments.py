@@ -23,7 +23,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -79,7 +78,6 @@ LIMIT {row_limit}
 )
 class DeploymentViewSet(
     TeamAndOrgViewSetMixin,
-    LogEntryMixin,
     AccessControlViewSetMixin,
     viewsets.ModelViewSet,
 ):
