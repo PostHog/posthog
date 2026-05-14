@@ -177,6 +177,7 @@ def _to_cluster_dto(item: dict[str, Any]) -> contracts.IntentCluster:
         id=int(item.get("id", 0)),
         label=str(item.get("label", "")),
         intent_count=int(item.get("intent_count", 0)),
+        session_count=int(item.get("session_count", 0)),
         call_count=int(item.get("call_count", 0)),
         error_count=int(item.get("error_count", 0)),
         error_rate_pct=float(item.get("error_rate_pct", 0.0)),

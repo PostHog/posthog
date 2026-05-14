@@ -48,6 +48,7 @@ class IntentRecord:
 
     intent_text: str
     frequency: int
+    session_count: int = 0
     tool_counts: dict[str, int] = field(default_factory=dict)
     error_counts: dict[str, int] = field(default_factory=dict)
 
@@ -147,6 +148,7 @@ def fetch_intent_corpus(
             IntentRecord(
                 intent_text=text,
                 frequency=frequency,
+                session_count=session_count[text],
                 tool_counts=data["tool_counts"],
                 error_counts=data["error_counts"],
             )
@@ -309,6 +311,7 @@ def build_snapshot(
                 "id": cluster_id,
                 "label": records[medoid_pos].intent_text,
                 "intent_count": len(members),
+                "session_count": int(sum(r.session_count for r in members)),
                 "call_count": total_calls,
                 "error_count": int(sum(error_counts.values())),
                 "error_rate_pct": round(100.0 * sum(error_counts.values()) / total_calls, 1) if total_calls else 0.0,

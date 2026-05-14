@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSparkles, IconWarning } from '@posthog/icons'
+import { IconRefresh, IconSparkles, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -211,7 +211,8 @@ function Heatmap(): JSX.Element {
                                             {cluster.label}
                                         </span>
                                         <span className="text-xs text-muted">
-                                            {cluster.intent_count} intent
+                                            {cluster.session_count} session
+                                            {cluster.session_count === 1 ? '' : 's'} · {cluster.intent_count} intent
                                             {cluster.intent_count === 1 ? '' : 's'}
                                         </span>
                                     </div>
@@ -260,6 +261,9 @@ function ClusterDetail({ cluster }: { cluster: MCPIntentClusterApi }): JSX.Eleme
                         </LemonTag>
                         <LemonTag type="muted" size="small">
                             {cluster.call_count.toLocaleString()} calls
+                        </LemonTag>
+                        <LemonTag type="muted" size="small">
+                            {cluster.session_count} session{cluster.session_count === 1 ? '' : 's'}
                         </LemonTag>
                         <LemonTag type="muted" size="small">
                             {cluster.intent_count} intent{cluster.intent_count === 1 ? '' : 's'}
@@ -349,6 +353,7 @@ function ClusterDetail({ cluster }: { cluster: MCPIntentClusterApi }): JSX.Eleme
 
 function StatusRow(): JSX.Element | null {
     const { snapshot, isComputing } = useValues(mcpClusteringLogic)
+    const { recompute } = useActions(mcpClusteringLogic)
     if (snapshot.status === 'error') {
         return null
     }
@@ -363,19 +368,30 @@ function StatusRow(): JSX.Element | null {
     if (snapshot.last_computed_at) {
         const meta = snapshot.computed_with
         return (
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                <span>Last computed</span>
-                <TZLabel time={snapshot.last_computed_at} />
-                {meta ? (
-                    <>
-                        <span>·</span>
-                        <span>{meta.n_clusters} clusters</span>
-                        <span>·</span>
-                        <span>{meta.n_intents} intents</span>
-                        <span>·</span>
-                        <span>cosine threshold {meta.distance_threshold.toFixed(2)}</span>
-                    </>
-                ) : null}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                    <span>Last computed</span>
+                    <TZLabel time={snapshot.last_computed_at} />
+                    {meta ? (
+                        <>
+                            <span>·</span>
+                            <span>{meta.n_clusters} clusters</span>
+                            <span>·</span>
+                            <span>{meta.n_intents} intents</span>
+                            <span>·</span>
+                            <span>cosine threshold {meta.distance_threshold.toFixed(2)}</span>
+                        </>
+                    ) : null}
+                </div>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconRefresh />}
+                    onClick={recompute}
+                    data-attr="mcp-analytics-intent-clusters-recompute"
+                >
+                    Recompute
+                </LemonButton>
             </div>
         )
     }

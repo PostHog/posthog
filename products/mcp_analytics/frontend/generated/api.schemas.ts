@@ -175,6 +175,8 @@ export interface MCPIntentClusterApi {
     readonly label: string
     /** Number of distinct intent texts that belong to this cluster. */
     readonly intent_count: number
+    /** Number of MCP sessions whose summarised intent belongs to this cluster. */
+    readonly session_count: number
     /** Total number of mcp_tool_call events represented by this cluster. */
     readonly call_count: number
     /** Total number of error responses observed across the cluster. */
@@ -293,7 +295,7 @@ export interface MCPSessionApi {
     readonly person_email: string
     /** name property of the Person resolved from distinct_id; empty when no Person is mapped. */
     readonly person_name: string
-    /** LLM-generated 2-3 sentence summary of the agent's overall goal for the session. Empty until the summary workflow runs. */
+    /** LLM-generated summary (at most two sentences) of the agent's overall goal for the session. Empty until the summary workflow runs. */
     readonly intent: string
 }
 

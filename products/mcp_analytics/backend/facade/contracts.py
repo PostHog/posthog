@@ -91,6 +91,7 @@ class IntentCluster:
     id: int
     label: str
     intent_count: int
+    session_count: int
     call_count: int
     error_count: int
     error_rate_pct: float

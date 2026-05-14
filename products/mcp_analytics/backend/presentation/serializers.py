@@ -206,6 +206,9 @@ class MCPIntentClusterSerializer(serializers.Serializer):
     intent_count = serializers.IntegerField(
         read_only=True, help_text="Number of distinct intent texts that belong to this cluster."
     )
+    session_count = serializers.IntegerField(
+        read_only=True, help_text="Number of MCP sessions whose summarised intent belongs to this cluster."
+    )
     call_count = serializers.IntegerField(
         read_only=True, help_text="Total number of mcp_tool_call events represented by this cluster."
     )
