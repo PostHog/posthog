@@ -14,12 +14,14 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { SceneExport } from '~/scenes/sceneTypes'
 
+import { HarnessPill } from './MCPAnalyticsDashboardOverview'
 import {
     IntentCoverage,
     MCPAnalyticsToolDetailLogicProps,
     ToolSummary,
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
+import { categorizeHarness } from './mcpDashboardOverviewLogic'
 
 export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
     component: MCPAnalyticsToolDetail,
@@ -359,7 +361,21 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                         <Query
                             query={byHarnessQuery}
                             readOnly
-                            context={{ columns: { error_rate_pct: { title: 'Error rate (%)' } } }}
+                            context={{
+                                columns: {
+                                    harness: {
+                                        title: 'Harness',
+                                        render: function RenderHarness({ value }) {
+                                            const raw = String(value ?? '')
+                                            if (!raw) {
+                                                return <span className="text-muted">Unknown</span>
+                                            }
+                                            return <HarnessPill category={categorizeHarness(raw)} title={raw} />
+                                        },
+                                    },
+                                    error_rate_pct: { title: 'Error rate (%)' },
+                                },
+                            }}
                         />
                     </div>
                     <div className="bg-bg-light border rounded p-3 flex flex-col gap-2">

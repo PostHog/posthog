@@ -6,7 +6,36 @@ import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import claudeLogo from './harness-logos/claude.svg'
+import cursorLogo from './harness-logos/cursor.svg'
+import openaiLogo from './harness-logos/openai.svg'
+import vscodeLogo from './harness-logos/vscode.svg'
 import { HarnessRow, KPIMetric, NotableSession, ToolRow, mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
+
+const HARNESS_LOGOS: Record<string, string> = {
+    'Claude Code': claudeLogo,
+    'Claude.ai': claudeLogo,
+    'OpenAI Codex': openaiLogo,
+    Cursor: cursorLogo,
+    'VS Code': vscodeLogo,
+}
+
+export function HarnessPill({ category, title }: { category: string; title?: string }): JSX.Element {
+    const logo = HARNESS_LOGOS[category]
+    return (
+        <span
+            className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary bg-surface-primary px-2 py-0.5 text-xs"
+            title={title}
+        >
+            {logo ? (
+                <img src={logo} alt="" className="h-3.5 w-3.5 shrink-0 object-contain" />
+            ) : (
+                <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-secondary" aria-hidden />
+            )}
+            <span className="truncate">{category}</span>
+        </span>
+    )
+}
 
 type TileColor = 'blue' | 'red' | 'green'
 
@@ -400,9 +429,7 @@ function HarnessBreakdown({ rows, loading }: { rows: HarnessRow[]; loading: bool
                                     i === rows.length - 1 ? 'none' : '0.5px solid var(--color-border-tertiary)',
                             }}
                         >
-                            <span className="truncate text-xs text-primary" title={tooltip}>
-                                {row.category}
-                            </span>
+                            <HarnessPill category={row.category} title={tooltip} />
                             <div
                                 className="relative flex h-[14px] overflow-hidden rounded-[3px] bg-surface-secondary"
                                 title={`${row.total_calls} calls · ${row.errors} errors · ${row.sessions} sessions`}
