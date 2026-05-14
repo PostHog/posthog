@@ -48,6 +48,8 @@ export const addProjectLogic = kea<addProjectLogicType>([
             '',
             {
                 setRepoName: (_, { repoName }) => repoName,
+                // Switching integrations invalidates the previously picked repo.
+                setIntegrationId: () => '',
                 reset: () => '',
             },
         ],
@@ -60,6 +62,7 @@ export const addProjectLogic = kea<addProjectLogicType>([
                     const base = repoName.includes('/') ? (repoName.split('/').pop() ?? '') : repoName
                     return base
                 },
+                setIntegrationId: () => '',
                 reset: () => '',
             },
         ],
@@ -72,6 +75,7 @@ export const addProjectLogic = kea<addProjectLogicType>([
                     const base = repoName.includes('/') ? (repoName.split('/').pop() ?? '') : repoName
                     return slugify(base)
                 },
+                setIntegrationId: () => '',
                 reset: () => '',
             },
         ],

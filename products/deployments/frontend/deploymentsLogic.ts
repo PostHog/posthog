@@ -5,7 +5,11 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { deploymentsLogicType } from './deploymentsLogicType'
 import { Deployment, DeploymentProject, DeploymentsFilters, DeploymentStatus } from './fixtures'
-import { deploymentProjectsDeploymentsList, deploymentProjectsList } from './generated/api'
+import {
+    deploymentProjectsDeploymentsList,
+    deploymentProjectsDeploymentsRetrieve,
+    deploymentProjectsList,
+} from './generated/api'
 import type { DeploymentApi, DeploymentProjectApi } from './generated/api.schemas'
 
 export const deploymentsLogic = kea<deploymentsLogicType>([
@@ -40,10 +44,11 @@ export const deploymentsLogic = kea<deploymentsLogicType>([
                 },
             },
         ],
-        // Map of projectId → its current deployment, used by the grid view.
-        // Each project's `current_deployment` field is just an id; we fan out
-        // one retrieve-by-id call per project so the cards show the latest
-        // commit/preview without loading the full deployment list per project.
+        // Map of projectId → the deployment currently serving traffic, used
+        // by the grid view. Fetched by id (when the project has a
+        // `current_deployment`) so the card reflects what's live — list[0]
+        // would return the most recent build, which is wrong after a rollback.
+        // Falls back to the newest deployment for never-deployed projects.
         currentDeploymentsByProject: [
             {} as Record<string, DeploymentApi | null>,
             {
@@ -56,6 +61,16 @@ export const deploymentsLogic = kea<deploymentsLogicType>([
                     const entries = await Promise.all(
                         projects.map(async (p): Promise<[string, DeploymentApi | null]> => {
                             try {
+                                if (p.current_deployment) {
+                                    return [
+                                        p.id,
+                                        await deploymentProjectsDeploymentsRetrieve(
+                                            String(teamId),
+                                            p.id,
+                                            p.current_deployment
+                                        ),
+                                    ]
+                                }
                                 const list = await deploymentProjectsDeploymentsList(String(teamId), p.id, {
                                     limit: 1,
                                 } as any)

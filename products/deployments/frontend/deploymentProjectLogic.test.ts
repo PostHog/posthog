@@ -6,55 +6,10 @@ import { initKeaTests } from '~/test/init'
 
 import { deploymentProjectLogic } from './deploymentProjectLogic'
 import { deploymentsLogic } from './deploymentsLogic'
-import type { DeploymentApi, DeploymentProjectApi } from './generated/api.schemas'
+import type { DeploymentApi } from './generated/api.schemas'
+import { makeDeployment, makeProject } from './testHelpers'
 
-const projectA: DeploymentProjectApi = {
-    id: 'project-1',
-    name: 'Site',
-    slug: 'site',
-    repo_url: 'https://github.com/acme/site',
-    default_branch: 'main',
-    github_integration_id: null,
-    github_repo_id: null,
-    build_command: null,
-    output_dir: 'dist',
-    framework: null,
-    inject_posthog_snippet: false,
-    cloudflare_project_name: 'team-site',
-    subdomain: 'site.pages.dev',
-    cloudflare_ready_at: '2026-05-01T00:00:00Z',
-    current_deployment: 'project-1-d1',
-    is_ready_to_deploy: true,
-    created_at: '2026-05-01T00:00:00Z',
-    updated_at: '2026-05-01T00:00:00Z',
-}
-
-const makeDeployment = (id: string, overrides: Partial<DeploymentApi> = {}): DeploymentApi => ({
-    id,
-    project: projectA.id,
-    status: 'ready',
-    started_at: '2026-05-13T12:00:00Z',
-    finished_at: '2026-05-13T12:01:30Z',
-    created_at: '2026-05-13T12:00:00Z',
-    commit_sha: id.slice(0, 7),
-    commit_message: `commit ${id}`,
-    commit_author_name: 'Alice',
-    commit_author_email: 'alice@acme.com',
-    repo_url: 'https://github.com/acme/site',
-    branch: 'main',
-    deployment_url: `https://site-${id}.pages.dev`,
-    preview_image_url: '',
-    triggered_by_deployment: null,
-    triggered_by_user_id: null,
-    trigger_kind: 'git',
-    error_message: '',
-    error_step: '',
-    cloudflare_deployment_id: '',
-    temporal_workflow_id: '',
-    is_current: false,
-    duration_seconds: 90,
-    ...overrides,
-})
+const projectA = makeProject('project-1', 'Site')
 
 describe('deploymentProjectLogic', () => {
     let listLogic: ReturnType<typeof deploymentsLogic.build>

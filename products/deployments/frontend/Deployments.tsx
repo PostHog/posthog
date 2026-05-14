@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGithub } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -22,7 +22,8 @@ export const scene: SceneExport = {
 }
 
 export function Deployments(): JSX.Element {
-    const { deploymentProjects, hasNoProjects, currentDeploymentsByProject } = useValues(deploymentsLogic)
+    const { deploymentProjects, deploymentProjectsLoading, hasNoProjects, currentDeploymentsByProject } =
+        useValues(deploymentsLogic)
     const { openAddProjectModal } = useActions(deploymentsLogic)
 
     return (
@@ -49,7 +50,14 @@ export function Deployments(): JSX.Element {
                 }
             />
 
-            {hasNoProjects ? (
+            {deploymentProjectsLoading && deploymentProjects.length === 0 ? (
+                // Two-card skeleton matches the loaded grid's 2-per-row layout
+                // so the empty-state CTA doesn't flash for users with projects.
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4" data-attr="deployments-grid-loading">
+                    <LemonSkeleton className="h-64" />
+                    <LemonSkeleton className="h-64" />
+                </div>
+            ) : hasNoProjects ? (
                 <ProductIntroduction
                     productName="Deployments"
                     productKey={ProductKey.DEPLOYMENTS}
