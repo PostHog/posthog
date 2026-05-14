@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from products.deployments.backend.adapters.temporal import (
@@ -83,6 +84,20 @@ class TestTemporalWorkflowAdapter(SimpleTestCase):
         with self.assertRaises(WorkflowError) as cm:
             TemporalWorkflowAdapter().start_build(workflow_input=BUILD_INPUT)
         self.assertIn("temporal unreachable", str(cm.exception))
+
+    @patch("products.deployments.backend.adapters.temporal.sync_connect")
+    def test_start_build_wraps_workflow_already_started_in_workflow_error(self, mock_connect: MagicMock) -> None:
+        # `WorkflowAlreadyStartedError` doesn't inherit from `RPCError` —
+        # exercised separately so the catch in start_build stays correct.
+        client = MagicMock()
+        client.start_workflow = AsyncMock(
+            side_effect=WorkflowAlreadyStartedError(workflow_id="deployment-abc", workflow_type="deployment-build")
+        )
+        mock_connect.return_value = client
+
+        with self.assertRaises(WorkflowError) as cm:
+            TemporalWorkflowAdapter().start_build(workflow_input=BUILD_INPUT)
+        self.assertIn("already running", str(cm.exception))
 
     def test_start_build_raises_when_task_queue_setting_missing(self) -> None:
         with override_settings(DEPLOYMENTS_TASK_QUEUE=""):

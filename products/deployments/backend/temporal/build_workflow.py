@@ -74,6 +74,8 @@ class DeploymentBuildWorkflow:
             branch=payload.branch,
             commit_sha=payload.commit_sha,
             output_dir=payload.output_dir,
+            github_access_token=payload.github_access_token,
+            build_command=payload.build_command,
         )
 
         # `current_step` tracks which build phase is in flight so we

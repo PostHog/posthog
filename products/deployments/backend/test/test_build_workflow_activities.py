@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from products.deployments.backend.domain.status import Status
 from products.deployments.backend.domain.trigger import ErrorStep
 from products.deployments.backend.temporal.activities import (
@@ -31,6 +33,8 @@ STEP = StepInput(
     branch="main",
     commit_sha="abc123",
     output_dir="dist",
+    github_access_token=None,
+    build_command=None,
 )
 
 
@@ -46,6 +50,7 @@ class TestBuildActivities(SimpleTestCase):
         t.assert_awaited_once_with(deployment_id=DEPLOYMENT_ID, status=Status.INITIALIZING)
         e.assert_awaited_once()
         # Event payload mirrors the transition.
+        assert e.await_args is not None
         kwargs = e.await_args.kwargs
         self.assertEqual(kwargs["deployment_id"], DEPLOYMENT_ID)
         self.assertEqual(kwargs["event_type"], "status_changed")
@@ -94,23 +99,30 @@ class TestBuildActivities(SimpleTestCase):
             error_step=ErrorStep.BUILD,
         )
         # Event payload includes the error step + message for the timeline.
+        assert e.await_args is not None
         kwargs = e.await_args.kwargs
         self.assertEqual(kwargs["payload"]["error_step"], "build")
         self.assertEqual(kwargs["payload"]["error_message"], "kaboom")
 
+    @parameterized.expand(
+        [
+            ("clone_repo", clone_repo),
+            ("install_dependencies", install_dependencies),
+            ("build_site", build_site),
+        ]
+    )
     @pytest.mark.asyncio
-    async def test_build_step_stubs_only_emit_events(self) -> None:
-        # The four build-step stubs don't post transitions — those are
-        # the responsibility of initialize_build / start_building /
-        # mark_*. The stubs only emit events for the timeline.
-        for activity in (clone_repo, install_dependencies, build_site):
-            with (
-                patch("products.deployments.backend.temporal.activities.post_transition", new=AsyncMock()) as t,
-                patch("products.deployments.backend.temporal.activities.post_event", new=AsyncMock()) as e,
-            ):
-                await activity(STEP)
-            t.assert_not_awaited()
-            self.assertGreaterEqual(e.await_count, 1)
+    async def test_build_step_stub_only_emits_events(self, _name: str, activity) -> None:
+        # The build-step stubs don't post transitions — those are the
+        # responsibility of initialize_build / start_building / mark_*.
+        # Each stub only emits events for the timeline.
+        with (
+            patch("products.deployments.backend.temporal.activities.post_transition", new=AsyncMock()) as t,
+            patch("products.deployments.backend.temporal.activities.post_event", new=AsyncMock()) as e,
+        ):
+            await activity(STEP)
+        t.assert_not_awaited()
+        self.assertGreaterEqual(e.await_count, 1)
 
     @pytest.mark.asyncio
     async def test_upload_artifacts_returns_synthetic_pages_url(self) -> None:

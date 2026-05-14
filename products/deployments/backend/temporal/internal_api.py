@@ -18,6 +18,7 @@ from uuid import UUID
 from django.conf import settings
 
 import httpx
+from temporalio.exceptions import ApplicationError
 
 from ..domain.status import Status
 from ..domain.trigger import ErrorStep
@@ -29,6 +30,21 @@ INTERNAL_API_TIMEOUT_SECONDS = 15
 
 class InternalApiError(Exception):
     """Raised when the internal API returns a non-2xx response."""
+
+
+def _raise_for_status(*, method: str, path: str, status_code: int, body: str) -> None:
+    """Raise the right exception type for a non-2xx response.
+
+    4xx indicates a client error (invalid transition, missing row, auth
+    failure) — retrying won't help, so raise as a non-retryable
+    `ApplicationError` so Temporal stops immediately. 5xx is a server
+    error or transient infra failure; raise the plain `InternalApiError`
+    so Temporal's retry policy kicks in.
+    """
+    message = f"Internal API {method} {path} failed: {status_code} {body[:200]}"
+    if 400 <= status_code < 500:
+        raise ApplicationError(message, type="InternalApiClientError", non_retryable=True)
+    raise InternalApiError(message)
 
 
 def _base_url() -> str:
@@ -72,7 +88,7 @@ async def post_transition(
     async with httpx.AsyncClient(timeout=INTERNAL_API_TIMEOUT_SECONDS) as client:
         response = await client.post(url, json=body, headers=_headers())
     if not response.is_success:
-        raise InternalApiError(f"Internal API transition POST failed: {response.status_code} {response.text[:200]}")
+        _raise_for_status(method="POST", path="transitions", status_code=response.status_code, body=response.text)
 
 
 async def post_event(*, deployment_id: UUID | str, event_type: str, payload: dict[str, Any] | None = None) -> None:
@@ -85,4 +101,4 @@ async def post_event(*, deployment_id: UUID | str, event_type: str, payload: dic
     async with httpx.AsyncClient(timeout=INTERNAL_API_TIMEOUT_SECONDS) as client:
         response = await client.post(url, json=body, headers=_headers())
     if not response.is_success:
-        raise InternalApiError(f"Internal API event POST failed: {response.status_code} {response.text[:200]}")
+        _raise_for_status(method="POST", path="events", status_code=response.status_code, body=response.text)

@@ -26,7 +26,14 @@ from .internal_api import post_event, post_transition
 
 @dataclass(frozen=True)
 class StepInput:
-    """Common shape for build-step activities."""
+    """Common shape for build-step activities.
+
+    Carries every field from `BuildInput` that any activity may need —
+    `github_access_token` and `build_command` are unused by the current
+    stub activities but the real `clone_repo` / `build_site` will read
+    them. Locking the shape in now means swapping the stubs for real
+    activities is a body-only change, not a signature change.
+    """
 
     deployment_id: UUID
     cloudflare_project_name: str
@@ -34,6 +41,8 @@ class StepInput:
     branch: str
     commit_sha: str
     output_dir: str
+    github_access_token: str | None
+    build_command: str | None
 
 
 @dataclass(frozen=True)
