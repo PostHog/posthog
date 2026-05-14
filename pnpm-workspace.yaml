@@ -10,6 +10,9 @@ packages:
     - packages/quill
     - packages/quill/apps/*
     - packages/quill/packages/*
+    - packages/agent-core
+    - packages/agent-ingress
+    - packages/agent-runner
     - frontend
     - playwright
     - nodejs

@@ -106,9 +106,13 @@ cyclotron-v2 has solved exactly these problems in production for CDP. We **reimp
 | `state: BYTEA` payload | Persist Claude Agent SDK conversation/turn state between suspensions. | [`rust/cyclotron-node-migrations/20260303000001_initial_schema.sql:9`](../../rust/cyclotron-node-migrations/20260303000001_initial_schema.sql) |
 | `reschedule({ scheduledAt, state })` | After every tool boundary, runner reschedules with updated state rather than blocking. | [`nodejs/src/cdp/services/cyclotron-v2/worker.ts:161`](../../nodejs/src/cdp/services/cyclotron-v2/worker.ts) |
 | Janitor — stall recovery + poison-pill detection | New daemon inside agent-runner. | [`nodejs/src/cdp/services/cyclotron-v2/janitor.ts`](../../nodejs/src/cdp/services/cyclotron-v2/janitor.ts) |
-| `parent_run_id` for batch grouping | Use for "trigger fanout" — one cron firing creates N sessions sharing a parent run id. |  |
-| `queue_name` + `priority` | Per-app or per-tier queue isolation. v1 = single queue; schema is open for v2 fairness work. |  |
+| `queue_name` | Per-app or per-tier queue isolation. v1 = single queue. |  |
 | `function_id` (UUID) field | Repurpose as `revision_id` for fast lookup of all sessions for a revision (promotion + reaper). |  |
+
+Deliberately **not** carried over in v1:
+
+- `priority` — only useful with multiple queue tiers; v1 has one queue. Easy additive migration when v2 fairness work happens.
+- `parent_run_id` — only useful for trigger fanout (one cron firing → N sessions); v1 has no triggers. Add when triggers ship.
 
 What we add on top:
 
@@ -187,7 +191,6 @@ All inherit `UUIDModel` ([`posthog/models/utils.py:183`](../../posthog/models/ut
 - `state: enum` — mirrors the queue's `JobState`. Updated by the runner on transition.
 - `trigger_type: str`, `trigger_payload: JSONField`
 - `input: JSONField`, `output: JSONField(null=True)`, `error: JSONField(null=True)`
-- `parent_run_id: UUID(null=True)` — same id as the queue's `parent_run_id` for trigger fanouts
 - `started_at`, `last_heartbeat_at`, `completed_at`
 - `runtime_instance: str(null=True)` — for attribution
 
