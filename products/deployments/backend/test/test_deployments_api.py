@@ -514,6 +514,28 @@ class TestDeploymentsAPINested(_BaseDeploymentsAPITest):
 class TestDeploymentsFeatureFlag(_BaseDeploymentsAPITest):
     """Re-verifies the feature-flag gate over the new nested URL."""
 
+    @patch("products.deployments.backend.api.deployment_projects.get_github_adapter")
+    def test_create_feature_flag_off_does_not_call_github(self, mock_get_github_adapter: MagicMock) -> None:
+        self._flag_patcher.stop()
+        with patch(
+            "products.deployments.backend.access.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/deployment_projects/",
+                {
+                    "name": "Site",
+                    "slug": "site",
+                    "github_integration_id": 42,
+                    "github_repo_id": 42,
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_github_adapter.assert_not_called()
+        self._flag_patcher.start()
+
     @parameterized.expand(
         [
             ("flag on returns empty list", True, status.HTTP_200_OK),

@@ -27,6 +27,9 @@ if TYPE_CHECKING:
 
 _REPO_FULL_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
+# TODO(deployments-v1): move request-path GitHub verification to async jobs before increasing retry budgets.
+DEPLOYMENTS_GITHUB_API_TIMEOUT_SECONDS = 2
+
 
 @dataclass(frozen=True)
 class GitHubRepository:
@@ -138,7 +141,11 @@ class GitHubIntegrationAdapter(NullGitHubAdapter):
 
     def _get_json(self, *, integration: Integration, path: str, endpoint: str) -> dict[str, Any]:
         try:
-            payload = GitHubIntegration(integration)._gh_api_get(path, endpoint=endpoint)
+            payload = GitHubIntegration(integration)._gh_api_get(
+                path,
+                endpoint=endpoint,
+                timeout=DEPLOYMENTS_GITHUB_API_TIMEOUT_SECONDS,
+            )
         except GitHubIntegrationError as err:
             raise GitHubError(str(err)) from err
         if not isinstance(payload, dict):
