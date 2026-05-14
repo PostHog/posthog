@@ -26,12 +26,51 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import EmbeddingModelName
+
+from posthog.api.embedding_worker import emit_embedding_request
 from posthog.constants import AvailableFeature
 from posthog.models.sharing_configuration import SharingConfiguration
 
 from .models import UserInterview
 
 logger = structlog.get_logger(__name__)
+
+
+_EMBEDDING_MODELS = [m.value for m in EmbeddingModelName]
+
+
+def _emit_interview_embeddings(interview: UserInterview) -> None:
+    """Emit transcript and summary as two separate embedding documents so each can be
+    searched independently. Failures are logged but never propagated: Vapi retries are
+    idempotent on call.id, so a re-delivery would skip creation and never re-emit —
+    making a thrown exception here strictly worse than a degraded but acknowledged row."""
+    topic = interview.topic
+    metadata = {
+        "topic_id": str(topic.id) if topic is not None else "",
+        "interviewee_identifier": interview.interviewee_identifier,
+    }
+    for document_type, content in (("transcript", interview.transcript), ("summary", interview.summary)):
+        if not content:
+            continue
+        try:
+            emit_embedding_request(
+                content=content,
+                team_id=interview.team_id,
+                product="user_interviews",
+                document_type=document_type,
+                rendering="plain",
+                document_id=str(interview.id),
+                models=_EMBEDDING_MODELS,
+                metadata=metadata,
+            )
+        except Exception:
+            logger.exception(
+                "user_interviews_embedding_emit_failed",
+                team_id=interview.team_id,
+                interview_id=str(interview.id),
+                document_type=document_type,
+            )
 
 
 def _verify_signature(secret: str, raw_body: bytes, provided_signature: str | None) -> bool:
@@ -212,6 +251,7 @@ def vapi_webhook(request: Request) -> Response:
             call_metadata=call,
             created_by=topic.created_by,
         )
+        transaction.on_commit(lambda: _emit_interview_embeddings(interview))
 
     logger.info(
         "user_interviews_vapi_webhook_stored",
