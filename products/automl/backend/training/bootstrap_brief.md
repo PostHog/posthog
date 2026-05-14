@@ -45,9 +45,14 @@ at `/tmp/workspace/repos/posthog/automl-cli/`. Install it editable so the
 `automl` console command is on `PATH`:
 
 ```bash
-pip install -e /tmp/workspace/repos/posthog/automl-cli
+pip install --break-system-packages -e /tmp/workspace/repos/posthog/automl-cli
 automl --version  # sanity check; non-zero exit aborts the run
 ```
+
+The `--break-system-packages` flag is required because the sandbox base image
+is Ubuntu 24.04, whose system Python is marked externally-managed per
+[PEP 668](https://peps.python.org/pep-0668/). The sandbox is single-use and
+disposable, so installing into the system site-packages is safe here.
 
 The sandbox already has these env vars set — do **not** override them:
 
