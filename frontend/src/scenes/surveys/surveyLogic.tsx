@@ -1359,7 +1359,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
                 const copy = {
                     ...original,
-                    question: `${original.description ?? ''} (copy)`,
+                    question: `${original.question} (copy)`,
                 }
                 actions.setSurveyValue('questions', [
                     ...values.survey.questions.slice(0, index + 1),
