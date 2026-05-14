@@ -115,6 +115,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'logs:write',
     'notebook:read',
     'notebook:write',
+    'notification:read',
+    'notification:write',
     'organization:read',
     'organization:write',
     'organization_integration:read',

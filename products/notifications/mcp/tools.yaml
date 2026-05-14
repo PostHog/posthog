@@ -1,0 +1,28 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Notifications
+feature: notifications
+url_prefix: /notifications
+ui_apps: {}
+tools:
+    notifications-list:
+        operation: environment_notifications_list
+        enabled: true
+        scopes:
+            - notification:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List my notifications
+        description: >
+            List the real-time notifications the current user has in the PostHog dashboard, newest first.
+            Each result includes the title, body, source URL, priority, whether the user has already read it,
+            and what resource it points to (dashboard, alert, comment, approval, etc.). Use this to surface
+            what PostHog is currently telling the user about — for example unread alerts firing on a dashboard,
+            comment mentions, assigned issues, or pending approval requests.
