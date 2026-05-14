@@ -20,6 +20,43 @@ export function isRecord(value: unknown): value is JsonRecord {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+// Sync with frontend/src/scenes/insights/utils.tsx — the API ships sentinel
+// strings for the catch-all "Other" / "None" breakdown buckets, and the web
+// translates them at render time. Same translation here keeps CLI output in
+// line with what users see in the app.
+export const BREAKDOWN_OTHER_STRING_LABEL = '$$_posthog_breakdown_other_$$'
+export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
+export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991
+export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990
+export const BREAKDOWN_OTHER_DISPLAY = 'Other (i.e. all remaining values)'
+export const BREAKDOWN_NULL_DISPLAY = 'None (i.e. no value)'
+
+export function isOtherBreakdownLabel(value: unknown): boolean {
+    return (
+        value === BREAKDOWN_OTHER_STRING_LABEL ||
+        value === BREAKDOWN_OTHER_NUMERIC_LABEL ||
+        String(value) === String(BREAKDOWN_OTHER_NUMERIC_LABEL)
+    )
+}
+
+export function isNullBreakdownLabel(value: unknown): boolean {
+    return (
+        value === BREAKDOWN_NULL_STRING_LABEL ||
+        value === BREAKDOWN_NULL_NUMERIC_LABEL ||
+        String(value) === String(BREAKDOWN_NULL_NUMERIC_LABEL)
+    )
+}
+
+export function friendlyBreakdownLabel(value: unknown): string {
+    if (isOtherBreakdownLabel(value)) {
+        return BREAKDOWN_OTHER_DISPLAY
+    }
+    if (isNullBreakdownLabel(value)) {
+        return BREAKDOWN_NULL_DISPLAY
+    }
+    return stringify(value)
+}
+
 export function stringify(value: unknown): string {
     if (value === null || value === undefined) {
         return ''

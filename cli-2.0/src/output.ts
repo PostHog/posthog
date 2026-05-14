@@ -11,6 +11,7 @@ import {
     CHARTABLE_INSIGHT_TOOLS,
     type ChartSeries,
     formatYValue,
+    friendlyBreakdownLabel,
     getInsightType,
     getPostHogHex,
     hexToAnsi,
@@ -107,29 +108,30 @@ function convertToBarChartSeries(result: unknown): ChartSeries[] {
     if (!isRecord(result) || !Array.isArray(result.result)) {
         return []
     }
-    
-    const data: number[] = []
-    const labels: string[] = []
-    
-    // Extract aggregated values and labels from the result
+
+    // Collect, translate sentinel labels (Other / None), and sort by value desc
+    // so the largest bar renders at the top — matches the web rendering.
+    const buckets: Array<{ value: number; label: string }> = []
     for (const item of result.result) {
-        if (isRecord(item) && typeof item.aggregated_value === 'number' && item.label) {
-            data.push(item.aggregated_value)
-            labels.push(stringify(item.label))
+        if (isRecord(item) && typeof item.aggregated_value === 'number' && item.label !== undefined) {
+            buckets.push({ value: item.aggregated_value, label: friendlyBreakdownLabel(item.label) })
         }
     }
-    
-    if (data.length === 0 || labels.length === 0) {
+
+    if (buckets.length === 0) {
         return []
     }
-    
-    // Create a single series with all the bar data
-    return [{
-        data,
-        labels,
-        label: stringify(result.name) || stringify(result.derived_name) || 'Bar Chart',
-        count: data.reduce((sum, val) => sum + val, 0)
-    }]
+
+    buckets.sort((a, b) => b.value - a.value)
+
+    return [
+        {
+            data: buckets.map((b) => b.value),
+            labels: buckets.map((b) => b.label),
+            label: stringify(result.name) || stringify(result.derived_name) || 'Bar Chart',
+            count: buckets.reduce((sum, b) => sum + b.value, 0),
+        },
+    ]
 }
 
 function shouldUseBarChart(series: ChartSeries[]): boolean {
@@ -1014,7 +1016,7 @@ function plotTrendsSeries(series: ChartSeries[]): void {
     series.forEach((s, i) => {
         const { fn: color } = seriesColors[i]
         const action = isRecord(s.action) ? s.action : null
-        const name = stringify(s.label) || (action ? stringify(action.name) : '') || `Series ${i + 1}`
+        const name = friendlyBreakdownLabel(s.label) || (action ? stringify(action.name) : '') || `Series ${i + 1}`
         const total = typeof s.count === 'number' ? chalk.gray(`  total: ${s.count}`) : ''
         console.log(`  ${color('●')} ${name}${total}`)
     })

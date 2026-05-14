@@ -2,10 +2,17 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import {
+    BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_NULL_NUMERIC_LABEL,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_DISPLAY,
+    BREAKDOWN_OTHER_NUMERIC_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
     bucketAverage,
     bucketLabels,
     buildLabelRow,
     formatYValue,
+    friendlyBreakdownLabel,
     getInsightType,
     getPostHogHex,
     hexToAnsi,
@@ -282,6 +289,62 @@ describe('hexToAnsi', () => {
         const unique = new Set(ansiEscapes)
         assert.equal(unique.size, POSTHOG_COLORS.length, 'every palette color should map to a unique ANSI sequence')
     })
+})
+
+describe('friendlyBreakdownLabel', () => {
+    const cases: Array<{ name: string; value: unknown; expected: string }> = [
+        {
+            name: 'translates the "Other" string sentinel',
+            value: BREAKDOWN_OTHER_STRING_LABEL,
+            expected: BREAKDOWN_OTHER_DISPLAY,
+        },
+        {
+            name: 'translates the "Other" numeric sentinel',
+            value: BREAKDOWN_OTHER_NUMERIC_LABEL,
+            expected: BREAKDOWN_OTHER_DISPLAY,
+        },
+        {
+            name: 'translates the "Other" numeric sentinel passed as a string',
+            value: String(BREAKDOWN_OTHER_NUMERIC_LABEL),
+            expected: BREAKDOWN_OTHER_DISPLAY,
+        },
+        {
+            name: 'translates the "None" string sentinel',
+            value: BREAKDOWN_NULL_STRING_LABEL,
+            expected: BREAKDOWN_NULL_DISPLAY,
+        },
+        {
+            name: 'translates the "None" numeric sentinel',
+            value: BREAKDOWN_NULL_NUMERIC_LABEL,
+            expected: BREAKDOWN_NULL_DISPLAY,
+        },
+        {
+            name: 'passes regular string labels through',
+            value: 'lucas@posthog.com',
+            expected: 'lucas@posthog.com',
+        },
+        {
+            name: 'stringifies non-string regular values',
+            value: 42,
+            expected: '42',
+        },
+        {
+            name: 'returns an empty string for null',
+            value: null,
+            expected: '',
+        },
+        {
+            name: 'returns an empty string for undefined',
+            value: undefined,
+            expected: '',
+        },
+    ]
+
+    for (const { name, value, expected } of cases) {
+        it(name, () => {
+            assert.equal(friendlyBreakdownLabel(value), expected)
+        })
+    }
 })
 
 describe('bucketAverage', () => {
