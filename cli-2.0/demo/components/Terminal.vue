@@ -1,11 +1,15 @@
 <script setup lang="ts">
-defineProps<{
-    title?: string
-}>()
+withDefaults(
+    defineProps<{
+        title?: string
+        size?: 'normal' | 'compact' | 'tight'
+    }>(),
+    { size: 'normal' }
+)
 </script>
 
 <template>
-    <div class="terminal">
+    <div class="terminal" :class="[`size-${size}`]">
         <div class="terminal-titlebar">
             <span class="dot dot-red" />
             <span class="dot dot-yellow" />
@@ -74,10 +78,25 @@ defineProps<{
 }
 
 .terminal-body {
+    color: #e6e6ed;
+}
+
+.size-normal .terminal-body {
     padding: 16px 18px 20px;
     font-size: 0.95rem;
     line-height: 1.55;
-    color: #e6e6ed;
+}
+
+.size-compact .terminal-body {
+    padding: 12px 16px 14px;
+    font-size: 0.78rem;
+    line-height: 1.4;
+}
+
+.size-tight .terminal-body {
+    padding: 10px 14px 12px;
+    font-size: 0.68rem;
+    line-height: 1.35;
 }
 
 .terminal-body :deep(pre) {

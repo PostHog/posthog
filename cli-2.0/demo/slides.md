@@ -15,9 +15,7 @@ transition: slide-left
 
 ---
 
-# Help is a first-class citizen
-
-<Terminal title="zsh — ph">
+<Terminal title="zsh — ph" size="compact">
 
 ```shellsession
 $ ph --help
@@ -43,13 +41,11 @@ Commands:
 
 </Terminal>
 
-<div class="mt-4 opacity-80 text-sm">
+<div class="mt-6 opacity-80 text-xl">
   Same shape everywhere: <code>ph &lt;group&gt; &lt;verb&gt;</code> — <code>list</code>, <code>view</code>, <code>create</code>, <code>update</code>, <code>delete</code>.
 </div>
 
 ---
-
-# Drill into a group
 
 <Terminal title="zsh — ph">
 
