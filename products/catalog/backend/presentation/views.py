@@ -19,12 +19,17 @@ Heavy reads still happen via HogQL system tables (`system.tables`, `system.colum
 `system.relationships`). The REST surface here is for UI-driven editing — narrow and typed.
 """
 
+import asyncio
 from typing import Any, cast
 from uuid import UUID
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import status, viewsets
+from rest_framework import (
+    serializers as drf_serializers,
+    status,
+    viewsets,
+)
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -49,6 +54,7 @@ from .serializers import (
     CatalogMetricDTOSerializer,
     CatalogNodeDTOSerializer,
     CatalogRelationshipDTOSerializer,
+    CatalogTraversalRunDTOSerializer,
     ProposeRelationshipInputSerializer,
     UpdateColumnInputSerializer,
     UpdateMetricInputSerializer,
@@ -58,6 +64,14 @@ from .serializers import (
     UpsertMetricInputSerializer,
     UpsertNodeInputSerializer,
 )
+
+
+class CatalogSyncResponseSerializer(drf_serializers.Serializer):
+    """Response from POST /catalog/sync/. The workflow runs asynchronously —
+    callers should poll GET /catalog/runs/ for progress."""
+
+    workflow_id = drf_serializers.CharField(help_text="Temporal workflow id for the kicked-off catalog traversal pass.")
+
 
 CATALOG_TAG = "catalog"
 
@@ -358,3 +372,41 @@ class CatalogMetricViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if metric is None:
             return Response({"detail": "Metric not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(CatalogMetricDTOSerializer(instance=metric).data)
+
+
+@extend_schema(tags=[CATALOG_TAG])
+class CatalogTraversalRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Catalog traversal runs — audit rows for each pass of CatalogTraversalWorkflow.
+
+    `list` powers the logs view: a left-rail list of recent runs, each pointing
+    at the sandboxed /tasks runs whose streaming logs render inline.
+    `sync` kicks off a fresh traversal asynchronously.
+    """
+
+    scope_object = "catalog"
+    scope_object_read_actions = ["list"]
+    scope_object_write_actions = ["sync"]
+
+    @extend_schema(responses={200: CatalogTraversalRunDTOSerializer(many=True)})
+    def list(self, request: Request, **kwargs) -> Response:
+        """Return recent catalog traversal runs for the team, newest first."""
+        runs = catalog_api.CatalogAPI.list_traversal_runs(cast(int, self.team_id))
+        page = self.paginate_queryset(runs)
+        if page is not None:
+            return self.get_paginated_response(CatalogTraversalRunDTOSerializer(instance=page, many=True).data)
+        return Response(CatalogTraversalRunDTOSerializer(instance=runs, many=True).data)
+
+    @extend_schema(
+        request=None,
+        responses={202: OpenApiResponse(response=CatalogSyncResponseSerializer)},
+    )
+    @action(detail=False, methods=["post"], pagination_class=None)
+    def sync(self, request: Request, **kwargs) -> Response:
+        """Kick off a catalog traversal asynchronously and return immediately.
+
+        The workflow id is per-team and reusable, so triggering while a run is
+        already in-flight is fine — Temporal queues the new run after the
+        current one completes.
+        """
+        workflow_id = asyncio.run(catalog_api.CatalogAPI.start_traversal(cast(int, self.team_id)))
+        return Response({"workflow_id": workflow_id}, status=status.HTTP_202_ACCEPTED)

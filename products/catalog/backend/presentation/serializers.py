@@ -22,6 +22,7 @@ from ..facade.contracts import (
     CatalogMetricDTO,
     CatalogNodeDTO,
     CatalogRelationshipDTO,
+    CatalogTraversalRunDTO,
     MetricDefinitionSchema,
 )
 
@@ -70,6 +71,14 @@ class CatalogMetricDTOSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = CatalogMetricDTO
+
+
+class CatalogTraversalRunDTOSerializer(DataclassSerializer):
+    """One row of catalog traversal history. Drives the logs view: the agent task
+    ids are nullable pointers to /tasks runs whose streaming logs render inline."""
+
+    class Meta:
+        dataclass = CatalogTraversalRunDTO
 
 
 class CatalogGraphDTOSerializer(DataclassSerializer):

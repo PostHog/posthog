@@ -6661,6 +6661,44 @@ export namespace Schemas {
       updated_at: string;
     }
 
+    /**
+     * Response from POST /catalog/sync/. The workflow runs asynchronously —
+    callers should poll GET /catalog/runs/ for progress.
+     */
+    export interface CatalogSyncResponse {
+      /** Temporal workflow id for the kicked-off catalog traversal pass. */
+      workflow_id: string;
+    }
+
+    /**
+     * One row of catalog traversal history. Drives the logs view: the agent task
+    ids are nullable pointers to /tasks runs whose streaming logs render inline.
+     */
+    export interface CatalogTraversalRunDTO {
+      id: string;
+      status: string;
+      trigger: string;
+      /** @nullable */
+      started_at: string | null;
+      /** @nullable */
+      completed_at: string | null;
+      nodes_processed: number;
+      columns_processed: number;
+      relationships_proposed: number;
+      descriptions_generated: number;
+      metrics_proposed: number;
+      /** @nullable */
+      description_task_id: string | null;
+      /** @nullable */
+      description_task_run_id: string | null;
+      /** @nullable */
+      metric_task_id: string | null;
+      /** @nullable */
+      metric_task_run_id: string | null;
+      /** @nullable */
+      error: string | null;
+    }
+
     export interface CategoricalScoreOption {
       /**
          * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
@@ -20941,6 +20979,15 @@ export namespace Schemas {
       results: CatalogNodeDTO[];
     }
 
+    export interface PaginatedCatalogTraversalRunDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CatalogTraversalRunDTO[];
+    }
+
     export interface PaginatedChangeRequestList {
       count: number;
       /** @nullable */
@@ -29853,7 +29900,7 @@ export namespace Schemas {
      * Body for catalog-metrics-partial-update. Every field optional; only supplied fields are written.
 
     Status / tags / semantic_role for the metric live on the bound CatalogNode(kind=metric).
-    Use the metric DTO's `node_id` to PATCH `/catalog/nodes/:node_id/` for those.
+    Use the metric DTO's `node.id` to PATCH `/catalog/nodes/:id/` for those.
      */
     export interface PatchedUpdateMetricInput {
       /** Human-readable description of what this metric measures, when to use it, and any caveats. Updating clears the old text — pass the full description, not a diff. */
@@ -40649,6 +40696,17 @@ export namespace Schemas {
     };
 
     export type CatalogNodesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CatalogRunsListParams = {
     /**
      * Number of results to return per page.
      */

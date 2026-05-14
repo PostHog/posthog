@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 0005_remove_catalogmetric_description
+=======
+0005_catalogtraversalrun_description_task_id_and_more
+>>>>>>> c645ad6d36cb81b4aa5b1f6e2da7e15faf8bae1c

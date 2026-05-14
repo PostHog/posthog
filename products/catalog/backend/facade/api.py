@@ -7,6 +7,7 @@ from products.catalog.backend.facade.contracts import (
     CatalogMetricDTO,
     CatalogNodeDTO,
     CatalogRelationshipDTO,
+    CatalogTraversalRunDTO,
     ProposeRelationshipParams,
     UpdateColumnParams,
     UpdateMetricParams,
@@ -91,3 +92,21 @@ class CatalogAPI:
     @staticmethod
     def update_relationship(params: UpdateRelationshipParams) -> CatalogRelationshipDTO | None:
         return logic.update_relationship(params)
+
+    @staticmethod
+    def list_traversal_runs(team_id: int) -> list[CatalogTraversalRunDTO]:
+        """Recent CatalogTraversalRun rows for the team, newest first."""
+        return logic.list_traversal_runs(team_id)
+
+    @staticmethod
+    async def start_traversal(team_id: int) -> str:
+        """Fire-and-forget kickoff of CatalogTraversalWorkflow. Returns workflow id.
+
+        Imported inline to avoid a facade <-> temporal cycle: `propose.py`
+        imports `CatalogAPI`, and the temporal package eagerly loads its
+        activities, so importing the client at module scope deadlocks the
+        partial module on first load.
+        """
+        from products.catalog.backend.temporal.client import start_catalog_traversal_workflow_async
+
+        return await start_catalog_traversal_workflow_async(team_id, trigger="api")

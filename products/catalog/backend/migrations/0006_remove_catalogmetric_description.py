@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("catalog", "0004_catalogtraversalrun_metrics_proposed"),
+        ("catalog", "0005_remove_catalogmetric_description.py"),
     ]
 
     operations = [

@@ -200,6 +200,33 @@ class UpsertMetricParams:
 
 
 @dataclass(frozen=True)
+class CatalogTraversalRunDTO:
+    """Audit row for one pass of the catalog traversal workflow.
+
+    Carries pointers to the sandboxed agent tasks spawned during the run so the
+    UI can render their streaming logs via the existing /tasks endpoints. Task
+    ids are nullable because they're only populated once the workflow reaches
+    the agent-spawn phase — early failures leave them blank.
+    """
+
+    id: UUID
+    status: str
+    trigger: str
+    started_at: datetime | None
+    completed_at: datetime | None
+    nodes_processed: int
+    columns_processed: int
+    relationships_proposed: int
+    descriptions_generated: int
+    metrics_proposed: int
+    description_task_id: UUID | None
+    description_task_run_id: UUID | None
+    metric_task_id: UUID | None
+    metric_task_run_id: UUID | None
+    error: str | None
+
+
+@dataclass(frozen=True)
 class ProposeRelationshipParams:
     """Write a candidate relationship to the catalog.
 

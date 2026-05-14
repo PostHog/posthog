@@ -7,7 +7,13 @@ from django.db import transaction
 from django.utils import timezone
 
 from products.catalog.backend.facade import contracts
-from products.catalog.backend.models import CatalogColumn, CatalogMetric, CatalogNode, CatalogRelationship
+from products.catalog.backend.models import (
+    CatalogColumn,
+    CatalogMetric,
+    CatalogNode,
+    CatalogRelationship,
+    CatalogTraversalRun,
+)
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 
@@ -389,3 +395,30 @@ def update_relationship(params: contracts.UpdateRelationshipParams) -> contracts
 
     rel.save()
     return to_relationship_dto(rel)
+
+
+def to_traversal_run_dto(run: CatalogTraversalRun) -> contracts.CatalogTraversalRunDTO:
+    return contracts.CatalogTraversalRunDTO(
+        id=run.id,
+        status=run.status,
+        trigger=run.trigger,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        nodes_processed=run.nodes_processed,
+        columns_processed=run.columns_processed,
+        relationships_proposed=run.relationships_proposed,
+        descriptions_generated=run.descriptions_generated,
+        metrics_proposed=run.metrics_proposed,
+        description_task_id=run.description_task_id,
+        description_task_run_id=run.description_task_run_id,
+        metric_task_id=run.metric_task_id,
+        metric_task_run_id=run.metric_task_run_id,
+        error=run.error,
+    )
+
+
+def list_traversal_runs(team_id: int, *, limit: int = 50) -> list[contracts.CatalogTraversalRunDTO]:
+    """Most recent traversal runs first. Capped so the UI doesn't accidentally
+    fetch years of history for a high-frequency cron."""
+    runs = CatalogTraversalRun.objects.filter(team_id=team_id).order_by("-started_at", "-id")[:limit]
+    return [to_traversal_run_dto(r) for r in runs]
