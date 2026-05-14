@@ -13,13 +13,27 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/LiveDebugger'),
             projectBased: true,
         },
+        DebuggingSessions: {
+            name: 'Debugging Sessions',
+            import: () => import('./frontend/DebuggingSessions'),
+            projectBased: true,
+        },
+        DebuggingSession: {
+            name: 'Debugging Session',
+            import: () => import('./frontend/DebuggingSession'),
+            projectBased: true,
+        },
     },
     routes: {
         '/live-debugger': ['LiveDebugger', 'liveDebugger'],
+        '/live-debugger/sessions': ['DebuggingSessions', 'debuggingSessions'],
+        '/live-debugger/sessions/:id': ['DebuggingSession', 'debuggingSession'],
     },
     redirects: {},
     urls: {
         liveDebugger: (): string => '/live-debugger',
+        debuggingSessions: (): string => '/live-debugger/sessions',
+        debuggingSession: (id: string): string => `/live-debugger/sessions/${id}`,
     },
     fileSystemTypes: {
         live_debugger: {
