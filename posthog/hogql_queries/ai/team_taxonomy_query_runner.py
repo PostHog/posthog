@@ -63,7 +63,9 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
             TeamTaxonomyItem(
                 event=event,
                 count=count,
-                last_seen_at=last_seen_at,
+                # ClickHouse returns the aggregate as a `datetime`, but the schema field is a string.
+                # Serialize to ISO 8601 so the value survives Pydantic validation and round-trips through caching.
+                last_seen_at=last_seen_at.isoformat() if last_seen_at else None,
                 count_24h=count_24h,
             )
             for event, count, last_seen_at, count_24h in self.paginator.results
