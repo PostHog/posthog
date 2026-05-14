@@ -230,7 +230,7 @@ async function main() {
                                     })
                                 }
                             }
-                            
+
                             // Add --web option for view commands
                             if (subcommandName === 'view' && subcommand.method === 'GET') {
                                 yargsBuilder = yargsBuilder.option('web', {
@@ -249,7 +249,7 @@ async function main() {
                             if (CHARTABLE_INSIGHT_TOOLS.has(subcommand.mcp_tool) && params.refresh === undefined) {
                                 params.refresh = 'blocking'
                             }
-                            
+
                             // Handle --web option for view commands
                             if (argv.web && subcommandName === 'view' && subcommand.method === 'GET') {
                                 await executeViewCommandWithWeb(argv, subcommand.mcp_tool, params)
@@ -324,14 +324,14 @@ async function executeViewCommandWithWeb(argv: any, toolName: string, params: an
     try {
         // Construct PostHog URL directly without API call
         const url = await constructPostHogUrl(argv.mcpContext as Context, toolName, null, params)
-        
+
         if (!url) {
             console.error(chalk.red('Error: Could not determine PostHog URL for this resource'))
             // Fall back to normal execution with API call
             await executeGeneratedTool(argv, toolName, params)
             return
         }
-        
+
         // Open URL in browser
         openBrowser(url)
         console.log(chalk.green(`Opened in browser: ${url}`))
@@ -341,23 +341,28 @@ async function executeViewCommandWithWeb(argv: any, toolName: string, params: an
     }
 }
 
-async function constructPostHogUrl(context: Context, toolName: string, result: any, params: any): Promise<string | undefined> {
+async function constructPostHogUrl(
+    context: Context,
+    toolName: string,
+    result: any,
+    params: any
+): Promise<string | undefined> {
     const projectId = await context.stateManager.getProjectId()
-    
+
     // Extract host from the API client config
     const baseUrl = (context.api as any).config.baseUrl
-    
+
     if (!baseUrl || !projectId) {
         return undefined
     }
-    
+
     // Map tool names to PostHog paths
     const resourceId = params.id || result?.id
-    
+
     if (!resourceId) {
         return undefined
     }
-    
+
     const urlMappings: Record<string, string> = {
         'feature-flag-get-definition': `/project/${projectId}/feature_flags/${resourceId}`,
         'insight-get': `/project/${projectId}/insights/${resourceId}`,
@@ -365,14 +370,14 @@ async function constructPostHogUrl(context: Context, toolName: string, result: a
         'cohorts-retrieve': `/project/${projectId}/cohorts/${resourceId}`,
         'dashboard-get': `/project/${projectId}/dashboard/${resourceId}`,
         'survey-get': `/project/${projectId}/surveys/${resourceId}`,
-        'notebook-get': `/project/${projectId}/notebooks/${resourceId}`
+        'notebook-get': `/project/${projectId}/notebooks/${resourceId}`,
     }
-    
+
     const path = urlMappings[toolName]
     if (path) {
         return `${baseUrl}${path}`
     }
-    
+
     return undefined
 }
 

@@ -42,6 +42,16 @@ describe('generated command API call construction', () => {
             },
         },
         {
+            name: 'legacy LLM analytics view uses the evaluations endpoint',
+            command: 'llm-analytics',
+            subcommand: 'view',
+            params: { id: '019e0983-7c65-0000-1d41-487e7760535c' },
+            expected: {
+                method: 'GET',
+                path: '/api/environments/123/evaluations/019e0983-7c65-0000-1d41-487e7760535c/',
+            },
+        },
+        {
             name: 'events list maps q to event definition search',
             command: 'events',
             subcommand: 'list',

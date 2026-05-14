@@ -252,6 +252,17 @@ function buildCustomAPICall(toolName: string, projectId: string, params: any) {
         }),
       }
 
+    case 'evaluation-get': {
+      const id = readPathParam(params, 'id', true)
+      if (id === undefined || id === null || String(id).length === 0) {
+        throw new Error('id parameter required for this command. Use --id <value>')
+      }
+      return {
+        method: 'GET' as const,
+        path: '/api/environments/' + projectId + '/evaluations/' + encodeURIComponent(String(id)) + '/',
+      }
+    }
+
     case 'event-definitions-list':
       return {
         method: 'GET' as const,
