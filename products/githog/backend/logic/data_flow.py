@@ -390,7 +390,7 @@ def _do_compute(
         head_sha=head_sha,
     )
 
-    parser = PydanticOutputParser(pydantic_object=DataFlowOutput)
+    parser: PydanticOutputParser[DataFlowOutput] = PydanticOutputParser(pydantic_object=DataFlowOutput)
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", SYSTEM_PROMPT),

@@ -138,16 +138,16 @@ class GitHogDataFlowStepSerializer(serializers.Serializer):
 
 class GitHogFlowNodeSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Stable, slugified id reused across before/after for unchanged steps.")
-    label = serializers.CharField(help_text="Short human title for the step.")
+    label = serializers.CharField(help_text="Short human title for the step.")  # type: ignore[assignment]
     file = serializers.CharField(allow_blank=True, help_text="Relative file path this node lives in, or empty.")
     detail = serializers.CharField(allow_blank=True, help_text="One sentence describing what happens at this node.")
     kind = serializers.CharField(help_text="entry | step | side_effect | return.")
 
 
 class GitHogFlowEdgeSerializer(serializers.Serializer):
-    source = serializers.CharField(help_text="Source FlowNode.id.")
+    source = serializers.CharField(help_text="Source FlowNode.id.")  # type: ignore[assignment]
     target = serializers.CharField(help_text="Target FlowNode.id.")
-    label = serializers.CharField(allow_blank=True, help_text="Optional edge label.")
+    label = serializers.CharField(allow_blank=True, help_text="Optional edge label.")  # type: ignore[assignment]
 
 
 class GitHogFlowGraphSerializer(serializers.Serializer):
@@ -186,7 +186,7 @@ class GitHogRiskScoreQuerySerializer(serializers.Serializer):
 
 class GitHogRiskScoreFactorSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="Stable identifier for this factor (e.g. 'diff_size').")
-    label = serializers.CharField(help_text="Human-readable factor name.")
+    label = serializers.CharField(help_text="Human-readable factor name.")  # type: ignore[assignment]
     score = serializers.IntegerField(
         min_value=0, max_value=100, help_text="Sub-score 0-100 contributed by this factor."
     )

@@ -265,7 +265,7 @@ def _llm_judgment_factor(
     patch_blob, patch_truncated = _build_patch_blob(files)
     file_list = _file_list_blob(files)
 
-    parser = PydanticOutputParser(pydantic_object=_LLMRiskJudgment)
+    parser: PydanticOutputParser[_LLMRiskJudgment] = PydanticOutputParser(pydantic_object=_LLMRiskJudgment)
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", SYSTEM_PROMPT),

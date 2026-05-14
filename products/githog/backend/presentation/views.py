@@ -5,7 +5,7 @@ Exposes an API for the GitHog frontend product: connected repositories,
 pull requests, and a native per-PR conversation thread.
 """
 
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from drf_spectacular.utils import extend_schema
@@ -17,6 +17,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.user import User
 
 from products.githog.backend.logic.data_flow import compute_data_flow
 from products.githog.backend.logic.risk_score import compute_risk_score
@@ -213,7 +214,7 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             row, is_cached = compute_data_flow(
                 team=self.team,
-                user=request.user,
+                user=cast(User, request.user),
                 integration=integration,
                 repository=repository,
                 pr_number=pr_number,
@@ -261,7 +262,7 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             response, _is_cached = compute_risk_score(
                 team=self.team,
-                user=request.user,
+                user=cast(User, request.user),
                 integration=integration,
                 repository=repository,
                 pr_number=pr_number,
@@ -292,7 +293,7 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             items = payload.validated_data["items"]
             row, _ = GitHogPullRequestLayout.objects.update_or_create(
                 team_id=self.team_id,
-                user=request.user,
+                user=cast(User, request.user),
                 repository=repository,
                 pr_number=pr_number,
                 defaults={"layout": {"items": items}},
@@ -310,19 +311,19 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query.is_valid(raise_exception=True)
         repository = query.validated_data["repository"]
         pr_number = query.validated_data["number"]
-        row = GitHogPullRequestLayout.objects.filter(
+        existing_row: GitHogPullRequestLayout | None = GitHogPullRequestLayout.objects.filter(
             team_id=self.team_id,
-            user=request.user,
+            user=cast(User, request.user),
             repository=repository,
             pr_number=pr_number,
         ).first()
-        items = (row.layout or {}).get("items", []) if row else []
+        items = (existing_row.layout or {}).get("items", []) if existing_row else []
         return Response(
             {
                 "repository": repository,
                 "pr_number": pr_number,
                 "items": items,
-                "exists": row is not None,
+                "exists": existing_row is not None,
             }
         )
 
@@ -374,7 +375,7 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team_id=self.team_id,
             repository=repository,
             pull_request_number=number,
-            author=request.user,
+            author=cast(User, request.user),
             body=body,
         )
 
