@@ -1,0 +1,46 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "body": {
+            "description": "Main message body shown beneath the title. Can be left blank if the long-form wizard text carries the message.",
+            "type": "string"
+        },
+        "long_form_wizard_text": {
+            "default": "",
+            "description": "Optional long-form text shown in the notification wizard expanded view.",
+            "type": "string"
+        },
+        "notification_style": {
+            "default": "envelope",
+            "description": "Visual style for the notification: 'envelope', 'scroll', or 'galactic'.\n\n* `envelope` - envelope\n* `scroll` - scroll\n* `galactic` - galactic",
+            "enum": ["envelope", "scroll", "galactic"],
+            "type": "string"
+        },
+        "priority": {
+            "default": "normal",
+            "description": "Delivery priority: 'normal' (popover only) or 'critical' (popover plus persistent toast).\n\n* `normal` - NORMAL\n* `critical` - CRITICAL",
+            "enum": ["normal", "critical"],
+            "type": "string"
+        },
+        "skill": {
+            "default": "",
+            "description": "Optional skill identifier used by the wizard UI to render an associated capability for the user.",
+            "type": "string"
+        },
+        "target_user_ids": {
+            "description": "IDs of the PostHog users who should receive this notification. Each user will receive the notification in their current project. Users without a current team are skipped.",
+            "items": {
+                "type": "number"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "title": {
+            "description": "Short headline shown to the user in the notification UI (max 255 characters).",
+            "maxLength": 255,
+            "type": "string"
+        }
+    },
+    "required": ["target_user_ids", "title", "body"],
+    "type": "object"
+}
