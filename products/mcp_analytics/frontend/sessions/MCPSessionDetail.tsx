@@ -31,7 +31,7 @@ export function MCPSessionDetail(): JSX.Element {
 
     const durationMs = sessionDurationMs(selectedSession.first_seen, selectedSession.last_seen)
     const calls = selectedSession.event_count
-    const identifiedPerson = !!selectedSession.person_id
+    const identifiedPerson = !!(selectedSession.person_name || selectedSession.person_email)
     const primaryLabel = identifiedPerson
         ? selectedSession.person_name || selectedSession.person_email || selectedSession.distinct_id
         : selectedSession.distinct_id || 'unknown'

@@ -176,21 +176,17 @@ class MCPSessionSerializer(serializers.Serializer):
     mcp_client_name = serializers.CharField(
         read_only=True, help_text="Most recent $mcp_client_name observed in the session."
     )
-    person_id = serializers.CharField(
+    distinct_id = serializers.CharField(
         read_only=True,
-        help_text="PostHog person UUID for the session, empty when the session is anonymous.",
+        help_text="Most recent distinct_id observed for the session. Stable identifier the SDK tagged the events with.",
     )
     person_email = serializers.CharField(
         read_only=True,
-        help_text="email property of the resolved person, empty when anonymous or not set.",
+        help_text="email property of the Person resolved from distinct_id; empty when no Person is mapped.",
     )
     person_name = serializers.CharField(
         read_only=True,
-        help_text="name property of the resolved person, empty when anonymous or not set.",
-    )
-    distinct_id = serializers.CharField(
-        read_only=True,
-        help_text="Most recent distinct_id seen on the session, useful as a fallback display when no person is resolved.",
+        help_text="name property of the Person resolved from distinct_id; empty when no Person is mapped.",
     )
 
 
