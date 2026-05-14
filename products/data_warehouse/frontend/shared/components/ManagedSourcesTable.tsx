@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
 import {
@@ -187,6 +188,7 @@ export function ManagedSourcesTable(): JSX.Element {
                                 )
                             }
 
+                            const sourceUrl = urls.dataWarehouseSource(`managed-${source.id}`)
                             return (
                                 <div className="flex flex-wrap gap-1">
                                     {counts.map(({ status, schemas }) => (
@@ -201,7 +203,11 @@ export function ManagedSourcesTable(): JSX.Element {
                                                 </ul>
                                             }
                                         >
-                                            <LemonTag type={StatusTagSetting[status] || 'default'}>
+                                            <LemonTag
+                                                type={StatusTagSetting[status] || 'default'}
+                                                forceClickable
+                                                onClick={() => router.actions.push(sourceUrl)}
+                                            >
                                                 {schemas.length} {statusLabel[status]}
                                             </LemonTag>
                                         </Tooltip>
