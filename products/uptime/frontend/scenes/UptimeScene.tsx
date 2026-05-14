@@ -196,11 +196,6 @@ function OverallStatusBanner({ stats }: { stats: OverallStats }): JSX.Element {
             </div>
             <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-secondary">
                 <Stat label="Monitors" value={String(total)} />
-                {down > 0 && (
-                    <LemonTag type="danger" size="small">
-                        {down} down
-                    </LemonTag>
-                )}
                 <Stat
                     label="Uptime (30d)"
                     value={avgUptime !== null ? formatPercent(avgUptime) : '—'}
