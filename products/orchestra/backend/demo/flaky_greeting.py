@@ -10,6 +10,12 @@ except ImportError:
 _MARKER = Path("/tmp/orchestra-flaky-greeting.attempted")  # noqa: S108
 
 
+def simulate_failure() -> None:
+    if not _MARKER.exists():
+        _MARKER.touch()
+        raise ValueError("oh oh")
+
+
 @step
 async def build_greeting(name: str) -> str:
     await asyncio.sleep(2)
@@ -19,9 +25,7 @@ async def build_greeting(name: str) -> str:
 @step
 async def flaky_log_greeting(greeting: str) -> str:
     await asyncio.sleep(2)
-    if not _MARKER.exists():
-        _MARKER.touch()
-        raise ValueError("what have you done to me??!!")
+    simulate_failure()
     print(f"[step flaky_log_greeting] {greeting}")  # noqa: T201
     _MARKER.unlink(missing_ok=True)
     return f"logged: {greeting}"
