@@ -174,8 +174,12 @@ export async function executeToolCall(context: Context, toolName: string, params
     throw new Error('Tool not found in enhanced mappings: ' + toolName)
   }
   
-  // Build API call from enhanced mapping data
-  const apiCall = buildAPICallFromMapping(toolInfo, projectId, params)
+  const resolvedParams = await resolveCustomPathParams(context, toolName, projectId, params)
+
+  // Build API call from enhanced mapping data. Some MCP tools are wrappers or
+  // hand-written helpers, so their endpoint cannot be scraped from generated
+  // tool files. Keep those explicit here instead of falling back to /api/unknown.
+  const apiCall = buildCustomAPICall(toolName, projectId, resolvedParams) ?? buildAPICallFromMapping(toolInfo, projectId, resolvedParams)
   
   return await context.api.request(apiCall)
 }
@@ -193,22 +197,180 @@ function findToolInEnhancedMappings(toolName: string): any | null {
   return null
 }
 
+function compactObject(value: Record<string, any>) {
+  return Object.fromEntries(Object.entries(value).filter(([, entryValue]) => entryValue !== undefined && entryValue !== null))
+}
+
+function hasExplicitShortId(params: any) {
+  return params.short_id !== undefined || params.shortId !== undefined || params['short-id'] !== undefined
+}
+
+async function resolveShortIdFromList(context: Context, params: any, listPath: string) {
+  if (!params.id || hasExplicitShortId(params)) {
+    return params
+  }
+
+  const listResult = await context.api.request<any>({ method: 'GET', path: listPath })
+  const rows = Array.isArray(listResult) ? listResult : listResult?.results
+  const matchingRow = Array.isArray(rows) ? rows.find((row) => String(row?.id) === String(params.id)) : undefined
+
+  if (!matchingRow?.short_id) {
+    return params
+  }
+
+  return { ...params, short_id: matchingRow.short_id }
+}
+
+async function resolveCustomPathParams(context: Context, toolName: string, projectId: string, params: any) {
+  switch (toolName) {
+    case 'notebooks-retrieve':
+      return await resolveShortIdFromList(context, params, '/api/projects/' + projectId + '/notebooks/')
+
+    case 'session-recording-playlist-get':
+      return await resolveShortIdFromList(context, params, '/api/projects/' + projectId + '/session_recording_playlists/')
+
+    default:
+      return params
+  }
+}
+
+// Build API calls for wrapper or hand-written MCP tools that do not expose a
+// scrapeable context.api.request({ method, path }) block.
+function buildCustomAPICall(toolName: string, projectId: string, params: any) {
+  switch (toolName) {
+    case 'evaluations-get':
+      return {
+        method: 'GET' as const,
+        path: '/api/environments/' + projectId + '/evaluations/',
+        query: compactObject({
+          enabled: params.enabled,
+          id__in: params.id__in,
+          limit: params.limit,
+          offset: params.offset,
+          order_by: params.order_by,
+          search: params.search,
+        }),
+      }
+
+    case 'event-definitions-list':
+      return {
+        method: 'GET' as const,
+        path: '/api/projects/' + projectId + '/event_definitions/',
+        query: compactObject({
+          search: params.q ?? params.search,
+          limit: params.limit,
+          offset: params.offset,
+        }),
+      }
+
+    case 'experiment-get-all':
+      return {
+        method: 'GET' as const,
+        path: '/api/projects/' + projectId + '/experiments/',
+        query: compactObject(params),
+      }
+
+    case 'hogql-schema':
+      return {
+        method: 'POST' as const,
+        path: '/api/projects/' + projectId + '/query/',
+        body: { query: compactObject({ kind: 'DatabaseSchemaQuery', connectionId: params.connectionId }) },
+      }
+
+    case 'projects-get':
+      return { method: 'GET' as const, path: '/api/projects/', query: compactObject(params) }
+
+    case 'property-definitions':
+    case 'properties-list': {
+      const type = params.type ?? 'event'
+      return {
+        method: 'GET' as const,
+        path: '/api/projects/' + projectId + '/property_definitions/',
+        query: compactObject({
+          event_names: params.eventName ? JSON.stringify([params.eventName]) : undefined,
+          exclude_core_properties: params.includePredefinedProperties === undefined ? undefined : !params.includePredefinedProperties,
+          filter_by_event_names: type === 'event' && params.eventName ? true : undefined,
+          is_feature_flag: false,
+          limit: params.limit,
+          offset: params.offset,
+          type,
+          exclude_hidden: true,
+        }),
+      }
+    }
+
+    case 'query-session-recordings-list':
+      return {
+        method: 'POST' as const,
+        path: '/api/projects/' + projectId + '/query/',
+        body: { query: compactObject({ kind: 'RecordingsQuery', ...params }) },
+      }
+
+    case 'user-get':
+      return {
+        method: 'GET' as const,
+        path: '/api/users/' + encodeURIComponent(String(params.uuid ?? params.id ?? '@me')) + '/',
+      }
+
+    case 'user-home-settings-get':
+      return {
+        method: 'GET' as const,
+        path: '/api/user_home_settings/' + encodeURIComponent(String(params.uuid ?? params.id ?? '@me')) + '/',
+      }
+
+    default:
+      return null
+  }
+}
+
+function camelCase(value: string) {
+  return value.replace(/[_-]([a-z])/g, (_match, letter) => String(letter).toUpperCase())
+}
+
+function readPathParam(params: any, placeholder: string, canUseIdFallback: boolean) {
+  const camel = camelCase(placeholder)
+  const dashed = placeholder.replace(/_/g, '-')
+  const exactValue = params[placeholder] ?? params[camel] ?? params[dashed]
+  if (exactValue !== undefined) {
+    return exactValue
+  }
+  return placeholder === 'id' || canUseIdFallback ? params.id : undefined
+}
+
+function omitPathParams(params: any, pathParams: Set<string>) {
+  const queryParams = { ...params }
+  delete queryParams.id
+  for (const pathParam of pathParams) {
+    delete queryParams[pathParam]
+    delete queryParams[camelCase(pathParam)]
+    delete queryParams[pathParam.replace(/_/g, '-')]
+  }
+  return queryParams
+}
+
 // Build API call from enhanced mapping information
 function buildAPICallFromMapping(toolInfo: any, projectId: string, params: any) {
   let endpoint = toolInfo.endpoint || '/api/unknown'
   let method = toolInfo.method || 'GET'
-  
-  // Replace template placeholders
-  // Check if ID is required but missing
-  if (endpoint.includes('{id}') && !params.id) {
-    throw new Error('ID parameter required for this command. Use --id <value>')
-  }
+  const pathParams = new Set<string>()
   
   endpoint = endpoint
     .replace(/\\\{project_id\\\}/g, projectId)
-    .replace(/\\\{id\\\}/g, params.id || '')
+    .replace(/\\\{org_id\\\}/g, '@current')
     // Handle the literal string case
     .replace('\${encodeURIComponent(String(projectId))}', encodeURIComponent(String(projectId)))
+
+  const pathParamNames = Array.from(String(endpoint).matchAll(/\\\{([^}]+)\\\}/g), (match: RegExpMatchArray) => match[1])
+  const canUseIdFallback = pathParamNames.length === 1
+
+  endpoint = endpoint.replace(/\\\{([^}]+)\\\}/g, (_match: string, placeholder: string) => {
+    const value = readPathParam(params, placeholder, canUseIdFallback)
+    if (value === undefined || value === null || String(value).length === 0) {
+      throw new Error(placeholder + ' parameter required for this command. Use --' + placeholder.replace(/_/g, '-') + ' <value>')
+    }
+    pathParams.add(placeholder)
+    return encodeURIComponent(String(value))
+  })
   
   const apiCall: any = {
     method: method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
@@ -217,15 +379,10 @@ function buildAPICallFromMapping(toolInfo: any, projectId: string, params: any) 
   
   // Add request body/query based on method
   if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
-    if (params.id) {
-      const { id, ...data } = params
-      apiCall.body = data
-    } else {
-      apiCall.body = params
-    }
+    apiCall.body = omitPathParams(params, pathParams)
   } else if (method === 'GET' && Object.keys(params).length > 0) {
-    // For GET requests, add query parameters (excluding id which is in path)
-    const { id, ...queryParams } = params
+    // For GET requests, add query parameters excluding path params.
+    const queryParams = omitPathParams(params, pathParams)
     if (Object.keys(queryParams).length > 0) {
       apiCall.query = queryParams
     }

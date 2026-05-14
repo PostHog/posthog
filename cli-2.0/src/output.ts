@@ -44,16 +44,19 @@ type AsciiChart = {
 }
 
 type Chartscii = {
-    new (data: number[], options?: { 
-        width?: number
-        height?: number
-        color?: string
-        sort?: boolean
-        reverse?: boolean
-        naked?: boolean
-        colorIndex?: number
-        theme?: any
-    }): {
+    new (
+        data: number[],
+        options?: {
+            width?: number
+            height?: number
+            color?: string
+            sort?: boolean
+            reverse?: boolean
+            naked?: boolean
+            colorIndex?: number
+            theme?: any
+        }
+    ): {
         create(): string
     }
 }
@@ -95,13 +98,13 @@ function getChartscii(): Chartscii | undefined {
 
 function isBarChartData(result: unknown): boolean {
     if (!isRecord(result)) return false
-    
+
     // Check if this is explicitly a bar chart visualization
     if (isRecord(result.query) && isRecord(result.query.source) && isRecord(result.query.source.trendsFilter)) {
         const display = result.query.source.trendsFilter.display
         return display === 'ActionsBarValue' || display === 'ActionsBar'
     }
-    
+
     return false
 }
 
@@ -137,24 +140,25 @@ function convertToBarChartSeries(result: unknown): ChartSeries[] {
 
 function shouldUseBarChart(series: ChartSeries[]): boolean {
     if (series.length === 0) return false
-    
+
     // Use bar charts for categorical data with fewer data points
     const firstSeries = series[0]
     const points = firstSeries.data.length
-    
+
     // If there are relatively few data points (≤ 10), consider using bar chart
     // Also check if labels look like categories rather than time series
     if (points <= 10) {
-        const labels = firstSeries.labels.map(l => stringify(l).toLowerCase())
+        const labels = firstSeries.labels.map((l) => stringify(l).toLowerCase())
         // Check if labels look like categories (not dates/times)
-        const hasDateLike = labels.some(label => 
-            /\d{4}-\d{2}-\d{2}/.test(label) || // ISO date
-            /\d{1,2}[-\/]\d{1,2}/.test(label) || // MM/DD or DD/MM
-            /jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/.test(label) // month names
+        const hasDateLike = labels.some(
+            (label) =>
+                /\d{4}-\d{2}-\d{2}/.test(label) || // ISO date
+                /\d{1,2}[-\/]\d{1,2}/.test(label) || // MM/DD or DD/MM
+                /jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/.test(label) // month names
         )
         return !hasDateLike
     }
-    
+
     return false
 }
 
@@ -868,14 +872,14 @@ function plotBarChart(series: ChartSeries[]): void {
         console.log(chalk.gray('Bar chart rendering is unavailable because chartscii is not installed.'))
         return
     }
-    
+
     if (series.length === 0) {
         console.log(chalk.gray('Not enough data to plot.'))
         return
     }
-    
+
     const termWidth = Math.max(60, Math.min(process.stdout.columns ?? 120, 200))
-    
+
     series.forEach((s, seriesIndex) => {
         const data = s.data.map((v) => Number(v) || 0)
         // Translate breakdown sentinels here too — `plotBarChart` is reached
@@ -883,60 +887,60 @@ function plotBarChart(series: ChartSeries[]): void {
         // from the trend-series fallthrough in `printInsightDetail`, which
         // hands us raw labels straight off the API.
         const labels = s.labels.map((l) => friendlyBreakdownLabel(l))
-        
+
         // Use PostHog's color system for each data point/category
         const categoryColors = data.map((_, categoryIndex) => {
             return getPostHogColor(categoryIndex)
         })
-        
+
         if (data.length === 0) return
-        
+
         const action = isRecord(s.action) ? s.action : null
         const name = stringify(s.label) || (action ? stringify(action.name) : '') || `Series ${seriesIndex + 1}`
         const total = typeof s.count === 'number' ? chalk.gray(`  total: ${formatLegendValue(s.count)}`) : ''
-        
+
         // Use the first category's color for the series header
         const seriesColor = categoryColors[0]?.terminal || { fn: chalk.white }
         console.log(`${seriesColor.fn('●')} ${name}${total}`)
         console.log('')
-        
+
         try {
             // Create individual colored charts for each bar
             const maxValue = Math.max(...data)
 
             // Find the width needed for all value labels
-            const valueLabels = data.map(v => formatYValue(v))
-            const maxLabelWidth = Math.max(...valueLabels.map(label => label.length))
+            const valueLabels = data.map((v) => formatYValue(v))
+            const maxLabelWidth = Math.max(...valueLabels.map((label) => label.length))
 
             // Reserve room for the value label gutter (maxLabelWidth + ` ╢` separator).
             // No inner cap — the terminal width is already clamped above.
             const chartWidth = Math.max(20, termWidth - (maxLabelWidth + 3))
-            
+
             data.forEach((value, index) => {
                 if (value === 0) return
-                
+
                 const color = categoryColors[index]
                 const label = labels[index]
                 const normalizedData = [value] // Single value for this bar
-                
+
                 try {
                     const miniChart = new Chartscii(normalizedData, {
                         width: Math.floor((value / maxValue) * chartWidth),
                         height: 2,
                         naked: true,
-                        color: color.chartscii
+                        color: color.chartscii,
                     })
-                    
+
                     // Extract just the bar part (without numbers) from chartscii output
                     const fullOutput = miniChart.create()
-                    const lines = fullOutput.split('\n').filter(line => line.trim() !== '')
+                    const lines = fullOutput.split('\n').filter((line) => line.trim() !== '')
                     // Get the first line and split by space to separate number from bar
                     const firstLine = lines[0] || ''
                     const parts = firstLine.split(' ')
                     // Skip the first part (the number) and join the rest (the bar)
                     const barPart = parts.slice(1).join(' ')
                     const valueStr = formatYValue(value).padEnd(maxLabelWidth, ' ')
-                    
+
                     console.log(`${valueStr} ╢${barPart}`)
                 } catch (error) {
                     // Fallback to simple text display
@@ -946,7 +950,7 @@ function plotBarChart(series: ChartSeries[]): void {
                     console.log(`${valueStr} ╢${color.terminal.fn(bar)}`)
                 }
             })
-            
+
             // Add spacing and labels
             console.log('')
             labels.forEach((label, i) => {
@@ -956,9 +960,11 @@ function plotBarChart(series: ChartSeries[]): void {
                 console.log(`  ${categoryColor.terminal.fn('●')} ${label}: ${formatLegendValue(value)}`)
             })
         } catch (error) {
-            console.log(chalk.gray(`Failed to render bar chart: ${error instanceof Error ? error.message : 'Unknown error'}`))
+            console.log(
+                chalk.gray(`Failed to render bar chart: ${error instanceof Error ? error.message : 'Unknown error'}`)
+            )
         }
-        
+
         if (seriesIndex < series.length - 1) {
             console.log('')
         }
@@ -1009,7 +1015,7 @@ function plotTrendsSeries(series: ChartSeries[]): void {
 
     const chart = asciichart.plot(numericSeries.length === 1 ? numericSeries[0] : numericSeries, {
         height: 12,
-        colors: seriesColors.map(c => c.ansi),
+        colors: seriesColors.map((c) => c.ansi),
         format: (x: number) => formatYValue(x).padStart(5, ' '),
     })
 

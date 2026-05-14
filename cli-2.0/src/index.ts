@@ -12,6 +12,18 @@ import { CHARTABLE_INSIGHT_TOOLS } from './insight-display.js'
 import { createMCPContext, type AuthenticatedConfig, type Context } from './mcp-context.js'
 import { printResult } from './output.js'
 
+const GLOBAL_PATH_PARAMS = new Set(['project_id', 'org_id'])
+
+function getResourcePathParams(endpoint: string | undefined): string[] {
+    return Array.from(endpoint?.matchAll(/\{([^}]+)\}/g) ?? [])
+        .map((match) => match[1])
+        .filter((param) => !GLOBAL_PATH_PARAMS.has(param))
+}
+
+function pathParamOptionName(param: string): string {
+    return param.replace(/_/g, '-')
+}
+
 function isTopLevelCommandGroupHelpRequest(argv: { _: Array<string | number> }): boolean {
     if (argv._.length !== 1) {
         return false
@@ -175,31 +187,49 @@ async function main() {
                 for (const [subcommandName, subcommand] of Object.entries(command.subcommands)) {
                     const subcommandAliases = subcommand.aliases || []
 
-                    // Check if this subcommand requires an ID
-                    const requiresId = subcommand.endpoint && subcommand.endpoint.includes('{id}')
+                    const pathParams = getResourcePathParams(subcommand.endpoint)
+                    const idAliasDescription =
+                        pathParams.length === 1 && pathParams[0] !== 'id'
+                            ? `Alias for --${pathParamOptionName(pathParams[0])}`
+                            : 'Resource ID'
 
                     subCommands = subCommands.command(
                         [subcommandName, ...subcommandAliases],
                         subcommand.description,
                         (yargs) => {
-                            let yargsBuilder = yargs
-                                .option('id', {
+                            let yargsBuilder = yargs.option('id', {
+                                type: 'string',
+                                describe: idAliasDescription,
+                            })
+
+                            for (const pathParam of pathParams) {
+                                if (pathParam === 'id') {
+                                    continue
+                                }
+                                yargsBuilder = yargsBuilder.option(pathParamOptionName(pathParam), {
                                     type: 'string',
-                                    describe: 'Resource ID',
-                                    demandOption: requiresId,
+                                    describe: `Path parameter: ${pathParam}`,
                                 })
-                            
+                            }
+
                             // Add options from inputs definition
                             if (subcommand.inputs && subcommand.inputs.properties) {
-                                for (const [paramName, paramDef] of Object.entries(subcommand.inputs.properties as Record<string, any>)) {
+                                for (const [paramName, paramDef] of Object.entries(
+                                    subcommand.inputs.properties as Record<string, any>
+                                )) {
                                     yargsBuilder = yargsBuilder.option(paramName, {
-                                        type: paramDef.type === 'number' ? 'number' : paramDef.type === 'boolean' ? 'boolean' : 'string',
+                                        type:
+                                            paramDef.type === 'number'
+                                                ? 'number'
+                                                : paramDef.type === 'boolean'
+                                                  ? 'boolean'
+                                                  : 'string',
                                         describe: paramDef.description,
                                         default: paramDef.default,
                                     })
                                 }
                             }
-                            
+
                             return yargsBuilder.strictOptions(false) // Allow additional API parameters
                         },
                         async (argv) => {

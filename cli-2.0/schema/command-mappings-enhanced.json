@@ -1,6 +1,6 @@
 {
     "version": "2.0",
-    "generated_at": "2026-05-14T14:53:56.130Z",
+    "generated_at": "2026-05-14T02:00:48.485Z",
     "commands": {
         "actions": {
             "description": "Manage actions",
@@ -39,14 +39,7 @@
                     "category": "Actions",
                     "endpoint": "/api/projects/{project_id}/actions/{id}/",
                     "method": "GET",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "action-get"
                 },
                 "update": {
@@ -428,14 +421,7 @@
                     "category": "Annotations",
                     "endpoint": "/api/projects/{project_id}/annotations/{id}/",
                     "method": "GET",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "annotation-retrieve"
                 },
                 "list": {
@@ -1076,14 +1062,7 @@
                     "category": "Cohorts",
                     "endpoint": "/api/projects/{project_id}/cohorts/{id}/",
                     "method": "GET",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "cohorts-retrieve"
                 },
                 "remove-persons": {
@@ -1258,14 +1237,7 @@
                     "category": "Feature flags",
                     "endpoint": "/api/projects/{project_id}/feature_flags/{id}/",
                     "method": "PATCH",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "delete-feature-flag"
                 },
                 "list": {
@@ -1301,14 +1273,7 @@
                     "category": "Feature flags",
                     "endpoint": "/api/projects/{project_id}/feature_flags/{id}/",
                     "method": "GET",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "feature-flag-get-definition"
                 },
                 "activity": {
@@ -1382,14 +1347,7 @@
                     "category": "Feature flags",
                     "endpoint": "/api/projects/{project_id}/feature_flags/{id}/status/",
                     "method": "GET",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "feature-flags-status-retrieve"
                 },
                 "test-evaluation": {
@@ -1443,140 +1401,6 @@
                         }
                     },
                     "mcp_tool": "feature-flags-user-blast-radius-create"
-                },
-                "scheduled-changes-create": {
-                    "name": "scheduled-changes-create",
-                    "humanName": "scheduled-changes-create",
-                    "description": "Create a scheduled change",
-                    "category": "Feature flags",
-                    "endpoint": "/api/projects/{project_id}/scheduled_changes/",
-                    "method": "POST",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "record_id": {
-                                "type": "number",
-                                "description": "record_id parameter"
-                            },
-                            "model_name": {
-                                "type": "string",
-                                "description": "model_name parameter"
-                            },
-                            "payload": {
-                                "type": "string",
-                                "description": "payload parameter"
-                            },
-                            "scheduled_at": {
-                                "type": "string",
-                                "description": "scheduled_at parameter"
-                            },
-                            "is_recurring": {
-                                "type": "boolean",
-                                "description": "is_recurring parameter"
-                            },
-                            "recurrence_interval": {
-                                "type": "string",
-                                "description": "recurrence_interval parameter"
-                            },
-                            "cron_expression": {
-                                "type": "string",
-                                "description": "cron_expression parameter"
-                            },
-                            "end_date": {
-                                "type": "string",
-                                "description": "end_date parameter"
-                            }
-                        }
-                    },
-                    "mcp_tool": "scheduled-changes-create"
-                },
-                "scheduled-changes-delete": {
-                    "name": "scheduled-changes-delete",
-                    "humanName": "scheduled-changes-delete",
-                    "description": "Delete a scheduled change",
-                    "category": "Feature flags",
-                    "endpoint": "/api/projects/{project_id}/scheduled_changes/{id}/",
-                    "method": "DELETE",
-                    "inputs": {},
-                    "mcp_tool": "scheduled-changes-delete"
-                },
-                "scheduled-changes-view": {
-                    "name": "scheduled-changes-view",
-                    "humanName": "scheduled-changes-view",
-                    "description": "Get a scheduled change",
-                    "category": "Feature flags",
-                    "endpoint": "/api/projects/{project_id}/scheduled_changes/{id}/",
-                    "method": "GET",
-                    "inputs": {},
-                    "mcp_tool": "scheduled-changes-get"
-                },
-                "scheduled-changes-list": {
-                    "name": "scheduled-changes-list",
-                    "humanName": "scheduled-changes-list",
-                    "description": "List scheduled changes for feature flags",
-                    "category": "Feature flags",
-                    "endpoint": "/api/projects/{project_id}/scheduled_changes/",
-                    "method": "GET",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "model_name": {
-                                "type": "string",
-                                "description": "model_name parameter"
-                            },
-                            "record_id": {
-                                "type": "string",
-                                "description": "record_id parameter"
-                            }
-                        }
-                    },
-                    "mcp_tool": "scheduled-changes-list"
-                },
-                "scheduled-changes-update": {
-                    "name": "scheduled-changes-update",
-                    "humanName": "scheduled-changes-update",
-                    "description": "Update a scheduled change",
-                    "category": "Feature flags",
-                    "endpoint": "/api/projects/{project_id}/scheduled_changes/{id}/",
-                    "method": "PATCH",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "record_id": {
-                                "type": "number",
-                                "description": "record_id parameter"
-                            },
-                            "model_name": {
-                                "type": "string",
-                                "description": "model_name parameter"
-                            },
-                            "payload": {
-                                "type": "string",
-                                "description": "payload parameter"
-                            },
-                            "scheduled_at": {
-                                "type": "string",
-                                "description": "scheduled_at parameter"
-                            },
-                            "is_recurring": {
-                                "type": "boolean",
-                                "description": "is_recurring parameter"
-                            },
-                            "recurrence_interval": {
-                                "type": "string",
-                                "description": "recurrence_interval parameter"
-                            },
-                            "cron_expression": {
-                                "type": "string",
-                                "description": "cron_expression parameter"
-                            },
-                            "end_date": {
-                                "type": "string",
-                                "description": "end_date parameter"
-                            }
-                        }
-                    },
-                    "mcp_tool": "scheduled-changes-update"
                 },
                 "update": {
                     "name": "update",
@@ -1686,14 +1510,7 @@
                     "category": "Dashboards",
                     "endpoint": "/api/projects/{project_id}/dashboards/{id}/",
                     "method": "PATCH",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "dashboard-delete"
                 },
                 "view": {
@@ -2416,7 +2233,9 @@
                                                 "maximum": 9007199254740991
                                             }
                                         },
-                                        "required": ["kind"]
+                                        "required": [
+                                            "kind"
+                                        ]
                                     },
                                     {
                                         "type": "object",
@@ -2430,7 +2249,10 @@
                                                 "description": "The name of the event that you want to retrieve properties for."
                                             }
                                         },
-                                        "required": ["kind", "event_name"]
+                                        "required": [
+                                            "kind",
+                                            "event_name"
+                                        ]
                                     },
                                     {
                                         "type": "object",
@@ -2444,7 +2266,10 @@
                                                 "description": "The type of the entity that you want to retrieve properties for."
                                             }
                                         },
-                                        "required": ["kind", "entity"]
+                                        "required": [
+                                            "kind",
+                                            "entity"
+                                        ]
                                     },
                                     {
                                         "type": "object",
@@ -2460,7 +2285,10 @@
                                                 "description": "The ID of the action that you want to retrieve properties for."
                                             }
                                         },
-                                        "required": ["kind", "action_id"]
+                                        "required": [
+                                            "kind",
+                                            "action_id"
+                                        ]
                                     },
                                     {
                                         "type": "object",
@@ -2478,7 +2306,11 @@
                                                 "description": "Verified property name of an entity."
                                             }
                                         },
-                                        "required": ["kind", "entity", "property_name"]
+                                        "required": [
+                                            "kind",
+                                            "entity",
+                                            "property_name"
+                                        ]
                                     },
                                     {
                                         "type": "object",
@@ -2496,7 +2328,11 @@
                                                 "description": "Verified property name of an event."
                                             }
                                         },
-                                        "required": ["kind", "event_name", "property_name"]
+                                        "required": [
+                                            "kind",
+                                            "event_name",
+                                            "property_name"
+                                        ]
                                     },
                                     {
                                         "type": "object",
@@ -2516,13 +2352,19 @@
                                                 "description": "Verified property name of an action."
                                             }
                                         },
-                                        "required": ["kind", "action_id", "property_name"]
+                                        "required": [
+                                            "kind",
+                                            "action_id",
+                                            "property_name"
+                                        ]
                                     }
                                 ],
                                 "description": "The data schema query to execute."
                             }
                         },
-                        "required": ["query"]
+                        "required": [
+                            "query"
+                        ]
                     },
                     "mcp_tool": "read-data-schema"
                 },
@@ -2899,7 +2741,9 @@
                                 }
                             }
                         },
-                        "required": ["query"]
+                        "required": [
+                            "query"
+                        ]
                     },
                     "mcp_tool": "entity-search"
                 },
@@ -4482,14 +4326,7 @@
                     "category": "LLM analytics",
                     "endpoint": "/api/environments/{project_id}/llm_skills/name/{skill_name}/archive/",
                     "method": "POST",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "llma-skill-archive"
                 },
                 "skill-create": {
@@ -4983,7 +4820,10 @@
                                 "description": "The event definition data to update"
                             }
                         },
-                        "required": ["eventName", "data"]
+                        "required": [
+                            "eventName",
+                            "data"
+                        ]
                     },
                     "mcp_tool": "event-definition-update"
                 },
@@ -5052,14 +4892,7 @@
                     "category": "Experiments",
                     "endpoint": "/api/projects/{project_id}/experiments/{id}/archive/",
                     "method": "POST",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "experiment-archive"
                 },
                 "create": {
@@ -5115,14 +4948,7 @@
                     "category": "Experiments",
                     "endpoint": "/api/projects/{project_id}/experiments/{id}/",
                     "method": "PATCH",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "experiment-delete"
                 },
                 "duplicate": {
@@ -5268,14 +5094,7 @@
                     "category": "Experiments",
                     "endpoint": "/api/projects/{project_id}/experiments/{id}/",
                     "method": "GET",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "experiment-get"
                 },
                 "list-legacy": {
@@ -5293,14 +5112,7 @@
                     "category": "Experiments",
                     "endpoint": "/api/projects/{project_id}/experiments/{id}/launch/",
                     "method": "POST",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "experiment-launch"
                 },
                 "list": {
@@ -5344,14 +5156,7 @@
                     "category": "Experiments",
                     "endpoint": "/api/projects/{project_id}/experiments/{id}/pause/",
                     "method": "POST",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "experiment-pause"
                 },
                 "reset": {
@@ -5361,14 +5166,7 @@
                     "category": "Experiments",
                     "endpoint": "/api/projects/{project_id}/experiments/{id}/reset/",
                     "method": "POST",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "experiment-reset"
                 },
                 "results": {
@@ -5389,7 +5187,9 @@
                                 "type": "boolean"
                             }
                         },
-                        "required": ["id"]
+                        "required": [
+                            "id"
+                        ]
                     },
                     "mcp_tool": "experiment-results-get"
                 },
@@ -5400,14 +5200,7 @@
                     "category": "Experiments",
                     "endpoint": "/api/projects/{project_id}/experiments/{id}/resume/",
                     "method": "POST",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "experiment-resume"
                 },
                 "ship-variant": {
@@ -5463,14 +5256,7 @@
                     "category": "Experiments",
                     "endpoint": "/api/projects/{project_id}/experiments/{id}/unarchive/",
                     "method": "POST",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "experiment-unarchive"
                 },
                 "update": {
@@ -7603,14 +7389,7 @@
                     "category": "Customer analytics",
                     "endpoint": "/api/projects/{project_id}/groups_types/{group_type_index}/metrics/{id}/",
                     "method": "DELETE",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "usage-metrics-destroy"
                 },
                 "list": {
@@ -7672,14 +7451,7 @@
                     "category": "Customer analytics",
                     "endpoint": "/api/projects/{project_id}/groups_types/{group_type_index}/metrics/{id}/",
                     "method": "GET",
-                    "inputs": {
-                        "type": "object",
-                        "properties": {
-                            "project_id": {
-                                "type": "string"
-                            }
-                        }
-                    },
+                    "inputs": {},
                     "mcp_tool": "usage-metrics-retrieve"
                 }
             }
@@ -7868,7 +7640,7 @@
     },
     "stats": {
         "total_tools": 365,
-        "mapped_tools": 365,
+        "mapped_tools": 360,
         "commands_created": 44
     }
 }

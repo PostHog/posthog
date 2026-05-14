@@ -249,6 +249,16 @@ const CLI_VERB: Record<string, string> = {
 }
 
 /** Hand-picked subcommand names that the algorithm can't reasonably derive. */
+const CLI_DENYLIST = new Set([
+    // The scheduled changes API is scope_object=INTERNAL, so API/OAuth tokens
+    // used by the CLI cannot call it. Do not expose commands that always fail.
+    'scheduled-changes-create',
+    'scheduled-changes-delete',
+    'scheduled-changes-get',
+    'scheduled-changes-list',
+    'scheduled-changes-update',
+])
+
 const EXPLICIT_NAMES: Record<string, string> = {
     'agent-feedback': 'submit',
     'cohorts-add-persons-to-static-cohort-partial-update': 'add-persons',
@@ -299,7 +309,7 @@ function parseGeneratedTools(): Record<string, ParsedTool> {
             // Import the tools module dynamically
             const toolsModulePath = path.join(GENERATED_TOOLS_DIR, file)
             const relativeModulePath = path.relative(__dirname, toolsModulePath).replace(/\.ts$/, '.js')
-            
+
             // Check if there's an export named GENERATED_TOOLS in the content
             if (content.includes('export const GENERATED_TOOLS')) {
                 // We'll extract tool schemas using the zod-to-json-schema approach later
@@ -315,59 +325,78 @@ function parseGeneratedTools(): Record<string, ParsedTool> {
                         const [, toolName, functionName] = toolExportMatch
                         if (map[toolName]) {
                             // Look for the tool function definition and its schema
-                            const toolFunctionRegex = new RegExp(`const\\s+${functionName}\\s*=\\s*\\(\\)[^{]*\\{[^}]*name:\\s*'${toolName}'[^}]*schema:\\s*(\\w+)`);
+                            const toolFunctionRegex = new RegExp(
+                                `const\\s+${functionName}\\s*=\\s*\\(\\)[^{]*\\{[^}]*name:\\s*'${toolName}'[^}]*schema:\\s*(\\w+)`
+                            )
                             const functionMatch = toolFunctionRegex.exec(content)
                             if (functionMatch) {
                                 const [, schemaName] = functionMatch
                                 // Find the schema definition
-                                const schemaDefRegex = new RegExp(`const\\s+${schemaName}\\s*=\\s*([^\\n]+)`);
+                                const schemaDefRegex = new RegExp(`const\\s+${schemaName}\\s*=\\s*([^\\n]+)`)
                                 const schemaDefMatch = schemaDefRegex.exec(content)
                                 if (schemaDefMatch) {
                                     const schemaDef = schemaDefMatch[1]
                                     // For schemas that extend other schemas, we need to extract the extended fields
                                     if (schemaDef.includes('.extend({')) {
-                                        const extendBodyMatch = content.match(new RegExp(`const\\s+${schemaName}\\s*=\\s*[^{]+\\{([^}]+)\\}`));
+                                        const extendBodyMatch = content.match(
+                                            new RegExp(`const\\s+${schemaName}\\s*=\\s*[^{]+\\{([^}]+)\\}`)
+                                        )
                                         if (extendBodyMatch) {
                                             const fields: Record<string, any> = {}
-                                            const fieldLines = extendBodyMatch[1].split(',').filter(line => line.trim())
-                                            
+                                            const fieldLines = extendBodyMatch[1]
+                                                .split(',')
+                                                .filter((line) => line.trim())
+
                                             for (const fieldLine of fieldLines) {
-                                                const fieldMatch = fieldLine.match(/(\w+):\s*(.+)/);
+                                                const fieldMatch = fieldLine.match(/(\w+):\s*(.+)/)
                                                 if (fieldMatch) {
                                                     const [, fieldName, fieldDef] = fieldMatch
-                                                    
+
                                                     // Skip fields handled globally by the CLI
                                                     if (fieldName === 'project_id' || fieldName === 'team_id') {
-                                                        continue;
+                                                        continue
                                                     }
-                                                    
+
                                                     let fieldSchema: any = { type: 'string' }
-                                                    
-                                                    if (fieldDef.includes('castStringToInt') || fieldDef.includes('z.number()')) {
-                                                        fieldSchema = { 
+
+                                                    if (
+                                                        fieldDef.includes('castStringToInt') ||
+                                                        fieldDef.includes('z.number()')
+                                                    ) {
+                                                        fieldSchema = {
                                                             type: 'number',
-                                                            description: fieldName === 'limit' ? 'Number of results to return per page' :
-                                                                       fieldName === 'offset' ? 'Number of results to skip for pagination' :
-                                                                       `${fieldName} parameter`
+                                                            description:
+                                                                fieldName === 'limit'
+                                                                    ? 'Number of results to return per page'
+                                                                    : fieldName === 'offset'
+                                                                      ? 'Number of results to skip for pagination'
+                                                                      : `${fieldName} parameter`,
                                                         }
                                                     } else if (fieldDef.includes('z.boolean()')) {
-                                                        fieldSchema = { type: 'boolean', description: `${fieldName} parameter` }
+                                                        fieldSchema = {
+                                                            type: 'boolean',
+                                                            description: `${fieldName} parameter`,
+                                                        }
                                                     } else if (fieldDef.includes('.describe(')) {
-                                                        const descMatch = fieldDef.match(/\.describe\(\s*['"`]([^'"`]+)['"`]/);
-                                                        fieldSchema = { 
-                                                            type: 'string', 
-                                                            description: descMatch ? descMatch[1] : `${fieldName} parameter`
+                                                        const descMatch = fieldDef.match(
+                                                            /\.describe\(\s*['"`]([^'"`]+)['"`]/
+                                                        )
+                                                        fieldSchema = {
+                                                            type: 'string',
+                                                            description: descMatch
+                                                                ? descMatch[1]
+                                                                : `${fieldName} parameter`,
                                                         }
                                                     }
-                                                    
+
                                                     fields[fieldName] = fieldSchema
                                                 }
                                             }
-                                            
+
                                             if (Object.keys(fields).length > 0) {
                                                 map[toolName].schema = {
                                                     type: 'object',
-                                                    properties: fields
+                                                    properties: fields,
                                                 }
                                             }
                                         }
@@ -375,44 +404,70 @@ function parseGeneratedTools(): Record<string, ParsedTool> {
                                     // For imported schemas (like CreateFeatureFlagSchema = FeatureFlagsCreateBody)
                                     else {
                                         // Extract parameters from the tool handler body
-                                        const handlerRegex = new RegExp(`const\\s+${functionName}[\\s\\S]*?handler:[\\s\\S]*?=>\\s*\\{([\\s\\S]*?)\\}\\s*,?\\s*\\}\\)`);
-                                        const handlerMatch = handlerRegex.exec(content);
+                                        const handlerRegex = new RegExp(
+                                            `const\\s+${functionName}[\\s\\S]*?handler:[\\s\\S]*?=>\\s*\\{([\\s\\S]*?)\\}\\s*,?\\s*\\}\\)`
+                                        )
+                                        const handlerMatch = handlerRegex.exec(content)
                                         if (handlerMatch) {
-                                            const handlerBody = handlerMatch[1];
-                                            const fields: Record<string, any> = {};
-                                            
+                                            const handlerBody = handlerMatch[1]
+                                            const fields: Record<string, any> = {}
+
                                             // Extract parameters from if (params.field !== undefined) patterns
-                                            const paramRegex = /if\s*\(\s*params\.(\w+)\s*!==\s*undefined\s*\)/g;
-                                            let paramMatch: RegExpExecArray | null;
+                                            const paramRegex = /if\s*\(\s*params\.(\w+)\s*!==\s*undefined\s*\)/g
+                                            let paramMatch: RegExpExecArray | null
                                             while ((paramMatch = paramRegex.exec(handlerBody)) !== null) {
-                                                const fieldName = paramMatch[1];
-                                                
+                                                const fieldName = paramMatch[1]
+
                                                 // Skip fields handled globally by the CLI
                                                 if (fieldName === 'project_id' || fieldName === 'team_id') {
-                                                    continue;
+                                                    continue
                                                 }
-                                                
+
                                                 // Infer types based on common field names
-                                                let fieldSchema: any = { type: 'string' };
-                                                
-                                                if (fieldName === 'active' || fieldName.includes('enabled') || fieldName.includes('is_')) {
-                                                    fieldSchema = { type: 'boolean', description: `${fieldName} parameter` };
-                                                } else if (fieldName.includes('_id') || fieldName === 'limit' || fieldName === 'offset') {
-                                                    fieldSchema = { type: 'number', description: `${fieldName} parameter` };
-                                                } else if (fieldName === 'filters' || fieldName === 'evaluation_contexts' || fieldName === 'tags') {
-                                                    fieldSchema = { type: 'array', description: `${fieldName} parameter` };
+                                                let fieldSchema: any = { type: 'string' }
+
+                                                if (
+                                                    fieldName === 'active' ||
+                                                    fieldName.includes('enabled') ||
+                                                    fieldName.includes('is_')
+                                                ) {
+                                                    fieldSchema = {
+                                                        type: 'boolean',
+                                                        description: `${fieldName} parameter`,
+                                                    }
+                                                } else if (
+                                                    fieldName.includes('_id') ||
+                                                    fieldName === 'limit' ||
+                                                    fieldName === 'offset'
+                                                ) {
+                                                    fieldSchema = {
+                                                        type: 'number',
+                                                        description: `${fieldName} parameter`,
+                                                    }
+                                                } else if (
+                                                    fieldName === 'filters' ||
+                                                    fieldName === 'evaluation_contexts' ||
+                                                    fieldName === 'tags'
+                                                ) {
+                                                    fieldSchema = {
+                                                        type: 'array',
+                                                        description: `${fieldName} parameter`,
+                                                    }
                                                 } else {
-                                                    fieldSchema = { type: 'string', description: `${fieldName} parameter` };
+                                                    fieldSchema = {
+                                                        type: 'string',
+                                                        description: `${fieldName} parameter`,
+                                                    }
                                                 }
-                                                
-                                                fields[fieldName] = fieldSchema;
+
+                                                fields[fieldName] = fieldSchema
                                             }
-                                            
+
                                             if (Object.keys(fields).length > 0) {
                                                 map[toolName].schema = {
                                                     type: 'object',
-                                                    properties: fields
-                                                };
+                                                    properties: fields,
+                                                }
                                             }
                                         }
                                     }
@@ -582,6 +637,10 @@ async function generateEnhancedMapping(): Promise<void> {
     const ungrouped: string[] = []
 
     for (const [toolName, toolDef] of Object.entries(toolDefinitions)) {
+        if (CLI_DENYLIST.has(toolName)) {
+            continue
+        }
+
         const parsed = parsedTools[toolName]
         const group = resolveGroup(toolName, parsed)
         if (!group) {
@@ -629,9 +688,7 @@ async function generateEnhancedMapping(): Promise<void> {
         const inputSchema = toolInputs.definitions?.[inputSchemaKeyFor(p.toolName)]
         // Prefer schema from MCP tool files if available, fallback to tool-inputs.json
         const finalInputs = p.parsed?.schema ?? inputSchema ?? {}
-        
-        
-        
+
         commands[p.group].subcommands[finalName] = {
             name: finalName,
             humanName: finalName,
@@ -654,9 +711,13 @@ async function generateEnhancedMapping(): Promise<void> {
         throw new Error('Name collisions — refusing to emit ambiguous mappings.')
     }
 
+    const existingGeneratedAt = fs.existsSync(OUTPUT_FILE)
+        ? (JSON.parse(fs.readFileSync(OUTPUT_FILE, 'utf8')).generated_at as string | undefined)
+        : undefined
+
     const enhancedMapping = {
         version: '2.0',
-        generated_at: new Date().toISOString(),
+        generated_at: existingGeneratedAt ?? new Date().toISOString(),
         commands,
         stats: {
             total_tools: Object.keys(toolDefinitions).length,
@@ -665,7 +726,7 @@ async function generateEnhancedMapping(): Promise<void> {
         },
     }
 
-    fs.writeFileSync(OUTPUT_FILE, JSON.stringify(enhancedMapping, null, 2))
+    fs.writeFileSync(OUTPUT_FILE, JSON.stringify(enhancedMapping, null, 4))
 
     console.log(`✅ Generated enhanced command mappings`)
     console.log(`📊 Processed: ${pending.length}/${Object.keys(toolDefinitions).length} tools`)
