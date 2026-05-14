@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from django.db.models import QuerySet
+
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -52,6 +54,12 @@ def create_missing_capability_submission(
 
 def list_mcp_sessions(team: Team, limit: int, offset: int) -> list[contracts.MCPSession]:
     return logic.list_mcp_sessions(team, limit=limit, offset=offset)
+
+
+def empty_session_queryset() -> QuerySet:
+    # MCPSessionViewSet is backed by ClickHouse, not Postgres — this exists only so
+    # DRF's GenericViewSet has a queryset to attach pagination plumbing to.
+    return MCPAnalyticsSubmission.objects.none()
 
 
 def list_mcp_tool_calls(

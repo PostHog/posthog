@@ -22,7 +22,6 @@ from posthog.permissions import SingleTenancyOrAdmin
 
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 from .serializers import (
     MCPAnalyticsSubmissionSerializer,
@@ -133,7 +132,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def dangerously_get_queryset(self) -> QuerySet:
         # Sessions are aggregated from ClickHouse events, not from a Django model.
         # Returning an empty queryset satisfies DRF's GenericViewSet plumbing.
-        return MCPAnalyticsSubmission.objects.none()
+        return api.empty_session_queryset()
 
     @extend_schema(
         operation_id="mcp_analytics_sessions_list",
