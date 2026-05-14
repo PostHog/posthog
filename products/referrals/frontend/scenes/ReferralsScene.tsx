@@ -79,8 +79,8 @@ export function ReferralsScene(): JSX.Element {
                     <Badge
                         variant={isMaxed ? 'success' : 'default'}
                         className={cn(
-                            'h-auto min-h-0 border-2 px-2 py-0.5 text-xs tabular-nums font-black leading-snug ring-0',
-                            isMaxed ? 'border-foreground/15' : 'border-primary/50 bg-primary/20 text-primary'
+                            'h-auto min-h-0 border px-2 py-0.5 text-xs tabular-nums font-semibold leading-snug ring-0',
+                            isMaxed ? 'border-foreground/15' : 'border-border text-foreground'
                         )}
                         title={`${done} of ${REFERRAL_MILESTONE_COUNT} milestones complete`}
                         data-attr="referral-attributed-milestones-count"

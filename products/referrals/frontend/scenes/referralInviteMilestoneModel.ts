@@ -59,3 +59,16 @@ export function buildReferralInviteStages(firstEventSent: boolean): {
 export function referralInviteMilestonesCompleted(row: ReferralAttributedSignupRow): number {
     return buildReferralInviteStages(row.firstEventSent).completedCount
 }
+
+/** Stages that advertise a reward line (excludes milestone-only steps). */
+export function referralRewardStages(stages: ReferralInviteStage[]): ReferralInviteStage[] {
+    return stages.filter((s) => Boolean(s.reward))
+}
+
+export function referralRewardsEarnedCount(stages: ReferralInviteStage[]): number {
+    return stages.filter((s) => Boolean(s.reward) && s.complete).length
+}
+
+export function referralRewardsTotalCount(stages: ReferralInviteStage[]): number {
+    return referralRewardStages(stages).length
+}
