@@ -7,7 +7,17 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo, useState } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 
-import { IconCheck, IconCode, IconDrag, IconGitBranch, IconGithub, IconPlus, IconRefresh, IconX } from '@posthog/icons'
+import {
+    IconCheck,
+    IconCode,
+    IconDrag,
+    IconGitBranch,
+    IconGithub,
+    IconPlus,
+    IconRefresh,
+    IconTrash,
+    IconX,
+} from '@posthog/icons'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -18,9 +28,15 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { DataFlowGraph, DiffStatus, computeFlowDiff } from '../DataFlowGraph'
+import {
+    GitHogPRConversationLogicProps,
+    GitHogPRMessage,
+    gitHogPRConversationLogic,
+} from '../gitHogPRConversationLogic'
 import {
     GitHogLayoutItem,
     GitHogPRLayoutLogicProps,
@@ -50,32 +66,13 @@ import { GitHogImpactWidget } from './GitHogImpactWidget'
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
 //
-// Comments and reviewers aren't yet exposed by the githog backend; keep mocks
-// so the scene renders, but every widget that *can* use real data does.
+// Reviewers aren't yet exposed by the githog backend; keep the mock so the
+// scene renders. Conversation messages are real (see ConversationWidget).
 
 const SAMPLE_REVIEWERS = [
     { name: 'Marcus Webb', initials: 'MW', status: 'changes_requested' as const },
     { name: 'Priya Kapoor', initials: 'PK', status: 'approved' as const },
     { name: 'James Liu', initials: 'JL', status: 'pending' as const },
-]
-
-const SAMPLE_COMMENTS = [
-    {
-        id: 1,
-        author: 'Marcus Webb',
-        initials: 'MW',
-        timestamp: '2 days ago',
-        body: "Should we guard against exporting when the graph hasn't finished loading? Right now it could fail silently.",
-        reviewType: 'changes_requested' as const,
-    },
-    {
-        id: 2,
-        author: 'Sarah Chen',
-        initials: 'SC',
-        timestamp: '2 days ago',
-        body: 'Good catch — added a loading guard and a toast for the not-ready state. Updated in the latest commit.',
-        reviewType: 'reply' as const,
-    },
 ]
 
 // ─── Widget registry ─────────────────────────────────────────────────────────
@@ -183,30 +180,110 @@ function WidgetShell({
 
 // ─── Individual widgets ───────────────────────────────────────────────────────
 
-function ConversationWidget(): JSX.Element {
+function initialsFor(message: GitHogPRMessage): string {
+    const source = message.author_name || message.author_email || ''
+    if (!source) {
+        return '?'
+    }
+    const parts = source
+        .replace(/@.*/, '')
+        .split(/[\s._-]+/)
+        .filter(Boolean)
+    if (parts.length === 0) {
+        return source.slice(0, 2).toUpperCase()
+    }
+    if (parts.length === 1) {
+        return parts[0].slice(0, 2).toUpperCase()
+    }
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
+function displayNameFor(message: GitHogPRMessage): string {
+    return message.author_name || message.author_email || 'Unknown user'
+}
+
+function ConversationWidget({ owner, name, number }: GitHogPRConversationLogicProps): JSX.Element {
+    const logic = gitHogPRConversationLogic({ owner, name, number })
+    const { messages, messagesLoading, composerValue } = useValues(logic)
+    const { setComposerValue, submitComposer, deleteMessage } = useActions(logic)
+    const trimmed = composerValue.trim()
+    const canSubmit = trimmed.length > 0 && !messagesLoading
+
     return (
-        <div className="flex flex-col divide-y divide-border">
-            <div className="px-4 py-3 flex items-center justify-between">
+        <div className="flex flex-col h-full">
+            <div className="px-4 py-3 flex items-center justify-between shrink-0 border-b border-border">
                 <span className="font-semibold text-sm">Conversation</span>
-                <span className="text-xs text-secondary">{SAMPLE_COMMENTS.length} comments (mock)</span>
+                <span className="text-xs text-secondary">
+                    {messages.length} message{messages.length === 1 ? '' : 's'}
+                </span>
             </div>
-            {SAMPLE_COMMENTS.map((c) => (
-                <div key={c.id} className="px-4 py-4 flex gap-x-3">
-                    <Avatar initials={c.initials} />
-                    <div className="flex flex-col gap-y-1.5 flex-1 min-w-0">
-                        <div className="flex items-center gap-x-2 flex-wrap">
-                            <span className="font-semibold text-sm">{c.author}</span>
-                            <span className="text-xs text-secondary">{c.timestamp}</span>
-                            {c.reviewType === 'changes_requested' && (
-                                <LemonTag type="danger" size="small" icon={<IconX />}>
-                                    Changes requested
-                                </LemonTag>
-                            )}
-                        </div>
-                        <p className="text-sm text-primary my-0 leading-relaxed">{c.body}</p>
+            <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-border">
+                {messagesLoading && messages.length === 0 && (
+                    <div className="px-4 py-4 flex flex-col gap-y-2">
+                        <LemonSkeleton className="h-4 w-1/3" />
+                        <LemonSkeleton className="h-4 w-3/4" />
                     </div>
+                )}
+                {!messagesLoading && messages.length === 0 && (
+                    <div className="px-4 py-6 text-center text-sm text-secondary">
+                        No messages yet. Be the first to say something.
+                    </div>
+                )}
+                {messages.map((m) => (
+                    <div key={m.id} className="px-4 py-4 flex gap-x-3 group/message">
+                        <Avatar initials={initialsFor(m)} />
+                        <div className="flex flex-col gap-y-1.5 flex-1 min-w-0">
+                            <div className="flex items-center gap-x-2 flex-wrap">
+                                <span className="font-semibold text-sm truncate">{displayNameFor(m)}</span>
+                                <span className="text-xs text-secondary">
+                                    <TZLabel time={m.created_at} />
+                                </span>
+                                {m.edited_at && (
+                                    <span className="text-xs text-muted italic" title={`Edited ${m.edited_at}`}>
+                                        (edited)
+                                    </span>
+                                )}
+                                {m.is_mine && (
+                                    <LemonButton
+                                        icon={<IconTrash />}
+                                        size="xsmall"
+                                        type="tertiary"
+                                        onClick={() => deleteMessage({ id: m.id })}
+                                        tooltip="Delete message"
+                                        aria-label="Delete message"
+                                        className="ml-auto opacity-0 group-hover/message:opacity-100 focus-visible:opacity-100"
+                                    />
+                                )}
+                            </div>
+                            <p className="text-sm text-primary my-0 leading-relaxed whitespace-pre-wrap break-words">
+                                {m.body}
+                            </p>
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <div className="px-4 py-3 border-t border-border shrink-0 flex flex-col gap-y-2">
+                <LemonTextArea
+                    value={composerValue}
+                    onChange={setComposerValue}
+                    onPressCmdEnter={canSubmit ? submitComposer : undefined}
+                    placeholder="Write a message… (⌘/Ctrl + Enter to send)"
+                    minRows={2}
+                    maxRows={6}
+                    data-attr="githog-conversation-composer"
+                />
+                <div className="flex items-center justify-end">
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={submitComposer}
+                        disabledReason={!trimmed ? 'Write a message first' : undefined}
+                        loading={messagesLoading && trimmed.length > 0}
+                    >
+                        Send
+                    </LemonButton>
                 </div>
-            ))}
+            </div>
         </div>
     )
 }
@@ -268,19 +345,55 @@ function AgentWidget({
     return <GitHogAgentChatWidget context={context} />
 }
 
-function StepList({ steps, emptyLabel }: { steps: GitHogDataFlowStep[]; emptyLabel: string }): JSX.Element {
+function StepList({
+    steps,
+    emptyLabel,
+    addedIds,
+    onItemClick,
+}: {
+    steps: GitHogDataFlowStep[]
+    emptyLabel: string
+    addedIds?: Set<string>
+    onItemClick?: (step: GitHogDataFlowStep) => void
+}): JSX.Element {
     if (steps.length === 0) {
         return <p className="text-secondary text-sm italic my-0">{emptyLabel}</p>
     }
     return (
         <ol className="flex flex-col gap-2 my-0 pl-5">
-            {steps.map((step, idx) => (
-                <li key={`${step.title}-${idx}`} className="text-sm">
-                    <div className="font-semibold">{step.title}</div>
-                    {step.file && <div className="font-mono text-xs text-muted">{step.file}</div>}
-                    {step.detail && <div className="text-sm text-secondary">{step.detail}</div>}
-                </li>
-            ))}
+            {steps.map((step, idx) => {
+                const isAdded = !!(step.id && addedIds?.has(step.id))
+                const clickable = isAdded && !!onItemClick
+                return (
+                    <li
+                        key={`${step.id || step.title}-${idx}`}
+                        className={
+                            isAdded
+                                ? `text-sm rounded px-2 py-1 -mx-2 border-l-2 ${
+                                      clickable ? 'cursor-pointer hover:bg-fill-highlight-50' : ''
+                                  }`
+                                : 'text-sm'
+                        }
+                        style={
+                            isAdded
+                                ? { background: 'rgba(34, 197, 94, 0.08)', borderColor: 'rgb(34, 197, 94)' }
+                                : undefined
+                        }
+                        onClick={clickable ? () => onItemClick(step) : undefined}
+                    >
+                        <div className="flex items-center gap-2">
+                            <span className="font-semibold">{step.title}</span>
+                            {isAdded && (
+                                <LemonTag type="success" size="small">
+                                    Added
+                                </LemonTag>
+                            )}
+                        </div>
+                        {step.file && <div className="font-mono text-xs text-muted">{step.file}</div>}
+                        {step.detail && <div className="text-sm text-secondary">{step.detail}</div>}
+                    </li>
+                )
+            })}
         </ol>
     )
 }
@@ -339,6 +452,33 @@ function DataFlowWidgetForPR({
         [filesByName]
     )
 
+    // Steps share the same id space as flow graph nodes (LLM is instructed to reuse
+    // ids across before/after). Compute the set of "after" step ids that didn't
+    // exist in "before" so the list view can highlight + open the same modal.
+    const addedStepIds = useMemo(() => {
+        if (!dataFlow) {
+            return new Set<string>()
+        }
+        const beforeIds = new Set(dataFlow.steps_before.map((s) => s.id).filter(Boolean))
+        return new Set(dataFlow.steps_after.map((s) => s.id).filter((id) => id && !beforeIds.has(id)))
+    }, [dataFlow])
+
+    const handleStepClick = useCallback(
+        (step: GitHogDataFlowStep) => {
+            const file = step.file ? filesByName.get(step.file) : undefined
+            // Synthesize a FlowNode so the existing modal can render it unchanged.
+            const node: GitHogFlowNode = {
+                id: step.id,
+                label: step.title,
+                file: step.file,
+                detail: step.detail,
+                kind: 'step',
+            }
+            setSelected({ node, diff: 'added', file })
+        },
+        [filesByName]
+    )
+
     const renderBody = (): JSX.Element => {
         if (dataFlowLoading && !dataFlow) {
             return (
@@ -360,7 +500,12 @@ function DataFlowWidgetForPR({
                     </div>
                     <div className="flex flex-col gap-2 min-w-0">
                         <div className="text-xs uppercase tracking-wide text-muted">After</div>
-                        <StepList steps={dataFlow.steps_after} emptyLabel="No new flow." />
+                        <StepList
+                            steps={dataFlow.steps_after}
+                            emptyLabel="No new flow."
+                            addedIds={addedStepIds}
+                            onItemClick={handleStepClick}
+                        />
                     </div>
                 </div>
             )
@@ -763,7 +908,7 @@ function GitHogPRWorkspaceInner({
         }
         switch (type) {
             case 'conversation':
-                return <ConversationWidget />
+                return <ConversationWidget owner={owner} name={repoName} number={number} />
             case 'files':
                 return <FilesWidget files={prDetail.files} />
             case 'agent':

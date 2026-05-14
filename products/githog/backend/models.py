@@ -1,5 +1,6 @@
 """Django models for githog."""
 
+from django.conf import settings
 from django.db import models
 
 
@@ -64,3 +65,32 @@ class GitHogPullRequestLayout(models.Model):
         indexes = [
             models.Index(fields=["team", "user", "repository", "pr_number"]),
         ]
+
+
+class GitHogPullRequestMessage(models.Model):
+    """A single message in the per-PR conversation thread.
+
+    The thread is implicit: messages with the same (team, repository, pr_number)
+    form one conversation, ordered by ``created_at``. Authors are kept as a FK so
+    we can render avatars and names from the existing user model.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="+",
+    )
+    repository = models.CharField(max_length=255)
+    pr_number = models.IntegerField()
+    body = models.TextField()
+    edited_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team", "repository", "pr_number", "created_at"]),
+        ]
+        ordering = ["created_at", "id"]

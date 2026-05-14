@@ -15,11 +15,13 @@ Two viewsets:
 
 from typing import Any
 
+from django.utils import timezone
+
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import viewsets
+from rest_framework import status, viewsets
 from rest_framework.decorators import action as rf_action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -34,7 +36,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 
 from products.githog.backend.logic.data_flow import compute_data_flow
 from products.githog.backend.logic.risk_score import compute_risk_score
-from products.githog.backend.models import GitHogPullRequestLayout
+from products.githog.backend.models import GitHogPullRequestLayout, GitHogPullRequestMessage
 
 from ..facade.api import compute_pr_impact
 from ..facade.contracts import PRImpactRequest
@@ -50,6 +52,11 @@ from .serializers import (
     GitHogPullRequestLayoutResponseSerializer,
     GitHogPullRequestListQuerySerializer,
     GitHogPullRequestListResponseSerializer,
+    GitHogPullRequestMessageCreateRequestSerializer,
+    GitHogPullRequestMessageListQuerySerializer,
+    GitHogPullRequestMessageListResponseSerializer,
+    GitHogPullRequestMessageSerializer,
+    GitHogPullRequestMessageUpdateRequestSerializer,
     GitHogRepositoryListResponseSerializer,
     GitHogRiskScoreQuerySerializer,
     GitHogRiskScoreResponseSerializer,
@@ -348,6 +355,109 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "exists": row is not None,
             }
         )
+
+    def _serialize_message(self, row: GitHogPullRequestMessage, request_user_id: int) -> dict[str, Any]:
+        author = row.author
+        return {
+            "id": row.id,
+            "body": row.body,
+            "author_id": author.id if author else None,
+            "author_name": (getattr(author, "first_name", "") or getattr(author, "email", "") or "") if author else "",
+            "author_email": getattr(author, "email", "") if author else "",
+            "is_mine": bool(author and author.id == request_user_id),
+            "edited_at": row.edited_at,
+            "created_at": row.created_at,
+        }
+
+    @extend_schema(
+        methods=["GET"],
+        parameters=[GitHogPullRequestMessageListQuerySerializer],
+        responses={200: GitHogPullRequestMessageListResponseSerializer},
+    )
+    @extend_schema(
+        methods=["POST"],
+        request=GitHogPullRequestMessageCreateRequestSerializer,
+        responses={201: GitHogPullRequestMessageSerializer},
+    )
+    @action(methods=["GET", "POST"], detail=False, url_path="pull_request_messages")
+    def pull_request_messages(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List or post messages in the conversation thread for a PR."""
+        if request.method == "POST":
+            payload = GitHogPullRequestMessageCreateRequestSerializer(data=request.data)
+            payload.is_valid(raise_exception=True)
+            row = GitHogPullRequestMessage.objects.create(
+                team_id=self.team_id,
+                author=request.user,
+                repository=payload.validated_data["repository"],
+                pr_number=payload.validated_data["number"],
+                body=payload.validated_data["body"].strip(),
+            )
+            return Response(
+                self._serialize_message(row, request.user.id),
+                status=status.HTTP_201_CREATED,
+            )
+
+        query = GitHogPullRequestMessageListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        repository = query.validated_data["repository"]
+        pr_number = query.validated_data["number"]
+
+        rows = GitHogPullRequestMessage.objects.filter(
+            team_id=self.team_id,
+            repository=repository,
+            pr_number=pr_number,
+        ).select_related("author")
+
+        return Response(
+            {
+                "repository": repository,
+                "pr_number": pr_number,
+                "messages": [self._serialize_message(row, request.user.id) for row in rows],
+            }
+        )
+
+    @extend_schema(
+        methods=["PATCH"],
+        request=GitHogPullRequestMessageUpdateRequestSerializer,
+        responses={200: GitHogPullRequestMessageSerializer},
+    )
+    @extend_schema(methods=["DELETE"], responses={204: None})
+    @action(
+        methods=["PATCH", "DELETE"],
+        detail=False,
+        url_path=r"pull_request_messages/(?P<message_id>\d+)",
+    )
+    def pull_request_message_detail(
+        self, request: Request, *args: Any, message_id: str | None = None, **kwargs: Any
+    ) -> Response:
+        """Edit or delete a single message — only the original author may do either."""
+        if message_id is None:
+            raise NotFound("Message id is required")
+
+        try:
+            row = GitHogPullRequestMessage.objects.select_related("author").get(
+                id=int(message_id),
+                team_id=self.team_id,
+            )
+        except GitHogPullRequestMessage.DoesNotExist:
+            raise NotFound("Message not found")
+
+        if row.author_id != request.user.id:
+            raise PermissionDenied("Only the author can modify this message")
+
+        if request.method == "DELETE":
+            row.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        payload = GitHogPullRequestMessageUpdateRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        new_body = payload.validated_data["body"].strip()
+        if new_body == row.body:
+            return Response(self._serialize_message(row, request.user.id))
+        row.body = new_body
+        row.edited_at = timezone.now()
+        row.save(update_fields=["body", "edited_at", "updated_at"])
+        return Response(self._serialize_message(row, request.user.id))
 
 
 @posthog_extend_schema(tags=["githog"])
