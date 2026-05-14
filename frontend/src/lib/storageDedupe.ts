@@ -1,8 +1,8 @@
 /**
- * Wraps `Storage.prototype.setItem` and `removeItem` on `localStorage` and
- * `sessionStorage` to skip redundant writes — `setItem(k, v)` becomes a no-op
- * when the current stored value already equals `v`, and `removeItem(k)`
- * becomes a no-op when the key isn't present.
+ * Wraps `setItem` and `removeItem` on the `localStorage` and
+ * `sessionStorage` instances to skip redundant writes — `setItem(k, v)`
+ * becomes a no-op when the current stored value already equals `v`, and
+ * `removeItem(k)` becomes a no-op when the key isn't present.
  *
  * Why: every `setItem` in Chromium broadcasts a `storage` event to every
  * other renderer in the same origin, and the receiver-side native IPC
@@ -11,6 +11,10 @@
  * (~4 writes/min on an idle tab in our reproducer), and most of those
  * writes serialize to a byte-identical payload. Deduplicating at this
  * layer suppresses the redundant broadcasts.
+ *
+ * Comparison reads the current value directly via the original `getItem`
+ * each call. No shadow cache — so cross-tab writes, `storage.clear()`,
+ * and any other out-of-band mutation can never cause a stale-cache skip.
  *
  * This is a defensive wrapper, not a behavior change. `setItem` with an
  * unchanged value is semantically a no-op for any reader that compares
@@ -67,45 +71,26 @@ export function installStorageDedupe(): void {
     window.__phStorageDedupe = metrics
 
     const wrap = (storage: Storage, kind: 'local' | 'session'): void => {
-        const last = new Map<string, string>()
         const origSet = storage.setItem.bind(storage)
         const origRemove = storage.removeItem.bind(storage)
         const origGet = storage.getItem.bind(storage)
 
-        // Seed the cache from whatever is already in storage so the very
-        // first redundant setItem call after install is still skipped.
-        for (let i = 0; i < storage.length; i++) {
-            const k = storage.key(i)
-            if (k === null) {
-                continue
-            }
-            const v = origGet(k)
-            if (v !== null) {
-                last.set(k, v)
-            }
-        }
-
         storage.setItem = function (key: string, value: string): void {
-            const k = String(key)
-            const v = typeof value === 'string' ? value : String(value)
-            if (last.get(k) === v) {
+            if (origGet(key) === value) {
                 metrics[`${kind}SetSkipped`] += 1
                 return
             }
-            last.set(k, v)
             metrics[`${kind}SetPassed`] += 1
-            origSet(k, v)
+            origSet(key, value)
         }
 
         storage.removeItem = function (key: string): void {
-            const k = String(key)
-            if (!last.has(k) && origGet(k) === null) {
+            if (origGet(key) === null) {
                 metrics[`${kind}RemoveSkipped`] += 1
                 return
             }
-            last.delete(k)
             metrics[`${kind}RemovePassed`] += 1
-            origRemove(k)
+            origRemove(key)
         }
     }
 
