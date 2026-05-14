@@ -47,10 +47,9 @@ LINEAR_AGENT_APP_CLIENT_SECRET = get_from_env("LINEAR_AGENT_APP_CLIENT_SECRET", 
 
 # Hognipotent — internal Next.js chat-bot service that owns the Linear agent
 # runtime. We POST the installation here right after the OAuth exchange and
-# DELETE it on disconnect. The shared secret is symmetric with hognipotent's
-# MAIN_APP_SHARED_SECRET — coordinate rotations with the hognipotent owner.
+# DELETE it on disconnect. Authentication uses the shared INTERNAL_API_SECRET
+# (see posthog/settings/data_stores.py)
 HOGNIPOTENT_URL = get_from_env("HOGNIPOTENT_URL", "")
-HOGNIPOTENT_SHARED_SECRET = get_from_env("HOGNIPOTENT_SHARED_SECRET", "")
 
 GITHUB_APP_CLIENT_ID = get_from_env("GITHUB_APP_CLIENT_ID", "")
 GITHUB_APP_PRIVATE_KEY = get_from_env("GITHUB_APP_PRIVATE_KEY", "")

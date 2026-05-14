@@ -2235,7 +2235,7 @@ class LinearAgentIntegration:
         return dot_get(self.integration.config, "data.viewer.id")
 
     def push_to_hognipotent(self) -> None:
-        if not settings.HOGNIPOTENT_URL or not settings.HOGNIPOTENT_SHARED_SECRET:
+        if not settings.HOGNIPOTENT_URL or not settings.INTERNAL_API_SECRET:
             raise ValidationError("Linear agent runtime is not configured on this instance")
 
         organization_id = self.organization_id()
@@ -2254,7 +2254,7 @@ class LinearAgentIntegration:
             response = requests.post(
                 f"{settings.HOGNIPOTENT_URL.rstrip('/')}/api/linear/installed",
                 headers={
-                    "Authorization": f"Bearer {settings.HOGNIPOTENT_SHARED_SECRET}",
+                    "Authorization": f"Bearer {settings.INTERNAL_API_SECRET}",
                     "Content-Type": "application/json",
                 },
                 json={
@@ -2307,12 +2307,12 @@ class LinearAgentIntegration:
     def delete_from_hognipotent(cls, organization_id: str | None) -> None:
         # Best-effort uninstall: we don't want a transient hognipotent outage to
         # block a user from deleting their Integration record locally.
-        if not settings.HOGNIPOTENT_URL or not settings.HOGNIPOTENT_SHARED_SECRET or not organization_id:
+        if not settings.HOGNIPOTENT_URL or not settings.INTERNAL_API_SECRET or not organization_id:
             return
         try:
             response = requests.delete(
                 f"{settings.HOGNIPOTENT_URL.rstrip('/')}/api/linear/installed",
-                headers={"Authorization": f"Bearer {settings.HOGNIPOTENT_SHARED_SECRET}"},
+                headers={"Authorization": f"Bearer {settings.INTERNAL_API_SECRET}"},
                 params={"organizationId": organization_id},
                 timeout=10,
             )

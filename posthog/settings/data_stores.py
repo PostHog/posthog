@@ -508,7 +508,11 @@ if not CDP_API_URL:
         "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
     )  # localhost is correct — plugin server runs on host in dev
 
-# Shared secret for internal API authentication between Django and Node.js services
+# Shared secret for authenticated service-to-service calls between PostHog's internal
+# components. This covers Django, the Node.js plugin/CDP server, the Rust services
+# (cymbal, ingestion-consumer), and other first-party runtimes such as hognipotent
+# (the Next.js chat-bot service). Every internal service that talks to another should
+# use this single secret rather than minting its own — rotate it everywhere together.
 LOCAL_DEV_INTERNAL_API_SECRET = "posthog123"
 INTERNAL_API_SECRET = get_from_env("INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET)
 
