@@ -2,6 +2,7 @@ import { hasScopes } from '@/lib/api'
 
 // Canvases
 import createCanvas from './canvases/create'
+import editCanvas from './canvases/edit'
 import generateCanvas from './canvases/generate'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
@@ -72,6 +73,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Canvases
     'create-canvas': createCanvas,
+    'edit-canvas': editCanvas,
     'generate-canvas': generateCanvas,
 
     // Queries

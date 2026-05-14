@@ -1275,6 +1275,52 @@ export class ApiClient {
                     body: JSON.stringify(body),
                 })
             },
+            /**
+             * Partially update a rendering canvas. Any subset of `name`, `content`, `path`,
+             * `task` may be passed. The Django serializer re-validates `content` on every
+             * write.
+             */
+            update: async ({
+                id,
+                name,
+                content,
+                path,
+                task,
+            }: {
+                id: string
+                name?: string
+                content?: string
+                path?: string
+                task?: string | null
+            }): Promise<
+                Result<{
+                    id: string
+                    name: string
+                    content: string
+                    path: string
+                    task: string | null
+                    created_at: string
+                    updated_at: string
+                }>
+            > => {
+                const body: Record<string, unknown> = {}
+                if (name !== undefined) {
+                    body.name = name
+                }
+                if (content !== undefined) {
+                    body.content = content
+                }
+                if (path !== undefined) {
+                    body.path = path
+                }
+                if (task !== undefined) {
+                    body.task = task
+                }
+                return this.fetchJson(`${this.baseUrl}/api/projects/${projectId}/rendering_canvases/${id}/`, {
+                    method: 'PATCH',
+                    body: JSON.stringify(body),
+                })
+            },
         }
     }
 
