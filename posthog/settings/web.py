@@ -113,6 +113,10 @@ MIDDLEWARE = [
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
+    # Live debugger: open a hogtrace request scope around the entire request so
+    # probes have a `$req.*` store for cross-probe state. Must wrap all inner
+    # middleware that user code (probes) might want to instrument.
+    "products.live_debugger.backend.middleware.HogtraceRequestScopeMiddleware",
     "posthog.personhog_client.middleware.PersonHogGateMiddleware",
     "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
