@@ -33,20 +33,26 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
             onClick={isLongResponse ? () => setIsExpanded(!isExpanded) : undefined}
         >
             <div className="text-sm truncate mb-auto">{responseText}</div>
-            <div className="flex items-center justify-between text-xs text-secondary mt-1">
-                <PersonDisplay
-                    person={{ distinct_id: response.distinctId }}
-                    displayName={response.personDisplayName}
-                    withIcon="xs"
-                    noEllipsis={false}
-                    noLink={!response.distinctId}
-                    muted
-                />
-                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between text-xs text-secondary mt-1 gap-2 min-w-0">
+                <div className="min-w-0 flex-1">
+                    <PersonDisplay
+                        person={{ distinct_id: response.distinctId }}
+                        displayName={response.personDisplayName}
+                        withIcon="xs"
+                        noEllipsis={false}
+                        noLink={!response.distinctId}
+                        muted
+                    />
+                </div>
+                <div
+                    className="flex items-center gap-2 shrink-0 whitespace-nowrap"
+                    onClick={(e) => e.stopPropagation()}
+                >
                     <ViewRecordingButton
                         sessionId={response.sessionId}
                         timestamp={response.timestamp}
                         variant={ViewRecordingButtonVariant.Link}
+                        className="whitespace-nowrap"
                         checkRecordingExists
                     />
                     {response.timestamp && <TZLabel time={response.timestamp} formatDate="MMM D" formatTime="HH:mm" />}
