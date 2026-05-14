@@ -39,7 +39,7 @@ class PeopleEnrichmentInputs:
     team_id: int
     chunk_size: int = DEFAULT_CHUNK_SIZE
     max_chunks: int | None = None
-    reenrich: bool = False  # If False, skips persons already enriched (have $pdl_enriched_at).
+    reenrich: bool = False  # If False, skips persons already enriched (have $enriched_at).
 
 
 @dataclasses.dataclass
@@ -425,6 +425,12 @@ async def enrich_chunk(inputs: EnrichChunkInputs) -> dict[str, typing.Any]:
         if not capture_client:
             return
         non_null_fields = {k: v for k, v in fields.items() if v is not None}
+        # Mirror `$enriched_at` onto the destination person so the real-time
+        # CDP enrichment template's dedupe guard (`person.properties.$enriched_at`)
+        # recognises bulk-enriched persons and doesn't pay PDL again. The bulk
+        # workflow's own dedupe still happens on the local Django person via
+        # `_persist`, but that doesn't propagate to the Cloud project.
+        set_fields = {**non_null_fields, ENRICHED_AT_KEY: now_iso}
         # Two calls intentionally:
         #   1. `capture` emits the `person_enriched` event with the enriched fields
         #      flattened on the event so they show up in events queries.
@@ -441,7 +447,7 @@ async def enrich_chunk(inputs: EnrichChunkInputs) -> dict[str, typing.Any]:
                 **non_null_fields,
             },
         )
-        capture_client.set(distinct_id=distinct_id, properties=non_null_fields)
+        capture_client.set(distinct_id=distinct_id, properties=set_fields)
 
     for person_id, distinct_id, fields, source, err in results:
         if err is not None:
