@@ -13,7 +13,9 @@ import {
     STEP_ORDER,
     StepKey,
 } from './cofounderFlowLogic'
+import { founderLandingPageLogic, LandingPageBuildSpec } from './components/founderLandingPageLogic'
 import { founderValidationLogic, ValidationReport } from './components/founderValidationLogic'
+import { LandingPageMockup } from './components/LandingPageMockup'
 import { Step2 } from './components/Step2'
 import { Step3 } from './components/Step3'
 import { Step4 } from './components/Step4'
@@ -265,6 +267,10 @@ function StepBlock({ stepKey, isActive }: { stepKey: StepKey; isActive: boolean 
                     placeholder="Channels, communities, the cheap stuff first"
                 />
             )
+        case 'landingLoading':
+            return <LandingLoadingStep isActive={isActive} />
+        case 'landingOutput':
+            return <LandingOutputStep isActive={isActive} />
         case 'done':
             return <DoneStep />
     }
@@ -640,6 +646,93 @@ function GTMLoadingStep(): JSX.Element {
             title="Nice, let's move on to Go to market"
             body="Positioning is the difference between a product people get and one they shrug at. Let's nail it."
         />
+    )
+}
+
+function LandingLoadingStep({ isActive }: { isActive: boolean }): JSX.Element {
+    const { projectId } = useValues(cofounderFlowLogic)
+    const { advance } = useActions(cofounderFlowLogic)
+
+    if (!projectId) {
+        return (
+            <LoadingBlock
+                title="Drafting your landing page"
+                body="One sec while I queue up the landing-page build spec."
+            />
+        )
+    }
+
+    return (
+        <BindLogic logic={founderLandingPageLogic} props={{ projectId }}>
+            <LandingLoadingInner isActive={isActive} onReady={advance} />
+        </BindLogic>
+    )
+}
+
+function LandingLoadingInner({ isActive, onReady }: { isActive: boolean; onReady: () => void }): JSX.Element {
+    const { spec, status } = useValues(founderLandingPageLogic)
+    const { generate } = useActions(founderLandingPageLogic)
+    const triggeredRef = React.useRef(false)
+    const readyRef = React.useRef(false)
+
+    // Kick off generation once when this step becomes active and nothing has been
+    // produced yet. Subsequent visits to this step rely on the polled status.
+    React.useEffect(() => {
+        if (isActive && !triggeredRef.current && !spec && (status == null || status === 'failed')) {
+            triggeredRef.current = true
+            generate()
+        }
+    }, [isActive, spec, status, generate])
+
+    React.useEffect(() => {
+        if (isActive && !readyRef.current && status === 'completed' && spec) {
+            readyRef.current = true
+            onReady()
+        }
+    }, [isActive, status, spec, onReady])
+
+    return (
+        <LoadingBlock
+            title="Drafting your landing page"
+            body={
+                status === 'failed'
+                    ? "That didn't generate cleanly. Try again from the landing-page step."
+                    : 'Pulling in your idea, validation, and GTM answers to draft the landing-page build spec.'
+            }
+        />
+    )
+}
+
+function LandingOutputStep({ isActive }: { isActive: boolean }): JSX.Element {
+    const { projectId } = useValues(cofounderFlowLogic)
+    const { advance } = useActions(cofounderFlowLogic)
+
+    if (!projectId) {
+        return (
+            <div>
+                <p className="text-text-secondary">No project found.</p>
+            </div>
+        )
+    }
+    return (
+        <BindLogic logic={founderLandingPageLogic} props={{ projectId }}>
+            <LandingOutputInner isActive={isActive} onNext={advance} />
+        </BindLogic>
+    )
+}
+
+function LandingOutputInner({ isActive, onNext }: { isActive: boolean; onNext: () => void }): JSX.Element {
+    const { spec } = useValues(founderLandingPageLogic) as { spec: LandingPageBuildSpec | null }
+    return (
+        <div>
+            <h2 className="text-2xl font-semibold mb-4">Here's your landing page draft</h2>
+            {spec ? <LandingPageMockup spec={spec} /> : <LoadingBlock title="Loading landing-page spec…" body="" />}
+            <div className="mt-6">
+                <Button variant="primary" size="sm" onClick={onNext} disabled={!isActive || !spec}>
+                    Next
+                </Button>
+            </div>
+        </div>
     )
 }
 

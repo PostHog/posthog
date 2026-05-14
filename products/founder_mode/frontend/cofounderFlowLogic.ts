@@ -16,6 +16,8 @@ export type StepKey =
     | 'gtmPositioning'
     | 'happyPath'
     | 'marketing'
+    | 'landingLoading'
+    | 'landingOutput'
     | 'done'
 
 export const STEP_ORDER: StepKey[] = [
@@ -28,6 +30,8 @@ export const STEP_ORDER: StepKey[] = [
     'gtmPositioning',
     'happyPath',
     'marketing',
+    'landingLoading',
+    'landingOutput',
     'done',
 ]
 
