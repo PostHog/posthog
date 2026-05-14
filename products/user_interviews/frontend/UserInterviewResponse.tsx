@@ -50,8 +50,12 @@ export function UserInterviewResponse({ topicId, responseId }: UserInterviewResp
                 setTopic(topicData)
                 const ctx = intervieweesData.results.find((c) => c.interviewee_identifier === identifier)
                 setIntervieweeContext(ctx || null)
-                const matchingInterview = interviewsData.results.find((i) => i.interviewee_emails?.includes(identifier))
-                setInterview(matchingInterview || null)
+                const matchingInterviews = interviewsData.results.filter(
+                    (i) => i.topic === topicId && i.interviewee_identifier === identifier
+                )
+                // Prefer the interview that has a transcript
+                const matchingInterview = matchingInterviews.find((i) => i.transcript) || matchingInterviews[0] || null
+                setInterview(matchingInterview)
 
                 // Look up person by email/distinct_id
                 try {
@@ -168,20 +172,6 @@ export function UserInterviewResponse({ topicId, responseId }: UserInterviewResp
                             </div>
                         </div>
                     </LemonWidget>
-
-                    {/* Person properties */}
-                    {person && Object.keys(person.properties || {}).length > 0 && (
-                        <LemonWidget title="Properties">
-                            <div className="p-4 space-y-2">
-                                {Object.entries(person.properties || {})
-                                    .filter(([key]) => !key.startsWith('$') && key !== 'email' && key !== 'name')
-                                    .slice(0, 10)
-                                    .map(([key, value]) => (
-                                        <DetailRow key={key} label={key} value={String(value ?? '')} />
-                                    ))}
-                            </div>
-                        </LemonWidget>
-                    )}
 
                     {intervieweeContext && (
                         <LemonWidget title="Interviewee context">

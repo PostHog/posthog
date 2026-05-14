@@ -56,14 +56,18 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
         },
     })),
     selectors(({ props }) => ({
-        respondedIdentifiers: [
+        topicInterviews: [
             (s) => [s.interviews],
+            (interviews): UserInterviewApi[] => interviews.filter((i) => i.topic === props.id),
+        ],
+        respondedIdentifiers: [
+            (s) => [s.topicInterviews],
             (interviews): Set<string> => {
                 const responded = new Set<string>()
                 for (const interview of interviews) {
                     if (interview.transcript || interview.summary) {
-                        for (const email of interview.interviewee_emails || []) {
-                            responded.add(email)
+                        if (interview.interviewee_identifier) {
+                            responded.add(interview.interviewee_identifier)
                         }
                     }
                 }

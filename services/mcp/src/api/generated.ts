@@ -24607,6 +24607,9 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly created_at: string;
       interviewee_emails?: string[];
+      readonly interviewee_identifier: string;
+      /** @nullable */
+      readonly topic: string | null;
       readonly transcript: string;
       summary?: string;
       audio: string;
@@ -30377,6 +30380,9 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       interviewee_emails?: string[];
+      readonly interviewee_identifier?: string;
+      /** @nullable */
+      readonly topic?: string | null;
       readonly transcript?: string;
       summary?: string;
       audio?: string;
