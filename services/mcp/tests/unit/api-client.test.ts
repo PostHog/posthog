@@ -185,6 +185,51 @@ describe('ApiClient', () => {
         vi.unstubAllGlobals()
     })
 
+    it('forwards traceparent with a fresh span id per outbound call', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+
+        const parent = '00-0123456789abcdef0123456789abcdef-fedcba9876543210-01'
+        const client = new ApiClient({
+            apiToken: 'test-token-123',
+            baseUrl: 'https://example.com',
+            traceparent: parent,
+        })
+
+        await (client as any).fetch('https://example.com/api/a', { method: 'GET' })
+        await (client as any).fetch('https://example.com/api/b', { method: 'GET' })
+
+        const tp1 = mockFetch.mock.calls[0]![1].headers.traceparent
+        const tp2 = mockFetch.mock.calls[1]![1].headers.traceparent
+        // Same trace id (middle segment)…
+        expect(tp1.split('-')[1]).toBe('0123456789abcdef0123456789abcdef')
+        expect(tp2.split('-')[1]).toBe('0123456789abcdef0123456789abcdef')
+        // …distinct span ids per outbound call…
+        expect(tp1.split('-')[2]).not.toBe(tp2.split('-')[2])
+        // …and the original parent's span id is *not* reused on either.
+        expect(tp1.split('-')[2]).not.toBe('fedcba9876543210')
+        expect(tp2.split('-')[2]).not.toBe('fedcba9876543210')
+
+        vi.unstubAllGlobals()
+    })
+
+    it('omits traceparent when not configured', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+
+        const client = new ApiClient({
+            apiToken: 'test-token-123',
+            baseUrl: 'https://example.com',
+        })
+
+        await (client as any).fetch('https://example.com/api/test', { method: 'GET' })
+
+        const [, options] = mockFetch.mock.calls[0]!
+        expect(options.headers).not.toHaveProperty('traceparent')
+
+        vi.unstubAllGlobals()
+    })
+
     describe('insights().get() — overrides forwarding', () => {
         const variablesOverride =
             '{"019d4838-1da4-0000-33c7-2561bf01f1c9":{"code_name":"eventname","variableId":"019d4838-1da4-0000-33c7-2561bf01f1c9","value":"signed_up"}}'

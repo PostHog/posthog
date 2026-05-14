@@ -70,6 +70,11 @@ export type RequestProperties = {
     // transport reconnects because the agent is asked to echo the value back
     // on every subsequent tool call.
     mcpConversationId?: string
+    // W3C `traceparent` for the inbound MCP request. Reused from the agent
+    // if it supplied one, otherwise minted in `index.ts`. Forwarded on every
+    // outbound API hop so Django's auto-instrumented spans are linked into
+    // the trace tree as remote-parent children. See `lib/trace-context.ts`.
+    traceparent?: string
     features?: string[]
     tools?: string[]
     region?: string
@@ -262,6 +267,7 @@ export class MCP extends McpAgent<Env> {
                 mcpConsumer: this.requestProperties.mcpConsumer,
                 mcpSessionId: this.requestProperties.mcpSessionId,
                 mcpConversationId: this.requestProperties.mcpConversationId,
+                traceparent: this.requestProperties.traceparent,
             })
         }
 
@@ -280,6 +286,7 @@ export class MCP extends McpAgent<Env> {
             apiToken: props?.apiToken,
             mcpSessionId: props?.mcpSessionId,
             mcpConversationId: props?.mcpConversationId,
+            traceparent: props?.traceparent,
         })
         await super.setName(name, props)
     }
@@ -297,6 +304,7 @@ export class MCP extends McpAgent<Env> {
             apiToken: props?.apiToken,
             mcpSessionId: props?.mcpSessionId,
             mcpConversationId: props?.mcpConversationId,
+            traceparent: props?.traceparent,
         })
         await super.updateProps(props)
     }
@@ -331,6 +339,7 @@ export class MCP extends McpAgent<Env> {
         apiToken: string | undefined
         mcpSessionId: string | undefined
         mcpConversationId: string | undefined
+        traceparent: string | undefined
     }): void {
         if (!this._api) {
             return
@@ -343,6 +352,9 @@ export class MCP extends McpAgent<Env> {
         }
         if (updates.mcpConversationId && this._api.config.mcpConversationId !== updates.mcpConversationId) {
             this._api.config.mcpConversationId = updates.mcpConversationId
+        }
+        if (updates.traceparent && this._api.config.traceparent !== updates.traceparent) {
+            this._api.config.traceparent = updates.traceparent
         }
     }
 

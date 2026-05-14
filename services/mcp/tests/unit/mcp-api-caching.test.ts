@@ -407,4 +407,19 @@ describe('MCP.updateProps() MCP-id rotation (cold start / hibernation)', () => {
 
         expect(api.config.mcpConversationId).toBe('conv-xyz')
     })
+
+    it('propagates a fresh traceparent onto the cached ApiClient', async () => {
+        const mcp = buildMcp('token-A')
+        const api = await mcp.api()
+        expect(api.config.traceparent).toBeUndefined()
+
+        const traceparent = '00-0123456789abcdef0123456789abcdef-fedcba9876543210-01'
+        await (mcp as any).updateProps({
+            userHash: 'user-hash',
+            apiToken: 'token-A',
+            traceparent,
+        })
+
+        expect(api.config.traceparent).toBe(traceparent)
+    })
 })

@@ -9,6 +9,7 @@ import {
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
+import { mintTraceparent } from '@/lib/trace-context'
 import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
@@ -358,12 +359,24 @@ const handleRequest = async (
     // the same `requestProperties.mcpConversationId` slot.
     const mcpConversationId = sanitizeHeaderValue(request.headers.get('mcp-conversation-id') || undefined)
 
+    // W3C trace context propagation. Reuse the agent-supplied `traceparent`
+    // when present so an already-instrumented caller's trace continues
+    // through us; otherwise mint a fresh one so Django spans for downstream
+    // hops are rooted as remote-parent children of a synthetic Worker-side
+    // span. We do not export Worker-side OTLP today — see
+    // `services/mcp/src/lib/trace-context.ts`. The sampling decision on the
+    // minted path is deterministic-by-conversation/session, so all hops in
+    // one agent run are either traced together or dropped together.
+    const inboundTraceparent = sanitizeHeaderValue(request.headers.get('traceparent') || undefined)
+    const traceparent = inboundTraceparent ?? mintTraceparent({ mcpConversationId, mcpSessionId })
+
     Object.assign(ctx.props, {
         apiToken: token,
         userHash: hash(token),
         sessionId: sessionId || undefined,
         mcpSessionId,
         mcpConversationId,
+        traceparent,
         organizationId,
         projectId,
         clientUserAgent,
