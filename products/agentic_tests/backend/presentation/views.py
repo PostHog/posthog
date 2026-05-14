@@ -21,6 +21,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.renderers import ServerSentEventRenderer
 
 from products.agentic_tests.backend.logic.execution import execute_agentic_test
 from products.agentic_tests.backend.logic.runner import AgentEvent, run_agent
@@ -144,7 +145,7 @@ class AgenticTestViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "carries the persisted AgenticTestRun id (`run_id`) so the client can fetch the row."
         ),
     )
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"], renderer_classes=[ServerSentEventRenderer])
     def stream(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         test: AgenticTest = self.get_object()
         run = AgenticTestRun.objects.create(

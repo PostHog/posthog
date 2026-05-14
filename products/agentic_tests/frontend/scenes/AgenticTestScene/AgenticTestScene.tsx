@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
+import { useEffect, useRef } from 'react'
 
 import {
     LemonBanner,
@@ -118,9 +119,17 @@ function AssertionsEditor({ assertions, onAdd, onUpdate, onRemove }: AssertionsE
 
 export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
     const logic = agenticTestSceneLogic({ id })
-    const { test, testForm, runs, runsLoading, isNew, logsUrl } = useValues(logic)
+    const { test, testForm, runs, runsLoading, isNew, logsUrl, liveEvents, streaming } = useValues(logic)
+    const liveLogRef = useRef<HTMLDivElement>(null)
+    useEffect(() => {
+        const el = liveLogRef.current
+        if (el) {
+            el.scrollTop = el.scrollHeight
+        }
+    }, [liveEvents])
     const {
-        runNow,
+        streamRun,
+        clearLiveEvents,
         activate,
         pause,
         reject,
@@ -158,10 +167,12 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                onClick={runNow}
-                                data-attr="agentic-test-run-now-detail"
+                                onClick={streamRun}
+                                loading={streaming}
+                                disabledReason={streaming ? 'A run is already in progress' : undefined}
+                                data-attr="agentic-test-run-detail"
                             >
-                                Run now
+                                Run
                             </LemonButton>
                         )}
                         {!isNew && test?.status === 'proposed' && (
@@ -243,6 +254,53 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                     </div>
                 </div>
             </Form>
+            {!isNew && (liveEvents.length > 0 || streaming) && (
+                <section className="mt-8">
+                    <div className="flex items-center justify-between mb-2">
+                        <h3 className="font-semibold">Live run {streaming ? '(streaming…)' : ''}</h3>
+                        <LemonButton type="tertiary" size="small" onClick={clearLiveEvents}>
+                            Clear
+                        </LemonButton>
+                    </div>
+                    <div
+                        ref={liveLogRef}
+                        className="border rounded p-2 max-h-96 overflow-auto bg-bg-light font-mono text-xs"
+                    >
+                        {liveEvents.map((ev, idx) => (
+                            <div key={idx} className="py-0.5">
+                                <span className="text-muted">[{ev.event}]</span>{' '}
+                                {ev.data?.step != null && <span className="text-muted">step {ev.data.step} </span>}
+                                {ev.event === 'tool_call' ? (
+                                    <span>
+                                        <strong>{ev.data.name}</strong>({JSON.stringify(ev.data.input ?? {})})
+                                    </span>
+                                ) : ev.event === 'tool_result' ? (
+                                    <span className="text-muted">→ {String(ev.data.result).slice(0, 200)}</span>
+                                ) : ev.event === 'model_text' ? (
+                                    <span className="text-muted italic">{ev.data.text}</span>
+                                ) : ev.event === 'status' ? (
+                                    <span>
+                                        {ev.data.message}{' '}
+                                        {ev.data.replay_url && (
+                                            <Link to={ev.data.replay_url} target="_blank">
+                                                (replay)
+                                            </Link>
+                                        )}
+                                    </span>
+                                ) : ev.event === 'final' ? (
+                                    <span>
+                                        verdict: {ev.data.passed ? '✓ passed' : '✗ failed'} —{' '}
+                                        {ev.data.output?.verdict?.reason ?? ev.data.error ?? ''}
+                                    </span>
+                                ) : (
+                                    <span>{JSON.stringify(ev.data)}</span>
+                                )}
+                            </div>
+                        ))}
+                        {liveEvents.length === 0 && <div className="text-muted">Waiting for events…</div>}
+                    </div>
+                </section>
+            )}
             {!isNew && (
                 <section className="mt-8">
                     <div className="flex items-center justify-between mb-2">
@@ -257,7 +315,7 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                         dataSource={runs}
                         loading={runsLoading}
                         rowKey="id"
-                        emptyState="No runs yet — hit Run now to execute the prompt."
+                        emptyState="No runs yet — hit Run to execute the prompt."
                         columns={[
                             {
                                 title: 'Started',
