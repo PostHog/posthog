@@ -79,11 +79,13 @@ class SandboxConfig(BaseModel):
     memory_gb: float = 16
     cpu_cores: float = 4
     disk_size_gb: float = 64
+    modal_app_name: str | None = None
 
 
 WORKING_DIR = "/tmp/workspace"
+PREWARMED_SANDBOX_ENV_FILE = "/tmp/posthog-prewarmed-agent-env.sh"
 
-PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.github"})
+PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.github", "posthog/posthog"})
 """Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
 # TODO: Remove `posthog/.github` when we switch repo discovery to repo-less agent (now it works as a lightweight dummy)
 
@@ -336,8 +338,16 @@ def _get_modal_docker_sandbox_class() -> SandboxClass:
     from .modal_sandbox import ModalSandbox
 
     class ModalDockerSandbox(ModalSandbox):
-        DEFAULT_APP_NAME = "posthog-sandbox-modal-docker-default"
-        NOTEBOOK_APP_NAME = "posthog-sandbox-modal-docker-notebook"
+        DEFAULT_APP_NAME = getattr(
+            settings,
+            "SANDBOX_MODAL_DOCKER_DEFAULT_APP_NAME",
+            "posthog-sandbox-modal-docker-default",
+        )
+        NOTEBOOK_APP_NAME = getattr(
+            settings,
+            "SANDBOX_MODAL_DOCKER_NOTEBOOK_APP_NAME",
+            "posthog-sandbox-modal-docker-notebook",
+        )
 
     return ModalDockerSandbox
 

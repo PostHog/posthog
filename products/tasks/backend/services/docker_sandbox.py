@@ -40,6 +40,7 @@ from .agentsh import (
 )
 from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
 from .sandbox import (
+    PREWARMED_SANDBOX_ENV_FILE,
     WORKING_DIR,
     AgentServerResult,
     ExecutionResult,
@@ -663,7 +664,9 @@ class DockerSandbox(SandboxBase):
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
             )
         else:
-            return f"cd /scripts && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
+            env_file = shlex.quote(PREWARMED_SANDBOX_ENV_FILE)
+            unwrapped_inner = f"[ -f {env_file} ] && . {env_file}; {inner}"
+            return f"cd /scripts && nohup bash -c {shlex.quote(unwrapped_inner)} > /tmp/agent-server-launch.log 2>&1 &"
 
     def _launch_and_check(self, command: str) -> bool:
         """Execute the agent-server command and wait for the health check.

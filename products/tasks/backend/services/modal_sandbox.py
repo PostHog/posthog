@@ -49,6 +49,7 @@ from products.tasks.backend.services.modal_provision_diagnostics import (
     summarize_modal_output,
 )
 from products.tasks.backend.services.sandbox import (
+    PREWARMED_SANDBOX_ENV_FILE,
     WORKING_DIR,
     SandboxBase,
     build_agent_runtime_env_prefix,
@@ -244,7 +245,9 @@ class ModalSandbox(SandboxBase):
         return modal.App.lookup(cls.DEFAULT_APP_NAME, create_if_missing=True)
 
     @classmethod
-    def _get_app_for_template(cls, template: SandboxTemplate) -> modal.App:
+    def _get_app_for_template(cls, template: SandboxTemplate, app_name: str | None = None) -> modal.App:
+        if app_name:
+            return modal.App.lookup(app_name, create_if_missing=True)
         if template == SandboxTemplate.NOTEBOOK_BASE:
             return modal.App.lookup(cls.NOTEBOOK_APP_NAME, create_if_missing=True)
         return cls._get_default_app()
@@ -252,7 +255,7 @@ class ModalSandbox(SandboxBase):
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
         try:
-            app = cls._get_app_for_template(config.template)
+            app = cls._get_app_for_template(config.template, config.modal_app_name)
             base_image = _get_template_image(config.template)
             image = base_image
             used_snapshot_image = False
@@ -567,7 +570,9 @@ class ModalSandbox(SandboxBase):
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
             )
         else:
-            return f"cd /scripts && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
+            env_file = shlex.quote(PREWARMED_SANDBOX_ENV_FILE)
+            unwrapped_inner = f"[ -f {env_file} ] && . {env_file}; {inner}"
+            return f"cd /scripts && nohup bash -c {shlex.quote(unwrapped_inner)} > /tmp/agent-server-launch.log 2>&1 &"
 
     def _launch_and_check(self, command: str) -> bool:
         result = self.execute(command, timeout_seconds=30)
