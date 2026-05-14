@@ -18,7 +18,6 @@ from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
 
-ENRICHMENT_TAG = "$pdl_enrichment_target"  # legacy seed-time tag, kept for backward compat
 ENRICHED_AT_KEY = "$enriched_at"
 ENRICHED_EVENT_NAME = "person_enriched"
 DEFAULT_CHUNK_SIZE = 25
@@ -294,15 +293,15 @@ def _enrich_one_sync(
 
 @activity.defn
 async def count_targets_activity(team_id: int, reenrich: bool = False) -> int:
-    """Count persons in the team tagged for enrichment.
+    """Count identified persons in the team that haven't been enriched yet.
 
-    Mirrors `_load_page`'s filter so the `estimated_chunks` log line is honest:
-    without `reenrich`, already-enriched persons are excluded from both the
-    chunk loader and this count."""
+    Mirrors `_load_page`'s filter exactly so the `estimated_chunks` log line
+    is honest. Filtering to `is_identified=True` keeps anonymous tracking
+    cookies out of the candidate set — there's nothing to enrich on them."""
     close_old_connections()
     from posthog.models import Person
 
-    qs = Person.objects.filter(team_id=team_id, properties__has_key=ENRICHMENT_TAG)
+    qs = Person.objects.filter(team_id=team_id, is_identified=True)
     if not reenrich:
         qs = qs.exclude(properties__has_key=ENRICHED_AT_KEY)
     return await sync_to_async(qs.count)()
@@ -348,12 +347,14 @@ async def enrich_chunk(inputs: EnrichChunkInputs) -> dict[str, typing.Any]:
     from posthog.models import Person
 
     def _load_page() -> list[tuple[int, str, str | None, str | None]]:
-        qs = Person.objects.filter(team_id=inputs.team_id, properties__has_key=ENRICHMENT_TAG)
+        # Production trigger: any identified person who hasn't been enriched yet
+        # is a candidate. `ENRICHED_AT_KEY` is stamped on every person we attempt
+        # (match, no-match, or error) below, so the candidate set strictly
+        # shrinks across chunks. That lets us take rows from the start of the
+        # ordered set each time.
+        qs = Person.objects.filter(team_id=inputs.team_id, is_identified=True)
         if not inputs.reenrich:
             qs = qs.exclude(properties__has_key=ENRICHED_AT_KEY)
-        # `ENRICHED_AT_KEY` is stamped on every person we attempt (match, no-match,
-        # or error) below, so the candidate set strictly shrinks across chunks.
-        # That lets us take rows from the start of the ordered set each time.
         qs = qs.order_by("id")[: inputs.chunk_size]
         rows: list[tuple[int, str, str | None, str | None]] = []
         for p in qs:
