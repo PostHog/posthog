@@ -12,17 +12,26 @@ import { statusPagesListLogic, StatusPageListItem } from './statusPagesListLogic
 
 export function StatusPagesList(): JSX.Element {
     const { statusPages, statusPagesLoading } = useValues(statusPagesListLogic)
-    const { deleteStatusPage } = useActions(statusPagesListLogic)
-
-    if (!statusPagesLoading && statusPages.length === 0) {
-        return <EmptyState />
-    }
+    const { deleteStatusPage, createNewStatusPage } = useActions(statusPagesListLogic)
 
     return (
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
-            {statusPages.map((page) => (
-                <StatusPageCard key={page.id} page={page} onDelete={() => deleteStatusPage(page.id)} />
-            ))}
+        <div className="flex flex-col gap-4">
+            {/* Action row lives inside the tab so switching tabs doesn't change the
+                SceneTitleSection's height and jolt the layout. */}
+            <div className="flex justify-end">
+                <LemonButton type="primary" data-attr="create-status-page" onClick={() => createNewStatusPage()}>
+                    New status page
+                </LemonButton>
+            </div>
+            {!statusPagesLoading && statusPages.length === 0 ? (
+                <EmptyState />
+            ) : (
+                <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+                    {statusPages.map((page) => (
+                        <StatusPageCard key={page.id} page={page} onDelete={() => deleteStatusPage(page.id)} />
+                    ))}
+                </div>
+            )}
         </div>
     )
 }
