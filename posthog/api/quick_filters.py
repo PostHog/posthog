@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import QuickFilterContext as QuickFilterContextEnum
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.quick_filter import QuickFilter, QuickFilterContext
+from posthog.models.quick_filter import QuickFilter, QuickFilterContext, QuickFilterPropertyType
 
 
 class QuickFilterSerializer(serializers.ModelSerializer):
@@ -25,7 +25,7 @@ class QuickFilterSerializer(serializers.ModelSerializer):
         help_text="Name of the property to filter on (e.g. '$browser', 'plan', '$group_0').",
     )
     property_type = serializers.ChoiceField(
-        choices=QuickFilter._meta.get_field("property_type").choices,
+        choices=QuickFilterPropertyType.choices,
         required=False,
         default="event",
         help_text=(

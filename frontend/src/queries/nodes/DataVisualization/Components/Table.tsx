@@ -22,6 +22,7 @@ import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'
 import { renderColumnMeta } from '../../DataTable/renderColumnMeta'
 import { TableDataCell, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { ColumnScalar } from '../types'
 import { matchConditionalFormattingRule, resolveConditionalFormattingBackground } from '../utils'
 
 interface TableProps {
@@ -107,7 +108,7 @@ export const Table = (props: TableProps): JSX.Element => {
         index: number,
         sourceColumnName: string,
         cellValue: unknown,
-        cellType: string
+        cellType: ColumnScalar
     ): ConditionalFormattingRule | undefined => {
         let perRow = conditionalFormattingCache.get(data)
         if (!perRow) {
