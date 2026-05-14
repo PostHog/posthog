@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -16,15 +16,7 @@ export interface GitHogLayoutItem {
     h: number
 }
 
-export interface GitHogPRLayoutLogicProps {
-    owner: string
-    name: string
-    number: number
-}
-
 export interface GitHogPRLayoutResponse {
-    repository: string
-    pr_number: number
     items: GitHogLayoutItem[]
     exists: boolean
 }
@@ -40,10 +32,10 @@ export const DEFAULT_LAYOUT: GitHogLayoutItem[] = [
 
 const SAVE_DEBOUNCE_MS = 500
 
+// Layouts are stored per-user only — the same arrangement applies to every PR
+// across every repository and team. The logic is a singleton (no key/props).
 export const gitHogPRLayoutLogic = kea<gitHogPRLayoutLogicType>([
-    props({} as GitHogPRLayoutLogicProps),
-    key((p) => `${p.owner}/${p.name}#${p.number}`),
-    path((k) => ['scenes', 'githog', 'gitHogPRLayoutLogic', k]),
+    path(['scenes', 'githog', 'gitHogPRLayoutLogic']),
     actions({
         setLayout: (items: GitHogLayoutItem[]) => ({ items }),
         addWidget: (widget: GitHogWidgetType) => ({ widget }),
@@ -73,15 +65,13 @@ export const gitHogPRLayoutLogic = kea<gitHogPRLayoutLogicType>([
             },
         ],
     }),
-    loaders(({ props }) => ({
+    loaders(() => ({
         layout: [
             null as GitHogPRLayoutResponse | null,
             {
                 loadLayout: async () => {
-                    const repository = `${props.owner}/${props.name}`
-                    const params = new URLSearchParams({ repository, number: String(props.number) })
                     return await api.get<GitHogPRLayoutResponse>(
-                        `api/environments/${getCurrentTeamId()}/githog/pull_request_layout/?${params.toString()}`
+                        `api/environments/${getCurrentTeamId()}/githog/pull_request_layout/`
                     )
                 },
             },
@@ -90,7 +80,7 @@ export const gitHogPRLayoutLogic = kea<gitHogPRLayoutLogicType>([
     selectors({
         widgets: [(s) => [s.layoutItems], (items): GitHogWidgetType[] => items.map((it) => it.i as GitHogWidgetType)],
     }),
-    listeners(({ props, values, actions }) => ({
+    listeners(({ values, actions }) => ({
         setLayout: () => actions.persistLayout(),
         addWidget: () => actions.persistLayout(),
         removeWidget: () => actions.persistLayout(),
@@ -99,10 +89,7 @@ export const gitHogPRLayoutLogic = kea<gitHogPRLayoutLogicType>([
             // breakpoint helper cancels this listener call if another fires
             // before the timeout elapses, so only the trailing change is saved.
             await breakpoint(SAVE_DEBOUNCE_MS)
-            const repository = `${props.owner}/${props.name}`
             await api.put(`api/environments/${getCurrentTeamId()}/githog/pull_request_layout/`, {
-                repository,
-                number: props.number,
                 items: values.layoutItems,
             })
         },

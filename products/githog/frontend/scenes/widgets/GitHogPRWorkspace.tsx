@@ -37,12 +37,7 @@ import {
     GitHogPRMessage,
     gitHogPRConversationLogic,
 } from '../gitHogPRConversationLogic'
-import {
-    GitHogLayoutItem,
-    GitHogPRLayoutLogicProps,
-    GitHogWidgetType,
-    gitHogPRLayoutLogic,
-} from '../gitHogPRLayoutLogic'
+import { GitHogLayoutItem, GitHogWidgetType, gitHogPRLayoutLogic } from '../gitHogPRLayoutLogic'
 import {
     GitHogPRReviewLogicProps,
     GitHogPullRequestDetail,
@@ -820,12 +815,11 @@ function RiskAssessmentBanner({ owner, name, number }: GitHogPullRequestRiskScor
 // ─── Public workspace component ──────────────────────────────────────────────
 
 export function GitHogPRWorkspace({ owner, name, number }: GitHogPRReviewLogicProps): JSX.Element {
-    const layoutProps: GitHogPRLayoutLogicProps = { owner, name, number }
+    // gitHogPRLayoutLogic is a singleton (per-user, not per-PR), so it does not
+    // need a BindLogic wrapper here.
     return (
         <BindLogic logic={gitHogPRReviewLogic} props={{ owner, name, number }}>
-            <BindLogic logic={gitHogPRLayoutLogic} props={layoutProps}>
-                <GitHogPRWorkspaceInner owner={owner} repoName={name} number={number} />
-            </BindLogic>
+            <GitHogPRWorkspaceInner owner={owner} repoName={name} number={number} />
         </BindLogic>
     )
 }
