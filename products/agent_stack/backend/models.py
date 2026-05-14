@@ -1,30 +1,186 @@
-"""
-Django models for agent_stack.
+"""Django models for agent_stack."""
 
-Keep models thin — business logic belongs in logic/.
-Use types from facade/enums.py where applicable.
-Avoid ForeignKeys to models outside this app; if needed,
-disallow reverse relations with related_name='+'.
-"""
-
-import uuid
+from __future__ import annotations
 
 from django.db import models
 
-from posthog.models.scoping.product_mixin import ProductTeamModel
+from posthog.helpers.encrypted_fields import EncryptedTextField
+from posthog.models.utils import UUIDModel
 
-from .facade.enums import SplineStatus
+from .facade.enums import DeploymentStatus, RevisionState, SandboxState, SessionState
 
 
-class SplineReticulator(ProductTeamModel):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+class AgentApplication(UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
-    status = models.CharField(
-        max_length=32,
-        choices=[(s.value, s.value) for s in SplineStatus],
-        default=SplineStatus.PENDING,
-    )
+    slug = models.CharField(max_length=63)
+    description = models.TextField(blank=True, default="")
+
+    # Raw .env contents uploaded by the developer. Plaintext never returned by the
+    # public API after creation; decryption is gated to the internal API used by
+    # agent-runner, audit-logged per call.
+    encrypted_env: EncryptedTextField = EncryptedTextField(blank=True, default="")
+
+    deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            # Slug is the routing subdomain prefix — globally unique among live apps.
+            # Partial uniqueness lets a deleted app's slug be reclaimed.
+            models.UniqueConstraint(
+                fields=["slug"],
+                condition=models.Q(deleted=False),
+                name="agent_stack_application_unique_active_slug",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "deleted"]),
+        ]
 
     def __str__(self) -> str:
-        return self.name
+        return self.slug
+
+
+class AgentApplicationRevision(UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    application = models.ForeignKey(AgentApplication, on_delete=models.CASCADE, related_name="revisions")
+
+    state = models.CharField(
+        max_length=32,
+        choices=[(s.value, s.value) for s in RevisionState],
+        default=RevisionState.PENDING_UPLOAD,
+    )
+
+    # How this revision serves traffic. Independent of `state` — a revision must reach
+    # state=ready before logic promotes it to LIVE or PREVIEW. Uniqueness of LIVE per
+    # application is enforced at the logic layer, not in the DB.
+    deployment_status = models.CharField(
+        max_length=32,
+        choices=[(s.value, s.value) for s in DeploymentStatus],
+        default=DeploymentStatus.DISABLED,
+    )
+
+    # Content-hash binding for the presigned PUT.
+    bundle_s3_key = models.CharField(max_length=512, blank=True, default="")
+    bundle_size = models.BigIntegerField(null=True, blank=True)
+    bundle_sha256 = models.CharField(max_length=64, blank=True, default="")
+
+    # Validated synchronously at deploy start.
+    top_level_config = models.JSONField(default=dict)
+    # Populated by the async validator; null until then. v1 reads top_level_config directly.
+    parsed_manifest = models.JSONField(null=True, blank=True)
+    # Structured errors when state=failed.
+    validation_report = models.JSONField(null=True, blank=True)
+
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["application", "state", "-created_at"],
+                name="agent_stack_revision_app_state",
+            ),
+            models.Index(
+                fields=["application", "deployment_status"],
+                name="agent_stack_rev_app_deploy",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.application_id}:{self.id} ({self.state})"
+
+
+class AgentApplicationSession(UUIDModel):
+    """Main-DB mirror of a job in the agent-runtime queue.
+
+    Queue rows live in the agent-runtime queue DB. This row is the team-scoped,
+    UI-queryable, FK-having record. The runner keeps both in sync — state
+    transitions mirror queue JobState.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    application = models.ForeignKey(AgentApplication, on_delete=models.CASCADE, related_name="sessions")
+    revision = models.ForeignKey(AgentApplicationRevision, on_delete=models.CASCADE)
+
+    # Points at the job in the agent-runtime queue DB. Null until the runner enqueues.
+    queue_job_id = models.UUIDField(null=True, blank=True, db_index=True)
+    # Same id as the queue's parent_run_id — groups sessions fanned out by one trigger firing.
+    parent_run_id = models.UUIDField(null=True, blank=True, db_index=True)
+
+    state = models.CharField(
+        max_length=32,
+        choices=[(s.value, s.value) for s in SessionState],
+        default=SessionState.AVAILABLE,
+    )
+
+    trigger_type = models.CharField(max_length=64, blank=True, default="")
+    trigger_payload = models.JSONField(default=dict, blank=True)
+
+    input = models.JSONField(default=dict, blank=True)
+    output = models.JSONField(null=True, blank=True)
+    error = models.JSONField(null=True, blank=True)
+
+    # Identifier of the agent-runner instance that currently owns the session.
+    runtime_instance = models.CharField(max_length=255, blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    last_heartbeat_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["application", "state", "-created_at"], name="agent_stack_session_app_state"),
+            models.Index(fields=["state", "last_heartbeat_at"], name="agent_stack_session_reaper"),
+            models.Index(fields=["parent_run_id"], name="agent_stack_session_parent_run"),
+        ]
+
+    def __str__(self) -> str:
+        return f"session:{self.id} ({self.state})"
+
+
+class AgentApplicationSandboxInstance(UUIDModel):
+    """Modal sandbox tracker for (application, revision).
+
+    v1 = at most one per (application, revision); not enforced at the DB level
+    so v2 can grow concurrent sandboxes without a migration.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    application = models.ForeignKey(AgentApplication, on_delete=models.CASCADE, related_name="sandbox_instances")
+    revision = models.ForeignKey(AgentApplicationRevision, on_delete=models.CASCADE)
+
+    modal_sandbox_id = models.CharField(max_length=255, blank=True, default="")
+    state = models.CharField(
+        max_length=32,
+        choices=[(s.value, s.value) for s in SandboxState],
+        default=SandboxState.PROVISIONING,
+    )
+
+    error_message = models.TextField(blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    terminated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["application", "revision", "state"],
+                name="agent_stack_sandbox_lookup",
+            ),
+            models.Index(
+                fields=["state", "last_used_at"],
+                name="agent_stack_sandbox_reaper",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"sandbox:{self.modal_sandbox_id or self.id} ({self.state})"

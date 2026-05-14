@@ -6,7 +6,7 @@ Companion to [`agent-stack/docs/agent-platform.md`](https://github.com/PostHog/a
 
 Two things we own here:
 
-1. **Management plane** — a new flag-gated product under `products/agents/` (Django app + viewsets + frontend), modelled on the existing [`products/deployments/`](../../products/deployments) scaffold from #58421.
+1. **Management plane** — a new flag-gated product under `products/agent_stack/` (Django app + viewsets + frontend).
 2. **Runtime** — three new TypeScript packages under `packages/`, deployed as independent node processes. They share **no code** with `nodejs/` (the legacy plugin-server). Anything we want from `nodejs/` we copy and adapt in `packages/agent-core/`.
 
 The runtime split (ingress + runner) from the agent-stack doc still holds. This plan refines what each half looks like inside the posthog monorepo and which existing primitives we lean on conceptually (not by import).
@@ -17,7 +17,7 @@ The runtime split (ingress + runner) from the agent-stack doc still holds. This 
 
 Three packages under `packages/`, each its own process / deployment:
 
-```
+```text
 packages/
   agent-core/        # shared types, db client, queue primitives, manifest reader
   agent-ingress/     # process: HTTP ingress, *.agents.posthog.com terminator
@@ -40,7 +40,7 @@ Cherry-pick what we want, leave the rest. The legacy concepts the agent-stack pl
 Shared library, no process of its own. Lives here:
 
 - TypeScript types for the session model, manifest, tool protocol, secrets.
-- Postgres client(s) — one for the main posthog DB (read app/revision/secret rows; write `AgentSession`/`SandboxInstance` rows), one for the agent-runtime queue DB (jobs). Each package depends on whichever it needs.
+- Postgres client(s) — one for the main posthog DB (read app/revision/encrypted_env rows; write `AgentApplicationSession`/`AgentApplicationSandboxInstance` rows), one for the agent-runtime queue DB (jobs). Each package depends on whichever it needs.
 - **Queue primitives** — the cyclotron-v2-shaped session queue (see next section). Single `cyclotron_jobs`-style table with `available | running | completed | failed | canceled`, `FOR UPDATE SKIP LOCKED` dequeue, `lock_id` + `last_heartbeat`, `reschedule({ scheduledAt, state })`, janitor loop. The schema and ops are a clean reimplementation in this package — we own it end-to-end, no shared migrations with `cyclotron_node`.
 - Internal-API HTTP client (talks to Django for resolve/decrypt).
 - Structured logger, Prom registry, OTel setup.
@@ -54,7 +54,7 @@ The public-facing process. Responsibilities:
 - Domain → `(application, revision)` resolution via the Django internal `/internal/agents/applications/resolve` endpoint. In-process LRU keyed by revision id, invalidated on promotion (we expose a small admin endpoint for Django to ping after promote — or just rely on TTL, decide at impl time).
 - Per-app auth derived from the resolved revision's config (public / webhook signature / shared secret).
 - Implements `/run`, `/listen/:id`, `/send/:id`, `/webhooks/:provider`, `/health`, `/status`. Same contract as the SDK's local dev server.
-- `/run` writes an `AgentSession` row + enqueues a session job in the agent-core queue, returns `{ session_id }` immediately.
+- `/run` writes an `AgentApplicationSession` row + enqueues a session job in the agent-core queue, returns `{ session_id }` immediately.
 - `/listen` subscribes to the Redis pub-sub channel `agent_session:{id}` for SSE streaming.
 - `/send` publishes a message into `agent_session:{id}:input` — runner picks it up at the next yield.
 
@@ -69,7 +69,7 @@ The session executor. Responsibilities:
 3. Restores Claude Agent SDK state from the job's `state` payload.
 4. Runs one "turn" — until the next tool boundary or completion.
 5. Two cases:
-   - **Completion** → ack the job, write final `output` to `AgentSession`, publish completion to pub-sub.
+   - **Completion** → ack the job, write final `output` to `AgentApplicationSession`, publish completion to pub-sub.
    - **Suspension** (long-running tool, sandbox call, waiting on `/send`) → `reschedule({ scheduledAt, state: serialized_sdk_state })`. Heartbeats keep ticking while inside a turn so we don't get reaped mid-execution.
 6. Streams events to the pub-sub bus throughout.
 
@@ -81,14 +81,14 @@ Tool execution split:
 
 Sandbox manager:
 
-- Looks up the live `SandboxInstance` row for `(application, revision)`. JIT-provisions on first request.
+- Looks up the live `AgentApplicationSandboxInstance` row for `(application, revision)`. JIT-provisions on first request.
 - Updates `last_used_at` on each call.
 - Periodic reaper job (cooperative Postgres advisory lock) destroys sandboxes idle > TTL.
 
 Reaper:
 
 - Runs in the runner process. Two passes per tick:
-  1. **Sessions** — the queue janitor resets stalled jobs; we additionally write `AgentSession.state = 'failed'` for any session whose job hit the poison-pill threshold.
+  1. **Sessions** — the queue janitor resets stalled jobs; we additionally write `AgentApplicationSession.state = 'failed'` for any session whose job hit the poison-pill threshold.
   2. **Sandboxes** — described above.
 
 ---
@@ -99,22 +99,22 @@ A Claude Agent SDK run looks structurally identical to the CDP hog-flow executio
 
 cyclotron-v2 has solved exactly these problems in production for CDP. We **reimplement the concepts** in `agent-core`, copying the relevant code where it's cheaper than rebuilding, with no runtime dependency on `nodejs/src/cdp/services/cyclotron-v2/` or the `cyclotron_node` schema.
 
-| cyclotron-v2 concept | Agent-core mirror | Reference (for copying) |
-| --- | --- | --- |
-| `JobState: available \| running \| completed \| failed \| canceled` | Same enum, drop-in for `AgentSession.state`. | [`rust/cyclotron-core/src/types.rs:10`](../../rust/cyclotron-core/src/types.rs) |
-| `lock_id` + `last_heartbeat` + `FOR UPDATE SKIP LOCKED` dequeue | Same pattern. Runner owns a session via lock; heartbeats every N seconds while inside an SDK turn. | [`nodejs/src/cdp/services/cyclotron-v2/worker.ts:88`](../../nodejs/src/cdp/services/cyclotron-v2/worker.ts) |
-| `state: BYTEA` payload | Persist Claude Agent SDK conversation/turn state between suspensions. | [`rust/cyclotron-node-migrations/20260303000001_initial_schema.sql:9`](../../rust/cyclotron-node-migrations/20260303000001_initial_schema.sql) |
-| `reschedule({ scheduledAt, state })` | After every tool boundary, runner reschedules with updated state rather than blocking. | [`nodejs/src/cdp/services/cyclotron-v2/worker.ts:161`](../../nodejs/src/cdp/services/cyclotron-v2/worker.ts) |
-| Janitor — stall recovery + poison-pill detection | New daemon inside agent-runner. | [`nodejs/src/cdp/services/cyclotron-v2/janitor.ts`](../../nodejs/src/cdp/services/cyclotron-v2/janitor.ts) |
-| `parent_run_id` for batch grouping | Use for "trigger fanout" — one cron firing creates N sessions sharing a parent run id. |  |
-| `queue_name` + `priority` | Per-app or per-tier queue isolation. v1 = single queue; schema is open for v2 fairness work. |  |
-| `function_id` (UUID) field | Repurpose as `revision_id` for fast lookup of all sessions for a revision (promotion + reaper). |  |
+| cyclotron-v2 concept                                                | Agent-core mirror                                                                                  | Reference (for copying)                                                                                                                        |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JobState: available \| running \| completed \| failed \| canceled` | Same enum, drop-in for `AgentApplicationSession.state`.                                            | [`rust/cyclotron-core/src/types.rs:10`](../../rust/cyclotron-core/src/types.rs)                                                                |
+| `lock_id` + `last_heartbeat` + `FOR UPDATE SKIP LOCKED` dequeue     | Same pattern. Runner owns a session via lock; heartbeats every N seconds while inside an SDK turn. | [`nodejs/src/cdp/services/cyclotron-v2/worker.ts:88`](../../nodejs/src/cdp/services/cyclotron-v2/worker.ts)                                    |
+| `state: BYTEA` payload                                              | Persist Claude Agent SDK conversation/turn state between suspensions.                              | [`rust/cyclotron-node-migrations/20260303000001_initial_schema.sql:9`](../../rust/cyclotron-node-migrations/20260303000001_initial_schema.sql) |
+| `reschedule({ scheduledAt, state })`                                | After every tool boundary, runner reschedules with updated state rather than blocking.             | [`nodejs/src/cdp/services/cyclotron-v2/worker.ts:161`](../../nodejs/src/cdp/services/cyclotron-v2/worker.ts)                                   |
+| Janitor — stall recovery + poison-pill detection                    | New daemon inside agent-runner.                                                                    | [`nodejs/src/cdp/services/cyclotron-v2/janitor.ts`](../../nodejs/src/cdp/services/cyclotron-v2/janitor.ts)                                     |
+| `parent_run_id` for batch grouping                                  | Use for "trigger fanout" — one cron firing creates N sessions sharing a parent run id.             |                                                                                                                                                |
+| `queue_name` + `priority`                                           | Per-app or per-tier queue isolation. v1 = single queue; schema is open for v2 fairness work.       |                                                                                                                                                |
+| `function_id` (UUID) field                                          | Repurpose as `revision_id` for fast lookup of all sessions for a revision (promotion + reaper).    |                                                                                                                                                |
 
 What we add on top:
 
 - **Heartbeat-from-inside-the-SDK.** SDK tool callbacks and Anthropic streaming chunks tick the queue heartbeat.
 - **Session event bus.** The queue stores final state, not intermediate frames. SSE streaming lives in a Redis pub-sub keyed by `session_id`. Queue row + final-state blob is the durable record; the bus is best-effort.
-- **`AgentSession` mirror in main posthog Postgres.** Queue rows live in the agent-runtime queue DB; the team-scoped mirror row in main posthog Postgres gives us FKs to `Team` / `AgentApplication` / `Revision`, activity log integration, and clean UI queries.
+- **`AgentApplicationSession` mirror in main posthog Postgres.** Queue rows live in the agent-runtime queue DB; the team-scoped mirror row in main posthog Postgres gives us FKs to `Team` / `AgentApplication` / `AgentApplicationRevision`, activity log integration, and clean UI queries.
 
 ### Queue database
 
@@ -122,12 +122,12 @@ A separate Postgres DB owned by the agent-runtime — `agent_runtime_queue` (nam
 
 ---
 
-## Part A — `products/agents/` Django app
+## Part A — `products/agent_stack/` Django app
 
 Mirror the [`products/deployments/`](../../products/deployments) scaffold from #58421:
 
-```
-products/agents/
+```text
+products/agent_stack/
   __init__.py
   product.yaml
   manifest.tsx
@@ -146,67 +146,69 @@ products/agents/
   mcp/                  # later
 ```
 
-Bootstrap with `bin/hogli product:bootstrap agents` per the [Products README](../../products/README.md), then customize.
+Bootstrap with `bin/hogli product:bootstrap agent_stack` per the [Products README](../../products/README.md), then customize. Remove the `products/db_routing.yaml` entry the bootstrap adds — these models live in the main posthog DB so they can FK to `Team` / `User`.
 
 ### Models
 
-All inherit `UUIDModel` ([`posthog/models/utils.py:183`](../../posthog/models/utils.py)) — uuid7 PKs. All tenant-data models have `team_id` (FK to `posthog.Team`) per the CLAUDE.md rule; consider `ProductTeamModel` if the product ends up isolated.
+All inherit `UUIDModel` ([`posthog/models/utils.py:183`](../../posthog/models/utils.py)) — uuid7 PKs. All tenant-data models have `team_id` (FK to `posthog.Team`) per the CLAUDE.md rule. Models live on the main posthog Postgres DB (not an isolated product DB) so they keep real FKs to `Team` / `User`. All child-of-app models are namespaced with the `AgentApplication*` prefix.
 
 **`AgentApplication`** (team-scoped)
 
-- `team: FK(Team)`, `name`, `slug` (unique — see open Q1), `description`
-- `live_revision: FK(Revision, null=True)` — pointer-swap on promotion
-- Soft delete (`deleted: bool`)
+- `team: FK(Team)`, `name`, `slug` (unique — partial unique constraint where `deleted=False` so deleted slugs can be reclaimed), `description`
+- `encrypted_env: EncryptedTextField` — raw `.env` contents uploaded by the developer, single encrypted blob. Plaintext never returned by the REST API after creation; decryption gated to the internal API, audit-logged per call. (Replaces a separate `AgentApplicationSecret` per-key model — single blob is enough for v1.)
+- Soft delete (`deleted: bool`, `deleted_at`)
 - Activity-logged via `log_activity_from_viewset` ([`posthog/api/hog_function.py:640`](../../posthog/api/hog_function.py))
 
-**`Revision`** (immutable per deploy)
+Note: there is **no `live_revision` FK** on the application. "Which revision is live" is a property of the revision itself (`deployment_status`, below). This keeps the FK graph acyclic and avoids a two-row update on promotion.
+
+**`AgentApplicationRevision`** (immutable per deploy)
 
 - `application: FK(AgentApplication)`
-- `state: enum(pending_upload | uploaded | validating | ready | failed)` — **full state machine in the schema from day one**, even though v1 skips straight from `uploaded` to `ready` (see §C).
+- `state: enum(pending_upload | uploaded | validating | ready | failed)` — **full state machine in the schema from day one**, even though v1 skips straight from `uploaded` to `ready` (see §C). Build/validation lifecycle.
+- `deployment_status: enum(live | preview | disabled)` — orthogonal to `state`. How this revision serves traffic.
+  - Default `disabled`. Logic-layer rule: must be `state=ready` before promotion to `live` or `preview`.
+  - At-most-one `live` per application is enforced at the API layer, not the DB (lets promotion fail cleanly rather than via a unique-constraint violation).
+  - Promotion is a single-row update: set new revision `live`, demote previous `live` to `disabled`.
 - `bundle_s3_key`, `bundle_size`, `bundle_sha256` — content-hash binding for the presigned PUT.
 - `top_level_config: JSONField` — validated synchronously at deploy start by Django.
 - `parsed_manifest: JSONField(null=True)` — populated by the future validator package. v1 leaves this null and runner falls back to reading the bundle's `.ass.yaml` manifest section directly via `top_level_config`.
 - `validation_report: JSONField(null=True)` — structured errors when the future validator marks `failed`.
 - `created_by: FK(User)`, `created_at`
-- Index: `(application_id, state, created_at desc)` for "list ready revisions".
+- Indexes: `(application_id, state, created_at desc)` for "list ready revisions"; `(application_id, deployment_status)` for traffic resolution.
 
-**`PreviewBinding`**
+**Preview deploys (no separate model)**
 
-- `application: FK(AgentApplication)`, `revision: FK(Revision)`, `subdomain_suffix: str`
+`ass preview` sets `deployment_status = preview` on the revision; the ingress layer routes `<slug>-<revision_short_id>.agents.posthog.com` to that revision. (The original `PreviewBinding` model was dropped — the revision id is the suffix.)
 
-**`AgentApplicationSecret`**
+**`AgentApplicationSession`** (mirror of queue job in main DB)
 
-- `application: FK(AgentApplication)`, `name: str` (unique per app), `encrypted_value: EncryptedJSONStringField`
-- `EncryptedJSONStringField` ([`posthog/helpers/encrypted_fields.py:137`](../../posthog/helpers/encrypted_fields.py)) — same pattern as `Integration.sensitive_config`.
-- Plaintext never returned by REST API after creation. Decryption only via internal API, audit-logged per call.
-
-**`AgentSession`** (mirror of queue job in main DB)
-
-- `team: FK(Team)`, `application: FK(AgentApplication)`, `revision: FK(Revision)`
-- `queue_job_id: UUID` — points at the actual job in the agent-runtime queue DB
-- `state: enum` — mirrors the queue's `JobState`. Updated by the runner on transition.
+- `team: FK(Team)`, `application: FK(AgentApplication)`, `revision: FK(AgentApplicationRevision)`
+- `queue_job_id: UUID(null=True, indexed)` — points at the actual job in the agent-runtime queue DB
+- `parent_run_id: UUID(null=True, indexed)` — same id as the queue's `parent_run_id` for trigger fanouts
+- `state: enum(available | running | completed | failed | canceled)` — mirrors the queue's `JobState`. Updated by the runner on transition.
 - `trigger_type: str`, `trigger_payload: JSONField`
 - `input: JSONField`, `output: JSONField(null=True)`, `error: JSONField(null=True)`
-- `parent_run_id: UUID(null=True)` — same id as the queue's `parent_run_id` for trigger fanouts
+- `runtime_instance: str` — identifier of the agent-runner instance currently owning the session
 - `started_at`, `last_heartbeat_at`, `completed_at`
-- `runtime_instance: str(null=True)` — for attribution
+- Indexes: `(application, state, created_at desc)` for the sessions UI; `(state, last_heartbeat_at)` for the reaper; `(parent_run_id)` for fanout queries.
 
-**`SandboxInstance`**
+**`AgentApplicationSandboxInstance`**
 
-- `application: FK(AgentApplication)`, `revision: FK(Revision)`
+- `team: FK(Team)`, `application: FK(AgentApplication)`, `revision: FK(AgentApplicationRevision)`
 - `modal_sandbox_id: str`, `state: enum(provisioning | ready | terminating | terminated)`
-- `created_at`, `last_used_at`, `terminated_at`
-- v1 = at most one per `(application, revision)`. No unique constraint at the DB level; enforced by runtime.
+- `created_at`, `last_used_at`, `terminated_at`, `error_message`
+- v1 = at most one per `(application, revision)`. No unique constraint at the DB level; enforced by runtime so v2 can grow concurrent sandboxes without a migration.
+- Indexes: `(application, revision, state)` for lookup; `(state, last_used_at)` for the reaper.
 
 ### Migrations
 
-Standard Django migrations under `products/agents/backend/migrations/`. Follow the [`django-migrations`](../../.claude/skills/django-migrations) skill — invoke it before writing the migration files.
+Standard Django migrations under `products/agent_stack/backend/migrations/`. Follow the [`django-migrations`](../../.claude/skills/django-migrations) skill — invoke it before writing the migration files.
 
 ### API (DRF + OAuth)
 
 Invoke [`improving-drf-endpoints`](../../.claude/skills/improving-drf-endpoints) before writing viewsets/serializers — it covers `@validated_request`, `@extend_schema`, and the schema/typing pipeline that feeds frontend + MCP.
 
-New scope objects: `agent_application`, `agent_secret`. Add to [`posthog/scopes.py:16`](../../posthog/scopes.py).
+New scope object: `agent_application`. `encrypted_env` write access is gated by the same scope; there is no separate `agent_secret` scope since secrets aren't a standalone resource. Add to [`posthog/scopes.py:16`](../../posthog/scopes.py).
 
 Viewsets follow `TeamAndOrgViewSetMixin` + `scope_object` ([`posthog/api/hog_function.py:469`](../../posthog/api/hog_function.py)).
 
@@ -214,17 +216,16 @@ Endpoints (project-scoped `/api/projects/{team_id}/...`):
 
 - `agent_applications/` — CRUD + soft delete
   - `POST /:id/start_deploy` → `{ revision_id, presigned_put_url, expires_at, max_size, required_sha256 }`
-  - `POST /:id/complete_upload` → **v1: synchronously transition the revision to `ready`** (skipping `validating`). Logged so we know which revisions never went through real validation when the validator lands.
-  - `POST /:id/promote` → swap `live_revision` to a `ready` revision
-- `revisions/` — list + retrieve (read-only)
-- `preview_bindings/` — CRUD
-- `agent_application_secrets/` — create/list/delete (no plaintext read)
-- `agent_sessions/` — list + retrieve. Filters: `application_id`, `state`, `parent_run_id`, time range.
+  - `POST /:id/complete_upload` → **v1: synchronously transition the revision to `state=ready`** (skipping `validating`). Logged so we know which revisions never went through real validation when the validator lands.
+  - `POST /:id/promote` → atomically set the target revision's `deployment_status=live` and demote any prior live revision to `disabled`. Validates the target is `state=ready`.
+  - `PUT /:id/env` — replace `encrypted_env`. No plaintext read; response omits the field.
+- `agent_application_revisions/` — list + retrieve (read-only). Filter by `deployment_status` for "find live", "list previews".
+- `agent_application_sessions/` — list + retrieve. Filters: `application_id`, `state`, `parent_run_id`, time range.
 
 **Internal-only endpoints** (called by `agent-ingress` and `agent-runner`):
 
-- `GET /internal/agents/applications/resolve` — given a domain or app id, returns the live revision + manifest. Cacheable ~5s.
-- `POST /internal/agents/secrets/{app_id}/decrypt` — returns plaintext for a named set of secrets. Audit-logged. Separate internal scope, not exposed in OAuth UI.
+- `GET /internal/agents/applications/resolve` — given a domain or app id, returns the live revision + manifest. For preview subdomains (`<slug>-<revision_short_id>`) the suffix is the revision id. Cacheable ~5s.
+- `POST /internal/agents/applications/{app_id}/decrypt_env` — returns plaintext `encrypted_env`. Audit-logged. Separate internal scope, not exposed in OAuth UI.
 
 Add to `INTERNAL_API_SCOPE_OBJECTS` ([`posthog/scopes.py:121`](../../posthog/scopes.py)) so they don't appear in PAT creation flows.
 
@@ -235,8 +236,8 @@ Mirror [`products/deployments/manifest.tsx`](../../products/deployments/manifest
 v1 scenes:
 
 - `AgentApplications` (list)
-- `AgentApplication` (detail: revisions, secrets, sessions, sandbox state tabs)
-- `AgentSession` (single-session inspection)
+- `AgentApplication` (detail: revisions, env, sessions, sandbox state tabs)
+- `AgentApplicationSession` (single-session inspection)
 
 Use the [`scene-menu-bar`](../../.claude/skills/scene-menu-bar) and [`making-scenes-tab-aware`](../../.claude/skills/making-scenes-tab-aware) conventions for tabs.
 
@@ -253,7 +254,7 @@ CLI is the primary deploy surface in v1; this UI is management + observability.
 ## Part B — Deploy flow (v1, no async validator)
 
 1. CLI bundles the project locally.
-2. CLI calls Django `start_deploy` with the parsed top-level config. Django validates synchronously (schema-level checks on `.ass.yaml` and triggers) and creates a `Revision` row in `pending_upload`.
+2. CLI calls Django `start_deploy` with the parsed top-level config. Django validates synchronously (schema-level checks on `.ass.yaml` and triggers) and creates an `AgentApplicationRevision` row in `state=pending_upload`.
 3. Django returns a presigned S3 PUT URL bound to size + content hash.
 4. CLI uploads the bundle to S3.
 5. CLI calls `complete_upload`.
@@ -289,10 +290,10 @@ Pure-function validators (`(bytes) -> (parsed, errors)`) inside the validator pa
 
 - **DBs**:
   - Agent-runtime queue gets its own Postgres DB (`agent_runtime_queue`). Not shared with `cyclotron_node`. Owned by `agent-core` migrations.
-  - `AgentSession` and `SandboxInstance` mirrors live in main posthog Postgres (team-scoped, FKs, activity log eligible).
-  - Runner writes to both — queue row is the work item, `AgentSession` is the user-visible record.
+  - `AgentApplicationSession` and `AgentApplicationSandboxInstance` mirrors live in main posthog Postgres (team-scoped, FKs, activity log eligible).
+  - Runner writes to both — queue row is the work item, `AgentApplicationSession` is the user-visible record.
 - **S3 bucket**: new `posthog-agent-bundles-{env}`, KMS-encrypted, lifecycle expires non-`ready` bundles after 7 days. Use [`posthog/storage/object_storage.py:33`](../../posthog/storage/object_storage.py) helpers from Django.
-- **Secrets**: `EncryptedJSONStringField` (same key schedule as `Integration`). Decrypt only in `agent-runner` via the internal API.
+- **Secrets**: `AgentApplication.encrypted_env` is an `EncryptedTextField` (same key schedule as `Integration.sensitive_config`). Decrypt only in `agent-runner` via the internal API.
 - **Per-team quotas**: enforced on Django writes (apps, secrets, revisions/day) and at `agent-ingress` (concurrent sessions per app, `/run` rate limit). Surface limits in the UI.
 - **Observability**: structured logs with `app_id` / `revision_id` / `session_id` / `queue_job_id`; OTel traces per session and per tool call; Prometheus metrics; Sentry tagged separately for `agent-ingress` and `agent-runner`.
 - **Feature flag**: `FEATURE_FLAGS.AGENTS` gates the product (frontend + API + ingress). Per-team rollout.
@@ -319,19 +320,19 @@ Resolutions to the agent-stack open questions + posthog-specific ones:
 
 Each shippable behind `FEATURE_FLAGS.AGENTS`.
 
-1. **Scaffold + models.** `products/agents/` skeleton (mirror `products/deployments/`), Django app, models with the **full state machine in the schema**, migrations. New scope entries. UI stub. *(unblocks parallel work)*
-2. **Management API.** CRUD viewsets for apps/revisions/secrets/preview-bindings. Activity logging wired. `complete_upload` shortcut transitions straight to `ready`.
+1. **Scaffold + models.** `products/agent_stack/` skeleton, Django app, models with the **full state machine in the schema**, migrations. New scope entries. UI stub. _(unblocks parallel work)_
+2. **Management API.** CRUD viewsets for apps and revisions. Env upload endpoint. Activity logging wired. `complete_upload` shortcut transitions straight to `state=ready`. Promote endpoint flips `deployment_status`.
 3. **Deploy flow.** `start_deploy` → presigned PUT → `complete_upload` (auto-ready) → `promote`. End-to-end via CLI. No async work.
-4. **Internal API.** `resolve` + `decrypt` endpoints with internal scopes. mTLS / signed-key auth.
+4. **Internal API.** `resolve` + `decrypt_env` endpoints with internal scopes. mTLS / signed-key auth.
 5. **`packages/agent-core/`.** Types, DB clients, queue primitives (schema + ops), pub-sub helper, internal-API client, logger/metrics. No process; tested in isolation.
-6. **`packages/agent-ingress/`.** Domain resolution, `/run` writes `AgentSession` + enqueues job, `/listen` SSE wired to pub-sub, `/send` publishes to pub-sub. Runner stubbed.
+6. **`packages/agent-ingress/`.** Domain resolution, `/run` writes `AgentApplicationSession` + enqueues job, `/listen` SSE wired to pub-sub, `/send` publishes to pub-sub. Runner stubbed.
 7. **`packages/agent-runner/` — meta + built-in tools.** Queue consumer. Real Claude Agent SDK invocation. State serialized into queue `state`, reschedule loop on tool boundaries. Built-ins registry shared with `agent-core`.
-8. **Sandboxes.** Modal integration, custom-tool execution, sandbox lifecycle + reaper. `SandboxInstance` writes from the runner.
+8. **Sandboxes.** Modal integration, custom-tool execution, sandbox lifecycle + reaper. `AgentApplicationSandboxInstance` writes from the runner.
 9. **Triggers.** Webhooks, cron, slack event ingestion.
-10. **Frontend.** App list, app detail (revisions/secrets/sessions/sandbox tabs), session detail.
-11. **Preview deploys, observability polish, quotas.**
+10. **Frontend.** App list, app detail (revisions/env/sessions/sandbox tabs), session detail.
+11. **Preview deploys (set `deployment_status=preview`), observability polish, quotas.**
 12. **`packages/agent-validator/`.** Async bundle validator. Pure-function checks reusable from the CLI. Flip `complete_upload` to enqueue validation instead of auto-ready.
-13. **Skills + registry v2** (publish flow, third-party tool publishing). Reuses the same Revision-style immutable artifacts.
+13. **Skills + registry v2** (publish flow, third-party tool publishing). Reuses the same immutable revision artifacts.
 
 ---
 
@@ -340,4 +341,4 @@ Each shippable behind `FEATURE_FLAGS.AGENTS`.
 - agent-stack plan: [`agent-stack/docs/agent-platform.md`](https://github.com/PostHog/agent-stack/blob/main/docs/agent-platform.md)
 - Reference scaffold: [`products/deployments/`](../../products/deployments) (#58421)
 - cyclotron-v2 (reference only, not a dependency): [`rust/cyclotron-core/src/`](../../rust/cyclotron-core/src/), [`nodejs/src/cdp/services/cyclotron-v2/`](../../nodejs/src/cdp/services/cyclotron-v2/)
-- Patterns to mirror in Django: `UUIDModel` ([`posthog/models/utils.py:183`](../../posthog/models/utils.py)), `EncryptedJSONStringField` ([`posthog/helpers/encrypted_fields.py:137`](../../posthog/helpers/encrypted_fields.py)), `TeamAndOrgViewSetMixin` + `scope_object` ([`posthog/api/hog_function.py:469`](../../posthog/api/hog_function.py)), `object_storage` presigned helpers ([`posthog/storage/object_storage.py:33`](../../posthog/storage/object_storage.py)), activity logging ([`posthog/api/hog_function.py:640`](../../posthog/api/hog_function.py))
+- Patterns to mirror in Django: `UUIDModel` ([`posthog/models/utils.py:183`](../../posthog/models/utils.py)), `EncryptedTextField` ([`posthog/helpers/encrypted_fields.py:113`](../../posthog/helpers/encrypted_fields.py)), `TeamAndOrgViewSetMixin` + `scope_object` ([`posthog/api/hog_function.py:469`](../../posthog/api/hog_function.py)), `object_storage` presigned helpers ([`posthog/storage/object_storage.py:33`](../../posthog/storage/object_storage.py)), activity logging ([`posthog/api/hog_function.py:640`](../../posthog/api/hog_function.py))

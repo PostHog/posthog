@@ -17,17 +17,22 @@ class RevisionState(StrEnum):
     FAILED = "failed"
 
 
+class DeploymentStatus(StrEnum):
+    LIVE = "live"
+    PREVIEW = "preview"
+    DISABLED = "disabled"
+
+
 class SessionState(StrEnum):
-    PENDING = "pending"
+    AVAILABLE = "available"
     RUNNING = "running"
-    SUCCEEDED = "succeeded"
+    COMPLETED = "completed"
     FAILED = "failed"
-    CANCELLED = "cancelled"
+    CANCELED = "canceled"
 
 
 class SandboxState(StrEnum):
     PROVISIONING = "provisioning"
     READY = "ready"
-    DESTROYING = "destroying"
-    DESTROYED = "destroyed"
-    FAILED = "failed"
+    TERMINATING = "terminating"
+    TERMINATED = "terminated"
