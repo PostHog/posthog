@@ -2,16 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconArrowLeft, IconGraph, IconPencil, IconPlay, IconTrash } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCard,
-    LemonInput,
-    LemonModal,
-    LemonSkeleton,
-    LemonTable,
-    LemonTag,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonInput, LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -25,7 +16,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { uptimeMonitorSceneLogic } from './uptimeMonitorSceneLogic'
-import { DailyBucket, DailyStatus, MonitorStatus, Ping } from './uptimeSceneLogic'
+import { DailyBucket, DailyStatus, MonitorStatus } from './uptimeSceneLogic'
 
 export const scene: SceneExport = {
     component: UptimeMonitorScene,
@@ -33,7 +24,7 @@ export const scene: SceneExport = {
 }
 
 export function UptimeMonitorScene(): JSX.Element {
-    const { summary, summaryLoading, pings, pingsLoading } = useValues(uptimeMonitorSceneLogic)
+    const { summary, summaryLoading } = useValues(uptimeMonitorSceneLogic)
     const { pingNow, setEditModalOpen, deleteMonitor } = useActions(uptimeMonitorSceneLogic)
 
     if (summaryLoading && !summary) {
@@ -150,40 +141,11 @@ export function UptimeMonitorScene(): JSX.Element {
                 <StatusTimeline buckets={summary.daily_buckets} />
             </LemonCard>
 
-            <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
-                <div className="font-semibold">Recent pings</div>
-                <LemonTable
-                    loading={pingsLoading}
-                    dataSource={pings}
-                    columns={[
-                        {
-                            title: 'When',
-                            dataIndex: 'timestamp',
-                            render: (_, row: Ping) => dayjs(row.timestamp).fromNow(),
-                        },
-                        {
-                            title: 'Outcome',
-                            dataIndex: 'outcome',
-                            render: (_, row: Ping) => (
-                                <LemonTag type={row.outcome === 'success' ? 'success' : 'danger'}>
-                                    {row.outcome}
-                                </LemonTag>
-                            ),
-                        },
-                        {
-                            title: 'Status',
-                            dataIndex: 'status_code',
-                            render: (_, row: Ping) => (row.status_code ? String(row.status_code) : '—'),
-                        },
-                        {
-                            title: 'Latency',
-                            dataIndex: 'latency_ms',
-                            render: (_, row: Ping) => `${row.latency_ms} ms`,
-                        },
-                    ]}
-                    emptyState="No pings recorded yet."
-                />
-            </LemonCard>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <DetailPanel title="Panel 1" />
+                <DetailPanel title="Panel 2" />
+                <DetailPanel title="Panel 3" />
+            </div>
         </SceneContent>
     )
 }
@@ -212,6 +174,15 @@ function EditMonitorModal(): JSX.Element {
                 </LemonField>
             </Form>
         </LemonModal>
+    )
+}
+
+function DetailPanel({ title }: { title: string }): JSX.Element {
+    return (
+        <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4 min-h-[240px]">
+            <div className="font-semibold">{title}</div>
+            <div className="flex-1 flex items-center justify-center text-xs text-secondary">Coming soon</div>
+        </LemonCard>
     )
 }
 
