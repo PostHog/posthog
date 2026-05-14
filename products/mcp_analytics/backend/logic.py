@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Any
 
 from django.db.models import QuerySet
@@ -14,6 +15,11 @@ from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 MCP_TOOL_CALL_EVENT = "mcp_tool_call"
+
+# Bound every sessions/tool-calls query to a fixed lookback so a single page
+# load can't trigger a full-history scan of `events` on the shared ClickHouse
+# cluster. Tune this when real customer traffic exposes a need for longer windows.
+MCP_SESSIONS_DEFAULT_LOOKBACK_DAYS = 30
 
 _MCP_TOOL_CALLS_SQL = """
 SELECT
@@ -46,6 +52,7 @@ SELECT
     argMax(distinct_id, timestamp) AS last_distinct_id
 FROM events
 WHERE event = {event}
+    AND timestamp >= {date_from}
     AND properties.$session_id IS NOT NULL
     AND properties.$session_id != ''
 GROUP BY session_id
@@ -60,10 +67,12 @@ def list_submissions(team: Team, kind: enums.SubmissionKind) -> QuerySet[MCPAnal
 
 
 def list_mcp_sessions(team: Team, limit: int, offset: int) -> list[contracts.MCPSession]:
+    date_from = dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=MCP_SESSIONS_DEFAULT_LOOKBACK_DAYS)
     query = parse_select(
         _MCP_SESSIONS_SQL,
         placeholders={
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
+            "date_from": ast.Constant(value=date_from),
             "limit": ast.Constant(value=limit),
             "offset": ast.Constant(value=offset),
         },

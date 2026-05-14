@@ -133,3 +133,18 @@ class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
         assert api.list_mcp_sessions(self.team, limit=50, offset=0) == []
+
+    def test_excludes_events_older_than_default_lookback(self) -> None:
+        # Default lookback is 30 days; an event from ~45 days ago must be excluded
+        # so a single request can't trigger a full-history scan of `events`.
+        recent_session = str(uuid7())
+        old_session = str(uuid7())
+        now = datetime.now(tz=UTC)
+
+        self._capture_mcp_tool_call(recent_session, "query_run", timestamp=now - timedelta(hours=1))
+        self._capture_mcp_tool_call(old_session, "query_run", timestamp=now - timedelta(days=45))
+        flush_persons_and_events()
+
+        sessions = api.list_mcp_sessions(self.team, limit=50, offset=0)
+
+        assert [s.session_id for s in sessions] == [recent_session]
