@@ -3,6 +3,7 @@ import { actions, afterMount, kea, listeners, path, reducers, selectors } from '
 import api from 'lib/api'
 
 import type { cofounderFlowLogicType } from './cofounderFlowLogicType'
+import type { ReactionKey } from './reactionGifs'
 import { founderLogic } from './scenes/founderLogic'
 
 export type StepKey =
@@ -63,6 +64,9 @@ function rollFounderMode(): FounderMode {
 export interface IdeaChatMessage {
     author: 'agent' | 'user'
     value: string
+    // Only set on agent messages — the posture the cofounder picked for the turn.
+    // Drives the GIF reaction next to the bubble.
+    reactionKey?: ReactionKey | null
 }
 
 export interface CrystallizedIdeation {
@@ -78,6 +82,7 @@ interface TurnResponse {
     satisfied: boolean
     crystallized_value: Record<string, string> | null
     reasoning: string
+    reaction_key: ReactionKey
 }
 
 const COFOUNDER_TURN_URL = 'api/projects/@current/founder_projects/cofounder_turn/'
@@ -141,7 +146,11 @@ export const cofounderFlowLogic = kea<cofounderFlowLogicType>([
         restoreAnswers: (answers: CofounderAnswers) => ({ answers }),
         // Idea mini-chat
         sendIdeaAnswer: (value: string) => ({ value }),
-        appendIdeaMessage: (author: 'agent' | 'user', value: string) => ({ author, value }),
+        appendIdeaMessage: (author: 'agent' | 'user', value: string, reactionKey?: ReactionKey | null) => ({
+            author,
+            value,
+            reactionKey: reactionKey ?? null,
+        }),
         setCrystallizedIdeation: (ideation: CrystallizedIdeation) => ({ ideation }),
         setFounderMode: (mode: FounderMode) => ({ mode }),
         // Wipe the idea mini-chat back to a blank slate so the founder can start the
@@ -204,7 +213,10 @@ export const cofounderFlowLogic = kea<cofounderFlowLogicType>([
             [] as IdeaChatMessage[],
             {
                 sendIdeaAnswer: (state, { value }) => [...state, { author: 'user', value }],
-                appendIdeaMessage: (state, { author, value }) => [...state, { author, value }],
+                appendIdeaMessage: (state, { author, value, reactionKey }) => [
+                    ...state,
+                    { author, value, reactionKey },
+                ],
                 resetIdeaChat: () => [],
             },
         ],
@@ -250,7 +262,7 @@ export const cofounderFlowLogic = kea<cofounderFlowLogicType>([
                     founder_mode: values.founderMode,
                 })
                 breakpoint()
-                actions.appendIdeaMessage('agent', turn.agent_message)
+                actions.appendIdeaMessage('agent', turn.agent_message, turn.reaction_key)
 
                 if (!turn.satisfied || !turn.crystallized_value) {
                     // Cofounder wants more — the thread continues, input re-enables.

@@ -11,6 +11,7 @@ import { Step2 } from './components/Step2'
 import { Step3 } from './components/Step3'
 import { Step4 } from './components/Step4'
 import { ValidationReportView } from './components/ValidationReportView'
+import { reactionGifUrl } from './reactionGifs'
 import { founderLogic, FounderStep, FOUNDER_STEPS } from './scenes/founderLogic'
 
 const FADE_MASK_HEIGHT = 160
@@ -329,19 +330,36 @@ function IdeaStep({ isActive }: { isActive: boolean }): JSX.Element {
 
             {hasThread && (
                 <div className="flex flex-col gap-3 mb-4">
-                    {ideaMessages.map((m, i) => (
-                        <div
-                            key={i}
-                            className={cn(
-                                'text-sm rounded-md px-3 py-2 max-w-[90%] whitespace-pre-wrap',
-                                m.author === 'agent'
-                                    ? 'bg-bg-3000 text-text-primary self-start'
-                                    : 'bg-text-primary text-bg-primary self-end'
-                            )}
-                        >
-                            {m.value}
-                        </div>
-                    ))}
+                    {ideaMessages.map((m, i) => {
+                        const gif = m.author === 'agent' ? reactionGifUrl(m.reactionKey) : null
+                        return (
+                            <div
+                                key={i}
+                                className={cn(
+                                    'flex flex-col gap-1 max-w-[90%]',
+                                    m.author === 'agent' ? 'self-start' : 'self-end'
+                                )}
+                            >
+                                {gif && (
+                                    <img
+                                        src={gif}
+                                        alt={m.reactionKey ?? 'reaction'}
+                                        className="rounded-md max-h-40 max-w-[16rem] w-auto h-auto border border-border-bold/30"
+                                    />
+                                )}
+                                <div
+                                    className={cn(
+                                        'text-sm rounded-md px-3 py-2 whitespace-pre-wrap',
+                                        m.author === 'agent'
+                                            ? 'bg-bg-3000 text-text-primary'
+                                            : 'bg-text-primary text-bg-primary'
+                                    )}
+                                >
+                                    {m.value}
+                                </div>
+                            </div>
+                        )
+                    })}
                     {ideaSubmitting && (
                         <div className="text-sm text-text-secondary self-start px-3 py-2">JT is thinking…</div>
                     )}

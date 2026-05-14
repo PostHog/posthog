@@ -22,6 +22,18 @@ from pydantic import BaseModel, Field
 # one — the cofounder complements them. Assigned 50/50 on the frontend (no picker for v1).
 FounderMode = Literal["technical_cofounder", "commercial_cofounder"]
 
+# Reaction key the cofounder picks per turn — drives a GIF reaction in the UI. Keep this
+# short and tied to the cofounder's posture, not the founder's answer. The frontend maps
+# the key to a GIF URL; the LLM picks the key under constrained decoding so it can never
+# return an unknown value.
+ReactionKey = Literal[
+    "excited",
+    "skeptical",
+    "thinking",
+    "satisfied",
+    "dismissive",
+]
+
 
 class ChatMessageInput(BaseModel):
     """A prior message in this topic's mini-chat thread."""
@@ -92,5 +104,12 @@ class TurnResponse(BaseModel):
         description=(
             "Internal — what the cofounder noticed and what it still needs (or why it's now "
             "satisfied), 1-2 sentences. Not shown to the founder; logged for prompt tuning."
+        )
+    )
+    reaction_key: ReactionKey = Field(
+        description=(
+            "The cofounder's posture on this turn, used to drive a GIF reaction in the UI. "
+            "Pick the single key that best matches the *tone* of `agent_message`. "
+            "See the system prompt's 'Reactions' section for when to pick each."
         )
     )
