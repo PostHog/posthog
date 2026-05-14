@@ -1,11 +1,15 @@
 import hashlib
 
+from django.core.cache import cache
+
 import structlog
 from asgiref.sync import async_to_sync
 from celery import shared_task
 
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+
+from products.signals.backend.models import SignalSourceConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -14,6 +18,8 @@ CSP_SIGNAL_SOURCE_TYPE = "violation"
 CSP_SIGNAL_WEIGHT = 0.5
 CSP_SIGNAL_DEDUP_TTL_SECONDS = 60 * 60 * 24
 CSP_SIGNAL_DEDUP_KEY_PREFIX = "csp_signal_dedup"
+CSP_SIGNAL_ENABLED_CACHE_TTL_SECONDS = 60
+CSP_SIGNAL_ENABLED_CACHE_KEY_PREFIX = "csp_signal_enabled"
 
 
 def _stringify(value: object) -> str:
@@ -38,6 +44,25 @@ def _dedup_key(team_id: int, fingerprint: str) -> str:
 
 def _source_id(fingerprint: str) -> str:
     return f"csp:{fingerprint}"
+
+
+def _enabled_cache_key(team_id: int) -> str:
+    return f"{CSP_SIGNAL_ENABLED_CACHE_KEY_PREFIX}:{team_id}"
+
+
+def _is_csp_signal_enabled(team_id: int) -> bool:
+    """
+    Cached check for whether the team has opted into CSP signal emission via SignalSourceConfig.
+    Cached for `CSP_SIGNAL_ENABLED_CACHE_TTL_SECONDS` so flipping the toggle takes effect within
+    that window without hammering Postgres on every CSP report.
+    """
+    cache_key = _enabled_cache_key(team_id)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return bool(cached)
+    enabled = SignalSourceConfig.is_source_enabled(team_id, CSP_SIGNAL_SOURCE_PRODUCT, CSP_SIGNAL_SOURCE_TYPE)
+    cache.set(cache_key, enabled, CSP_SIGNAL_ENABLED_CACHE_TTL_SECONDS)
+    return enabled
 
 
 def _build_description(properties: dict) -> str:
@@ -100,63 +125,66 @@ def _build_extra(properties: dict) -> dict:
     }
 
 
-def enqueue_csp_violation_signal(team_id: int, properties: dict) -> bool:
+def enqueue_csp_violation_signals(team_id: int, properties_list: list[dict]) -> int:
     """
-    Throttle on (team_id, violation fingerprint) for 24h and, on first sight, enqueue a Celery
-    task that calls emit_signal. Returns True if a task was enqueued, False if throttled.
+    Check the team's opt-in once (cached), then for each unique-per-24h violation in
+    `properties_list` build a signal payload and enqueue them all in a single Celery task.
+    Returns the number of signals queued.
 
-    Throttling uses Redis SET NX EX so it survives across web workers and never blocks the
-    request path. Signal emission itself is best-effort: if it fails, the violation event has
+    Per-violation throttling uses Redis SET NX EX so duplicates across web workers do not
+    emit twice. Signal emission itself is best-effort: if it fails, the violation event has
     already been captured through the normal ingestion path.
     """
-    fingerprint = _fingerprint(properties)
-    key = _dedup_key(team_id, fingerprint)
+    if not _is_csp_signal_enabled(team_id):
+        return 0
 
-    try:
-        acquired = get_client().set(key, "1", nx=True, ex=CSP_SIGNAL_DEDUP_TTL_SECONDS)
-    except Exception:
-        logger.exception("csp_signal_throttle_check_failed", team_id=team_id, fingerprint=fingerprint)
-        return False
+    client = get_client()
+    signals_to_emit: list[dict] = []
+    for properties in properties_list:
+        fingerprint = _fingerprint(properties)
+        key = _dedup_key(team_id, fingerprint)
+        try:
+            acquired = client.set(key, "1", nx=True, ex=CSP_SIGNAL_DEDUP_TTL_SECONDS)
+        except Exception:
+            logger.exception("csp_signal_throttle_check_failed", team_id=team_id, fingerprint=fingerprint)
+            continue
+        if not acquired:
+            continue
+        signals_to_emit.append(
+            {
+                "source_id": _source_id(fingerprint),
+                "description": _build_description(properties),
+                "extra": _build_extra(properties),
+            }
+        )
 
-    if not acquired:
-        return False
+    if signals_to_emit:
+        emit_csp_violation_signals_task.delay(team_id=team_id, signals=signals_to_emit)
 
-    description = _build_description(properties)
-    extra = _build_extra(properties)
-    source_id = _source_id(fingerprint)
-
-    emit_csp_violation_signal_task.delay(
-        team_id=team_id,
-        source_id=source_id,
-        description=description,
-        extra=extra,
-    )
-    return True
+    return len(signals_to_emit)
 
 
 @shared_task(ignore_result=True, max_retries=0)
-def emit_csp_violation_signal_task(team_id: int, source_id: str, description: str, extra: dict) -> None:
+def emit_csp_violation_signals_task(team_id: int, signals: list[dict]) -> None:
     from products.signals.backend.api import emit_signal
 
     try:
         team = Team.objects.get(pk=team_id)
     except Team.DoesNotExist:
-        logger.warning("csp_signal_emit_missing_team", team_id=team_id, source_id=source_id)
+        logger.warning("csp_signal_emit_missing_team", team_id=team_id, signal_count=len(signals))
         return
 
-    try:
-        async_to_sync(emit_signal)(
-            team=team,
-            source_product=CSP_SIGNAL_SOURCE_PRODUCT,
-            source_type=CSP_SIGNAL_SOURCE_TYPE,
-            source_id=source_id,
-            description=description,
-            weight=CSP_SIGNAL_WEIGHT,
-            extra=extra,
-        )
-    except Exception:
-        logger.exception(
-            "csp_signal_emit_failed",
-            team_id=team_id,
-            source_id=source_id,
-        )
+    for signal in signals:
+        source_id = signal.get("source_id", "")
+        try:
+            async_to_sync(emit_signal)(
+                team=team,
+                source_product=CSP_SIGNAL_SOURCE_PRODUCT,
+                source_type=CSP_SIGNAL_SOURCE_TYPE,
+                source_id=source_id,
+                description=signal["description"],
+                weight=CSP_SIGNAL_WEIGHT,
+                extra=signal.get("extra") or {},
+            )
+        except Exception:
+            logger.exception("csp_signal_emit_failed", team_id=team_id, source_id=source_id)

@@ -12,7 +12,7 @@ from posthog.exceptions import generate_exception_response
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed
 from posthog.models.team.team_caching import get_team_in_cache
-from posthog.tasks.csp_signal import enqueue_csp_violation_signal
+from posthog.tasks.csp_signal import enqueue_csp_violation_signals
 from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
@@ -26,9 +26,8 @@ def _maybe_emit_csp_signals(token: str, csp_report) -> None:
         if not cached_team:
             return
         reports = csp_report if isinstance(csp_report, list) else [csp_report]
-        for report in reports:
-            properties = report.get("properties", {})
-            enqueue_csp_violation_signal(cached_team.id, properties)
+        properties_list = [report.get("properties", {}) for report in reports]
+        enqueue_csp_violation_signals(cached_team.id, properties_list)
     except Exception as exc:
         capture_exception(exc, {"capture-pathway": "csp_signal", "ph-team-token": token})
         logger.exception("csp_signal_enqueue_failed", exc_info=exc)

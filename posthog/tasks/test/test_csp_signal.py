@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 
 from posthog.tasks.csp_signal import (
@@ -8,9 +10,10 @@ from posthog.tasks.csp_signal import (
     _build_description,
     _build_extra,
     _dedup_key,
+    _enabled_cache_key,
     _fingerprint,
-    emit_csp_violation_signal_task,
-    enqueue_csp_violation_signal,
+    emit_csp_violation_signals_task,
+    enqueue_csp_violation_signals,
 )
 
 
@@ -97,115 +100,171 @@ class TestCSPSignalDescription(BaseTest):
         assert extra["column_number"] is None
 
 
+def _enable_csp_signals(team_id: int) -> None:
+    cache.set(_enabled_cache_key(team_id), True, 60)
+
+
+def _disable_csp_signals(team_id: int) -> None:
+    cache.set(_enabled_cache_key(team_id), False, 60)
+
+
 class TestCSPSignalThrottle(BaseTest):
     def setUp(self):
         super().setUp()
         from posthog.redis import get_client
 
-        # Clear any keys from prior runs
         client = get_client()
         for key in client.scan_iter(match="csp_signal_dedup:*"):
             client.delete(key)
+        cache.delete(_enabled_cache_key(self.team.id))
+        _enable_csp_signals(self.team.id)
 
-    @patch("posthog.tasks.csp_signal.emit_csp_violation_signal_task.delay")
-    def test_first_violation_enqueues_task(self, mock_delay):
-        properties = _csp_properties()
-        enqueued = enqueue_csp_violation_signal(self.team.id, properties)
-        assert enqueued is True
+    @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
+    def test_first_violation_enqueues_one_task(self, mock_delay):
+        enqueued = enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
+        assert enqueued == 1
         mock_delay.assert_called_once()
+        kwargs = mock_delay.call_args.kwargs
+        assert kwargs["team_id"] == self.team.id
+        assert len(kwargs["signals"]) == 1
 
-    @patch("posthog.tasks.csp_signal.emit_csp_violation_signal_task.delay")
+    @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
     def test_duplicate_violation_is_throttled(self, mock_delay):
-        properties = _csp_properties()
-        first = enqueue_csp_violation_signal(self.team.id, properties)
-        second = enqueue_csp_violation_signal(self.team.id, properties)
-        assert first is True
-        assert second is False
+        first = enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
+        second = enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
+        assert first == 1
+        assert second == 0
         mock_delay.assert_called_once()
 
-    @patch("posthog.tasks.csp_signal.emit_csp_violation_signal_task.delay")
-    def test_distinct_violations_each_enqueue(self, mock_delay):
-        enqueue_csp_violation_signal(self.team.id, _csp_properties())
-        enqueue_csp_violation_signal(
-            self.team.id, _csp_properties(**{"$csp_blocked_url": "https://other.example.com/x.js"})
-        )
-        assert mock_delay.call_count == 2
+    @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
+    def test_batch_of_distinct_violations_enqueues_one_task_with_all(self, mock_delay):
+        distinct_violations = [
+            _csp_properties(),
+            _csp_properties(**{"$csp_blocked_url": "https://other.example.com/x.js"}),
+            _csp_properties(**{"$csp_document_url": "https://example.com/other"}),
+        ]
+        enqueued = enqueue_csp_violation_signals(self.team.id, distinct_violations)
+        assert enqueued == 3
+        mock_delay.assert_called_once()
+        kwargs = mock_delay.call_args.kwargs
+        assert len(kwargs["signals"]) == 3
 
-    @patch("posthog.tasks.csp_signal.emit_csp_violation_signal_task.delay")
+    @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
+    def test_batch_with_duplicates_only_enqueues_new(self, mock_delay):
+        violations = [
+            _csp_properties(),
+            _csp_properties(),
+            _csp_properties(**{"$csp_blocked_url": "https://other.example.com/x.js"}),
+        ]
+        enqueued = enqueue_csp_violation_signals(self.team.id, violations)
+        assert enqueued == 2
+        mock_delay.assert_called_once()
+        kwargs = mock_delay.call_args.kwargs
+        assert len(kwargs["signals"]) == 2
+
+    @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
     def test_throttle_is_per_team(self, mock_delay):
-        properties = _csp_properties()
         from posthog.models import Organization, Team
 
         other_org = Organization.objects.create(name="other")
         other_team = Team.objects.create(organization=other_org, name="other")
+        _enable_csp_signals(other_team.id)
 
-        enqueue_csp_violation_signal(self.team.id, properties)
-        enqueue_csp_violation_signal(other_team.id, properties)
+        enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
+        enqueue_csp_violation_signals(other_team.id, [_csp_properties()])
         assert mock_delay.call_count == 2
 
-    @patch("posthog.tasks.csp_signal.emit_csp_violation_signal_task.delay")
+    @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
     def test_ttl_is_24_hours(self, mock_delay):
         from posthog.redis import get_client
 
         properties = _csp_properties()
-        enqueue_csp_violation_signal(self.team.id, properties)
+        enqueue_csp_violation_signals(self.team.id, [properties])
 
         key = _dedup_key(self.team.id, _fingerprint(properties))
         ttl = get_client().ttl(key)
         assert 0 < ttl <= CSP_SIGNAL_DEDUP_TTL_SECONDS
 
     @patch("posthog.tasks.csp_signal.get_client")
-    @patch("posthog.tasks.csp_signal.emit_csp_violation_signal_task.delay")
-    def test_redis_failure_doesnt_enqueue(self, mock_delay, mock_get_client):
-        mock_get_client.side_effect = RuntimeError("redis down")
-        result = enqueue_csp_violation_signal(self.team.id, _csp_properties())
-        assert result is False
+    @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
+    def test_redis_failure_skips_violation(self, mock_delay, mock_get_client):
+        fake_client = mock_get_client.return_value
+        fake_client.set.side_effect = RuntimeError("redis down")
+
+        result = enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
+        assert result == 0
         mock_delay.assert_not_called()
+
+    @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
+    def test_disabled_team_skips_throttle_and_enqueue(self, mock_delay):
+        _disable_csp_signals(self.team.id)
+        result = enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
+        assert result == 0
+        mock_delay.assert_not_called()
+
+    @patch("posthog.tasks.csp_signal.SignalSourceConfig.is_source_enabled")
+    @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
+    def test_enabled_check_is_cached(self, mock_delay, mock_is_enabled):
+        cache.delete(_enabled_cache_key(self.team.id))
+        mock_is_enabled.return_value = True
+
+        enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
+        enqueue_csp_violation_signals(self.team.id, [_csp_properties(**{"$csp_blocked_url": "https://a/x.js"})])
+        enqueue_csp_violation_signals(self.team.id, [_csp_properties(**{"$csp_blocked_url": "https://b/x.js"})])
+
+        assert mock_is_enabled.call_count == 1
 
 
 class TestCSPSignalTask(BaseTest):
     @patch("products.signals.backend.api.emit_signal")
-    def test_task_calls_emit_signal_with_csp_source(self, mock_emit_signal):
+    def test_task_calls_emit_signal_for_each_signal_in_batch(self, mock_emit_signal):
         async def fake_emit(*args, **kwargs):
             return None
 
         mock_emit_signal.side_effect = fake_emit
 
-        emit_csp_violation_signal_task(
+        emit_csp_violation_signals_task(
             team_id=self.team.id,
-            source_id="csp:abc",
-            description="desc",
-            extra={"document_url": "https://example.com/page"},
+            signals=[
+                {"source_id": "csp:a", "description": "desc a", "extra": {"document_url": "https://x/a"}},
+                {"source_id": "csp:b", "description": "desc b", "extra": {"document_url": "https://x/b"}},
+            ],
         )
 
-        mock_emit_signal.assert_called_once()
-        kwargs = mock_emit_signal.call_args.kwargs
-        assert kwargs["source_product"] == "csp_reporting"
-        assert kwargs["source_type"] == "violation"
-        assert kwargs["source_id"] == "csp:abc"
-        assert kwargs["description"] == "desc"
-        assert kwargs["team"].id == self.team.id
+        assert mock_emit_signal.call_count == 2
+        source_ids = [c.kwargs["source_id"] for c in mock_emit_signal.call_args_list]
+        assert source_ids == ["csp:a", "csp:b"]
+        for c in mock_emit_signal.call_args_list:
+            assert c.kwargs["source_product"] == "csp_reporting"
+            assert c.kwargs["source_type"] == "violation"
+            assert c.kwargs["team"].id == self.team.id
 
     @patch("products.signals.backend.api.emit_signal")
     def test_task_swallows_missing_team(self, mock_emit_signal):
-        emit_csp_violation_signal_task(
+        emit_csp_violation_signals_task(
             team_id=999_999_999,
-            source_id="csp:abc",
-            description="desc",
-            extra={},
+            signals=[{"source_id": "csp:a", "description": "d", "extra": {}}],
         )
         mock_emit_signal.assert_not_called()
 
     @patch("products.signals.backend.api.emit_signal")
-    def test_task_swallows_emit_signal_failure(self, mock_emit_signal):
-        async def boom(*args, **kwargs):
-            raise RuntimeError("temporal unavailable")
+    def test_task_continues_after_emit_failure_for_one_signal(self, mock_emit_signal):
+        call_count = {"count": 0}
 
-        mock_emit_signal.side_effect = boom
+        async def maybe_boom(*args, **kwargs):
+            call_count["count"] += 1
+            if call_count["count"] == 1:
+                raise RuntimeError("temporal unavailable")
+            return None
 
-        emit_csp_violation_signal_task(
+        mock_emit_signal.side_effect = maybe_boom
+
+        emit_csp_violation_signals_task(
             team_id=self.team.id,
-            source_id="csp:abc",
-            description="desc",
-            extra={},
+            signals=[
+                {"source_id": "csp:a", "description": "d a", "extra": {}},
+                {"source_id": "csp:b", "description": "d b", "extra": {}},
+            ],
         )
+
+        assert mock_emit_signal.call_count == 2
