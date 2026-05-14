@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconArrowLeft, IconCheck, IconChevronRight, IconClock, IconPhone } from '@posthog/icons'
+import { IconArrowLeft, IconCheck, IconChevronRight, IconClock } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, LemonWidget } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -91,9 +91,6 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                     <h1 className="text-2xl font-bold mb-1">{topic.topic}</h1>
                     {topic.agent_context && <p className="text-muted mb-0 text-sm">{topic.agent_context}</p>}
                 </div>
-                <LemonButton type="primary" icon={<IconPhone />}>
-                    Start calls
-                </LemonButton>
             </div>
 
             <div className="grid grid-cols-1 gap-4 @container @4xl:grid-cols-3">
