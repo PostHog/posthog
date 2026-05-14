@@ -146,6 +146,8 @@ def main() -> int:
             exit_code = 1
 
         for summary in summaries:
+            if "error" in summary:
+                exit_code = 1
             if args.pretty:
                 print(json.dumps(summary, indent=2, sort_keys=True))
             else:
