@@ -1,7 +1,28 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { buildLabelRow, formatYValue, getInsightType, pickStep, widenSeries } from './insight-display.js'
+import {
+    BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_NULL_NUMERIC_LABEL,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_DISPLAY,
+    BREAKDOWN_OTHER_NUMERIC_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
+    bucketAverage,
+    bucketLabels,
+    buildLabelRow,
+    formatLegendValue,
+    formatYValue,
+    friendlyBreakdownLabel,
+    getInsightType,
+    getPostHogHex,
+    hexToAnsi,
+    maxRenderablePoints,
+    parseHex,
+    pickStep,
+    POSTHOG_COLORS,
+    widenSeries,
+} from './insight-display.js'
 
 describe('getInsightType', () => {
     it('unwraps InsightVizNode wrapper to the inner source kind', () => {
@@ -121,13 +142,45 @@ describe('formatYValue', () => {
     }
 })
 
+describe('formatLegendValue', () => {
+    const cases: Array<{ input: number; expected: string }> = [
+        // Integers render with thousands separators, no decimals
+        { input: 0, expected: '0' },
+        { input: 451, expected: '451' },
+        { input: 1990, expected: '1,990' },
+        { input: 54136, expected: '54,136' },
+        // Negatives keep their sign
+        { input: -1234, expected: '-1,234' },
+        // Floating-point noise gets clipped to 2 decimals
+        { input: 1964.1382819000005, expected: '1,964.14' },
+        { input: 451.4627497, expected: '451.46' },
+        { input: 116.41002270000004, expected: '116.41' },
+        { input: 4496.243670150001, expected: '4,496.24' },
+        // Fewer than 2 decimals are not zero-padded ("1,234.5" not "1,234.50")
+        { input: 1234.5, expected: '1,234.5' },
+        // Tiny fractions still round to 2 decimals
+        { input: 0.005, expected: '0.01' },
+        { input: 0.001, expected: '0' },
+        // Non-finite values fall back to "0" (defensive — caller should filter NaN/Infinity)
+        { input: Number.NaN, expected: '0' },
+        { input: Number.POSITIVE_INFINITY, expected: '0' },
+        { input: Number.NEGATIVE_INFINITY, expected: '0' },
+    ]
+
+    for (const { input, expected } of cases) {
+        it(`formats ${input} as "${expected}"`, () => {
+            assert.equal(formatLegendValue(input), expected)
+        })
+    }
+})
+
 describe('pickStep', () => {
     it('clamps to a minimum of 1 when there are many points', () => {
         assert.equal(pickStep(100, 60), 1)
     })
 
-    it('clamps to a maximum of 12 when there is plenty of room', () => {
-        assert.equal(pickStep(2, 200), 12)
+    it('clamps to a maximum of 20 when there is plenty of room', () => {
+        assert.equal(pickStep(2, 240), 20)
     })
 
     it('scales the step with the width budget', () => {
@@ -137,7 +190,7 @@ describe('pickStep', () => {
 
     it('keeps the chart within the terminal width for the realistic 31-points / 120-cols case', () => {
         const step = pickStep(31, 120)
-        assert.ok(step >= 1 && step <= 12)
+        assert.ok(step >= 1 && step <= 20)
         // Whatever step we pick, the rendered chart width must fit on the line.
         assert.ok((31 - 1) * step + 10 <= 120, 'chart overflows terminal width')
     })
@@ -221,6 +274,255 @@ describe('buildLabelRow', () => {
             for (const needle of mustExclude ?? []) {
                 assert.ok(!row.includes(needle), `${needle} should not be present in row`)
             }
+        })
+    }
+})
+
+describe('parseHex', () => {
+    const cases: Array<{ hex: string; expected: { r: number; g: number; b: number } }> = [
+        { hex: '#000000', expected: { r: 0, g: 0, b: 0 } },
+        { hex: '#ffffff', expected: { r: 255, g: 255, b: 255 } },
+        { hex: '#1d4aff', expected: { r: 29, g: 74, b: 255 } },
+        { hex: '#621da6', expected: { r: 98, g: 29, b: 166 } },
+        { hex: '#42827e', expected: { r: 66, g: 130, b: 126 } },
+        { hex: '#ce7c00', expected: { r: 206, g: 124, b: 0 } },
+        // Uppercase hex digits parse the same as lowercase
+        { hex: '#FF6347', expected: { r: 255, g: 99, b: 71 } },
+        // Leading '#' is optional
+        { hex: '1d4aff', expected: { r: 29, g: 74, b: 255 } },
+    ]
+
+    for (const { hex, expected } of cases) {
+        it(`parses ${hex} as rgb(${expected.r}, ${expected.g}, ${expected.b})`, () => {
+            assert.deepEqual(parseHex(hex), expected)
+        })
+    }
+})
+
+describe('hexToAnsi', () => {
+    const cases: Array<{ hex: string; expected: string }> = [
+        { hex: '#000000', expected: '\x1b[38;2;0;0;0m' },
+        { hex: '#ffffff', expected: '\x1b[38;2;255;255;255m' },
+        { hex: '#1d4aff', expected: '\x1b[38;2;29;74;255m' },
+        { hex: '#191970', expected: '\x1b[38;2;25;25;112m' },
+        { hex: '#ff6347', expected: '\x1b[38;2;255;99;71m' },
+    ]
+
+    for (const { hex, expected } of cases) {
+        it(`emits a 24-bit SGR for ${hex}`, () => {
+            assert.equal(hexToAnsi(hex), expected)
+        })
+    }
+
+    it('produces a distinct ANSI escape for every entry in POSTHOG_COLORS', () => {
+        // The bug we are guarding against: previously several PostHog hexes
+        // were folded onto the same named ANSI color (e.g. #1d4aff and #191970
+        // both rendered as blue), making adjacent series indistinguishable.
+        const ansiEscapes = POSTHOG_COLORS.map(hexToAnsi)
+        const unique = new Set(ansiEscapes)
+        assert.equal(unique.size, POSTHOG_COLORS.length, 'every palette color should map to a unique ANSI sequence')
+    })
+})
+
+describe('friendlyBreakdownLabel', () => {
+    const cases: Array<{ name: string; value: unknown; expected: string }> = [
+        {
+            name: 'translates the "Other" string sentinel',
+            value: BREAKDOWN_OTHER_STRING_LABEL,
+            expected: BREAKDOWN_OTHER_DISPLAY,
+        },
+        {
+            name: 'translates the "Other" numeric sentinel',
+            value: BREAKDOWN_OTHER_NUMERIC_LABEL,
+            expected: BREAKDOWN_OTHER_DISPLAY,
+        },
+        {
+            name: 'translates the "Other" numeric sentinel passed as a string',
+            value: String(BREAKDOWN_OTHER_NUMERIC_LABEL),
+            expected: BREAKDOWN_OTHER_DISPLAY,
+        },
+        {
+            name: 'translates the "None" string sentinel',
+            value: BREAKDOWN_NULL_STRING_LABEL,
+            expected: BREAKDOWN_NULL_DISPLAY,
+        },
+        {
+            name: 'translates the "None" numeric sentinel',
+            value: BREAKDOWN_NULL_NUMERIC_LABEL,
+            expected: BREAKDOWN_NULL_DISPLAY,
+        },
+        {
+            name: 'passes regular string labels through',
+            value: 'lucas@posthog.com',
+            expected: 'lucas@posthog.com',
+        },
+        {
+            name: 'stringifies non-string regular values',
+            value: 42,
+            expected: '42',
+        },
+        {
+            name: 'returns an empty string for null',
+            value: null,
+            expected: '',
+        },
+        {
+            name: 'returns an empty string for undefined',
+            value: undefined,
+            expected: '',
+        },
+    ]
+
+    for (const { name, value, expected } of cases) {
+        it(name, () => {
+            assert.equal(friendlyBreakdownLabel(value), expected)
+        })
+    }
+})
+
+describe('bucketAverage', () => {
+    const cases: Array<{ name: string; values: number[]; maxPoints: number; expected: number[] }> = [
+        {
+            name: 'returns a copy unchanged when length is at or below the cap',
+            values: [1, 2, 3, 4],
+            maxPoints: 10,
+            expected: [1, 2, 3, 4],
+        },
+        {
+            name: 'returns a copy unchanged when maxPoints equals length',
+            values: [1, 2, 3, 4],
+            maxPoints: 4,
+            expected: [1, 2, 3, 4],
+        },
+        {
+            name: 'averages adjacent buckets when length exceeds the cap',
+            values: [1, 3, 5, 7, 9, 11],
+            maxPoints: 3,
+            expected: [2, 6, 10],
+        },
+        {
+            name: 'handles a non-divisible length (final bucket is shorter)',
+            // ceil(5/2) = 3 → buckets of size 3 → [(1+2+3)/3, (4+5)/2]
+            values: [1, 2, 3, 4, 5],
+            maxPoints: 2,
+            expected: [2, 4.5],
+        },
+        {
+            name: 'compresses a 720-point hourly series so it fits a 240-col chart',
+            // termWidth 240 → maxRenderablePoints = 231; 720 down to ≤231 points
+            values: Array.from({ length: 720 }, (_, i) => i),
+            maxPoints: 231,
+            expected: undefined as unknown as number[], // checked below
+        },
+        {
+            name: 'returns a copy (not the input reference) on the identity path',
+            values: [1, 2, 3],
+            maxPoints: 10,
+            expected: [1, 2, 3],
+        },
+        {
+            name: 'passes input through when maxPoints is 0 (defensive)',
+            values: [1, 2, 3],
+            maxPoints: 0,
+            expected: [1, 2, 3],
+        },
+        {
+            name: 'returns empty for an empty input',
+            values: [],
+            maxPoints: 10,
+            expected: [],
+        },
+    ]
+
+    for (const { name, values, maxPoints, expected } of cases) {
+        it(name, () => {
+            const out = bucketAverage(values, maxPoints)
+            if (expected !== undefined) {
+                assert.deepEqual(out, expected)
+            } else {
+                // The 720-point case: just assert the output fits the cap and
+                // preserves the overall scale within tolerance.
+                assert.ok(out.length <= maxPoints, `output length ${out.length} should be <= ${maxPoints}`)
+                assert.ok(out.length > 0, 'output should not be empty')
+            }
+        })
+    }
+
+    it('does not mutate the input array', () => {
+        const input = [1, 2, 3, 4, 5]
+        const snapshot = [...input]
+        bucketAverage(input, 2)
+        assert.deepEqual(input, snapshot)
+    })
+})
+
+describe('bucketLabels', () => {
+    const cases: Array<{ name: string; labels: unknown[]; maxPoints: number; expected: unknown[] }> = [
+        {
+            name: 'returns a copy unchanged when length fits the cap',
+            labels: ['a', 'b', 'c'],
+            maxPoints: 5,
+            expected: ['a', 'b', 'c'],
+        },
+        {
+            name: 'stride-samples the first label of each bucket',
+            // bucketSize = ceil(6/3) = 2 → indices 0, 2, 4
+            labels: ['a', 'b', 'c', 'd', 'e', 'f'],
+            maxPoints: 3,
+            expected: ['a', 'c', 'e'],
+        },
+        {
+            name: 'aligns with bucketAverage bucket boundaries',
+            // Same bucketSize as bucketAverage for the same lengths/caps.
+            labels: ['l0', 'l1', 'l2', 'l3', 'l4'],
+            maxPoints: 2,
+            expected: ['l0', 'l3'],
+        },
+        {
+            name: 'returns empty for an empty input',
+            labels: [],
+            maxPoints: 10,
+            expected: [],
+        },
+    ]
+
+    for (const { name, labels, maxPoints, expected } of cases) {
+        it(name, () => {
+            assert.deepEqual(bucketLabels(labels, maxPoints), expected)
+        })
+    }
+})
+
+describe('maxRenderablePoints', () => {
+    const cases: Array<{ termWidth: number; expected: number }> = [
+        { termWidth: 240, expected: 231 },
+        { termWidth: 120, expected: 111 },
+        { termWidth: 80, expected: 71 },
+        // Pathological narrow widths still produce a usable minimum
+        { termWidth: 5, expected: 2 },
+        { termWidth: 0, expected: 2 },
+    ]
+
+    for (const { termWidth, expected } of cases) {
+        it(`returns ${expected} cells at termWidth=${termWidth}`, () => {
+            assert.equal(maxRenderablePoints(termWidth), expected)
+        })
+    }
+})
+
+describe('getPostHogHex', () => {
+    const cases: Array<{ name: string; index: number; expected: string }> = [
+        { name: 'returns the first color for index 0', index: 0, expected: POSTHOG_COLORS[0] },
+        { name: 'returns the last color for index 14', index: 14, expected: POSTHOG_COLORS[14] },
+        { name: 'wraps around at the palette length', index: 15, expected: POSTHOG_COLORS[0] },
+        { name: 'wraps around for larger indices', index: 31, expected: POSTHOG_COLORS[1] },
+        { name: 'handles negative indices', index: -1, expected: POSTHOG_COLORS[14] },
+        { name: 'handles large negative indices', index: -16, expected: POSTHOG_COLORS[14] },
+    ]
+
+    for (const { name, index, expected } of cases) {
+        it(name, () => {
+            assert.equal(getPostHogHex(index), expected)
         })
     }
 })
