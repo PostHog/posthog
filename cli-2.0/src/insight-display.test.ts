@@ -11,6 +11,7 @@ import {
     bucketAverage,
     bucketLabels,
     buildLabelRow,
+    formatLegendValue,
     formatYValue,
     friendlyBreakdownLabel,
     getInsightType,
@@ -137,6 +138,38 @@ describe('formatYValue', () => {
     for (const { input, expected } of cases) {
         it(`formats ${input} as "${expected}"`, () => {
             assert.equal(formatYValue(input), expected)
+        })
+    }
+})
+
+describe('formatLegendValue', () => {
+    const cases: Array<{ input: number; expected: string }> = [
+        // Integers render with thousands separators, no decimals
+        { input: 0, expected: '0' },
+        { input: 451, expected: '451' },
+        { input: 1990, expected: '1,990' },
+        { input: 54136, expected: '54,136' },
+        // Negatives keep their sign
+        { input: -1234, expected: '-1,234' },
+        // Floating-point noise gets clipped to 2 decimals
+        { input: 1964.1382819000005, expected: '1,964.14' },
+        { input: 451.4627497, expected: '451.46' },
+        { input: 116.41002270000004, expected: '116.41' },
+        { input: 4496.243670150001, expected: '4,496.24' },
+        // Fewer than 2 decimals are not zero-padded ("1,234.5" not "1,234.50")
+        { input: 1234.5, expected: '1,234.5' },
+        // Tiny fractions still round to 2 decimals
+        { input: 0.005, expected: '0.01' },
+        { input: 0.001, expected: '0' },
+        // Non-finite values fall back to "0" (defensive — caller should filter NaN/Infinity)
+        { input: Number.NaN, expected: '0' },
+        { input: Number.POSITIVE_INFINITY, expected: '0' },
+        { input: Number.NEGATIVE_INFINITY, expected: '0' },
+    ]
+
+    for (const { input, expected } of cases) {
+        it(`formats ${input} as "${expected}"`, () => {
+            assert.equal(formatLegendValue(input), expected)
         })
     }
 })

@@ -134,6 +134,20 @@ export function formatYValue(x: number): string {
     return x.toFixed(0)
 }
 
+// Legend / total formatter. Bar heights already use `formatYValue` for the
+// abbreviated axis labels ("2.0k"); this one is for the exact value shown
+// next to each legend entry — trims floating-point noise like
+// `1964.1382819000005` down to `1,964.14`.
+export function formatLegendValue(x: number): string {
+    if (!Number.isFinite(x)) {
+        return '0'
+    }
+    if (Number.isInteger(x)) {
+        return x.toLocaleString('en-US')
+    }
+    return x.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+}
+
 export function pickStep(points: number, termWidth: number): number {
     const widthBudget = termWidth - Y_AXIS_PAD - 2
     let step = Math.floor(widthBudget / Math.max(1, points - 1))

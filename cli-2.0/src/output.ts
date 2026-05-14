@@ -10,6 +10,7 @@ import {
     buildLabelRow,
     CHARTABLE_INSIGHT_TOOLS,
     type ChartSeries,
+    formatLegendValue,
     formatYValue,
     friendlyBreakdownLabel,
     getInsightType,
@@ -877,7 +878,11 @@ function plotBarChart(series: ChartSeries[]): void {
     
     series.forEach((s, seriesIndex) => {
         const data = s.data.map((v) => Number(v) || 0)
-        const labels = s.labels.map((l) => stringify(l))
+        // Translate breakdown sentinels here too — `plotBarChart` is reached
+        // both from `convertToBarChartSeries` (which already translates) and
+        // from the trend-series fallthrough in `printInsightDetail`, which
+        // hands us raw labels straight off the API.
+        const labels = s.labels.map((l) => friendlyBreakdownLabel(l))
         
         // Use PostHog's color system for each data point/category
         const categoryColors = data.map((_, categoryIndex) => {
@@ -888,7 +893,7 @@ function plotBarChart(series: ChartSeries[]): void {
         
         const action = isRecord(s.action) ? s.action : null
         const name = stringify(s.label) || (action ? stringify(action.name) : '') || `Series ${seriesIndex + 1}`
-        const total = typeof s.count === 'number' ? chalk.gray(`  total: ${s.count}`) : ''
+        const total = typeof s.count === 'number' ? chalk.gray(`  total: ${formatLegendValue(s.count)}`) : ''
         
         // Use the first category's color for the series header
         const seriesColor = categoryColors[0]?.terminal || { fn: chalk.white }
@@ -948,8 +953,7 @@ function plotBarChart(series: ChartSeries[]): void {
                 if (data[i] === 0) return
                 const value = data[i]
                 const categoryColor = categoryColors[i]
-                // Show full unrounded numbers in the legend
-                console.log(`  ${categoryColor.terminal.fn('●')} ${label}: ${value}`)
+                console.log(`  ${categoryColor.terminal.fn('●')} ${label}: ${formatLegendValue(value)}`)
             })
         } catch (error) {
             console.log(chalk.gray(`Failed to render bar chart: ${error instanceof Error ? error.message : 'Unknown error'}`))
@@ -1017,7 +1021,7 @@ function plotTrendsSeries(series: ChartSeries[]): void {
         const { fn: color } = seriesColors[i]
         const action = isRecord(s.action) ? s.action : null
         const name = friendlyBreakdownLabel(s.label) || (action ? stringify(action.name) : '') || `Series ${i + 1}`
-        const total = typeof s.count === 'number' ? chalk.gray(`  total: ${s.count}`) : ''
+        const total = typeof s.count === 'number' ? chalk.gray(`  total: ${formatLegendValue(s.count)}`) : ''
         console.log(`  ${color('●')} ${name}${total}`)
     })
 }
