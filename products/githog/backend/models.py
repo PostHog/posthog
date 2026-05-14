@@ -79,3 +79,6 @@ class GitHogConversationMessage(UUIDModel):
 
     class Meta:
         ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["team", "repository", "pull_request_number"]),
+        ]

@@ -247,7 +247,7 @@ class GitHogPullRequestLayoutResponseSerializer(serializers.Serializer):
 
 
 class GitHogConversationMessageSerializer(serializers.Serializer):
-    id = serializers.IntegerField(help_text="Message ID.")
+    id = serializers.UUIDField(help_text="Message ID.")
     author_name = serializers.CharField(help_text="Display name of the message author.")
     author_email = serializers.CharField(help_text="Email of the message author.")
     body = serializers.CharField(help_text="Message body text.")

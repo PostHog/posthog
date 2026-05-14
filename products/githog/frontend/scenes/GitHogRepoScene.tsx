@@ -45,7 +45,11 @@ function RiskScoreBadge({ owner, name, number }: { owner: string; name: string; 
     const { riskScore, riskScoreLoading } = useValues(logic)
 
     if (riskScoreLoading && !riskScore) {
-        return <LemonSkeleton className="h-5 w-16 rounded-full" title="Assessing risk…" />
+        return (
+            <span title="Assessing risk…">
+                <LemonSkeleton className="h-5 w-16 rounded-full" />
+            </span>
+        )
     }
     if (!riskScore) {
         return (

@@ -5,7 +5,7 @@ import './GitHogPRWorkspace.css'
 
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo, useState } from 'react'
-import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
+import { Layout, LayoutItem, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 
 import {
     IconCheck,
@@ -759,9 +759,9 @@ function GitHogPRWorkspaceInner({
     const widgets = useMemo(() => layoutItems.map((it) => it.i as WidgetType), [layoutItems])
     const available = (Object.keys(WIDGET_DEFS) as WidgetType[]).filter((k) => !widgets.includes(k))
 
-    // react-grid-layout's `Layout` shape matches our persisted item shape 1:1.
+    // react-grid-layout's `LayoutItem` shape matches our persisted item shape 1:1.
     const handleLayoutChange = useCallback(
-        (nextLayout: Layout[]) => {
+        (nextLayout: Layout) => {
             const items: GitHogLayoutItem[] = nextLayout.map((l) => ({
                 i: l.i,
                 x: l.x,
@@ -816,7 +816,7 @@ function GitHogPRWorkspaceInner({
         }
     }
 
-    const gridLayout: Layout[] = layoutItems.map((it) => {
+    const gridLayout: LayoutItem[] = layoutItems.map((it) => {
         const def = WIDGET_DEFS[it.i as WidgetType]
         return {
             i: it.i,

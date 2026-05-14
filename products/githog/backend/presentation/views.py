@@ -338,6 +338,9 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         repository: str = query.validated_data["repository"]
         number: int = query.validated_data["number"]
 
+        if self._find_integration_for_repository(repository) is None:
+            raise NotFound("No GitHub integration on this team has access to that repository")
+
         messages = GitHogConversationMessage.objects.filter(
             team_id=self.team_id,
             repository=repository,
@@ -370,6 +373,9 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         repository: str = body_ser.validated_data["repository"]
         number: int = body_ser.validated_data["number"]
         body: str = body_ser.validated_data["body"]
+
+        if self._find_integration_for_repository(repository) is None:
+            raise NotFound("No GitHub integration on this team has access to that repository")
 
         message = GitHogConversationMessage.objects.create(
             team_id=self.team_id,
