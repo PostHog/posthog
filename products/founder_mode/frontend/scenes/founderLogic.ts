@@ -9,31 +9,7 @@ export type FounderStep = 'ideation' | 'validation' | 'gtm' | 'mvp' | 'marketing
 
 export const FOUNDER_STEPS: FounderStep[] = ['ideation', 'validation', 'gtm', 'mvp', 'marketing']
 
-export interface SocialPost {
-    platform: string
-    content: string
-    tips: string
-}
-
-export interface LaunchStep {
-    title: string
-    description: string
-    channel: string
-    timeline: string
-    ready_to_use_content: SocialPost[]
-}
-
-export interface GTMResult {
-    launch_summary: string
-    target_communities: string[]
-    steps: LaunchStep[]
-}
-
-export interface GTMState {
-    status: 'pending' | 'running' | 'completed' | 'failed'
-    result: GTMResult | null
-    error: string
-}
+import type { GTMEnvelopeApi, GTMSummaryApi } from '../generated/api.schemas'
 
 interface FounderProjectListItem {
     id: string
@@ -52,9 +28,9 @@ export const founderLogic = kea<founderLogicType>([
         setCurrentProjectId: (projectId: string | null) => ({ projectId }),
         setCurrentStep: (currentStep: FounderStep) => ({ currentStep }),
         advanceStep: (currentStep: FounderStep) => ({ currentStep }),
-        setProductDescription: (description: string) => ({ description }),
-        generateStrategy: true,
-        setGtmState: (state: GTMState) => ({ state }),
+        triggerGtm: true,
+        setGtmEnvelope: (gtm: GTMEnvelopeApi | null) => ({ gtm }),
+        setGtmLoaded: (loaded: boolean) => ({ loaded }),
         loadExistingProject: true,
         loadExistingGtm: true,
         pollGtmStatus: true,
@@ -88,23 +64,23 @@ export const founderLogic = kea<founderLogicType>([
                 setProjectLoaded: (_, { loaded }) => loaded,
             },
         ],
-        productDescription: [
-            '',
+        gtmEnvelope: [
+            null as GTMEnvelopeApi | null,
             {
-                setProductDescription: (_, { description }) => description,
+                setGtmEnvelope: (_, { gtm }) => gtm,
+                triggerGtm: () => ({ status: 'running' }) as GTMEnvelopeApi,
             },
         ],
-        gtmState: [
-            null as GTMState | null,
+        gtmLoaded: [
+            false,
             {
-                setGtmState: (_, { state }) => state,
-                generateStrategy: () => ({ status: 'pending', result: null, error: '' }) as GTMState,
+                setGtmLoaded: (_, { loaded }) => loaded,
             },
         ],
         gtmPolling: [
             false,
             {
-                generateStrategy: () => true,
+                triggerGtm: () => true,
                 stopGtmPolling: () => false,
             },
         ],
@@ -112,6 +88,10 @@ export const founderLogic = kea<founderLogicType>([
 
     selectors({
         hasExistingProject: [(s) => [s.currentProjectId], (id): boolean => id !== null],
+        gtmStatus: [(s) => [s.gtmEnvelope], (gtm): string => gtm?.status ?? 'idle'],
+        gtmResult: [(s) => [s.gtmEnvelope], (gtm): GTMSummaryApi | null => gtm?.result ?? null],
+        gtmIsRunning: [(s) => [s.gtmStatus], (status): boolean => status === 'pending' || status === 'running'],
+        gtmError: [(s) => [s.gtmEnvelope], (gtm): string => gtm?.error ?? ''],
     }),
 
     listeners(({ actions, values }) => ({
@@ -128,6 +108,7 @@ export const founderLogic = kea<founderLogicType>([
                 // No existing projects — stay on ideation
             }
             actions.setProjectLoaded(true)
+            actions.loadExistingGtm()
         },
 
         advanceStep: async ({ currentStep }) => {
@@ -144,44 +125,55 @@ export const founderLogic = kea<founderLogicType>([
         },
 
         loadExistingGtm: async () => {
+            if (!values.currentProjectId) {
+                actions.setGtmLoaded(true)
+                return
+            }
             try {
-                const response = await api.founderGtm.get()
-                const gtm = response as GTMState
-                if (gtm && gtm.status) {
-                    actions.setGtmState(gtm)
-                    if (gtm.status === 'pending' || gtm.status === 'running') {
+                const project = await api.get<{ gtm: GTMEnvelopeApi | null }>(
+                    `${FOUNDER_PROJECTS_URL}${values.currentProjectId}/`
+                )
+                if (project.gtm?.status) {
+                    actions.setGtmEnvelope(project.gtm)
+                    if (project.gtm.status === 'pending' || project.gtm.status === 'running') {
                         actions.pollGtmStatus()
                     }
                 }
             } catch {
                 // No existing state
             }
+            actions.setGtmLoaded(true)
         },
 
-        generateStrategy: async () => {
+        triggerGtm: async () => {
+            if (!values.currentProjectId) {
+                return
+            }
             try {
-                const response = await api.founderGtm.generate(values.productDescription)
-                actions.setGtmState(response as GTMState)
+                const project = await api.create<{ gtm: GTMEnvelopeApi }>(
+                    `${FOUNDER_PROJECTS_URL}${values.currentProjectId}/run_gtm/`
+                )
+                actions.setGtmEnvelope(project.gtm)
                 actions.pollGtmStatus()
-            } catch (e: any) {
-                actions.setGtmState({ status: 'failed', result: null, error: e.message || 'Request failed' })
+            } catch (e: unknown) {
+                const msg = e instanceof Error ? e.message : 'Request failed'
+                actions.setGtmEnvelope({ status: 'failed', error: msg })
                 actions.stopGtmPolling()
             }
         },
 
         pollGtmStatus: async (_, breakpoint) => {
             await breakpoint(POLL_INTERVAL_MS)
-
-            if (!values.gtmPolling) {
+            if (!values.gtmPolling || !values.currentProjectId) {
                 return
             }
-
             try {
-                const response = await api.founderGtm.get()
-                const gtm = response as GTMState
-                if (gtm && gtm.status) {
-                    actions.setGtmState(gtm)
-                    if (gtm.status === 'completed' || gtm.status === 'failed') {
+                const project = await api.get<{ gtm: GTMEnvelopeApi | null }>(
+                    `${FOUNDER_PROJECTS_URL}${values.currentProjectId}/`
+                )
+                if (project.gtm?.status) {
+                    actions.setGtmEnvelope(project.gtm)
+                    if (project.gtm.status === 'completed' || project.gtm.status === 'failed') {
                         actions.stopGtmPolling()
                     } else {
                         actions.pollGtmStatus()
@@ -203,8 +195,6 @@ export const founderLogic = kea<founderLogicType>([
         if (step) {
             actions.setStep(step)
         }
-
-        actions.loadExistingGtm()
     }),
 
     actionToUrl(({ values }) => ({
