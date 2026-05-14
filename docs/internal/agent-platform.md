@@ -13,11 +13,91 @@ The runtime split (ingress + runner) from the agent-stack doc still holds. This 
 
 ---
 
+## Status & nodejs TODO
+
+Working tracker for the runtime packages only — the Django side is being built in parallel. Update inline as work lands; the rest of this doc is the spec.
+
+**Last audited:** 2026-05-13.
+
+### packages/agent-core/ (milestone 5 — substantially done)
+
+- [x] Queue schema + migration ([migrations/0001_initial_schema.sql](../../packages/agent-core/migrations/0001_initial_schema.sql)): state enum, `lock_id`, `last_heartbeat`, `BYTEA` state, `transition_count`, `janitor_touch_count`, indexes for dequeue/stall/cleanup
+- [x] Manager / enqueue with depth limit + 1 MiB state cap ([src/queue/manager.ts](../../packages/agent-core/src/queue/manager.ts))
+- [x] Worker / dequeue + `FOR UPDATE SKIP LOCKED` + heartbeat + ack/fail/reschedule/cancel ([src/queue/worker.ts](../../packages/agent-core/src/queue/worker.ts))
+- [x] Janitor / stall recovery + poison-pill + terminal cleanup + Prom metrics ([src/queue/janitor.ts](../../packages/agent-core/src/queue/janitor.ts))
+- [x] Migrations runner ([bin/migrate.ts](../../packages/agent-core/bin/migrate.ts))
+- [x] Pub-sub interface + Redis adapter + in-memory adapter ([src/pubsub/](../../packages/agent-core/src/pubsub))
+- [x] Internal-API client (`resolve`, `decrypt`) with optional shared-key header ([src/internal-api/client.ts](../../packages/agent-core/src/internal-api/client.ts))
+- [x] Built-ins registry — `posthog.events.capture`, `posthog.feature_flags.evaluate`, `http.fetch` ([src/builtins/index.ts](../../packages/agent-core/src/builtins/index.ts))
+- [x] Manifest reader + Zod schema + built-in id validation ([src/manifest/index.ts](../../packages/agent-core/src/manifest/index.ts))
+- [x] Logger (pino) + Prom metrics ([src/logger.ts](../../packages/agent-core/src/logger.ts), [src/metrics.ts](../../packages/agent-core/src/metrics.ts))
+- [x] Tests: queue (DB-gated), pubsub in-memory, manifest, builtins
+- [ ] Tests: Redis pubsub integration (needs Redis in CI)
+- [ ] Tests: internal-API client smoke (mock server — 404, timeout, shared-key header)
+- [ ] Decide internal-API transport auth (mTLS vs shared key) — both supported in code, pick at infra time
+
+### packages/agent-ingress/ (milestone 6 — wired end-to-end against fakes)
+
+- [x] Bootstrap, Zod-validated env, SIGTERM/SIGINT shutdown ([src/index.ts](../../packages/agent-ingress/src/index.ts), [src/config.ts](../../packages/agent-ingress/src/config.ts))
+- [x] Host resolver with LRU + TTL + `invalidate()` hook ([src/resolver.ts](../../packages/agent-ingress/src/resolver.ts))
+- [x] Auth modes: `public`, `shared_secret`, `webhook_signature` (generic HMAC-SHA256) ([src/auth.ts](../../packages/agent-ingress/src/auth.ts))
+- [x] `/run` — resolves, authorizes, writes job via agent-core queue, returns 202 `{ sessionId }` ([src/routes/run.ts](../../packages/agent-ingress/src/routes/run.ts))
+- [x] `/listen/:id` — SSE wired to `bus.subscribeEvents` + 15s heartbeat ([src/routes/listen.ts](../../packages/agent-ingress/src/routes/listen.ts))
+- [x] `/send/:id` — publishes `user_message` to `bus.publishInput` ([src/routes/send.ts](../../packages/agent-ingress/src/routes/send.ts))
+- [x] `/webhooks/:provider` — host check, generic signature verify, enqueue ([src/routes/webhooks.ts](../../packages/agent-ingress/src/routes/webhooks.ts))
+- [x] `/health`, `/status`
+- [x] ESLint hard rule blocking Anthropic / Modal / nodejs imports ([.eslintrc.json](../../packages/agent-ingress/.eslintrc.json))
+- [x] Tests: `/health`, `/status`, `/run`, `/send` happy/sad paths with FakeQueue + InMemoryBus ([tests/server.test.ts](../../packages/agent-ingress/tests/server.test.ts))
+- [ ] Tests: webhook signature flow end-to-end
+- [ ] Tests: `/listen` SSE flow (subscribe → publish → frame received)
+- [ ] Tests: resolver LRU + TTL + invalidate
+- [ ] Provider-specific webhook strategies (Stripe, Slack-style HMAC-with-timestamp) under the generic webhook_signature mode
+- [ ] Per-team concurrent-session quota enforcement on `/run`
+- [ ] `/run` rate limiter
+- [ ] Promotion invalidation: settle on push-from-Django call to `resolver.invalidate(...)` vs TTL-only
+
+### packages/agent-runner/ (milestone 7 — orchestration solid, executor stubbed)
+
+- [x] Worker — dequeue, lock, heartbeat, reschedule on suspend, ack/fail on terminal ([src/worker.ts](../../packages/agent-runner/src/worker.ts))
+- [x] `SessionExecutor` interface + `ExecutorTurnInput/Output` shape ([src/executor.ts](../../packages/agent-runner/src/executor.ts))
+- [ ] **Real executor backed by Claude Agent SDK.** Currently `NotImplementedExecutor` ([src/executor-stub.ts](../../packages/agent-runner/src/executor-stub.ts)) returns a "not implemented" error. The real one must invoke the SDK, stream chunks, tick heartbeats, and return `tool_call | completed | failed | awaiting_input` per turn.
+- [ ] State ↔ Claude Agent SDK `Message[]` / `ContentBlock` mapping. Today [src/state.ts](../../packages/agent-runner/src/state.ts) round-trips a generic `{role, content, at}` envelope.
+- [x] Meta tools `complete`, `wait_for_input` ([src/tools/meta.ts](../../packages/agent-runner/src/tools/meta.ts))
+- [x] `http.fetch` builtin — real fetch with timeout ([src/tools/builtins.ts](../../packages/agent-runner/src/tools/builtins.ts))
+- [ ] `posthog.events.capture` builtin — currently logs to console; wire `posthog-node` + per-app credentials from secrets
+- [ ] `posthog.feature_flags.evaluate` builtin — currently hardcoded false; wire to PostHog API
+- [x] Tool registry + dispatch ([src/tools/registry.ts](../../packages/agent-runner/src/tools/registry.ts))
+- [x] Config (Anthropic key, queue DB, internal API, Redis) ([src/config.ts](../../packages/agent-runner/src/config.ts))
+- [x] Tests: state round-trip, tool dispatch, worker outcomes (`completed` / `failed` / `tool_call` / `awaiting_input` / pendingInputs flush)
+- [ ] Tests: real Claude Agent SDK turn (gated on key + recorded fixtures)
+- [ ] Secrets loader — [src/index.ts](../../packages/agent-runner/src/index.ts) `loadSecrets` returns `{}`; wire to `apiClient.decryptSecrets` once a tool actually needs them
+- [ ] Runner-side reaper: queue janitor already resets stalled jobs; need a matching write to set `AgentSession.state = 'failed'` for the mirror row
+- [ ] `AgentSession` mirror writes — direct DB vs internal API — coordinate with Django owner
+
+### Cross-package / system level
+
+- [ ] End-to-end integration test: ingress `/run` → queue → runner picks up → real Claude Agent SDK turn → tool call → completion → SSE frame delivered via `/listen`
+- [ ] Observability
+  - [ ] OTel traces per session + per tool invocation
+  - [ ] Sentry tagging (`service: agent-ingress`, `service: agent-runner`)
+  - [ ] Structured-log fields (`app_id`, `revision_id`, `session_id`, `queue_job_id`) everywhere a request or job is logged
+- [ ] `FEATURE_FLAGS.AGENTS` gating — decide whether ingress checks the flag or Django blocks at `resolve`. Pick one and document.
+- [ ] k8s deploy manifests + HPA configs (ingress and runner as separate deployments)
+
+### Deferred (later milestones, intentionally not in this list)
+
+- Triggers (M9): cron, slack event ingestion — webhook endpoint exists; orchestrator still TBD
+- Sandboxes (M8): Modal integration, custom-tool execution, sandbox lifecycle + reaper
+- Bundle validator (M12): the fourth package `packages/agent-validator/`
+- Skills + registry v2 (M13)
+
+---
+
 ## Runtime packages
 
 Three packages under `packages/`, each its own process / deployment:
 
-```
+```text
 packages/
   agent-core/        # shared types, db client, queue primitives, manifest reader
   agent-ingress/     # process: HTTP ingress, *.agents.posthog.com terminator
@@ -99,15 +179,15 @@ A Claude Agent SDK run looks structurally identical to the CDP hog-flow executio
 
 cyclotron-v2 has solved exactly these problems in production for CDP. We **reimplement the concepts** in `agent-core`, copying the relevant code where it's cheaper than rebuilding, with no runtime dependency on `nodejs/src/cdp/services/cyclotron-v2/` or the `cyclotron_node` schema.
 
-| cyclotron-v2 concept | Agent-core mirror | Reference (for copying) |
-| --- | --- | --- |
-| `JobState: available \| running \| completed \| failed \| canceled` | Same enum, drop-in for `AgentSession.state`. | [`rust/cyclotron-core/src/types.rs:10`](../../rust/cyclotron-core/src/types.rs) |
-| `lock_id` + `last_heartbeat` + `FOR UPDATE SKIP LOCKED` dequeue | Same pattern. Runner owns a session via lock; heartbeats every N seconds while inside an SDK turn. | [`nodejs/src/cdp/services/cyclotron-v2/worker.ts:88`](../../nodejs/src/cdp/services/cyclotron-v2/worker.ts) |
-| `state: BYTEA` payload | Persist Claude Agent SDK conversation/turn state between suspensions. | [`rust/cyclotron-node-migrations/20260303000001_initial_schema.sql:9`](../../rust/cyclotron-node-migrations/20260303000001_initial_schema.sql) |
-| `reschedule({ scheduledAt, state })` | After every tool boundary, runner reschedules with updated state rather than blocking. | [`nodejs/src/cdp/services/cyclotron-v2/worker.ts:161`](../../nodejs/src/cdp/services/cyclotron-v2/worker.ts) |
-| Janitor — stall recovery + poison-pill detection | New daemon inside agent-runner. | [`nodejs/src/cdp/services/cyclotron-v2/janitor.ts`](../../nodejs/src/cdp/services/cyclotron-v2/janitor.ts) |
-| `queue_name` | Per-app or per-tier queue isolation. v1 = single queue. |  |
-| `function_id` (UUID) field | Repurpose as `revision_id` for fast lookup of all sessions for a revision (promotion + reaper). |  |
+| cyclotron-v2 concept                                                | Agent-core mirror                                                                                  | Reference (for copying)                                                                                                                        |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JobState: available \| running \| completed \| failed \| canceled` | Same enum, drop-in for `AgentSession.state`.                                                       | [`rust/cyclotron-core/src/types.rs:10`](../../rust/cyclotron-core/src/types.rs)                                                                |
+| `lock_id` + `last_heartbeat` + `FOR UPDATE SKIP LOCKED` dequeue     | Same pattern. Runner owns a session via lock; heartbeats every N seconds while inside an SDK turn. | [`nodejs/src/cdp/services/cyclotron-v2/worker.ts:88`](../../nodejs/src/cdp/services/cyclotron-v2/worker.ts)                                    |
+| `state: BYTEA` payload                                              | Persist Claude Agent SDK conversation/turn state between suspensions.                              | [`rust/cyclotron-node-migrations/20260303000001_initial_schema.sql:9`](../../rust/cyclotron-node-migrations/20260303000001_initial_schema.sql) |
+| `reschedule({ scheduledAt, state })`                                | After every tool boundary, runner reschedules with updated state rather than blocking.             | [`nodejs/src/cdp/services/cyclotron-v2/worker.ts:161`](../../nodejs/src/cdp/services/cyclotron-v2/worker.ts)                                   |
+| Janitor — stall recovery + poison-pill detection                    | New daemon inside agent-runner.                                                                    | [`nodejs/src/cdp/services/cyclotron-v2/janitor.ts`](../../nodejs/src/cdp/services/cyclotron-v2/janitor.ts)                                     |
+| `queue_name`                                                        | Per-app or per-tier queue isolation. v1 = single queue.                                            |                                                                                                                                                |
+| `function_id` (UUID) field                                          | Repurpose as `revision_id` for fast lookup of all sessions for a revision (promotion + reaper).    |                                                                                                                                                |
 
 Deliberately **not** carried over in v1:
 
@@ -130,7 +210,7 @@ A separate Postgres DB owned by the agent-runtime — `agent_runtime_queue` (nam
 
 Mirror the [`products/deployments/`](../../products/deployments) scaffold from #58421:
 
-```
+```text
 products/agents/
   __init__.py
   product.yaml
@@ -322,7 +402,7 @@ Resolutions to the agent-stack open questions + posthog-specific ones:
 
 Each shippable behind `FEATURE_FLAGS.AGENTS`.
 
-1. **Scaffold + models.** `products/agents/` skeleton (mirror `products/deployments/`), Django app, models with the **full state machine in the schema**, migrations. New scope entries. UI stub. *(unblocks parallel work)*
+1. **Scaffold + models.** `products/agents/` skeleton (mirror `products/deployments/`), Django app, models with the **full state machine in the schema**, migrations. New scope entries. UI stub. _(unblocks parallel work)_
 2. **Management API.** CRUD viewsets for apps/revisions/secrets/preview-bindings. Activity logging wired. `complete_upload` shortcut transitions straight to `ready`.
 3. **Deploy flow.** `start_deploy` → presigned PUT → `complete_upload` (auto-ready) → `promote`. End-to-end via CLI. No async work.
 4. **Internal API.** `resolve` + `decrypt` endpoints with internal scopes. mTLS / signed-key auth.
