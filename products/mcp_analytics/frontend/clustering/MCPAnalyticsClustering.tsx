@@ -48,7 +48,15 @@ function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
     )
 }
 
-function HeatmapCell({ entry, size }: { entry: MCPIntentClusterToolEntryApi | undefined; size: number }): JSX.Element {
+function HeatmapCell({
+    entry,
+    size,
+    rowMaxCount,
+}: {
+    entry: MCPIntentClusterToolEntryApi | undefined
+    size: number
+    rowMaxCount: number
+}): JSX.Element {
     const sizeStyle = { width: size, height: size }
     if (!entry || entry.count === 0) {
         return (
@@ -60,8 +68,11 @@ function HeatmapCell({ entry, size }: { entry: MCPIntentClusterToolEntryApi | un
             />
         )
     }
-    // Floor opacity so any non-zero usage is at least faintly visible.
-    const opacity = Math.max(0.12, Math.min(1, entry.pct / 100))
+    // Scale relative to the row's max — so the most-called tool in each
+    // cluster is fully dark and the rest grade down. A 1-call tool next to
+    // a 50-call tool still shows up clearly thanks to the 0.3 floor.
+    const intensity = rowMaxCount > 0 ? entry.count / rowMaxCount : 0
+    const opacity = Math.max(0.3, Math.min(1, intensity))
     const hasErrors = entry.error_rate_pct > 0
     return (
         <Tooltip
@@ -232,6 +243,10 @@ function Heatmap(): JSX.Element {
                     {sortedClusters.map((cluster) => {
                         const isSelected = cluster.id === selectedClusterId
                         const byTool = new Map(cluster.tool_distribution.map((e) => [e.tool, e]))
+                        const rowMaxCount = cluster.tool_distribution.reduce(
+                            (max, entry) => Math.max(max, entry.count),
+                            0
+                        )
                         // Sticky cells need their own background — `tr` backgrounds don't paint
                         // through to sticky-positioned children when scrolled horizontally.
                         const rowBg = isSelected
@@ -271,7 +286,11 @@ function Heatmap(): JSX.Element {
                                         }
                                     >
                                         <div className="flex justify-center items-center py-[2px]">
-                                            <HeatmapCell entry={byTool.get(tool)} size={cellSize} />
+                                            <HeatmapCell
+                                                entry={byTool.get(tool)}
+                                                size={cellSize}
+                                                rowMaxCount={rowMaxCount}
+                                            />
                                         </div>
                                     </td>
                                 ))}
