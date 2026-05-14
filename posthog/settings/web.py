@@ -404,6 +404,7 @@ SPECTACULAR_SETTINGS = {
         #
         # Getting this wrong means the override hash doesn't match and the warning persists.
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
+        "CatalogReviewStatusEnum": "products.catalog.backend.models.CatalogReviewStatus",
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",

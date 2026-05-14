@@ -172,6 +172,118 @@ export const CatalogColumnsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Body for catalog-columns-partial-update. Every field optional.')
 
 /**
+ * Rename, redescribe, reattach to an entity, or accept/reject a dimension.
+ */
+export const catalogDimensionsPartialUpdateBodyNameMax = 200
+
+export const CatalogDimensionsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(catalogDimensionsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Snake-case dimension name, e.g. `country` or `plan_tier`.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe('What this dimension represents — value space, examples, gotchas.'),
+        entity_id: zod
+            .uuid()
+            .nullish()
+            .describe('Attach the dimension to a CatalogEntity. Set null for unattached dimensions.'),
+        status: zod
+            .enum(['proposed', 'accepted', 'rejected', 'stale'])
+            .describe(
+                '\* `proposed` - Proposed\n\* `accepted` - Accepted\n\* `rejected` - Rejected\n\* `stale` - Stale'
+            )
+            .optional()
+            .describe(
+                'Review state — same lifecycle as entities and metrics.\n\n\* `proposed` - Proposed\n\* `accepted` - Accepted\n\* `rejected` - Rejected\n\* `stale` - Stale'
+            ),
+    })
+    .describe('Body for catalog-dimensions partial_update. Every field optional.')
+
+/**
+ * Rename, redescribe, or accept/reject an entity.
+ */
+export const catalogEntitiesPartialUpdateBodyNameMax = 200
+
+export const CatalogEntitiesPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(catalogEntitiesPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Display name for this entity, e.g. `Customer` or `Order`. Must be unique per team.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe('What this entity represents in the business — a person, transaction, account, etc.'),
+        status: zod
+            .enum(['proposed', 'accepted', 'rejected', 'stale'])
+            .describe(
+                '\* `proposed` - Proposed\n\* `accepted` - Accepted\n\* `rejected` - Rejected\n\* `stale` - Stale'
+            )
+            .optional()
+            .describe(
+                'Review state. `proposed` for AI-derived, `accepted` once a human has confirmed it, `rejected` to dismiss, `stale` when the underlying schema has moved on.\n\n\* `proposed` - Proposed\n\* `accepted` - Accepted\n\* `rejected` - Rejected\n\* `stale` - Stale'
+            ),
+    })
+    .describe('Body for catalog-entities partial_update. Every field optional.')
+
+/**
+ * Run the rule-based proposer over the current catalog state.
+
+Idempotent: re-running won't create duplicates because every model
+has a unique constraint on its natural key. Existing rows keep
+their review status.
+ */
+export const CatalogEntitiesDeriveCreateBody = /* @__PURE__ */ zod.object({
+    id: zod.uuid(),
+    name: zod.string(),
+    description: zod.string().nullable(),
+    member_node_ids: zod.array(zod.uuid()),
+    status: zod.string(),
+    confidence: zod.number().nullable(),
+    reasoning: zod.string(),
+    reviewed_at: zod.iso.datetime({ offset: true }).nullable(),
+    discovered_at: zod.iso.datetime({ offset: true }),
+    last_seen_at: zod.iso.datetime({ offset: true }),
+})
+
+/**
+ * Rename, redescribe, reattach to an entity, or accept/reject a metric.
+ */
+export const catalogMetricsPartialUpdateBodyNameMax = 200
+
+export const CatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(catalogMetricsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Snake-case metric name, e.g. `total_revenue` or `weekly_active_users`.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe('What this metric measures and how it should be interpreted — units, caveats, exclusions.'),
+        entity_id: zod
+            .uuid()
+            .nullish()
+            .describe('Attach the metric to a CatalogEntity. Set null for unattached \/ system-wide metrics.'),
+        status: zod
+            .enum(['proposed', 'accepted', 'rejected', 'stale'])
+            .describe(
+                '\* `proposed` - Proposed\n\* `accepted` - Accepted\n\* `rejected` - Rejected\n\* `stale` - Stale'
+            )
+            .optional()
+            .describe(
+                'Review state — same lifecycle as entities and relationships.\n\n\* `proposed` - Proposed\n\* `accepted` - Accepted\n\* `rejected` - Rejected\n\* `stale` - Stale'
+            ),
+    })
+    .describe('Body for catalog-metrics partial_update. Every field optional.')
+
+/**
  * Upsert a catalog node and its agent-authored descriptions.
  */
 export const catalogNodesCreateBodyNameMax = 400
@@ -395,11 +507,11 @@ export const CatalogRelationshipsPartialUpdateBody = /* @__PURE__ */ zod
         status: zod
             .enum(['proposed', 'accepted', 'rejected', 'stale'])
             .describe(
-                '\* `proposed` - proposed\n\* `accepted` - accepted\n\* `rejected` - rejected\n\* `stale` - stale'
+                '\* `proposed` - Proposed\n\* `accepted` - Accepted\n\* `rejected` - Rejected\n\* `stale` - Stale'
             )
             .optional()
             .describe(
-                'Review state. `proposed` is the initial state, `accepted` once a human confirms the edge, `rejected` to dismiss it, `stale` when the underlying schema has moved on.\n\n\* `proposed` - proposed\n\* `accepted` - accepted\n\* `rejected` - rejected\n\* `stale` - stale'
+                'Review state. `proposed` is the initial state, `accepted` once a human confirms the edge, `rejected` to dismiss it, `stale` when the underlying schema has moved on.\n\n\* `proposed` - Proposed\n\* `accepted` - Accepted\n\* `rejected` - Rejected\n\* `stale` - Stale'
             ),
         confidence: zod
             .number()

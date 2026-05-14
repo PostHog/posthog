@@ -6,6 +6,19 @@ from django.db import models
 from posthog.models.utils import UUIDModel
 
 
+class CatalogReviewStatus(models.TextChoices):
+    """Review lifecycle shared by relationships, entities, metrics, and dimensions.
+
+    CatalogNode has its own status enum with different values (approved / official /
+    drift) because nodes follow a richer lifecycle than the review-only proposals.
+    """
+
+    PROPOSED = "proposed", "Proposed"
+    ACCEPTED = "accepted", "Accepted"
+    REJECTED = "rejected", "Rejected"
+    STALE = "stale", "Stale"
+
+
 class CatalogNode(UUIDModel):
     """A logical "table-shaped thing" tracked by the catalog. Exposed as system.tables."""
 
@@ -169,11 +182,7 @@ class CatalogRelationship(UUIDModel):
         DECLARED_JOIN = "declared_join", "Declared join"
         JOIN_CANDIDATE = "join_candidate", "Join candidate"
 
-    class Status(models.TextChoices):
-        PROPOSED = "proposed", "Proposed"
-        ACCEPTED = "accepted", "Accepted"
-        REJECTED = "rejected", "Rejected"
-        STALE = "stale", "Stale"
+    Status = CatalogReviewStatus
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
@@ -209,3 +218,130 @@ class CatalogRelationship(UUIDModel):
             models.Index(fields=["source_node"]),
             models.Index(fields=["target_node"]),
         ]
+
+
+class CatalogEntity(UUIDModel):
+    """A business object — Customer, Order, Subscription. Unifies one or more
+    CatalogNodes that represent the same real-world thing across sources."""
+
+    Status = CatalogReviewStatus
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    name = models.CharField(max_length=200)
+    description = models.TextField(null=True, blank=True)
+
+    # Member nodes — a Customer entity may be backed by stripe_customers + auth_users
+    # joined by same_entity relationships. Through-less M2M is enough for v1; we can
+    # promote to a through-model when we need the per-member primary key column.
+    member_nodes = models.ManyToManyField(CatalogNode, related_name="entities", blank=True)
+
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PROPOSED)
+    confidence = models.FloatField(null=True, blank=True)
+    reasoning = models.TextField(blank=True, default="")
+    generator_model = models.CharField(max_length=64, null=True, blank=True)
+
+    reviewed_by = models.ForeignKey("posthog.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    discovered_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "name"], name="catalog_entity_unique_name"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "status"]),
+            models.Index(fields=["team", "name"]),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class CatalogMetric(UUIDModel):
+    """An aggregation over a column — e.g. SUM(stripe_charges.amount) = total_revenue."""
+
+    class Aggregation(models.TextChoices):
+        SUM = "sum", "Sum"
+        COUNT = "count", "Count"
+        COUNT_DISTINCT = "count_distinct", "Count distinct"
+        AVG = "avg", "Average"
+        MIN = "min", "Minimum"
+        MAX = "max", "Maximum"
+
+    Status = CatalogReviewStatus
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    name = models.CharField(max_length=200)
+    description = models.TextField(null=True, blank=True)
+
+    entity = models.ForeignKey(CatalogEntity, null=True, blank=True, on_delete=models.SET_NULL, related_name="metrics")
+    node = models.ForeignKey(CatalogNode, on_delete=models.CASCADE, related_name="metrics")
+    # Column is nullable to allow row-count metrics like COUNT(*) over a node.
+    column = models.ForeignKey(CatalogColumn, null=True, blank=True, on_delete=models.CASCADE, related_name="metrics")
+    aggregation = models.CharField(max_length=16, choices=Aggregation.choices)
+
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PROPOSED)
+    confidence = models.FloatField(null=True, blank=True)
+    generator_model = models.CharField(max_length=64, null=True, blank=True)
+
+    reviewed_by = models.ForeignKey("posthog.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    discovered_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            # Same (node, column, aggregation) tuple shouldn't yield two proposals.
+            models.UniqueConstraint(
+                fields=["team", "node", "column", "aggregation"],
+                name="catalog_metric_unique_per_aggregation",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "status"]),
+            models.Index(fields=["entity"]),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class CatalogDimension(UUIDModel):
+    """A column used to group/filter — country, plan_tier, browser."""
+
+    Status = CatalogReviewStatus
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    name = models.CharField(max_length=200)
+    description = models.TextField(null=True, blank=True)
+
+    entity = models.ForeignKey(
+        CatalogEntity, null=True, blank=True, on_delete=models.SET_NULL, related_name="dimensions"
+    )
+    node = models.ForeignKey(CatalogNode, on_delete=models.CASCADE, related_name="dimensions")
+    column = models.ForeignKey(CatalogColumn, on_delete=models.CASCADE, related_name="dimensions")
+
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PROPOSED)
+    confidence = models.FloatField(null=True, blank=True)
+    generator_model = models.CharField(max_length=64, null=True, blank=True)
+
+    reviewed_by = models.ForeignKey("posthog.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    discovered_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "node", "column"],
+                name="catalog_dimension_unique_per_column",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "status"]),
+            models.Index(fields=["entity"]),
+        ]
+
+    def __str__(self) -> str:
+        return self.name

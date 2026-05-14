@@ -15,7 +15,18 @@ pass.
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from ..facade.contracts import CatalogColumnDTO, CatalogGraphDTO, CatalogNodeDTO, CatalogRelationshipDTO
+from ..facade.contracts import (
+    CatalogBrowserDTO,
+    CatalogColumnDTO,
+    CatalogDimensionDTO,
+    CatalogEntityDTO,
+    CatalogGraphDTO,
+    CatalogMetricDTO,
+    CatalogNodeDTO,
+    CatalogRelationshipDTO,
+    DeriveResult,
+)
+from ..models import CatalogReviewStatus
 
 # --- Output serializers -------------------------------------------------------
 
@@ -49,6 +60,40 @@ class CatalogGraphDTOSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = CatalogGraphDTO
+
+
+class CatalogEntityDTOSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CatalogEntityDTO
+
+
+class CatalogMetricDTOSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CatalogMetricDTO
+
+
+class CatalogDimensionDTOSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CatalogDimensionDTO
+
+
+class CatalogBrowserDTOSerializer(DataclassSerializer):
+    """One-shot payload for the entity-grouped browser scene."""
+
+    entities = CatalogEntityDTOSerializer(many=True, read_only=True)
+    metrics = CatalogMetricDTOSerializer(many=True, read_only=True)
+    dimensions = CatalogDimensionDTOSerializer(many=True, read_only=True)
+    relationships = CatalogRelationshipDTOSerializer(many=True, read_only=True)
+
+    class Meta:
+        dataclass = CatalogBrowserDTO
+
+
+class DeriveResultSerializer(DataclassSerializer):
+    """Counts returned by the derive endpoint — drives the 'we found N proposals' toast."""
+
+    class Meta:
+        dataclass = DeriveResult
 
 
 # --- Input serializers --------------------------------------------------------
@@ -336,7 +381,7 @@ class UpdateRelationshipInputSerializer(serializers.Serializer):
     """Body for catalog-relationships-partial-update. Used by reviewers to accept/reject proposals."""
 
     status = serializers.ChoiceField(
-        choices=["proposed", "accepted", "rejected", "stale"],
+        choices=CatalogReviewStatus.choices,
         required=False,
         help_text=(
             "Review state. `proposed` is the initial state, `accepted` once a human confirms the edge, "
@@ -414,4 +459,80 @@ class ProposeRelationshipInputSerializer(serializers.Serializer):
         allow_null=True,
         max_length=64,
         help_text="Model that proposed the relationship — same convention as on nodes and columns.",
+    )
+
+
+class UpdateEntityInputSerializer(serializers.Serializer):
+    """Body for catalog-entities partial_update. Every field optional."""
+
+    name = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text="Display name for this entity, e.g. `Customer` or `Order`. Must be unique per team.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="What this entity represents in the business — a person, transaction, account, etc.",
+    )
+    status = serializers.ChoiceField(
+        choices=CatalogReviewStatus.choices,
+        required=False,
+        help_text=(
+            "Review state. `proposed` for AI-derived, `accepted` once a human has confirmed it, "
+            "`rejected` to dismiss, `stale` when the underlying schema has moved on."
+        ),
+    )
+
+
+class UpdateMetricInputSerializer(serializers.Serializer):
+    """Body for catalog-metrics partial_update. Every field optional."""
+
+    name = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text="Snake-case metric name, e.g. `total_revenue` or `weekly_active_users`.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="What this metric measures and how it should be interpreted — units, caveats, exclusions.",
+    )
+    entity_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Attach the metric to a CatalogEntity. Set null for unattached / system-wide metrics.",
+    )
+    status = serializers.ChoiceField(
+        choices=CatalogReviewStatus.choices,
+        required=False,
+        help_text="Review state — same lifecycle as entities and relationships.",
+    )
+
+
+class UpdateDimensionInputSerializer(serializers.Serializer):
+    """Body for catalog-dimensions partial_update. Every field optional."""
+
+    name = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text="Snake-case dimension name, e.g. `country` or `plan_tier`.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="What this dimension represents — value space, examples, gotchas.",
+    )
+    entity_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Attach the dimension to a CatalogEntity. Set null for unattached dimensions.",
+    )
+    status = serializers.ChoiceField(
+        choices=CatalogReviewStatus.choices,
+        required=False,
+        help_text="Review state — same lifecycle as entities and metrics.",
     )

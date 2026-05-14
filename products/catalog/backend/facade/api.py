@@ -2,12 +2,20 @@ from uuid import UUID
 
 from products.catalog.backend import logic
 from products.catalog.backend.facade.contracts import (
+    CatalogBrowserDTO,
     CatalogColumnDTO,
+    CatalogDimensionDTO,
+    CatalogEntityDTO,
     CatalogGraphDTO,
+    CatalogMetricDTO,
     CatalogNodeDTO,
     CatalogRelationshipDTO,
+    DeriveResult,
     ProposeRelationshipParams,
     UpdateColumnParams,
+    UpdateDimensionParams,
+    UpdateEntityParams,
+    UpdateMetricParams,
     UpdateNodeParams,
     UpdateRelationshipParams,
     UpsertColumnParams,
@@ -17,6 +25,8 @@ from products.catalog.backend.facade.contracts import (
 
 class CatalogAPI:
     """The only thing other products may import from products.catalog."""
+
+    # --- Graph (nodes + relationships) ---------------------------------------
 
     @staticmethod
     def get_graph(team_id: int) -> CatalogGraphDTO:
@@ -67,3 +77,40 @@ class CatalogAPI:
     @staticmethod
     def update_relationship(params: UpdateRelationshipParams) -> CatalogRelationshipDTO | None:
         return logic.update_relationship(params)
+
+    # --- Entities / Metrics / Dimensions -------------------------------------
+
+    @staticmethod
+    def get_browser(team_id: int) -> CatalogBrowserDTO:
+        return logic.get_browser(team_id)
+
+    @staticmethod
+    def list_entities(team_id: int) -> list[CatalogEntityDTO]:
+        return logic.list_entities(team_id)
+
+    @staticmethod
+    def list_metrics(team_id: int) -> list[CatalogMetricDTO]:
+        return logic.list_metrics(team_id)
+
+    @staticmethod
+    def list_dimensions(team_id: int) -> list[CatalogDimensionDTO]:
+        return logic.list_dimensions(team_id)
+
+    @staticmethod
+    def derive_catalog(team_id: int, *, generator_model: str | None = None) -> DeriveResult:
+        """Rule-based proposal pass — builds entities, metrics, dimensions from
+        existing semantic-typed columns and same_entity relationships.
+        Idempotent: existing rows keep their review status."""
+        return logic.derive_catalog(team_id, generator_model=generator_model)
+
+    @staticmethod
+    def update_entity(params: UpdateEntityParams) -> CatalogEntityDTO | None:
+        return logic.update_entity(params)
+
+    @staticmethod
+    def update_metric(params: UpdateMetricParams) -> CatalogMetricDTO | None:
+        return logic.update_metric(params)
+
+    @staticmethod
+    def update_dimension(params: UpdateDimensionParams) -> CatalogDimensionDTO | None:
+        return logic.update_dimension(params)

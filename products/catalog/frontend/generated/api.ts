@@ -9,13 +9,27 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CatalogBrowserDTOApi,
     CatalogColumnDTOApi,
+    CatalogDimensionDTOApi,
+    CatalogDimensionsListParams,
+    CatalogEntitiesListParams,
+    CatalogEntityDTOApi,
     CatalogGraphDTOApi,
+    CatalogMetricDTOApi,
+    CatalogMetricsListParams,
     CatalogNodeDTOApi,
     CatalogNodesListParams,
     CatalogRelationshipDTOApi,
+    DeriveResultApi,
+    PaginatedCatalogDimensionDTOListApi,
+    PaginatedCatalogEntityDTOListApi,
+    PaginatedCatalogMetricDTOListApi,
     PaginatedCatalogNodeDTOListApi,
     PatchedUpdateColumnInputApi,
+    PatchedUpdateDimensionInputApi,
+    PatchedUpdateEntityInputApi,
+    PatchedUpdateMetricInputApi,
     PatchedUpdateNodeInputApi,
     PatchedUpdateRelationshipInputApi,
     ProposeRelationshipInputApi,
@@ -79,6 +93,201 @@ export const catalogColumnsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedUpdateColumnInputApi),
+    })
+}
+
+export const getCatalogDimensionsListUrl = (projectId: string, params?: CatalogDimensionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/catalog/dimensions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/catalog/dimensions/`
+}
+
+/**
+ * List all dimensions for the team.
+ */
+export const catalogDimensionsList = async (
+    projectId: string,
+    params?: CatalogDimensionsListParams,
+    options?: RequestInit
+): Promise<PaginatedCatalogDimensionDTOListApi> => {
+    return apiMutator<PaginatedCatalogDimensionDTOListApi>(getCatalogDimensionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCatalogDimensionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/catalog/dimensions/${id}/`
+}
+
+/**
+ * Rename, redescribe, reattach to an entity, or accept/reject a dimension.
+ */
+export const catalogDimensionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedUpdateDimensionInputApi?: PatchedUpdateDimensionInputApi,
+    options?: RequestInit
+): Promise<CatalogDimensionDTOApi> => {
+    return apiMutator<CatalogDimensionDTOApi>(getCatalogDimensionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUpdateDimensionInputApi),
+    })
+}
+
+export const getCatalogEntitiesListUrl = (projectId: string, params?: CatalogEntitiesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/catalog/entities/?${stringifiedParams}`
+        : `/api/projects/${projectId}/catalog/entities/`
+}
+
+/**
+ * List all entities for the team.
+ */
+export const catalogEntitiesList = async (
+    projectId: string,
+    params?: CatalogEntitiesListParams,
+    options?: RequestInit
+): Promise<PaginatedCatalogEntityDTOListApi> => {
+    return apiMutator<PaginatedCatalogEntityDTOListApi>(getCatalogEntitiesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCatalogEntitiesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/catalog/entities/${id}/`
+}
+
+/**
+ * Rename, redescribe, or accept/reject an entity.
+ */
+export const catalogEntitiesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedUpdateEntityInputApi?: PatchedUpdateEntityInputApi,
+    options?: RequestInit
+): Promise<CatalogEntityDTOApi> => {
+    return apiMutator<CatalogEntityDTOApi>(getCatalogEntitiesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUpdateEntityInputApi),
+    })
+}
+
+export const getCatalogEntitiesBrowserRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/catalog/entities/browser/`
+}
+
+/**
+ * One-shot fetch for the entity-grouped browser scene: entities,
+metrics, dimensions, and relationships in a single payload.
+ */
+export const catalogEntitiesBrowserRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CatalogBrowserDTOApi> => {
+    return apiMutator<CatalogBrowserDTOApi>(getCatalogEntitiesBrowserRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCatalogEntitiesDeriveCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/catalog/entities/derive/`
+}
+
+/**
+ * Run the rule-based proposer over the current catalog state.
+
+Idempotent: re-running won't create duplicates because every model
+has a unique constraint on its natural key. Existing rows keep
+their review status.
+ */
+export const catalogEntitiesDeriveCreate = async (
+    projectId: string,
+    catalogEntityDTOApi: CatalogEntityDTOApi,
+    options?: RequestInit
+): Promise<DeriveResultApi> => {
+    return apiMutator<DeriveResultApi>(getCatalogEntitiesDeriveCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(catalogEntityDTOApi),
+    })
+}
+
+export const getCatalogMetricsListUrl = (projectId: string, params?: CatalogMetricsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/catalog/metrics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/catalog/metrics/`
+}
+
+/**
+ * List all metrics for the team.
+ */
+export const catalogMetricsList = async (
+    projectId: string,
+    params?: CatalogMetricsListParams,
+    options?: RequestInit
+): Promise<PaginatedCatalogMetricDTOListApi> => {
+    return apiMutator<PaginatedCatalogMetricDTOListApi>(getCatalogMetricsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCatalogMetricsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/catalog/metrics/${id}/`
+}
+
+/**
+ * Rename, redescribe, reattach to an entity, or accept/reject a metric.
+ */
+export const catalogMetricsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedUpdateMetricInputApi?: PatchedUpdateMetricInputApi,
+    options?: RequestInit
+): Promise<CatalogMetricDTOApi> => {
+    return apiMutator<CatalogMetricDTOApi>(getCatalogMetricsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUpdateMetricInputApi),
     })
 }
 

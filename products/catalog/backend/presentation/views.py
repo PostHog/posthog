@@ -36,18 +36,29 @@ from ..facade import api as catalog_api
 from ..facade.contracts import (
     ProposeRelationshipParams,
     UpdateColumnParams,
+    UpdateDimensionParams,
+    UpdateEntityParams,
+    UpdateMetricParams,
     UpdateNodeParams,
     UpdateRelationshipParams,
     UpsertColumnParams,
     UpsertNodeParams,
 )
 from .serializers import (
+    CatalogBrowserDTOSerializer,
     CatalogColumnDTOSerializer,
+    CatalogDimensionDTOSerializer,
+    CatalogEntityDTOSerializer,
     CatalogGraphDTOSerializer,
+    CatalogMetricDTOSerializer,
     CatalogNodeDTOSerializer,
     CatalogRelationshipDTOSerializer,
+    DeriveResultSerializer,
     ProposeRelationshipInputSerializer,
     UpdateColumnInputSerializer,
+    UpdateDimensionInputSerializer,
+    UpdateEntityInputSerializer,
+    UpdateMetricInputSerializer,
     UpdateNodeInputSerializer,
     UpdateRelationshipInputSerializer,
     UpsertColumnInputSerializer,
@@ -281,3 +292,150 @@ class CatalogRelationshipViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         if rel is None:
             return Response({"detail": "Relationship not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(CatalogRelationshipDTOSerializer(instance=rel).data)
+
+
+# --- Entity / Metric / Dimension viewsets -----------------------------------
+
+
+@extend_schema(tags=[CATALOG_TAG])
+class CatalogEntityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Business objects — Customer, Order, Subscription. The "folders" in the
+    entity-grouped browser. Each entity bundles one or more CatalogNodes that
+    represent the same real-world thing across sources, plus the metrics and
+    dimensions that hang off it."""
+
+    scope_object = "catalog"
+    scope_object_read_actions = ["list", "retrieve", "browser"]
+    scope_object_write_actions = ["partial_update", "derive"]
+    serializer_class = CatalogEntityDTOSerializer
+
+    @extend_schema(responses={200: CatalogEntityDTOSerializer(many=True)})
+    def list(self, request: Request, **kwargs) -> Response:
+        """List all entities for the team."""
+        entities = catalog_api.CatalogAPI.list_entities(cast(int, self.team_id))
+        page = self.paginate_queryset(entities)
+        if page is not None:
+            return self.get_paginated_response(CatalogEntityDTOSerializer(instance=page, many=True).data)
+        return Response(CatalogEntityDTOSerializer(instance=entities, many=True).data)
+
+    @extend_schema(parameters=[_NODE_ID_PARAM])
+    @validated_request(
+        request_serializer=UpdateEntityInputSerializer,
+        responses={200: OpenApiResponse(response=CatalogEntityDTOSerializer)},
+    )
+    def partial_update(self, request: TypedRequest[dict[str, Any]], pk: str, **kwargs) -> Response:
+        """Rename, redescribe, or accept/reject an entity."""
+        data = request.validated_data
+        params = UpdateEntityParams(
+            team_id=cast(int, self.team_id),
+            entity_id=UUID(pk),
+            name=data.get("name"),
+            description=data.get("description"),
+            status=data.get("status"),
+            reviewed_by_id=_reviewer_id(request),
+        )
+        entity = catalog_api.CatalogAPI.update_entity(params)
+        if entity is None:
+            return Response({"detail": "Entity not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CatalogEntityDTOSerializer(instance=entity).data)
+
+    @extend_schema(responses={200: CatalogBrowserDTOSerializer})
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def browser(self, request: Request, **kwargs) -> Response:
+        """One-shot fetch for the entity-grouped browser scene: entities,
+        metrics, dimensions, and relationships in a single payload."""
+        browser = catalog_api.CatalogAPI.get_browser(cast(int, self.team_id))
+        return Response(CatalogBrowserDTOSerializer(instance=browser).data)
+
+    @extend_schema(responses={200: DeriveResultSerializer})
+    @action(detail=False, methods=["post"], pagination_class=None)
+    def derive(self, request: Request, **kwargs) -> Response:
+        """Run the rule-based proposer over the current catalog state.
+
+        Idempotent: re-running won't create duplicates because every model
+        has a unique constraint on its natural key. Existing rows keep
+        their review status."""
+        result = catalog_api.CatalogAPI.derive_catalog(cast(int, self.team_id))
+        return Response(DeriveResultSerializer(instance=result).data)
+
+
+@extend_schema(tags=[CATALOG_TAG])
+class CatalogMetricViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Metrics — aggregations over a column. SUM(revenue), COUNT(orders), etc."""
+
+    scope_object = "catalog"
+    scope_object_read_actions = ["list"]
+    scope_object_write_actions = ["partial_update"]
+    serializer_class = CatalogMetricDTOSerializer
+
+    @extend_schema(responses={200: CatalogMetricDTOSerializer(many=True)})
+    def list(self, request: Request, **kwargs) -> Response:
+        """List all metrics for the team."""
+        metrics = catalog_api.CatalogAPI.list_metrics(cast(int, self.team_id))
+        page = self.paginate_queryset(metrics)
+        if page is not None:
+            return self.get_paginated_response(CatalogMetricDTOSerializer(instance=page, many=True).data)
+        return Response(CatalogMetricDTOSerializer(instance=metrics, many=True).data)
+
+    @extend_schema(parameters=[_NODE_ID_PARAM])
+    @validated_request(
+        request_serializer=UpdateMetricInputSerializer,
+        responses={200: OpenApiResponse(response=CatalogMetricDTOSerializer)},
+    )
+    def partial_update(self, request: TypedRequest[dict[str, Any]], pk: str, **kwargs) -> Response:
+        """Rename, redescribe, reattach to an entity, or accept/reject a metric."""
+        data = request.validated_data
+        params = UpdateMetricParams(
+            team_id=cast(int, self.team_id),
+            metric_id=UUID(pk),
+            name=data.get("name"),
+            description=data.get("description"),
+            entity_id=data.get("entity_id"),
+            status=data.get("status"),
+            reviewed_by_id=_reviewer_id(request),
+        )
+        metric = catalog_api.CatalogAPI.update_metric(params)
+        if metric is None:
+            return Response({"detail": "Metric not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CatalogMetricDTOSerializer(instance=metric).data)
+
+
+@extend_schema(tags=[CATALOG_TAG])
+class CatalogDimensionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Dimensions — columns used to group or filter. country, plan_tier, browser."""
+
+    scope_object = "catalog"
+    scope_object_read_actions = ["list"]
+    scope_object_write_actions = ["partial_update"]
+    serializer_class = CatalogDimensionDTOSerializer
+
+    @extend_schema(responses={200: CatalogDimensionDTOSerializer(many=True)})
+    def list(self, request: Request, **kwargs) -> Response:
+        """List all dimensions for the team."""
+        dimensions = catalog_api.CatalogAPI.list_dimensions(cast(int, self.team_id))
+        page = self.paginate_queryset(dimensions)
+        if page is not None:
+            return self.get_paginated_response(CatalogDimensionDTOSerializer(instance=page, many=True).data)
+        return Response(CatalogDimensionDTOSerializer(instance=dimensions, many=True).data)
+
+    @extend_schema(parameters=[_NODE_ID_PARAM])
+    @validated_request(
+        request_serializer=UpdateDimensionInputSerializer,
+        responses={200: OpenApiResponse(response=CatalogDimensionDTOSerializer)},
+    )
+    def partial_update(self, request: TypedRequest[dict[str, Any]], pk: str, **kwargs) -> Response:
+        """Rename, redescribe, reattach to an entity, or accept/reject a dimension."""
+        data = request.validated_data
+        params = UpdateDimensionParams(
+            team_id=cast(int, self.team_id),
+            dimension_id=UUID(pk),
+            name=data.get("name"),
+            description=data.get("description"),
+            entity_id=data.get("entity_id"),
+            status=data.get("status"),
+            reviewed_by_id=_reviewer_id(request),
+        )
+        dimension = catalog_api.CatalogAPI.update_dimension(params)
+        if dimension is None:
+            return Response({"detail": "Dimension not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CatalogDimensionDTOSerializer(instance=dimension).data)

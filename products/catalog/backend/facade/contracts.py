@@ -132,6 +132,110 @@ class UpdateRelationshipParams:
 
 
 @dataclass(frozen=True)
+class CatalogEntityDTO:
+    """A business object — Customer, Order, Subscription."""
+
+    id: UUID
+    name: str
+    description: str | None
+    member_node_ids: tuple[UUID, ...]
+    status: str
+    confidence: float | None
+    reasoning: str
+    reviewed_at: datetime | None
+    discovered_at: datetime
+    last_seen_at: datetime
+
+
+@dataclass(frozen=True)
+class CatalogMetricDTO:
+    """An aggregation over a column (or row count) — e.g. SUM(stripe_charges.amount)."""
+
+    id: UUID
+    name: str
+    description: str | None
+    entity_id: UUID | None
+    node_id: UUID
+    column_id: UUID | None
+    aggregation: str
+    status: str
+    confidence: float | None
+    reviewed_at: datetime | None
+    discovered_at: datetime
+    last_seen_at: datetime
+
+
+@dataclass(frozen=True)
+class CatalogDimensionDTO:
+    """A column used to group or filter — country, plan_tier, browser."""
+
+    id: UUID
+    name: str
+    description: str | None
+    entity_id: UUID | None
+    node_id: UUID
+    column_id: UUID
+    status: str
+    confidence: float | None
+    reviewed_at: datetime | None
+    discovered_at: datetime
+    last_seen_at: datetime
+
+
+@dataclass(frozen=True)
+class CatalogBrowserDTO:
+    """Bundles entities, metrics, dimensions, and relationships so the
+    entity-grouped browser can fetch its whole world in one round-trip."""
+
+    entities: tuple[CatalogEntityDTO, ...] = field(default_factory=tuple)
+    metrics: tuple[CatalogMetricDTO, ...] = field(default_factory=tuple)
+    dimensions: tuple[CatalogDimensionDTO, ...] = field(default_factory=tuple)
+    relationships: tuple[CatalogRelationshipDTO, ...] = field(default_factory=tuple)
+    generated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class DeriveResult:
+    """Counts returned by the rule-based proposer. Drives the 'we found N proposals' UI."""
+
+    entities_created: int
+    metrics_created: int
+    dimensions_created: int
+
+
+@dataclass(frozen=True)
+class UpdateEntityParams:
+    team_id: int
+    entity_id: UUID
+    name: str | None = None
+    description: str | None = None
+    status: str | None = None
+    reviewed_by_id: int | None = None
+
+
+@dataclass(frozen=True)
+class UpdateMetricParams:
+    team_id: int
+    metric_id: UUID
+    name: str | None = None
+    description: str | None = None
+    entity_id: UUID | None = None
+    status: str | None = None
+    reviewed_by_id: int | None = None
+
+
+@dataclass(frozen=True)
+class UpdateDimensionParams:
+    team_id: int
+    dimension_id: UUID
+    name: str | None = None
+    description: str | None = None
+    entity_id: UUID | None = None
+    status: str | None = None
+    reviewed_by_id: int | None = None
+
+
+@dataclass(frozen=True)
 class ProposeRelationshipParams:
     """Write a candidate relationship to the catalog.
 

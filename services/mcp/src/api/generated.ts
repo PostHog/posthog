@@ -6569,6 +6569,88 @@ export namespace Schemas {
       evidence?: CapabilityStateEvidence;
     }
 
+    export interface CatalogEntityDTO {
+      id: string;
+      name: string;
+      /** @nullable */
+      description: string | null;
+      member_node_ids: string[];
+      status: string;
+      /** @nullable */
+      confidence: number | null;
+      reasoning: string;
+      /** @nullable */
+      reviewed_at: string | null;
+      discovered_at: string;
+      last_seen_at: string;
+    }
+
+    export interface CatalogMetricDTO {
+      id: string;
+      name: string;
+      /** @nullable */
+      description: string | null;
+      /** @nullable */
+      entity_id: string | null;
+      node_id: string;
+      /** @nullable */
+      column_id: string | null;
+      aggregation: string;
+      status: string;
+      /** @nullable */
+      confidence: number | null;
+      /** @nullable */
+      reviewed_at: string | null;
+      discovered_at: string;
+      last_seen_at: string;
+    }
+
+    export interface CatalogDimensionDTO {
+      id: string;
+      name: string;
+      /** @nullable */
+      description: string | null;
+      /** @nullable */
+      entity_id: string | null;
+      node_id: string;
+      column_id: string;
+      status: string;
+      /** @nullable */
+      confidence: number | null;
+      /** @nullable */
+      reviewed_at: string | null;
+      discovered_at: string;
+      last_seen_at: string;
+    }
+
+    export interface CatalogRelationshipDTO {
+      id: string;
+      source_node_id: string;
+      /** @nullable */
+      source_column: string | null;
+      target_node_id: string;
+      /** @nullable */
+      target_column: string | null;
+      kind: string;
+      confidence: number;
+      reasoning: string;
+      status: string;
+      discovered_at: string;
+      last_seen_at: string;
+    }
+
+    /**
+     * One-shot payload for the entity-grouped browser scene.
+     */
+    export interface CatalogBrowserDTO {
+      readonly entities: readonly CatalogEntityDTO[];
+      readonly metrics: readonly CatalogMetricDTO[];
+      readonly dimensions: readonly CatalogDimensionDTO[];
+      readonly relationships: readonly CatalogRelationshipDTO[];
+      /** @nullable */
+      generated_at?: string | null;
+    }
+
     export interface CatalogColumnDTO {
       id: string;
       name: string;
@@ -6614,22 +6696,6 @@ export namespace Schemas {
       reviewed_at: string | null;
     }
 
-    export interface CatalogRelationshipDTO {
-      id: string;
-      source_node_id: string;
-      /** @nullable */
-      source_column: string | null;
-      target_node_id: string;
-      /** @nullable */
-      target_column: string | null;
-      kind: string;
-      confidence: number;
-      reasoning: string;
-      status: string;
-      discovered_at: string;
-      last_seen_at: string;
-    }
-
     /**
      * Bundles nodes and relationships for the graph view. Drives the React Flow scene
     so the client can render the whole topology in one fetch.
@@ -6640,6 +6706,22 @@ export namespace Schemas {
       /** @nullable */
       generated_at?: string | null;
     }
+
+    /**
+     * * `proposed` - Proposed
+    * `accepted` - Accepted
+    * `rejected` - Rejected
+    * `stale` - Stale
+     */
+    export type CatalogReviewStatusEnum = typeof CatalogReviewStatusEnum[keyof typeof CatalogReviewStatusEnum];
+
+
+    export const CatalogReviewStatusEnum = {
+      Proposed: 'proposed',
+      Accepted: 'accepted',
+      Rejected: 'rejected',
+      Stale: 'stale',
+    } as const;
 
     export interface CategoricalScoreOption {
       /**
@@ -11920,6 +12002,15 @@ export namespace Schemas {
     export interface DeprovisionWarehouseResponse {
       status: string;
       team: string;
+    }
+
+    /**
+     * Counts returned by the derive endpoint — drives the 'we found N proposals' toast.
+     */
+    export interface DeriveResult {
+      entities_created: number;
+      metrics_created: number;
+      dimensions_created: number;
     }
 
     /**
@@ -20903,6 +20994,33 @@ export namespace Schemas {
       results: CIMDVerificationToken[];
     }
 
+    export interface PaginatedCatalogDimensionDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CatalogDimensionDTO[];
+    }
+
+    export interface PaginatedCatalogEntityDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CatalogEntityDTO[];
+    }
+
+    export interface PaginatedCatalogMetricDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CatalogMetricDTO[];
+    }
+
     export interface PaginatedCatalogNodeDTOList {
       count: number;
       /** @nullable */
@@ -29821,6 +29939,85 @@ export namespace Schemas {
     }
 
     /**
+     * Body for catalog-dimensions partial_update. Every field optional.
+     */
+    export interface PatchedUpdateDimensionInput {
+      /**
+         * Snake-case dimension name, e.g. `country` or `plan_tier`.
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * What this dimension represents — value space, examples, gotchas.
+         * @nullable
+         */
+      description?: string | null;
+      /**
+         * Attach the dimension to a CatalogEntity. Set null for unattached dimensions.
+         * @nullable
+         */
+      entity_id?: string | null;
+      /** Review state — same lifecycle as entities and metrics.
+
+      * `proposed` - Proposed
+      * `accepted` - Accepted
+      * `rejected` - Rejected
+      * `stale` - Stale */
+      status?: CatalogReviewStatusEnum;
+    }
+
+    /**
+     * Body for catalog-entities partial_update. Every field optional.
+     */
+    export interface PatchedUpdateEntityInput {
+      /**
+         * Display name for this entity, e.g. `Customer` or `Order`. Must be unique per team.
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * What this entity represents in the business — a person, transaction, account, etc.
+         * @nullable
+         */
+      description?: string | null;
+      /** Review state. `proposed` for AI-derived, `accepted` once a human has confirmed it, `rejected` to dismiss, `stale` when the underlying schema has moved on.
+
+      * `proposed` - Proposed
+      * `accepted` - Accepted
+      * `rejected` - Rejected
+      * `stale` - Stale */
+      status?: CatalogReviewStatusEnum;
+    }
+
+    /**
+     * Body for catalog-metrics partial_update. Every field optional.
+     */
+    export interface PatchedUpdateMetricInput {
+      /**
+         * Snake-case metric name, e.g. `total_revenue` or `weekly_active_users`.
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * What this metric measures and how it should be interpreted — units, caveats, exclusions.
+         * @nullable
+         */
+      description?: string | null;
+      /**
+         * Attach the metric to a CatalogEntity. Set null for unattached / system-wide metrics.
+         * @nullable
+         */
+      entity_id?: string | null;
+      /** Review state — same lifecycle as entities and relationships.
+
+      * `proposed` - Proposed
+      * `accepted` - Accepted
+      * `rejected` - Rejected
+      * `stale` - Stale */
+      status?: CatalogReviewStatusEnum;
+    }
+
+    /**
      * * `proposed` - proposed
     * `approved` - approved
     * `official` - official
@@ -29881,32 +30078,16 @@ export namespace Schemas {
     }
 
     /**
-     * * `proposed` - proposed
-    * `accepted` - accepted
-    * `rejected` - rejected
-    * `stale` - stale
-     */
-    export type UpdateRelationshipInputStatusEnum = typeof UpdateRelationshipInputStatusEnum[keyof typeof UpdateRelationshipInputStatusEnum];
-
-
-    export const UpdateRelationshipInputStatusEnum = {
-      Proposed: 'proposed',
-      Accepted: 'accepted',
-      Rejected: 'rejected',
-      Stale: 'stale',
-    } as const;
-
-    /**
      * Body for catalog-relationships-partial-update. Used by reviewers to accept/reject proposals.
      */
     export interface PatchedUpdateRelationshipInput {
       /** Review state. `proposed` is the initial state, `accepted` once a human confirms the edge, `rejected` to dismiss it, `stale` when the underlying schema has moved on.
 
-      * `proposed` - proposed
-      * `accepted` - accepted
-      * `rejected` - rejected
-      * `stale` - stale */
-      status?: UpdateRelationshipInputStatusEnum;
+      * `proposed` - Proposed
+      * `accepted` - Accepted
+      * `rejected` - Rejected
+      * `stale` - Stale */
+      status?: CatalogReviewStatusEnum;
       /**
          * Reviewer's confidence (0..1) in the edge after manual inspection.
          * @minimum 0
@@ -40558,6 +40739,39 @@ export namespace Schemas {
 
     export type BusinessKnowledgeSourcesTextRetrieve200 = {
       text?: string;
+    };
+
+    export type CatalogDimensionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CatalogEntitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CatalogMetricsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type CatalogNodesListParams = {

@@ -270,3 +270,84 @@ class TestCatalogAPIUpdate(BaseTest):
 
         assert accepted is not None
         assert accepted.status == "accepted"
+
+
+class TestCatalogAPIDerivation(BaseTest):
+    """Rule-based proposer over the catalog state."""
+
+    def _setup_minimal_catalog(self) -> None:
+        # One warehouse table with a monetary column and a dimension column.
+        node = CatalogAPI.upsert_node(
+            UpsertNodeParams(
+                team_id=self.team.pk,
+                kind="warehouse_table",
+                name="stripe_charges",
+                business_domain="billing",
+            )
+        )
+        CatalogAPI.upsert_column(
+            UpsertColumnParams(
+                node_id=node.id,
+                name="amount_usd_cents",
+                clickhouse_type="UInt64",
+                semantic_type="monetary",
+            )
+        )
+        CatalogAPI.upsert_column(
+            UpsertColumnParams(
+                node_id=node.id,
+                name="country",
+                clickhouse_type="String",
+                semantic_type="dimension",
+            )
+        )
+
+    def test_derive_creates_an_entity_per_node_by_default(self) -> None:
+        self._setup_minimal_catalog()
+        result = CatalogAPI.derive_catalog(self.team.pk)
+        assert result.entities_created == 1
+        assert result.metrics_created == 1
+        assert result.dimensions_created == 1
+
+    def test_derive_is_idempotent(self) -> None:
+        self._setup_minimal_catalog()
+        first = CatalogAPI.derive_catalog(self.team.pk)
+        second = CatalogAPI.derive_catalog(self.team.pk)
+        assert first.entities_created == 1
+        # Second run finds the same rows; nothing new is created.
+        assert second.entities_created == 0
+        assert second.metrics_created == 0
+        assert second.dimensions_created == 0
+
+    def test_derive_clusters_same_entity_relationships(self) -> None:
+        stripe = CatalogAPI.upsert_node(
+            UpsertNodeParams(team_id=self.team.pk, kind="warehouse_table", name="stripe_customers")
+        )
+        users = CatalogAPI.upsert_node(
+            UpsertNodeParams(team_id=self.team.pk, kind="warehouse_table", name="auth_users")
+        )
+        CatalogAPI.propose_relationship(
+            ProposeRelationshipParams(
+                team_id=self.team.pk,
+                source_node_id=stripe.id,
+                target_node_id=users.id,
+                kind="same_entity",
+                confidence=1.0,
+            )
+        )
+
+        result = CatalogAPI.derive_catalog(self.team.pk)
+        # Both nodes collapse into one entity.
+        assert result.entities_created == 1
+
+        entities = CatalogAPI.list_entities(self.team.pk)
+        assert len(entities) == 1
+        assert len(entities[0].member_node_ids) == 2
+
+    def test_browser_bundle_returns_full_state(self) -> None:
+        self._setup_minimal_catalog()
+        CatalogAPI.derive_catalog(self.team.pk)
+        browser = CatalogAPI.get_browser(self.team.pk)
+        assert len(browser.entities) == 1
+        assert len(browser.metrics) == 1
+        assert len(browser.dimensions) == 1

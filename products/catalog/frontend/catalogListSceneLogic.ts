@@ -45,7 +45,7 @@ export const catalogListSceneLogic = kea<catalogListSceneLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
-        '/catalog': () => {
+        '/catalog/list': () => {
             actions.loadNodes()
         },
     })),

@@ -1,14 +1,15 @@
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { urls } from 'scenes/urls'
 
-export type CatalogPageTab = 'list' | 'graph'
+export type CatalogPageTab = 'entities' | 'list' | 'graph'
 
 const TABS: LemonTab<CatalogPageTab>[] = [
-    { key: 'list', label: 'List', link: urls.catalog() },
+    { key: 'entities', label: 'Entities', link: urls.catalog() },
+    { key: 'list', label: 'Tables', link: urls.catalogList() },
     { key: 'graph', label: 'Graph', link: urls.catalogGraph() },
 ]
 
-/** Tabs shared between /catalog (list view) and /catalog/graph (graph view). */
+/** Tabs shared between the catalog browser, table list, and graph view. */
 export function CatalogPageTabs({ activeTab }: { activeTab: CatalogPageTab }): JSX.Element {
     return <LemonTabs activeKey={activeTab} tabs={TABS} />
 }

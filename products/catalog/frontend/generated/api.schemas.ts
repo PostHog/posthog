@@ -173,6 +173,218 @@ export interface PatchedUpdateColumnInputApi {
     confidence?: number | null
 }
 
+export interface CatalogDimensionDTOApi {
+    id: string
+    name: string
+    /** @nullable */
+    description: string | null
+    /** @nullable */
+    entity_id: string | null
+    node_id: string
+    column_id: string
+    status: string
+    /** @nullable */
+    confidence: number | null
+    /** @nullable */
+    reviewed_at: string | null
+    discovered_at: string
+    last_seen_at: string
+}
+
+export interface PaginatedCatalogDimensionDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CatalogDimensionDTOApi[]
+}
+
+/**
+ * * `proposed` - Proposed
+ * `accepted` - Accepted
+ * `rejected` - Rejected
+ * `stale` - Stale
+ */
+export type CatalogReviewStatusEnumApi = (typeof CatalogReviewStatusEnumApi)[keyof typeof CatalogReviewStatusEnumApi]
+
+export const CatalogReviewStatusEnumApi = {
+    Proposed: 'proposed',
+    Accepted: 'accepted',
+    Rejected: 'rejected',
+    Stale: 'stale',
+} as const
+
+/**
+ * Body for catalog-dimensions partial_update. Every field optional.
+ */
+export interface PatchedUpdateDimensionInputApi {
+    /**
+     * Snake-case dimension name, e.g. `country` or `plan_tier`.
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * What this dimension represents — value space, examples, gotchas.
+     * @nullable
+     */
+    description?: string | null
+    /**
+     * Attach the dimension to a CatalogEntity. Set null for unattached dimensions.
+     * @nullable
+     */
+    entity_id?: string | null
+    /** Review state — same lifecycle as entities and metrics.
+
+  * `proposed` - Proposed
+  * `accepted` - Accepted
+  * `rejected` - Rejected
+  * `stale` - Stale */
+    status?: CatalogReviewStatusEnumApi
+}
+
+export interface CatalogEntityDTOApi {
+    id: string
+    name: string
+    /** @nullable */
+    description: string | null
+    member_node_ids: string[]
+    status: string
+    /** @nullable */
+    confidence: number | null
+    reasoning: string
+    /** @nullable */
+    reviewed_at: string | null
+    discovered_at: string
+    last_seen_at: string
+}
+
+export interface PaginatedCatalogEntityDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CatalogEntityDTOApi[]
+}
+
+/**
+ * Body for catalog-entities partial_update. Every field optional.
+ */
+export interface PatchedUpdateEntityInputApi {
+    /**
+     * Display name for this entity, e.g. `Customer` or `Order`. Must be unique per team.
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * What this entity represents in the business — a person, transaction, account, etc.
+     * @nullable
+     */
+    description?: string | null
+    /** Review state. `proposed` for AI-derived, `accepted` once a human has confirmed it, `rejected` to dismiss, `stale` when the underlying schema has moved on.
+
+  * `proposed` - Proposed
+  * `accepted` - Accepted
+  * `rejected` - Rejected
+  * `stale` - Stale */
+    status?: CatalogReviewStatusEnumApi
+}
+
+export interface CatalogMetricDTOApi {
+    id: string
+    name: string
+    /** @nullable */
+    description: string | null
+    /** @nullable */
+    entity_id: string | null
+    node_id: string
+    /** @nullable */
+    column_id: string | null
+    aggregation: string
+    status: string
+    /** @nullable */
+    confidence: number | null
+    /** @nullable */
+    reviewed_at: string | null
+    discovered_at: string
+    last_seen_at: string
+}
+
+export interface CatalogRelationshipDTOApi {
+    id: string
+    source_node_id: string
+    /** @nullable */
+    source_column: string | null
+    target_node_id: string
+    /** @nullable */
+    target_column: string | null
+    kind: string
+    confidence: number
+    reasoning: string
+    status: string
+    discovered_at: string
+    last_seen_at: string
+}
+
+/**
+ * One-shot payload for the entity-grouped browser scene.
+ */
+export interface CatalogBrowserDTOApi {
+    readonly entities: readonly CatalogEntityDTOApi[]
+    readonly metrics: readonly CatalogMetricDTOApi[]
+    readonly dimensions: readonly CatalogDimensionDTOApi[]
+    readonly relationships: readonly CatalogRelationshipDTOApi[]
+    /** @nullable */
+    generated_at?: string | null
+}
+
+/**
+ * Counts returned by the derive endpoint — drives the 'we found N proposals' toast.
+ */
+export interface DeriveResultApi {
+    entities_created: number
+    metrics_created: number
+    dimensions_created: number
+}
+
+export interface PaginatedCatalogMetricDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CatalogMetricDTOApi[]
+}
+
+/**
+ * Body for catalog-metrics partial_update. Every field optional.
+ */
+export interface PatchedUpdateMetricInputApi {
+    /**
+     * Snake-case metric name, e.g. `total_revenue` or `weekly_active_users`.
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * What this metric measures and how it should be interpreted — units, caveats, exclusions.
+     * @nullable
+     */
+    description?: string | null
+    /**
+     * Attach the metric to a CatalogEntity. Set null for unattached / system-wide metrics.
+     * @nullable
+     */
+    entity_id?: string | null
+    /** Review state — same lifecycle as entities and relationships.
+
+  * `proposed` - Proposed
+  * `accepted` - Accepted
+  * `rejected` - Rejected
+  * `stale` - Stale */
+    status?: CatalogReviewStatusEnumApi
+}
+
 export interface CatalogNodeDTOApi {
     columns: CatalogColumnDTOApi[]
     id: string
@@ -343,22 +555,6 @@ export interface PatchedUpdateNodeInputApi {
     status?: UpdateNodeInputStatusEnumApi
 }
 
-export interface CatalogRelationshipDTOApi {
-    id: string
-    source_node_id: string
-    /** @nullable */
-    source_column: string | null
-    target_node_id: string
-    /** @nullable */
-    target_column: string | null
-    kind: string
-    confidence: number
-    reasoning: string
-    status: string
-    discovered_at: string
-    last_seen_at: string
-}
-
 /**
  * Bundles nodes and relationships for the graph view. Drives the React Flow scene
 so the client can render the whole topology in one fetch.
@@ -436,32 +632,16 @@ export interface ProposeRelationshipInputApi {
 }
 
 /**
- * * `proposed` - proposed
- * `accepted` - accepted
- * `rejected` - rejected
- * `stale` - stale
- */
-export type UpdateRelationshipInputStatusEnumApi =
-    (typeof UpdateRelationshipInputStatusEnumApi)[keyof typeof UpdateRelationshipInputStatusEnumApi]
-
-export const UpdateRelationshipInputStatusEnumApi = {
-    Proposed: 'proposed',
-    Accepted: 'accepted',
-    Rejected: 'rejected',
-    Stale: 'stale',
-} as const
-
-/**
  * Body for catalog-relationships-partial-update. Used by reviewers to accept/reject proposals.
  */
 export interface PatchedUpdateRelationshipInputApi {
     /** Review state. `proposed` is the initial state, `accepted` once a human confirms the edge, `rejected` to dismiss it, `stale` when the underlying schema has moved on.
 
-  * `proposed` - proposed
-  * `accepted` - accepted
-  * `rejected` - rejected
-  * `stale` - stale */
-    status?: UpdateRelationshipInputStatusEnumApi
+  * `proposed` - Proposed
+  * `accepted` - Accepted
+  * `rejected` - Rejected
+  * `stale` - Stale */
+    status?: CatalogReviewStatusEnumApi
     /**
      * Reviewer's confidence (0..1) in the edge after manual inspection.
      * @minimum 0
@@ -470,6 +650,39 @@ export interface PatchedUpdateRelationshipInputApi {
     confidence?: number
     /** Free-text justification, typically extended during human review. */
     reasoning?: string
+}
+
+export type CatalogDimensionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CatalogEntitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CatalogMetricsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type CatalogNodesListParams = {
