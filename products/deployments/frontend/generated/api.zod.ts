@@ -27,8 +27,6 @@ export const deploymentProjectsCreateBodyRepoUrlMax = 1024
 export const deploymentProjectsCreateBodyDefaultBranchDefault = `main`
 export const deploymentProjectsCreateBodyDefaultBranchMax = 255
 
-export const deploymentProjectsCreateBodyGithubPatMax = 500
-
 export const deploymentProjectsCreateBodyOutputDirDefault = `dist`
 export const deploymentProjectsCreateBodyOutputDirMax = 255
 
@@ -55,12 +53,11 @@ export const DeploymentProjectsCreateBody = /* @__PURE__ */ zod.object({
         .max(deploymentProjectsCreateBodyDefaultBranchMax)
         .default(deploymentProjectsCreateBodyDefaultBranchDefault)
         .describe('Branch the project deploys from when no commit SHA is pinned. Defaults to `main`.'),
-    github_pat: zod
-        .string()
-        .max(deploymentProjectsCreateBodyGithubPatMax)
+    github_integration: zod
+        .number()
         .nullish()
         .describe(
-            'GitHub personal access token used to read the repository. Encrypted at rest. Never returned in responses.'
+            'ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.'
         ),
     build_command: zod
         .string()
@@ -133,8 +130,6 @@ export const deploymentProjectsUpdateBodyRepoUrlMax = 1024
 export const deploymentProjectsUpdateBodyDefaultBranchDefault = `main`
 export const deploymentProjectsUpdateBodyDefaultBranchMax = 255
 
-export const deploymentProjectsUpdateBodyGithubPatMax = 500
-
 export const deploymentProjectsUpdateBodyOutputDirDefault = `dist`
 export const deploymentProjectsUpdateBodyOutputDirMax = 255
 
@@ -161,12 +156,11 @@ export const DeploymentProjectsUpdateBody = /* @__PURE__ */ zod.object({
         .max(deploymentProjectsUpdateBodyDefaultBranchMax)
         .default(deploymentProjectsUpdateBodyDefaultBranchDefault)
         .describe('Branch the project deploys from when no commit SHA is pinned. Defaults to `main`.'),
-    github_pat: zod
-        .string()
-        .max(deploymentProjectsUpdateBodyGithubPatMax)
+    github_integration: zod
+        .number()
         .nullish()
         .describe(
-            'GitHub personal access token used to read the repository. Encrypted at rest. Never returned in responses.'
+            'ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.'
         ),
     build_command: zod
         .string()
@@ -210,8 +204,6 @@ export const deploymentProjectsPartialUpdateBodyRepoUrlMax = 1024
 export const deploymentProjectsPartialUpdateBodyDefaultBranchDefault = `main`
 export const deploymentProjectsPartialUpdateBodyDefaultBranchMax = 255
 
-export const deploymentProjectsPartialUpdateBodyGithubPatMax = 500
-
 export const deploymentProjectsPartialUpdateBodyOutputDirDefault = `dist`
 export const deploymentProjectsPartialUpdateBodyOutputDirMax = 255
 
@@ -241,12 +233,11 @@ export const DeploymentProjectsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(deploymentProjectsPartialUpdateBodyDefaultBranchMax)
         .default(deploymentProjectsPartialUpdateBodyDefaultBranchDefault)
         .describe('Branch the project deploys from when no commit SHA is pinned. Defaults to `main`.'),
-    github_pat: zod
-        .string()
-        .max(deploymentProjectsPartialUpdateBodyGithubPatMax)
+    github_integration: zod
+        .number()
         .nullish()
         .describe(
-            'GitHub personal access token used to read the repository. Encrypted at rest. Never returned in responses.'
+            'ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.'
         ),
     build_command: zod
         .string()

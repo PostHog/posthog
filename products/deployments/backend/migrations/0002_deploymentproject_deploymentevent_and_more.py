@@ -28,7 +28,6 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 import posthog.models.utils
-import posthog.helpers.encrypted_fields
 
 
 class Migration(migrations.Migration):
@@ -55,10 +54,7 @@ class Migration(migrations.Migration):
                 ("slug", models.SlugField(max_length=80)),
                 ("repo_url", models.URLField(max_length=1024)),
                 ("default_branch", models.CharField(default="main", max_length=255)),
-                (
-                    "github_pat",
-                    posthog.helpers.encrypted_fields.EncryptedTextField(blank=True, max_length=500, null=True),
-                ),
+                ("github_integration_id", models.BigIntegerField(blank=True, null=True)),
                 ("build_command", models.TextField(blank=True, default=None, null=True)),
                 ("output_dir", models.CharField(default="dist", max_length=255)),
                 ("framework", models.CharField(blank=True, max_length=50, null=True)),

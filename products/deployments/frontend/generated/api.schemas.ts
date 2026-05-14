@@ -32,11 +32,10 @@ export interface DeploymentProjectApi {
      */
     default_branch?: string
     /**
-     * GitHub personal access token used to read the repository. Encrypted at rest. Never returned in responses.
-     * @maxLength 500
+     * ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.
      * @nullable
      */
-    github_pat?: string | null
+    github_integration?: number | null
     /**
      * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
      * @nullable
@@ -340,11 +339,10 @@ export interface PatchedDeploymentProjectApi {
      */
     default_branch?: string
     /**
-     * GitHub personal access token used to read the repository. Encrypted at rest. Never returned in responses.
-     * @maxLength 500
+     * ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.
      * @nullable
      */
-    github_pat?: string | null
+    github_integration?: number | null
     /**
      * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
      * @nullable

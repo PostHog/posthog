@@ -33,7 +33,7 @@ class ProvisionInput:
     slug: str
     repo_url: str
     default_branch: str
-    github_pat: str | None
+    github_integration_id: int | None
     build_command: str | None
     output_dir: str
     framework: str | None
@@ -62,7 +62,7 @@ def execute(
             slug=payload.slug,
             repo_url=payload.repo_url,
             default_branch=payload.default_branch,
-            github_pat=payload.github_pat,
+            github_integration_id=payload.github_integration_id,
             build_command=payload.build_command,
             output_dir=payload.output_dir,
             framework=payload.framework,

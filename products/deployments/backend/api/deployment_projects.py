@@ -98,7 +98,7 @@ class DeploymentProjectViewSet(
                     slug=serializer.validated_data["slug"],
                     repo_url=serializer.validated_data["repo_url"],
                     default_branch=serializer.validated_data.get("default_branch", "main"),
-                    github_pat=serializer.validated_data.get("github_pat"),
+                    github_integration_id=serializer.validated_data.get("github_integration_id"),
                     build_command=serializer.validated_data.get("build_command"),
                     output_dir=serializer.validated_data.get("output_dir", "dist"),
                     framework=serializer.validated_data.get("framework"),

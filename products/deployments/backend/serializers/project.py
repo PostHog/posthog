@@ -1,16 +1,20 @@
 """Serializer for DeploymentProject.
 
-`github_pat` is write-only — the EncryptedTextField stores a Fernet
-ciphertext at rest, but we never return it (even encrypted) to API
-clients. PATCH accepts it; GET responses omit it entirely.
+`github_integration` is the id of a `posthog.Integration` row with `kind="github"`
+that belongs to the same team. The serializer validates ownership and kind at
+write time. Secrets (the access token) never travel through the serializer —
+they live on the Integration row and are resolved at deploy time.
 """
 
 from __future__ import annotations
 
+from typing import Any
 from urllib.parse import urlparse
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+
+from posthog.models.integration import Integration
 
 from ..models import DeploymentProject
 
@@ -32,14 +36,14 @@ class DeploymentProjectSerializer(serializers.ModelSerializer):
         default="main",
         help_text="Branch the project deploys from when no commit SHA is pinned. Defaults to `main`.",
     )
-    github_pat = serializers.CharField(
-        max_length=500,
-        write_only=True,
+    github_integration = serializers.IntegerField(
+        source="github_integration_id",
         required=False,
-        allow_blank=False,
         allow_null=True,
         help_text=(
-            "GitHub personal access token used to read the repository. Encrypted at rest. Never returned in responses."
+            "ID of the `posthog.Integration` row (kind=github) the project uses to read this "
+            "repository. Must belong to the same team. The actual access token lives on the "
+            "Integration row and is never exposed through this serializer."
         ),
     )
 
@@ -119,7 +123,7 @@ class DeploymentProjectSerializer(serializers.ModelSerializer):
             "slug",
             "repo_url",
             "default_branch",
-            "github_pat",
+            "github_integration",
             "build_command",
             "output_dir",
             "framework",
@@ -145,7 +149,19 @@ class DeploymentProjectSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_ready_to_deploy(self, obj: DeploymentProject) -> bool:
-        return obj.cloudflare_ready_at is not None and bool(obj.github_pat)
+        return obj.cloudflare_ready_at is not None and obj.github_integration_id is not None
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # The field uses `source="github_integration_id"`, so the int lands under that key.
+        integration_id = attrs.get("github_integration_id")
+        if integration_id is None:
+            return attrs
+        team = self.context["get_team"]()
+        if not Integration.objects.filter(id=integration_id, team_id=team.id, kind="github").exists():
+            raise serializers.ValidationError(
+                {"github_integration": "Integration not found or is not a GitHub integration for this team."}
+            )
+        return attrs
 
     def validate_repo_url(self, value: str) -> str:
         # v1 deploys from github.com only. Without this check the field

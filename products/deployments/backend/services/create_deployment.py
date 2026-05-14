@@ -14,6 +14,8 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.models.integration import Integration
+
 from ..adapters import (
     CloudflareAdapter,
     GitHubAdapter,
@@ -76,6 +78,13 @@ def execute(
 ) -> Deployment:
     project = DeploymentProject.objects.get(id=payload.project_id, team_id=payload.team_id)
 
+    # Resolve the GitHub access token from the project's Integration row, if any.
+    # The token is short-lived (GitHub App installation tokens expire after ~1h);
+    # we read whatever's currently stored in `sensitive_config` — refreshing is
+    # owned by the integration framework, not this service. A null token means
+    # public-repo access or a Null adapter in tests.
+    access_token = _resolve_github_access_token(project.github_integration_id)
+
     # Resolve commit metadata up-front when possible. The build worker will
     # also resolve HEAD-of-branch in `resolve_commit_sha`, but pre-resolving
     # lets the list scene render real commit messages before the worker
@@ -83,9 +92,9 @@ def execute(
     branch = payload.branch or project.default_branch
     gh = github or get_github_adapter()
     if payload.commit_sha:
-        commit = gh.get_commit(repo_url=project.repo_url, sha=payload.commit_sha, pat=project.github_pat)
+        commit = gh.get_commit(repo_url=project.repo_url, sha=payload.commit_sha, access_token=access_token)
     else:
-        commit = gh.head_of_branch(repo_url=project.repo_url, branch=branch, pat=project.github_pat)
+        commit = gh.head_of_branch(repo_url=project.repo_url, branch=branch, access_token=access_token)
 
     try:
         with transaction.atomic():
@@ -139,7 +148,7 @@ def execute(
                 repo_url=project.repo_url,
                 branch=commit.branch,
                 commit_sha=commit.sha,
-                github_pat=project.github_pat,
+                github_access_token=access_token,
                 build_command=project.build_command,
                 output_dir=project.output_dir,
                 framework=project.framework,
@@ -174,3 +183,18 @@ def execute(
     )
     deployment.refresh_from_db()
     return deployment
+
+
+def _resolve_github_access_token(integration_id: int | None) -> str | None:
+    if integration_id is None:
+        return None
+    try:
+        integration = Integration.objects.get(id=integration_id, kind="github")
+    except Integration.DoesNotExist:
+        # Row was deleted between project save and deploy. Treat as "no creds"
+        # so the adapter can still attempt unauthenticated public-repo access
+        # and surface a clean GitHubError if the repo is private.
+        logger.warning("create_deployment.integration_missing", integration_id=integration_id)
+        return None
+    token = integration.sensitive_config.get("access_token")
+    return str(token) if token else None

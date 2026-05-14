@@ -23,11 +23,15 @@ class GitHubAdapter(Protocol):
     itself rarely needs `get_commit`; we expose it because the GitHub
     stream may want to populate commit metadata on the Deployment row at
     create-time (cheaper than waiting for the worker to fill it in).
+
+    `access_token` is the short-lived GitHub App installation token resolved
+    by `create_deployment` from the project's `posthog.Integration` row.
+    None means unauthenticated (public repos only).
     """
 
-    def head_of_branch(self, *, repo_url: str, branch: str, pat: str | None) -> CommitMetadata: ...
+    def head_of_branch(self, *, repo_url: str, branch: str, access_token: str | None) -> CommitMetadata: ...
 
-    def get_commit(self, *, repo_url: str, sha: str, pat: str | None) -> CommitMetadata: ...
+    def get_commit(self, *, repo_url: str, sha: str, access_token: str | None) -> CommitMetadata: ...
 
 
 class GitHubError(Exception):
@@ -42,7 +46,7 @@ class NullGitHubAdapter:
     so author-filter tests can assert against a stable value.
     """
 
-    def head_of_branch(self, *, repo_url: str, branch: str, pat: str | None) -> CommitMetadata:
+    def head_of_branch(self, *, repo_url: str, branch: str, access_token: str | None) -> CommitMetadata:
         return CommitMetadata(
             sha="0" * 40,
             message="chore: stubbed commit (NullGitHubAdapter)",
@@ -51,7 +55,7 @@ class NullGitHubAdapter:
             branch=branch,
         )
 
-    def get_commit(self, *, repo_url: str, sha: str, pat: str | None) -> CommitMetadata:
+    def get_commit(self, *, repo_url: str, sha: str, access_token: str | None) -> CommitMetadata:
         return CommitMetadata(
             sha=sha,
             message="chore: stubbed commit (NullGitHubAdapter)",

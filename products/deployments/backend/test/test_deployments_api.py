@@ -18,6 +18,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.integration import Integration
 from posthog.models.utils import uuid7
 
 from products.deployments.backend.models import Deployment, DeploymentProject
@@ -64,30 +65,77 @@ class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
         slugs = [p["slug"] for p in results]
         self.assertEqual(slugs, ["alive"])
 
-    def test_github_pat_is_write_only(self) -> None:
-        # POST accepts github_pat; subsequent GET must not include it.
+    def test_github_integration_is_persisted_and_returned(self) -> None:
+        # POST accepts a github_integration id pointing at the team's
+        # `posthog.Integration` row; the FK is returned on GETs (it's a
+        # reference, not a secret — the access token lives on Integration).
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="42",
+            sensitive_config={"access_token": "ghs_short_lived"},
+        )
         response = self.client.post(
             f"/api/projects/{self.team.id}/deployment_projects/",
             {
                 "name": "Site",
                 "slug": "site",
                 "repo_url": "https://github.com/example-org/site",
-                "github_pat": "ghp_super_secret_token",
+                "github_integration": integration.id,
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         body = response.json()
-        self.assertNotIn("github_pat", body)
+        self.assertEqual(body["github_integration"], integration.id)
+        # Verify the FK is stored on the row.
+        project = DeploymentProject.all_teams.get(pk=body["id"])
+        self.assertEqual(project.github_integration_id, integration.id)
+        # No secrets exposed via the API surface.
+        self.assertNotIn("access_token", body)
+        self.assertNotIn("sensitive_config", body)
 
-        project_id = body["id"]
-        response = self.client.get(f"/api/projects/{self.team.id}/deployment_projects/{project_id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertNotIn("github_pat", response.json())
+    def test_github_integration_must_belong_to_team(self) -> None:
+        # An integration from another team is not selectable.
+        other_team = self.organization.teams.create(name="Other")
+        outsider = Integration.objects.create(
+            team=other_team,
+            kind="github",
+            integration_id="99",
+            sensitive_config={"access_token": "ghs_other"},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/",
+            {
+                "name": "Site",
+                "slug": "site",
+                "repo_url": "https://github.com/example-org/site",
+                "github_integration": outsider.id,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json().get("attr"), "github_integration")
 
-        # The PAT is encrypted on the row but stored.
-        project = DeploymentProject.all_teams.get(pk=project_id)
-        self.assertEqual(project.github_pat, "ghp_super_secret_token")
+    def test_github_integration_kind_must_be_github(self) -> None:
+        slack = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            sensitive_config={"access_token": "xoxb-not-github"},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/",
+            {
+                "name": "Site",
+                "slug": "site",
+                "repo_url": "https://github.com/example-org/site",
+                "github_integration": slack.id,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json().get("attr"), "github_integration")
 
     def test_create_provisions_cloudflare_via_null_adapter(self) -> None:
         response = self.client.post(

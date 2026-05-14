@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from django.db import models
 
-from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import DeletedMetaFields, uuid7
@@ -42,10 +41,12 @@ class DeploymentProject(ModelActivityMixin, ProductTeamModel, DeletedMetaFields)
     # Source
     repo_url = models.URLField(max_length=1024)
     default_branch = models.CharField(max_length=255, default="main")
-    # Fernet-encrypted at rest via EncryptedTextField. Write-only in the
-    # serializer; never returned in responses. Future migration path is a
-    # ForeignKey to the existing GitHubIntegration model — see scaffold PR.
-    github_pat = EncryptedTextField(max_length=500, null=True, blank=True)
+    # Pointer to the team's `posthog.Integration` row for the GitHub App that
+    # owns access to this repo. We resolve to a short-lived access token at
+    # deploy-time via `GitHubIntegration(integration).integration.sensitive_config`.
+    # BigIntegerField (no FK) keeps the ProductTeamModel cross-app boundary clean,
+    # matching the pattern used for `created_by_id`.
+    github_integration_id = models.BigIntegerField(null=True, blank=True)
 
     # Build config
     # Null = build worker infers the command from `framework` (or auto-detects

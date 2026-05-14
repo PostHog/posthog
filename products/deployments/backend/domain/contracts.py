@@ -36,9 +36,12 @@ class BuildInput:
     """Payload the API hands to the Temporal worker when starting a build.
 
     The worker owns everything past this point — clone, install, build, publish.
-    The PAT travels with the payload (encrypted in transit by the existing
-    Temporal transport) so the worker can authenticate against GitHub without
-    a second roundtrip to the API.
+    `github_access_token` is the short-lived installation token the API resolved
+    from the project's `posthog.Integration` row (kind=github). It travels with
+    the payload (encrypted in transit by Temporal) so the worker can authenticate
+    against GitHub without a second roundtrip to the API. Tokens last ~1h —
+    sufficient for hackathon-scale builds; long-running builds would need the
+    worker to refresh through the integration framework instead.
     """
 
     deployment_id: UUID
@@ -47,7 +50,7 @@ class BuildInput:
     repo_url: str
     branch: str
     commit_sha: str
-    github_pat: str | None
+    github_access_token: str | None
     build_command: str | None
     output_dir: str
     framework: str | None
