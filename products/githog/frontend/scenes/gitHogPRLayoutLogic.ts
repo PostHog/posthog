@@ -80,6 +80,7 @@ export const gitHogPRLayoutLogic = kea<gitHogPRLayoutLogicType>([
                 loadLayout: async () => {
                     const repository = `${props.owner}/${props.name}`
                     const params = new URLSearchParams({ repository, number: String(props.number) })
+                    // nosemgrep: prefer-codegen-api
                     return await api.get<GitHogPRLayoutResponse>(
                         `api/environments/${getCurrentTeamId()}/githog/pull_request_layout/?${params.toString()}`
                     )
@@ -100,6 +101,7 @@ export const gitHogPRLayoutLogic = kea<gitHogPRLayoutLogicType>([
             // before the timeout elapses, so only the trailing change is saved.
             await breakpoint(SAVE_DEBOUNCE_MS)
             const repository = `${props.owner}/${props.name}`
+            // nosemgrep: prefer-codegen-api
             await api.put(`api/environments/${getCurrentTeamId()}/githog/pull_request_layout/`, {
                 repository,
                 number: props.number,

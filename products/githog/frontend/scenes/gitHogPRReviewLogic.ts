@@ -92,6 +92,7 @@ export const gitHogPRReviewLogic = kea<gitHogPRReviewLogicType>([
             {
                 loadPRDetail: async () => {
                     const repository = `${props.owner}/${props.name}`
+                    // nosemgrep: prefer-codegen-api
                     return await api.get<GitHogPullRequestDetailResponse>(
                         `api/environments/${getCurrentTeamId()}/githog/pull_request_diff/` +
                             `?repository=${encodeURIComponent(repository)}&number=${props.number}`
@@ -104,6 +105,7 @@ export const gitHogPRReviewLogic = kea<gitHogPRReviewLogicType>([
             {
                 loadMessages: async () => {
                     const repository = `${props.owner}/${props.name}`
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get<{ messages: GitHogConversationMessage[] }>(
                         `api/environments/${getCurrentTeamId()}/githog/conversations/?repository=${encodeURIComponent(repository)}&number=${props.number}`
                     )
@@ -122,6 +124,7 @@ export const gitHogPRReviewLogic = kea<gitHogPRReviewLogicType>([
             }
             const repository = `${props.owner}/${props.name}`
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.create(`api/environments/${getCurrentTeamId()}/githog/conversations/create/`, {
                     repository,
                     number: props.number,

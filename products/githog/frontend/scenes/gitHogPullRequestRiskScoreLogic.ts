@@ -57,6 +57,7 @@ export const gitHogPullRequestRiskScoreLogic = kea<gitHogPullRequestRiskScoreLog
                     if (refresh) {
                         params.set('refresh', 'true')
                     }
+                    // nosemgrep: prefer-codegen-api
                     return await api.get<GitHogRiskScore>(
                         `api/environments/${getCurrentTeamId()}/githog/pull_request_risk_score/?${params.toString()}`
                     )

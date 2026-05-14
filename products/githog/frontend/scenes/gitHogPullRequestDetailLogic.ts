@@ -41,6 +41,7 @@ export const gitHogPullRequestDetailLogic = kea<gitHogPullRequestDetailLogicType
                 loadPullRequest: async () => {
                     const repository = `${props.owner}/${props.name}`
                     const params = new URLSearchParams({ repository, number: String(props.number) })
+                    // nosemgrep: prefer-codegen-api
                     return await api.get<GitHogPullRequestDetail>(
                         `api/environments/${getCurrentTeamId()}/githog/pull_request/?${params.toString()}`
                     )

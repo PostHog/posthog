@@ -37,6 +37,7 @@ export const gitHogPRLogic = kea<gitHogPRLogicType>([
             {
                 loadPullRequest: async () => {
                     const repository = `${props.owner}/${props.name}`
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get<{
                         repository: string
                         pull_request: GitHogPullRequestDetail

@@ -21,6 +21,7 @@ export const gitHogReposLogic = kea<gitHogReposLogicType>([
             [] as GitHogRepository[],
             {
                 loadRepositories: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get<{ repositories: GitHogRepository[] }>(
                         `api/environments/${getCurrentTeamId()}/githog/`
                     )

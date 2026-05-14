@@ -35,6 +35,7 @@ export const gitHogRepoLogic = kea<gitHogRepoLogicType>([
             {
                 loadPullRequests: async () => {
                     const repository = `${props.owner}/${props.name}`
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get<{ repository: string; pull_requests: GitHogPullRequest[] }>(
                         `api/environments/${getCurrentTeamId()}/githog/pull_requests/?repository=${encodeURIComponent(
                             repository

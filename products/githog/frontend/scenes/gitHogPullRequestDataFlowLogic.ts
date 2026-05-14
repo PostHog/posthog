@@ -90,6 +90,7 @@ export const gitHogPullRequestDataFlowLogic = kea<gitHogPullRequestDataFlowLogic
                     if (refresh) {
                         params.set('refresh', 'true')
                     }
+                    // nosemgrep: prefer-codegen-api
                     return await api.get<GitHogDataFlow>(
                         `api/environments/${getCurrentTeamId()}/githog/pull_request_data_flow/?${params.toString()}`
                     )
