@@ -314,11 +314,20 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["project_id"],
 )
-projects_router.register(
+# Deployments: DeploymentProject is the top-level entity; Deployment nests under it.
+# Mirrors `project_tasks_router` → `runs` pattern above for the parent/child URL shape:
+# /api/projects/{team_id}/deployment_projects/{deployment_project_id}/deployments/...
+project_deployment_projects_router = projects_router.register(
+    r"deployment_projects",
+    deployments.DeploymentProjectViewSet,
+    "project_deployment_projects",
+    ["project_id"],
+)
+project_deployment_projects_router.register(
     r"deployments",
     deployments.DeploymentViewSet,
-    "project_deployments",
-    ["project_id"],
+    "project_deployment_projects_deployments",
+    ["project_id", "deployment_project_id"],
 )
 
 # Tasks endpoints

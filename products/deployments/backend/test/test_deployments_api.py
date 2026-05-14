@@ -1,13 +1,318 @@
+"""End-to-end tests for the public Deployments API.
+
+Covers both top-level routes:
+- /api/projects/{team_id}/deployment_projects/...
+- /api/projects/{team_id}/deployment_projects/{pid}/deployments/...
+
+The feature flag gate (`DeploymentsAccessPermission`) is mocked via
+`posthoganalytics.feature_enabled` — see `products/deployments/backend/access.py`.
+"""
+
+from __future__ import annotations
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.integration import Integration
 from posthog.models.utils import uuid7
 
+from products.deployments.backend.models import Deployment, DeploymentProject
+from products.deployments.backend.test._helpers import DeploymentsTeamScopedTestMixin
 
-class TestDeploymentsAPI(APIBaseTest):
+
+class _BaseDeploymentsAPITest(DeploymentsTeamScopedTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Force the feature flag on for every test in this module — it's
+        # the same gate the scaffold's test_list_respects_feature_flag
+        # covered separately.
+        self._flag_patcher = patch(
+            "products.deployments.backend.access.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        self._flag_patcher.start()
+        self.addCleanup(self._flag_patcher.stop)
+
+
+class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
+    def test_list_returns_empty_when_no_projects(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/deployment_projects/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
+    def test_list_excludes_soft_deleted(self) -> None:
+        DeploymentProject.objects.create(
+            team_id=self.team.id,
+            name="Alive",
+            slug="alive",
+            repo_url="https://github.com/example-org/alive",
+        )
+        DeploymentProject.objects.create(
+            team_id=self.team.id,
+            name="Dead",
+            slug="dead",
+            repo_url="https://github.com/example-org/dead",
+            deleted=True,
+            deleted_at=timezone.now(),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/deployment_projects/")
+        results = response.json()["results"]
+        slugs = [p["slug"] for p in results]
+        self.assertEqual(slugs, ["alive"])
+
+    def test_github_integration_is_persisted_and_returned(self) -> None:
+        # POST accepts a github_integration id pointing at the team's
+        # `posthog.Integration` row; the FK is returned on GETs (it's a
+        # reference, not a secret — the access token lives on Integration).
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="42",
+            sensitive_config={"access_token": "ghs_short_lived"},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/",
+            {
+                "name": "Site",
+                "slug": "site",
+                "repo_url": "https://github.com/example-org/site",
+                "github_integration": integration.id,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        body = response.json()
+        self.assertEqual(body["github_integration"], integration.id)
+        # Verify the FK is stored on the row.
+        project = DeploymentProject.all_teams.get(pk=body["id"])
+        self.assertEqual(project.github_integration_id, integration.id)
+        # No secrets exposed via the API surface.
+        self.assertNotIn("access_token", body)
+        self.assertNotIn("sensitive_config", body)
+
+    def test_github_integration_must_belong_to_team(self) -> None:
+        # An integration from another team is not selectable.
+        other_team = self.organization.teams.create(name="Other")
+        outsider = Integration.objects.create(
+            team=other_team,
+            kind="github",
+            integration_id="99",
+            sensitive_config={"access_token": "ghs_other"},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/",
+            {
+                "name": "Site",
+                "slug": "site",
+                "repo_url": "https://github.com/example-org/site",
+                "github_integration": outsider.id,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json().get("attr"), "github_integration")
+
+    def test_github_integration_kind_must_be_github(self) -> None:
+        slack = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            sensitive_config={"access_token": "xoxb-not-github"},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/",
+            {
+                "name": "Site",
+                "slug": "site",
+                "repo_url": "https://github.com/example-org/site",
+                "github_integration": slack.id,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json().get("attr"), "github_integration")
+
+    def test_create_provisions_cloudflare_via_null_adapter(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/",
+            {
+                "name": "Site",
+                "slug": "site",
+                "repo_url": "https://github.com/example-org/site",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        body = response.json()
+        # Null adapter assigns a {team_id}-{slug} name; serializer surfaces
+        # the cloudflare_project_name as a read-only field. The subdomain
+        # mirrors whatever the adapter returned (Null = `{name}.pages.dev`)
+        # — provisioning persists the adapter's value rather than a
+        # hardcoded pattern so two teams with the same slug don't collide.
+        self.assertIn(f"{self.team.id}-site", body["cloudflare_project_name"])
+        self.assertEqual(body["subdomain"], f"{self.team.id}-site.pages.dev")
+        self.assertIsNotNone(body["cloudflare_ready_at"])
+
+    def test_destroy_is_soft_delete(self) -> None:
+        project = DeploymentProject.objects.create(
+            team_id=self.team.id,
+            name="Site",
+            slug="site",
+            repo_url="https://github.com/example-org/site",
+        )
+        response = self.client.delete(f"/api/projects/{self.team.id}/deployment_projects/{project.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        # Row still exists but flagged deleted.
+        project.refresh_from_db()
+        self.assertTrue(project.deleted)
+        self.assertIsNotNone(project.deleted_at)
+
+
+class TestDeploymentsAPINested(_BaseDeploymentsAPITest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.deployment_project = DeploymentProject.objects.create(
+            team_id=self.team.id,
+            name="Site",
+            slug="site",
+            repo_url="https://github.com/example-org/site",
+            cloudflare_project_name=f"{self.team.id}-site",
+            subdomain="site.posthog-app.com",
+            cloudflare_ready_at=timezone.now(),
+        )
+
+    def test_list_returns_empty_when_no_deployments(self) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/deployment_projects/{self.deployment_project.id}/deployments/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
+    def test_unknown_project_returns_404(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/deployment_projects/{uuid7()}/deployments/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_post_creates_deployment(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/{self.deployment_project.id}/deployments/",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        body = response.json()
+        self.assertEqual(body["status"], Deployment.Status.QUEUED.value)
+        self.assertEqual(body["trigger_kind"], Deployment.TriggerKind.MANUAL.value)
+
+    def test_second_concurrent_post_returns_409(self) -> None:
+        # First create: succeeds.
+        first = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/{self.deployment_project.id}/deployments/",
+            {},
+            format="json",
+        )
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED, first.content)
+        # Second: the partial unique constraint fires.
+        second = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/{self.deployment_project.id}/deployments/",
+            {},
+            format="json",
+        )
+        self.assertEqual(second.status_code, status.HTTP_409_CONFLICT, second.content)
+        body = second.json()
+        self.assertEqual(body["active_deployment_id"], first.json()["id"])
+
+    def test_list_default_filter_hides_cancelled(self) -> None:
+        ready = Deployment.objects.create(
+            project=self.deployment_project,
+            team_id=self.team.id,
+            status=Deployment.Status.READY.value,
+        )
+        Deployment.objects.create(
+            project=self.deployment_project,
+            team_id=self.team.id,
+            status=Deployment.Status.CANCELLED.value,
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/deployment_projects/{self.deployment_project.id}/deployments/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [d["id"] for d in response.json()["results"]]
+        self.assertEqual(ids, [str(ready.id)])
+
+    def test_list_with_explicit_status_filter_reveals_cancelled(self) -> None:
+        cancelled = Deployment.objects.create(
+            project=self.deployment_project,
+            team_id=self.team.id,
+            status=Deployment.Status.CANCELLED.value,
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/deployment_projects/{self.deployment_project.id}/deployments/?status=cancelled"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [d["id"] for d in response.json()["results"]]
+        self.assertEqual(ids, [str(cancelled.id)])
+
+    def test_is_current_annotated_against_project_pointer(self) -> None:
+        deployment = Deployment.objects.create(
+            project=self.deployment_project,
+            team_id=self.team.id,
+            status=Deployment.Status.READY.value,
+        )
+        self.deployment_project.current_deployment = deployment
+        self.deployment_project.save(update_fields=["current_deployment"])
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/deployment_projects/{self.deployment_project.id}/deployments/"
+        )
+        body = response.json()["results"][0]
+        self.assertTrue(body["is_current"])
+
+    def test_action_endpoint_refuses_cross_project_deployment_id(self) -> None:
+        # Regression for the cross-project IDOR on action endpoints: a
+        # deployment belonging to project B must not be reachable via
+        # project A's URL, even within the same team.
+        other_project = DeploymentProject.objects.create(
+            team_id=self.team.id,
+            name="Other",
+            slug="other",
+            repo_url="https://github.com/example-org/other",
+        )
+        other_deployment = Deployment.objects.create(
+            project=other_project,
+            team_id=self.team.id,
+            status=Deployment.Status.READY.value,
+            commit_sha="abc1234",
+        )
+        # Hit the WRONG project's URL with the right deployment id.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/{self.deployment_project.id}/deployments/{other_deployment.id}/redeploy/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
+
+    def test_redeploy_of_cancelled_deployment_succeeds(self) -> None:
+        # Detail / action lookups must NOT inherit the list-only filters
+        # (status / author / hide-cancelled). Redeploying a cancelled row
+        # is a valid operation and the URL clearly references it.
+        cancelled = Deployment.objects.create(
+            project=self.deployment_project,
+            team_id=self.team.id,
+            status=Deployment.Status.CANCELLED.value,
+            commit_sha="abc1234",
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/deployment_projects/{self.deployment_project.id}/deployments/{cancelled.id}/redeploy/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+
+class TestDeploymentsFeatureFlag(_BaseDeploymentsAPITest):
+    """Re-verifies the feature-flag gate over the new nested URL."""
+
     @parameterized.expand(
         [
             ("flag on returns empty list", True, status.HTTP_200_OK),
@@ -15,27 +320,18 @@ class TestDeploymentsAPI(APIBaseTest):
         ]
     )
     def test_list_respects_feature_flag(self, _name: str, flag_enabled: bool, expected_status: int) -> None:
+        # Stop the module-wide patcher so this test can swap in its own
+        # return value.
+        self._flag_patcher.stop()
         with patch(
             "products.deployments.backend.access.posthoganalytics.feature_enabled",
             return_value=flag_enabled,
         ):
-            response = self.client.get(f"/api/projects/{self.team.id}/deployments/")
+            response = self.client.get(f"/api/projects/{self.team.id}/deployment_projects/")
 
         self.assertEqual(response.status_code, expected_status)
         if expected_status == status.HTTP_200_OK:
             self.assertEqual(response.json()["results"], [])
-
-    @parameterized.expand(
-        [
-            ("redeploy",),
-            ("rollback",),
-            ("refresh-preview",),
-        ]
-    )
-    @patch("products.deployments.backend.access.posthoganalytics.feature_enabled", return_value=True)
-    def test_stub_action_returns_501_when_flag_on(self, action: str, _mock_flag: object) -> None:
-        # The stubs never call get_object, so the deployment id only has to be a
-        # syntactically valid UUID — no row needs to exist for the URL to route.
-        response = self.client.post(f"/api/projects/{self.team.id}/deployments/{uuid7()}/{action}/")
-
-        self.assertEqual(response.status_code, status.HTTP_501_NOT_IMPLEMENTED)
+        # Re-start the cleanup-registered patcher so addCleanup's stop() is
+        # safe (re-stop is fine since `stop` is idempotent on already-stopped).
+        self._flag_patcher.start()

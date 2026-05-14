@@ -92,6 +92,8 @@ rules:
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
                               |Deployment
+                              |DeploymentEvent
+                              |DeploymentProject
                               |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
@@ -310,6 +312,8 @@ rules:
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
                         |Deployment
+                        |DeploymentEvent
+                        |DeploymentProject
                         |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping

@@ -7,3 +7,264 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+import * as zod from 'zod'
+
+/**
+ * CRUD for DeploymentProject (the connected-repo + hosting-target entity).
+
+Create-time provisioning calls Cloudflare BEFORE writing the DB row
+(see services/provision_project.py for the rationale). Delete is a
+soft-delete; Cloudflare-side cleanup is deferred to a periodic Celery
+task.
+ */
+export const deploymentProjectsCreateBodyNameMax = 200
+
+export const deploymentProjectsCreateBodySlugMax = 80
+
+export const deploymentProjectsCreateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
+export const deploymentProjectsCreateBodyRepoUrlMax = 1024
+
+export const deploymentProjectsCreateBodyDefaultBranchDefault = `main`
+export const deploymentProjectsCreateBodyDefaultBranchMax = 255
+
+export const deploymentProjectsCreateBodyOutputDirDefault = `dist`
+export const deploymentProjectsCreateBodyOutputDirMax = 255
+
+export const deploymentProjectsCreateBodyFrameworkMax = 50
+
+export const deploymentProjectsCreateBodyInjectPosthogSnippetDefault = false
+
+export const DeploymentProjectsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(deploymentProjectsCreateBodyNameMax)
+        .describe('Human-readable project name shown in the UI.'),
+    slug: zod
+        .string()
+        .max(deploymentProjectsCreateBodySlugMax)
+        .regex(deploymentProjectsCreateBodySlugRegExp)
+        .describe(
+            'URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.'
+        ),
+    repo_url: zod
+        .url()
+        .max(deploymentProjectsCreateBodyRepoUrlMax)
+        .describe('HTTPS URL of the source repository this project deploys from.'),
+    default_branch: zod
+        .string()
+        .max(deploymentProjectsCreateBodyDefaultBranchMax)
+        .default(deploymentProjectsCreateBodyDefaultBranchDefault)
+        .describe('Branch the project deploys from when no commit SHA is pinned. Defaults to `main`.'),
+    github_integration: zod
+        .number()
+        .nullish()
+        .describe(
+            'ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.'
+        ),
+    build_command: zod
+        .string()
+        .nullish()
+        .describe(
+            'Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).'
+        ),
+    output_dir: zod
+        .string()
+        .max(deploymentProjectsCreateBodyOutputDirMax)
+        .default(deploymentProjectsCreateBodyOutputDirDefault)
+        .describe('Directory containing the built static site, relative to the repository root.'),
+    framework: zod
+        .string()
+        .max(deploymentProjectsCreateBodyFrameworkMax)
+        .nullish()
+        .describe('Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.'),
+    inject_posthog_snippet: zod
+        .boolean()
+        .default(deploymentProjectsCreateBodyInjectPosthogSnippetDefault)
+        .describe(
+            'If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them.'
+        ),
+})
+
+/**
+ * Full lifecycle viewset for Deployments.
+
+All deployments are scoped to a parent DeploymentProject via the URL
+parent lookup `deployment_project_id`. The viewset enforces that
+scoping in `safely_get_queryset` so a user can never see / mutate a
+deployment that doesn't belong to the project in the URL.
+ */
+export const deploymentProjectsDeploymentsCreateBodyCommitShaMax = 64
+
+export const deploymentProjectsDeploymentsCreateBodyBranchMax = 255
+
+export const DeploymentProjectsDeploymentsCreateBody = /* @__PURE__ */ zod
+    .object({
+        commit_sha: zod
+            .string()
+            .max(deploymentProjectsDeploymentsCreateBodyCommitShaMax)
+            .optional()
+            .describe(
+                "Optional commit SHA. If omitted, the build worker resolves HEAD of `branch` (or the project's default_branch)."
+            ),
+        branch: zod
+            .string()
+            .max(deploymentProjectsDeploymentsCreateBodyBranchMax)
+            .optional()
+            .describe("Optional branch override. If omitted, uses the project's `default_branch`."),
+    })
+    .describe('Body of POST \/api\/projects\/{}\/deployment_projects\/{}\/deployments\/.')
+
+/**
+ * CRUD for DeploymentProject (the connected-repo + hosting-target entity).
+
+Create-time provisioning calls Cloudflare BEFORE writing the DB row
+(see services/provision_project.py for the rationale). Delete is a
+soft-delete; Cloudflare-side cleanup is deferred to a periodic Celery
+task.
+ */
+export const deploymentProjectsUpdateBodyNameMax = 200
+
+export const deploymentProjectsUpdateBodySlugMax = 80
+
+export const deploymentProjectsUpdateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
+export const deploymentProjectsUpdateBodyRepoUrlMax = 1024
+
+export const deploymentProjectsUpdateBodyDefaultBranchDefault = `main`
+export const deploymentProjectsUpdateBodyDefaultBranchMax = 255
+
+export const deploymentProjectsUpdateBodyOutputDirDefault = `dist`
+export const deploymentProjectsUpdateBodyOutputDirMax = 255
+
+export const deploymentProjectsUpdateBodyFrameworkMax = 50
+
+export const deploymentProjectsUpdateBodyInjectPosthogSnippetDefault = false
+
+export const DeploymentProjectsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(deploymentProjectsUpdateBodyNameMax)
+        .describe('Human-readable project name shown in the UI.'),
+    slug: zod
+        .string()
+        .max(deploymentProjectsUpdateBodySlugMax)
+        .regex(deploymentProjectsUpdateBodySlugRegExp)
+        .describe(
+            'URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.'
+        ),
+    repo_url: zod
+        .url()
+        .max(deploymentProjectsUpdateBodyRepoUrlMax)
+        .describe('HTTPS URL of the source repository this project deploys from.'),
+    default_branch: zod
+        .string()
+        .max(deploymentProjectsUpdateBodyDefaultBranchMax)
+        .default(deploymentProjectsUpdateBodyDefaultBranchDefault)
+        .describe('Branch the project deploys from when no commit SHA is pinned. Defaults to `main`.'),
+    github_integration: zod
+        .number()
+        .nullish()
+        .describe(
+            'ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.'
+        ),
+    build_command: zod
+        .string()
+        .nullish()
+        .describe(
+            'Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).'
+        ),
+    output_dir: zod
+        .string()
+        .max(deploymentProjectsUpdateBodyOutputDirMax)
+        .default(deploymentProjectsUpdateBodyOutputDirDefault)
+        .describe('Directory containing the built static site, relative to the repository root.'),
+    framework: zod
+        .string()
+        .max(deploymentProjectsUpdateBodyFrameworkMax)
+        .nullish()
+        .describe('Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.'),
+    inject_posthog_snippet: zod
+        .boolean()
+        .default(deploymentProjectsUpdateBodyInjectPosthogSnippetDefault)
+        .describe(
+            'If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them.'
+        ),
+})
+
+/**
+ * CRUD for DeploymentProject (the connected-repo + hosting-target entity).
+
+Create-time provisioning calls Cloudflare BEFORE writing the DB row
+(see services/provision_project.py for the rationale). Delete is a
+soft-delete; Cloudflare-side cleanup is deferred to a periodic Celery
+task.
+ */
+export const deploymentProjectsPartialUpdateBodyNameMax = 200
+
+export const deploymentProjectsPartialUpdateBodySlugMax = 80
+
+export const deploymentProjectsPartialUpdateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
+export const deploymentProjectsPartialUpdateBodyRepoUrlMax = 1024
+
+export const deploymentProjectsPartialUpdateBodyDefaultBranchDefault = `main`
+export const deploymentProjectsPartialUpdateBodyDefaultBranchMax = 255
+
+export const deploymentProjectsPartialUpdateBodyOutputDirDefault = `dist`
+export const deploymentProjectsPartialUpdateBodyOutputDirMax = 255
+
+export const deploymentProjectsPartialUpdateBodyFrameworkMax = 50
+
+export const deploymentProjectsPartialUpdateBodyInjectPosthogSnippetDefault = false
+
+export const DeploymentProjectsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(deploymentProjectsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable project name shown in the UI.'),
+    slug: zod
+        .string()
+        .max(deploymentProjectsPartialUpdateBodySlugMax)
+        .regex(deploymentProjectsPartialUpdateBodySlugRegExp)
+        .optional()
+        .describe(
+            'URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.'
+        ),
+    repo_url: zod
+        .url()
+        .max(deploymentProjectsPartialUpdateBodyRepoUrlMax)
+        .optional()
+        .describe('HTTPS URL of the source repository this project deploys from.'),
+    default_branch: zod
+        .string()
+        .max(deploymentProjectsPartialUpdateBodyDefaultBranchMax)
+        .default(deploymentProjectsPartialUpdateBodyDefaultBranchDefault)
+        .describe('Branch the project deploys from when no commit SHA is pinned. Defaults to `main`.'),
+    github_integration: zod
+        .number()
+        .nullish()
+        .describe(
+            'ID of the `posthog.Integration` row (kind=github) the project uses to read this repository. Must belong to the same team. The actual access token lives on the Integration row and is never exposed through this serializer.'
+        ),
+    build_command: zod
+        .string()
+        .nullish()
+        .describe(
+            'Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).'
+        ),
+    output_dir: zod
+        .string()
+        .max(deploymentProjectsPartialUpdateBodyOutputDirMax)
+        .default(deploymentProjectsPartialUpdateBodyOutputDirDefault)
+        .describe('Directory containing the built static site, relative to the repository root.'),
+    framework: zod
+        .string()
+        .max(deploymentProjectsPartialUpdateBodyFrameworkMax)
+        .nullish()
+        .describe('Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.'),
+    inject_posthog_snippet: zod
+        .boolean()
+        .default(deploymentProjectsPartialUpdateBodyInjectPosthogSnippetDefault)
+        .describe(
+            'If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them.'
+        ),
+})
