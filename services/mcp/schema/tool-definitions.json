@@ -122,6 +122,22 @@
             "readOnlyHint": false
         }
     },
+    "edit-canvas": {
+        "description": "Edit an existing React/TSX rendering canvas. Pass the canvas `id` and any subset of `name`, `content`, `path`, `task` to update. Updates to `content` are re-validated against the canvas safety rules: the module must default-export a single React component, must not perform network or DOM side effects (no fetch/eval/script/etc), and may only read PostHog data through `{{ @api.<dotted.path>(args) }}` template expressions — anything else is rejected with a 400. Pass `task: null` to detach from any task.",
+        "category": "Canvases",
+        "summary": "Edit fields on an existing rendering canvas.",
+        "feature": "canvases",
+        "title": "Edit canvas",
+        "required_scopes": [],
+        "new_mcp": true,
+        "always_available": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": false
+        }
+    },
     "generate-canvas": {
         "description": "Generate React/TSX source for a rendering canvas from a natural-language prompt. The server runs an LLM call scoped to canvas conventions and validates the output against the canvas safety rules. This tool does NOT persist — it returns `{ name, content }`. Pass the returned `content` to `create-canvas` when you want to keep it. Prefer writing the canvas source yourself and calling `create-canvas` directly when you have rich conversation context that would be lost by delegating to this tool.",
         "category": "Canvases",

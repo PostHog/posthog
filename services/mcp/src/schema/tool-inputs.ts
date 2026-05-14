@@ -491,6 +491,25 @@ export const CreateCanvasSchema = z.object({
         ),
 })
 
+export const EditCanvasSchema = z.object({
+    id: z.string().uuid().describe('UUID of the canvas to edit.'),
+    name: z.string().min(1).max(200).optional().describe('Updated human-readable name.'),
+    content: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Updated React/TSX module source. Same safety rules as create-canvas: default-export a single React component, no network/DOM side effects, PostHog data only via `{{ @api.<dotted.path>(args) }}` template expressions.'
+        ),
+    path: z
+        .string()
+        .optional()
+        .describe(
+            "Updated slash-separated virtual file path (e.g. 'src/components/Button.tsx'). Empty string means root."
+        ),
+    task: z.string().uuid().nullable().optional().describe('Updated task UUID, or null to detach from any task.'),
+})
+
 export const InsightQueryInputSchema = z.object({
     insightId: z.string().describe('The insight ID or short_id to run.'),
     output_format: z
