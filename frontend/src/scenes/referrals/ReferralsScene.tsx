@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTable, LemonTableColumns, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTable, LemonTableColumns, Spinner } from '@posthog/lemon-ui'
 
 import { WavingHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
@@ -135,16 +135,14 @@ export function ReferralsScene(): JSX.Element {
                             </div>
                         ) : (
                             <div className="flex flex-col sm:flex-row gap-3 sm:items-stretch">
-                                <Tooltip title={<span className="font-normal break-all">{referralShareUrl}</span>}>
-                                    <div
-                                        data-attr="social-referral-link"
-                                        className="flex-1 min-w-0 rounded-lg border border-primary bg-fill-secondary px-3.5 py-3 shadow-[inset_0_1px_0_rgba(0,0,0,0.04)] dark:shadow-none"
-                                    >
-                                        <span className="block font-mono text-[13px] text-default truncate select-all cursor-default">
-                                            {referralShareUrl}
-                                        </span>
-                                    </div>
-                                </Tooltip>
+                                <div
+                                    data-attr="social-referral-link"
+                                    className="flex-1 min-w-0 rounded-lg border border-primary bg-fill-secondary px-3.5 py-3 shadow-[inset_0_1px_0_rgba(0,0,0,0.04)] dark:shadow-none"
+                                >
+                                    <span className="block font-mono text-[13px] text-default truncate select-all cursor-default">
+                                        {referralShareUrl}
+                                    </span>
+                                </div>
                                 <LemonButton
                                     type="primary"
                                     size="medium"
