@@ -12,6 +12,7 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTag,
+    Link,
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -652,15 +653,34 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                             const query = typeof value === 'string' ? value : ''
 
                             return (
-                                <CodeEditorInline
-                                    queryKey={`tenant-query-playground/${connectionId}`}
-                                    value={query}
-                                    onChange={(newValue) => onChange(newValue ?? '')}
-                                    language="sql"
-                                    minHeight="180px"
-                                    maxHeight="60vh"
-                                    onPressCmdEnter={() => submitTenantQueryPlayground()}
-                                />
+                                <div className="space-y-1">
+                                    <CodeEditorInline
+                                        queryKey={`tenant-query-playground/${connectionId}`}
+                                        value={query}
+                                        onChange={(newValue) => onChange(newValue ?? '')}
+                                        language="sql"
+                                        minHeight="180px"
+                                        maxHeight="60vh"
+                                        onPressCmdEnter={() => submitTenantQueryPlayground()}
+                                    />
+                                    <div className="text-xs text-muted">
+                                        You can query{' '}
+                                        <Link
+                                            onClick={() => selectTenantQueryTableInPlayground('system.tables')}
+                                            data-attr="tenant-query-system-tables"
+                                        >
+                                            system.tables
+                                        </Link>{' '}
+                                        and{' '}
+                                        <Link
+                                            onClick={() => selectTenantQueryTableInPlayground('system.fields')}
+                                            data-attr="tenant-query-system-fields"
+                                        >
+                                            system.fields
+                                        </Link>{' '}
+                                        for introspection
+                                    </div>
+                                </div>
                             )
                         }}
                     </LemonField>

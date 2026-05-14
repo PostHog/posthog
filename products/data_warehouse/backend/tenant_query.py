@@ -1423,6 +1423,40 @@ def _referenced_direct_postgres_table_metadata(executor: HogQLQueryExecutor) -> 
     return [table_metadata[name] for name in sorted(table_metadata)]
 
 
+def _log_tenant_query_execution(
+    *,
+    team_id: int,
+    connection_id: str,
+    tenant_value: object | None,
+    original_query: str,
+    postgres_sql: str | None,
+    referenced_tables: list[str],
+    referenced_table_metadata: list[dict[str, object | None]],
+    connection_metadata: object | None,
+    duration_ms: float,
+    row_count: int,
+    success: bool,
+    error: str | None,
+    metadata_only: bool,
+) -> None:
+    logger.info(
+        TENANT_QUERY_LOG_EVENT,
+        team_id=team_id,
+        connection_id=connection_id,
+        tenant_value=str(tenant_value),
+        original_query=original_query,
+        postgres_sql=postgres_sql,
+        referenced_tables=referenced_tables,
+        referenced_table_metadata=referenced_table_metadata,
+        connection_metadata=connection_metadata or {},
+        duration_ms=duration_ms,
+        row_count=row_count,
+        success=success,
+        error=error,
+        metadata_only=metadata_only,
+    )
+
+
 def execute_tenant_query(
     *,
     team: Team,
@@ -1432,27 +1466,58 @@ def execute_tenant_query(
     query: str,
     timeout_ms: int | None = None,
 ) -> tuple[dict[str, object], int]:
+    started_at = perf_counter()
     try:
         config = DataWarehouseTenantQueryConfig.objects.select_related("external_data_source").get(
             team_id=team.pk, external_data_source_id=connection_id
         )
     except DataWarehouseTenantQueryConfig.DoesNotExist as error:
-        raise ExposedHogQLError("Tenant query service is not configured for this connection.") from error
+        error_message = "Tenant query service is not configured for this connection."
+        _log_tenant_query_execution(
+            team_id=team.pk,
+            connection_id=connection_id,
+            tenant_value=tenant_value,
+            original_query=query,
+            postgres_sql=None,
+            referenced_tables=[],
+            referenced_table_metadata=[],
+            connection_metadata={},
+            duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            row_count=0,
+            success=False,
+            error=error_message,
+            metadata_only=False,
+        )
+        raise ExposedHogQLError(error_message) from error
 
     if not config.enabled:
-        raise ExposedHogQLError("Tenant query service is disabled for this connection.")
+        error_message = "Tenant query service is disabled for this connection."
+        _log_tenant_query_execution(
+            team_id=team.pk,
+            connection_id=str(config.external_data_source_id),
+            tenant_value=tenant_value,
+            original_query=query,
+            postgres_sql=None,
+            referenced_tables=[],
+            referenced_table_metadata=[],
+            connection_metadata=config.external_data_source.connection_metadata,
+            duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            row_count=0,
+            success=False,
+            error=error_message,
+            metadata_only=False,
+        )
+        raise ExposedHogQLError(error_message)
     source = _get_direct_postgres_source(team, str(config.external_data_source_id))
 
-    started_at = perf_counter()
     try:
         metadata_response = execute_tenant_metadata_query(source=source, config=config, query=query)
     except Exception as error:
         duration_ms = round((perf_counter() - started_at) * 1000, 2)
-        logger.info(
-            "tenant_query_execution",
+        _log_tenant_query_execution(
             team_id=team.pk,
             connection_id=str(config.external_data_source_id),
-            tenant_value=str(tenant_value),
+            tenant_value=tenant_value,
             original_query=query,
             postgres_sql=None,
             referenced_tables=[],
@@ -1469,11 +1534,10 @@ def execute_tenant_query(
     if metadata_response is not None:
         result, row_count = metadata_response
         duration_ms = round((perf_counter() - started_at) * 1000, 2)
-        logger.info(
-            "tenant_query_execution",
+        _log_tenant_query_execution(
             team_id=team.pk,
             connection_id=str(config.external_data_source_id),
-            tenant_value=str(tenant_value),
+            tenant_value=tenant_value,
             original_query=query,
             postgres_sql=None,
             referenced_tables=[],
@@ -1496,11 +1560,10 @@ def execute_tenant_query(
         )
     except Exception as error:
         duration_ms = round((perf_counter() - started_at) * 1000, 2)
-        logger.info(
-            "tenant_query_execution",
+        _log_tenant_query_execution(
             team_id=team.pk,
             connection_id=str(config.external_data_source_id),
-            tenant_value=str(tenant_value),
+            tenant_value=tenant_value,
             original_query=query,
             postgres_sql=None,
             referenced_tables=[],
@@ -1540,11 +1603,10 @@ def execute_tenant_query(
         response = executor.execute()
     except Exception as error:
         duration_ms = round((perf_counter() - started_at) * 1000, 2)
-        logger.info(
-            "tenant_query_execution",
+        _log_tenant_query_execution(
             team_id=team.pk,
             connection_id=str(config.external_data_source_id),
-            tenant_value=str(tenant_value),
+            tenant_value=tenant_value,
             original_query=query,
             postgres_sql=executor.direct_postgres_sql,
             referenced_tables=_referenced_direct_postgres_tables(executor),
@@ -1554,17 +1616,17 @@ def execute_tenant_query(
             row_count=0,
             success=False,
             error=str(error),
+            metadata_only=False,
         )
         raise
 
     duration_ms = round((perf_counter() - started_at) * 1000, 2)
     row_count = len(response.results or [])
     postgres_sql = executor.direct_postgres_sql
-    logger.info(
-        "tenant_query_execution",
+    _log_tenant_query_execution(
         team_id=team.pk,
         connection_id=str(config.external_data_source_id),
-        tenant_value=str(tenant_value),
+        tenant_value=tenant_value,
         original_query=query,
         postgres_sql=postgres_sql,
         referenced_tables=_referenced_direct_postgres_tables(executor),
@@ -1574,6 +1636,7 @@ def execute_tenant_query(
         row_count=row_count,
         success=True,
         error=None,
+        metadata_only=False,
     )
 
     response_data = response.model_dump(by_alias=True, exclude_none=True)

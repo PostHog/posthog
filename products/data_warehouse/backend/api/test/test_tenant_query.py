@@ -576,6 +576,40 @@ class TestTenantQuery(APIBaseTest):
         assert log_info.call_args.kwargs["metadata_only"] is True
         assert log_info.call_args.kwargs["row_count"] == 1
 
+    def test_regular_query_logs_success(self):
+        source = self._create_direct_source()
+        self._create_table(source)
+        self._create_config(source)
+
+        response = Mock()
+        response.results = [[1]]
+        response.model_dump.return_value = {"columns": ["id"], "results": [[1]], "types": []}
+
+        with (
+            patch("products.data_warehouse.backend.tenant_query.HogQLQueryExecutor") as executor_class,
+            patch("products.data_warehouse.backend.tenant_query.logger.info") as log_info,
+        ):
+            executor = executor_class.return_value
+            executor.execute.return_value = response
+            executor.direct_postgres_sql = "SELECT id FROM trips WHERE customer_id = 42"
+            executor._get_select_query_type.return_value = None
+
+            execute_tenant_query(
+                team=self.team,
+                user=self.user,
+                connection_id=str(source.id),
+                tenant_value=42,
+                query="select id from trips",
+            )
+
+        log_info.assert_called_once()
+        assert log_info.call_args.args == ("tenant_query_execution",)
+        assert log_info.call_args.kwargs["success"] is True
+        assert log_info.call_args.kwargs["metadata_only"] is False
+        assert log_info.call_args.kwargs["row_count"] == 1
+        assert log_info.call_args.kwargs["tenant_value"] == "42"
+        assert log_info.call_args.kwargs["postgres_sql"] == "SELECT id FROM trips WHERE customer_id = 42"
+
     def test_metadata_fields_query_hides_tenant_column(self):
         source = self._create_direct_source()
         self._create_table(source)
@@ -671,6 +705,30 @@ class TestTenantQuery(APIBaseTest):
         assert log_info.call_args.kwargs["success"] is False
         assert log_info.call_args.kwargs["metadata_only"] is False
         assert "cannot be selected" in log_info.call_args.kwargs["error"]
+
+    def test_disabled_query_logs_failure(self):
+        source = self._create_direct_source()
+        self._create_table(source)
+        config = self._create_config(source)
+        config.enabled = False
+        config.save()
+
+        with patch("products.data_warehouse.backend.tenant_query.logger.info") as log_info:
+            with self.assertRaisesRegex(Exception, "Tenant query service is disabled"):
+                execute_tenant_query(
+                    team=self.team,
+                    user=self.user,
+                    connection_id=str(source.id),
+                    tenant_value=42,
+                    query="select id from trips",
+                )
+
+        log_info.assert_called_once()
+        assert log_info.call_args.args == ("tenant_query_execution",)
+        assert log_info.call_args.kwargs["success"] is False
+        assert log_info.call_args.kwargs["metadata_only"] is False
+        assert log_info.call_args.kwargs["tenant_value"] == "42"
+        assert "disabled" in log_info.call_args.kwargs["error"]
 
     def test_endpoint_uses_tenant_query_service(self):
         with patch("products.data_warehouse.backend.api.tenant_query.execute_tenant_query") as execute_tenant_query:
