@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconPlay, IconX } from '@posthog/icons'
+import { IconPlay } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -43,8 +43,6 @@ interface TenantQueryTableRow {
     isQueryable: boolean
     notQueryableReason: string | null
     tenantColumnName: string | null
-    hasTenantColumnOverride: boolean
-    hasTenantColumn: boolean | null
     columns: TenantQueryTableColumn[]
     tenantColumnOptions: { label: string; value: string }[]
 }
@@ -147,8 +145,6 @@ function tenantQueryTableRows(
             isQueryable: notQueryableReason === null,
             notQueryableReason,
             tenantColumnName,
-            hasTenantColumnOverride: tenantColumnOverride !== null,
-            hasTenantColumn,
             columns,
             tenantColumnOptions,
         }
@@ -316,8 +312,6 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
         expandedTenantQueryTableIds,
         tenantQueryTableVisibility,
         tenantQueryTableSearch,
-        editingTenantQueryTableColumnId,
-        tenantQueryTableColumnDrafts,
         savingTenantQueryTableColumnOverride,
         tenantQueryPlaygroundResponse,
         tenantQueryPlaygroundError,
@@ -329,9 +323,6 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
         toggleTenantQueryTableExpanded,
         setTenantQueryTableVisibility,
         setTenantQueryTableSearch,
-        startEditingTenantQueryTableColumn,
-        setTenantQueryTableColumnDraft,
-        cancelEditingTenantQueryTableColumn,
         saveTenantQueryTableColumnOverride,
         submitTenantQueryPlayground,
     } = useActions(logic)
@@ -420,7 +411,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                 <LemonField
                     name="tenant_column_name"
                     label="Tenant column"
-                    help="Default tenant column. Click a table's tenant column below to override it for that table with a column of the same type."
+                    help="Default tenant column. Use a table's tenant column selector below to override it for that table with a column of the same type."
                 >
                     {({ value, onChange }) => (
                         <LemonInput
@@ -556,102 +547,38 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                                 key: 'tenantColumn',
                                 title: 'Tenant column',
                                 render: function RenderTenantColumn(_, row) {
-                                    if (!selectedTenantColumn) {
-                                        return <span className="text-muted">Not selected</span>
-                                    }
-
-                                    if (editingTenantQueryTableColumnId === row.id) {
-                                        const draftTenantColumn =
-                                            tenantQueryTableColumnDrafts[row.id] ?? row.tenantColumnName ?? ''
-
-                                        return (
-                                            <div
-                                                className="flex items-center gap-2 min-w-64"
-                                                onClick={(event) => event.stopPropagation()}
-                                                onBlur={(event) => {
-                                                    const nextFocusedElement = event.relatedTarget
-                                                    if (
-                                                        nextFocusedElement instanceof Node &&
-                                                        event.currentTarget.contains(nextFocusedElement)
-                                                    ) {
-                                                        return
-                                                    }
-
-                                                    window.setTimeout(cancelEditingTenantQueryTableColumn, 150)
-                                                }}
-                                            >
-                                                <LemonSelect<string>
-                                                    value={draftTenantColumn || undefined}
-                                                    onSelect={(value) => {
-                                                        const nextTenantColumn = value ?? ''
-                                                        setTenantQueryTableColumnDraft(row.id, nextTenantColumn)
-                                                        if (nextTenantColumn) {
-                                                            saveTenantQueryTableColumnOverride(
-                                                                row.id,
-                                                                row.qualifiedName,
-                                                                nextTenantColumn
-                                                            )
-                                                        }
-                                                    }}
-                                                    options={row.tenantColumnOptions}
-                                                    placeholder="Select tenant column"
-                                                    fullWidth
-                                                    loading={savingTenantQueryTableColumnOverride === row.id}
-                                                    disabledReason={
-                                                        tenantColumnEditDisabledReason ||
-                                                        (row.tenantColumnOptions.length === 0
-                                                            ? 'No columns match the global tenant type'
-                                                            : undefined)
-                                                    }
-                                                />
-                                                <LemonButton
-                                                    size="small"
-                                                    type="tertiary"
-                                                    icon={<IconX />}
-                                                    onClick={(event) => {
-                                                        event.stopPropagation()
-                                                        cancelEditingTenantQueryTableColumn()
-                                                    }}
-                                                />
-                                            </div>
-                                        )
-                                    }
-
-                                    const tenantColumnTag = row.hasTenantColumn ? (
-                                        <LemonTag
-                                            type={row.hasTenantColumnOverride ? 'warning' : 'success'}
-                                            size="small"
-                                        >
-                                            {row.tenantColumnName}
-                                        </LemonTag>
-                                    ) : (
-                                        <LemonTag type="danger" size="small">
-                                            Missing
-                                        </LemonTag>
-                                    )
-
                                     return (
-                                        <span
-                                            role="button"
-                                            tabIndex={0}
-                                            className="inline-flex cursor-pointer"
-                                            onClick={(event) => {
-                                                event.stopPropagation()
-                                                startEditingTenantQueryTableColumn(row.id, row.tenantColumnName ?? '')
-                                            }}
-                                            onKeyDown={(event) => {
-                                                if (event.key === 'Enter' || event.key === ' ') {
-                                                    event.preventDefault()
-                                                    event.stopPropagation()
-                                                    startEditingTenantQueryTableColumn(
-                                                        row.id,
-                                                        row.tenantColumnName ?? ''
-                                                    )
+                                        <div className="min-w-64" onClick={(event) => event.stopPropagation()}>
+                                            <LemonSelect<string>
+                                                value={row.tenantColumnName ?? undefined}
+                                                onChange={(value) => {
+                                                    const nextTenantColumn = value ?? ''
+                                                    if (nextTenantColumn) {
+                                                        saveTenantQueryTableColumnOverride(
+                                                            row.id,
+                                                            row.qualifiedName,
+                                                            nextTenantColumn
+                                                        )
+                                                    }
+                                                }}
+                                                options={row.tenantColumnOptions}
+                                                placeholder={
+                                                    selectedTenantColumn
+                                                        ? 'Select tenant column'
+                                                        : 'No default selected'
                                                 }
-                                            }}
-                                        >
-                                            {tenantColumnTag}
-                                        </span>
+                                                fullWidth
+                                                loading={savingTenantQueryTableColumnOverride === row.id}
+                                                disabledReason={
+                                                    tenantColumnEditDisabledReason ||
+                                                    (!selectedTenantColumn
+                                                        ? 'Select a default tenant column first'
+                                                        : row.tenantColumnOptions.length === 0
+                                                          ? 'No columns match the global tenant type'
+                                                          : undefined)
+                                                }
+                                            />
+                                        </div>
                                     )
                                 },
                             },

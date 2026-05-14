@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
-import { forms } from 'kea-forms'
+import { forms, type DeepPartialMap, type ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -208,15 +208,6 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
             visible,
         }),
         setTenantQueryTableSearch: (search: string) => ({ search }),
-        startEditingTenantQueryTableColumn: (tableId: string, tenantColumnName: string) => ({
-            tableId,
-            tenantColumnName,
-        }),
-        setTenantQueryTableColumnDraft: (tableId: string, tenantColumnName: string) => ({
-            tableId,
-            tenantColumnName,
-        }),
-        cancelEditingTenantQueryTableColumn: true,
         saveTenantQueryTableColumnOverride: (tableId: string, tableName: string, tenantColumnName: string) => ({
             tableId,
             tableName,
@@ -299,27 +290,6 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
                 setTenantQueryTableSearch: (_, { search }) => search,
             },
         ],
-        editingTenantQueryTableColumnId: [
-            null as string | null,
-            {
-                startEditingTenantQueryTableColumn: (_, { tableId }) => tableId,
-                cancelEditingTenantQueryTableColumn: () => null,
-                loadTenantQueryConfigSuccess: () => null,
-            },
-        ],
-        tenantQueryTableColumnDrafts: [
-            {} as Record<string, string>,
-            {
-                startEditingTenantQueryTableColumn: (state, { tableId, tenantColumnName }) => ({
-                    ...state,
-                    [tableId]: tenantColumnName,
-                }),
-                setTenantQueryTableColumnDraft: (state, { tableId, tenantColumnName }) => ({
-                    ...state,
-                    [tableId]: tenantColumnName,
-                }),
-            },
-        ],
         savingTenantQueryTableColumnOverride: [
             null as string | null,
             {
@@ -331,7 +301,7 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
         tenantQueryConfigForm: {
             defaults: DEFAULT_TENANT_QUERY_CONFIG_FORM,
             errors: (formValues: TenantQueryConfigFormValues) => {
-                const errors: Partial<Record<keyof TenantQueryConfigFormValues, string>> = {}
+                const errors: DeepPartialMap<TenantQueryConfigFormValues, ValidationErrorType> = {}
                 const tenantColumnName = formValues.tenant_column_name.trim()
                 const defaultTimeoutMs = positiveInteger(formValues.default_timeout_ms)
                 const maxTimeoutMs = positiveInteger(formValues.max_timeout_ms)
@@ -383,7 +353,7 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
         tenantQueryPlayground: {
             defaults: DEFAULT_TENANT_QUERY_PLAYGROUND_FORM,
             errors: (formValues: TenantQueryPlaygroundFormValues) => {
-                const errors: Partial<Record<keyof TenantQueryPlaygroundFormValues, string>> = {}
+                const errors: DeepPartialMap<TenantQueryPlaygroundFormValues, ValidationErrorType> = {}
                 const tenantValue = formValues.tenant_value.trim()
                 const timeoutMs = formValues.timeout_ms === '' ? undefined : positiveInteger(formValues.timeout_ms)
 
@@ -489,7 +459,6 @@ export const tenantQueryConfigLogic = kea<tenantQueryConfigLogicType>([
                 actions.loadTenantQueryConfigSuccess(response)
                 actions.resetTenantQueryConfigForm(configToForm(response))
                 actions.setTenantQueryConfigWarning(disabledTablesWarning(response.disabled_tables))
-                actions.cancelEditingTenantQueryTableColumn()
                 lemonToast.success('Tenant column saved')
             } catch (error: any) {
                 actions.setTenantQueryConfigError(tenantQueryConfigErrorMessage(error))
