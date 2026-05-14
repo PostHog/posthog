@@ -31,7 +31,7 @@ function TraceSpanListContent({ data, app }: { data: TraceSpanListData; app: App
     const handleClick = useCallback(
         async (item: TraceSpanData): Promise<TraceSpanData | null> => {
             if (!app) {
-                fallbackToChat(item.name)
+                fallbackToChat(item.name || item.id)
                 return null
             }
             try {
@@ -40,12 +40,12 @@ function TraceSpanListContent({ data, app }: { data: TraceSpanListData; app: App
                     arguments: { trace_id: item.trace_id },
                 })
                 if (result.isError || !result.structuredContent) {
-                    fallbackToChat(item.name)
+                    fallbackToChat(item.name || item.id)
                     return null
                 }
                 return result.structuredContent as unknown as TraceSpanData
             } catch {
-                fallbackToChat(item.name)
+                fallbackToChat(item.name || item.id)
                 return null
             }
         },

@@ -31,7 +31,7 @@ function ActionListContent({ data, app }: { data: ActionListData; app: App | nul
     const handleClick = useCallback(
         async (item: ActionData): Promise<ActionData | null> => {
             if (!app) {
-                fallbackToChat(item.name)
+                fallbackToChat(item.name || item.id)
                 return null
             }
             try {
@@ -40,12 +40,12 @@ function ActionListContent({ data, app }: { data: ActionListData; app: App | nul
                     arguments: { id: item.id },
                 })
                 if (result.isError || !result.structuredContent) {
-                    fallbackToChat(item.name)
+                    fallbackToChat(item.name || item.id)
                     return null
                 }
                 return result.structuredContent as unknown as ActionData
             } catch {
-                fallbackToChat(item.name)
+                fallbackToChat(item.name || item.id)
                 return null
             }
         },

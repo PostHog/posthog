@@ -31,7 +31,7 @@ function WorkflowListContent({ data, app }: { data: WorkflowListData; app: App |
     const handleClick = useCallback(
         async (item: WorkflowData): Promise<WorkflowData | null> => {
             if (!app) {
-                fallbackToChat(item.name)
+                fallbackToChat(item.name || item.id)
                 return null
             }
             try {
@@ -40,12 +40,12 @@ function WorkflowListContent({ data, app }: { data: WorkflowListData; app: App |
                     arguments: { id: item.id },
                 })
                 if (result.isError || !result.structuredContent) {
-                    fallbackToChat(item.name)
+                    fallbackToChat(item.name || item.id)
                     return null
                 }
                 return result.structuredContent as unknown as WorkflowData
             } catch {
-                fallbackToChat(item.name)
+                fallbackToChat(item.name || item.id)
                 return null
             }
         },

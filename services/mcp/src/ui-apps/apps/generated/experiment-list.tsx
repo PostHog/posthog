@@ -31,7 +31,7 @@ function ExperimentListContent({ data, app }: { data: ExperimentListData; app: A
     const handleClick = useCallback(
         async (item: ExperimentData): Promise<ExperimentData | null> => {
             if (!app) {
-                fallbackToChat(item.name)
+                fallbackToChat(item.name || item.id)
                 return null
             }
             try {
@@ -40,12 +40,12 @@ function ExperimentListContent({ data, app }: { data: ExperimentListData; app: A
                     arguments: { id: item.id },
                 })
                 if (result.isError || !result.structuredContent) {
-                    fallbackToChat(item.name)
+                    fallbackToChat(item.name || item.id)
                     return null
                 }
                 return result.structuredContent as unknown as ExperimentData
             } catch {
-                fallbackToChat(item.name)
+                fallbackToChat(item.name || item.id)
                 return null
             }
         },

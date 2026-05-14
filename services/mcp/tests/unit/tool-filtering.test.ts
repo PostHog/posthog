@@ -652,7 +652,6 @@ describe('Tool Filtering - Feature Flags', () => {
     const deploymentToolNames = [
         'deployment-projects-get',
         'deployment-projects-list',
-        'deployments-deploy',
         'deployments-events',
         'deployments-get',
         'deployments-list',

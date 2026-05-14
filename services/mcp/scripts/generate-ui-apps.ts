@@ -176,7 +176,7 @@ function ${pascalName}Content({ data, app }: { data: ${config.list_data_type}; a
     const handleClick = useCallback(
         async (item: ${config.item_data_type}): Promise<${config.item_data_type} | null> => {
             if (!app) {
-                fallbackToChat(item.${config.item_name_field})
+                fallbackToChat(item.${config.item_name_field} || item.id)
                 return null
             }
             try {
@@ -185,12 +185,12 @@ function ${pascalName}Content({ data, app }: { data: ${config.list_data_type}; a
                     arguments: ${config.detail_args},
                 })
                 if (result.isError || !result.structuredContent) {
-                    fallbackToChat(item.${config.item_name_field})
+                    fallbackToChat(item.${config.item_name_field} || item.id)
                     return null
                 }
                 return result.structuredContent as unknown as ${config.item_data_type}
             } catch {
-                fallbackToChat(item.${config.item_name_field})
+                fallbackToChat(item.${config.item_name_field} || item.id)
                 return null
             }
         },

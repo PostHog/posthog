@@ -31,7 +31,7 @@ function SurveyListContent({ data, app }: { data: SurveyListData; app: App | nul
     const handleClick = useCallback(
         async (item: SurveyData): Promise<SurveyData | null> => {
             if (!app) {
-                fallbackToChat(item.name)
+                fallbackToChat(item.name || item.id)
                 return null
             }
             try {
@@ -40,12 +40,12 @@ function SurveyListContent({ data, app }: { data: SurveyListData; app: App | nul
                     arguments: { surveyId: item.id },
                 })
                 if (result.isError || !result.structuredContent) {
-                    fallbackToChat(item.name)
+                    fallbackToChat(item.name || item.id)
                     return null
                 }
                 return result.structuredContent as unknown as SurveyData
             } catch {
-                fallbackToChat(item.name)
+                fallbackToChat(item.name || item.id)
                 return null
             }
         },

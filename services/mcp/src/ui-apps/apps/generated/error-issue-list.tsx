@@ -31,7 +31,7 @@ function ErrorIssueListContent({ data, app }: { data: ErrorIssueListData; app: A
     const handleClick = useCallback(
         async (item: ErrorIssueData): Promise<ErrorIssueData | null> => {
             if (!app) {
-                fallbackToChat(item.name)
+                fallbackToChat(item.name || item.id)
                 return null
             }
             try {
@@ -40,12 +40,12 @@ function ErrorIssueListContent({ data, app }: { data: ErrorIssueListData; app: A
                     arguments: { issueId: item.id },
                 })
                 if (result.isError || !result.structuredContent) {
-                    fallbackToChat(item.name)
+                    fallbackToChat(item.name || item.id)
                     return null
                 }
                 return result.structuredContent as unknown as ErrorIssueData
             } catch {
-                fallbackToChat(item.name)
+                fallbackToChat(item.name || item.id)
                 return null
             }
         },

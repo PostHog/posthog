@@ -90,7 +90,12 @@ tools:
         feature_flag: deployments
     deployments-deploy:
         operation: deployment_projects_deployments_deploy_create
-        enabled: true
+        # Disabled until the backend stops returning a Deployment row in
+        # ERROR status — the current stub returns 201 with an error row,
+        # which agents read as success. Matches the convention used by
+        # the other mutating tools (redeploy/rollback/refresh-preview/cancel),
+        # all kept off until they're ready end-to-end.
+        enabled: false
         scopes:
             - deployment:write
         annotations:

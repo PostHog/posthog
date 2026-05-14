@@ -31,7 +31,7 @@ function FeatureFlagListContent({ data, app }: { data: FeatureFlagListData; app:
     const handleClick = useCallback(
         async (item: FeatureFlagData): Promise<FeatureFlagData | null> => {
             if (!app) {
-                fallbackToChat(item.key)
+                fallbackToChat(item.key || item.id)
                 return null
             }
             try {
@@ -40,12 +40,12 @@ function FeatureFlagListContent({ data, app }: { data: FeatureFlagListData; app:
                     arguments: { flagId: item.id },
                 })
                 if (result.isError || !result.structuredContent) {
-                    fallbackToChat(item.key)
+                    fallbackToChat(item.key || item.id)
                     return null
                 }
                 return result.structuredContent as unknown as FeatureFlagData
             } catch {
-                fallbackToChat(item.key)
+                fallbackToChat(item.key || item.id)
                 return null
             }
         },

@@ -3,8 +3,6 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    DeploymentProjectsDeploymentsDeployCreateBody,
-    DeploymentProjectsDeploymentsDeployCreateParams,
     DeploymentProjectsDeploymentsEventsListParams,
     DeploymentProjectsDeploymentsEventsListQueryParams,
     DeploymentProjectsDeploymentsListParams,
@@ -56,28 +54,6 @@ const deploymentProjectsList = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/deployments')
-    },
-})
-
-const DeploymentsDeploySchema = DeploymentProjectsDeploymentsDeployCreateParams.omit({ project_id: true }).extend(
-    DeploymentProjectsDeploymentsDeployCreateBody.shape
-)
-
-const deploymentsDeploy = (): ToolBase<typeof DeploymentsDeploySchema, Schemas.DeploymentDeployResponse> => ({
-    name: 'deployments-deploy',
-    schema: DeploymentsDeploySchema,
-    handler: async (context: Context, params: z.infer<typeof DeploymentsDeploySchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.branch !== undefined) {
-            body['branch'] = params.branch
-        }
-        const result = await context.api.request<Schemas.DeploymentDeployResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/deployment_projects/${encodeURIComponent(String(params.deployment_project_id))}/deployments/deploy/`,
-            body,
-        })
-        return result
     },
 })
 
@@ -150,7 +126,6 @@ const deploymentsList = (): ToolBase<typeof DeploymentsListSchema, WithPostHogUr
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'deployment-projects-get': deploymentProjectsGet,
     'deployment-projects-list': deploymentProjectsList,
-    'deployments-deploy': deploymentsDeploy,
     'deployments-events': deploymentsEvents,
     'deployments-get': deploymentsGet,
     'deployments-list': deploymentsList,
