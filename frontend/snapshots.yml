@@ -4046,26 +4046,34 @@ snapshots:
         hash: v1.k794b7964.8a77e7a0171fcd435c6595297bf027b8f0a241439ee5921ba1e98ac8989fde19.heCouatVYmHaFYRqmD6XBpq_K1abbgOOnCJSBR9O1ok
     scenes-app-data-warehouse-settings-schemas--default--light:
         hash: v1.k794b7964.f44aebec23a383bf47c5310e229767e329dc9a52d220851265c86e2531dfd8f6.cg8SBdNPjYob5gTIonGhj0QupXWDzvTSG73043B7QEk
-    scenes-app-deployments--current-deployment-errored--dark:
-        hash: v1.k794b7964.7627084a48d4a50add47c8cb74e38effa537cab60296c7e7b7bd1100b0e690b6.IlKeEbZfCfjXDzAxzBr99Fs9Ussm2OFoeIVrmxV1GBo
-    scenes-app-deployments--current-deployment-errored--light:
-        hash: v1.k794b7964.48f63b26811b1347ac4f30f39291fa6b84cc33def2919fb1247a9c14aed67953.Bsh25FSr3MDA5gn7Wvh7G2fELzTtWb5GJ_g7ID7wsXc
-    scenes-app-deployments--deployments-list--dark:
-        hash: v1.k794b7964.c691f654f92c22366facb5e0b82fc38c57915947e22c1575ae7e8dc56d459f8d.Ol3cPtYbw4jkFlzaMktFA_sUbKOeyWiDIv2q_ykJgJY
-    scenes-app-deployments--deployments-list--light:
-        hash: v1.k794b7964.2f394eeaf4571d17c76ce1049a23d997ca56023d077c96f990b0cf079aa3db47.LmrAvfvgZWH8rj8KwV-KEfhXR6pedfzOscPqPjWHVlU
+    scenes-app-deployments--deployment-detail--dark:
+        hash: v1.k794b7964.6414a7001d7e48f8c7a14f469c1f9b4b23e4879b1d3b47ab4f4658a188d1c992.af4lniFJYlfdMEvdfz4r-nIT3TbNU-2GerL_D8eBvB0
+    scenes-app-deployments--deployment-detail--light:
+        hash: v1.k794b7964.cc003b7afc74d2ae98acb53ca7a43fc5c0554717aaa1d757989a5dff50cba0af.BIIbDpbVyBuwcoSHOSuEe3Cpqz6ITXHNGu5GRXc1YQI
     scenes-app-deployments--no-projects--dark:
-        hash: v1.k794b7964.89ae2a8175068143c698eb8b6ec564158f14d09eeca23901b89f7d38b361c6ac.5T1ul-y1d4G4bx60W_n9QFbF_SrBdQUycsZ1_SCHVNM
+        hash: v1.k794b7964.ea8efe702673a475a0adf88d53882f99e57936c8ccf5b384f0380ad827ece945.oOuRkTPJU0YiHLM7EQMgmXqMg9_giGy0qb36lg0ZLiw
     scenes-app-deployments--no-projects--light:
-        hash: v1.k794b7964.e7b6598181afe6d6ce01a771ec5622853bc09a8e0a270df282937aad4c9c815d.9wunVnjhbv50znhrHiJhi0lQk3frr7SE_OjwoDLVmXo
-    scenes-app-deployments--project-with-no-deployments--dark:
-        hash: v1.k794b7964.76d3e8747ae7bac4026d86cebd4d94569515917bc2007c8b2aa784b4a75774e0.EsFvKzrREAJ1Hm4Hq0E786KJV8E7jM7-aE1TRonsm9k
-    scenes-app-deployments--project-with-no-deployments--light:
-        hash: v1.k794b7964.d91b634b3851c90f7a408863cf8070bc281aa0f0ea19ab4bb5deb9988e242762.KTTFQ-n7Ms-ZPwLmqSyaod3oNhEaiGVgRHWVovufyNg
-    scenes-app-deployments--single-project-hides-picker--dark:
-        hash: v1.k794b7964.b90c2321552f1206efd638369eff04db31250c8d0dac0bd2106fbf66327a5d57.Oios3SoKuE0MFV_ikRUS2Clv7_5WBZTujO9utBEQe98
-    scenes-app-deployments--single-project-hides-picker--light:
-        hash: v1.k794b7964.93d79c56f6d36256114ac88e39af3bda38ff12f25c48bee642bc6b073f53352c.DdGmiJTd-FW5aZiGCMbHpS8WO9-XWMNXqLCP1O5a9n4
+        hash: v1.k794b7964.da967490bb4ab4ac39b005e9219ceb96a6b296cf646eae77146cb3b39deacfc1.DZWXuurJXKBNWrHHuPNTErqry3wyQdbURn86JvpdAeo
+    scenes-app-deployments--project-grid--dark:
+        hash: v1.k794b7964.dddd5330e08d0c179e01c6926d61fa63d943d4a42ba183a96facd5965c2a6322.7Ws84nZC00E-32JgRR85TI10sN2bEESEkkWJyeiTLhk
+    scenes-app-deployments--project-grid--light:
+        hash: v1.k794b7964.307992519e6e347e713f23971a2e7702690173570328e3b5ac6e015d17e933ac.yQNjcvuG1gqZNFPMFHq-e1QUIIfyKSrVvrJzcz85NWU
+    scenes-app-deployments--project-page--dark:
+        hash: v1.k794b7964.bed8e0d05f343a21190b46b41fe9a7734dacb0121e45dd721e2f73036f089913.8hXwUCiheLo4LVc8S4ekz_i-1_MhX8mE7P2DAugK18E
+    scenes-app-deployments--project-page--light:
+        hash: v1.k794b7964.8fd499ee025f849be5164a4894ada33c24b376a5d0edf6f40a510cd82e86e448.W26My64vhkTrbJkMcujaxxNrU6DOsSDxINWmf5l0xgs
+    scenes-app-deployments--project-page-current-errored--dark:
+        hash: v1.k794b7964.f78f7d5a87916f14e6fae55f6ee25c723de96df720e60becac4e0f639bf7527a.41bUMdauf0F5TEW4f2g_ZbNZFtOSNprOG5muTgz8iHA
+    scenes-app-deployments--project-page-current-errored--light:
+        hash: v1.k794b7964.720c2979092b9c0956202794c90785011109dd1412009e490e868a053d3e0e50.xgho-ApfIKebVR0bqHZzRIZCuCAUzD16flXR3oK2Uxg
+    scenes-app-deployments--project-page-no-deployments--dark:
+        hash: v1.k794b7964.407b7d495fee4dc037acf107a4a09170506f030af0b89d7ca93aab2d35c176b4.DNplY0Tm_g9bULzHbqfBL4uqNigwOc-M13OCQUSJo94
+    scenes-app-deployments--project-page-no-deployments--light:
+        hash: v1.k794b7964.4a21bd701476ab90912b29222249f62974d322bd24c5914fc66e3fef4b0a71e3.VvPaxwaelbBxGI9OCqhtex6SCXDZEwYJ1d-Jx_jl5NA
+    scenes-app-deployments--single-project-grid--dark:
+        hash: v1.k794b7964.ee59882ecd200dc512420c100f33918fad3e6cb3d68201d8598d7ed04a8fe16a.j-3e3ndERSqvGvSGy5_AZnI6lkZBq1_cqQo-SrUFUn8
+    scenes-app-deployments--single-project-grid--light:
+        hash: v1.k794b7964.2def0c22dc2904b16ac756d9361b0358976b7c63e6523e0757a9280fda38697f.39fMIExUqyTCvGtJmwsTo7ppNm6eb-pONhmIhYFzgrQ
     scenes-app-error-project-unavailable--access-revoked--dark:
         hash: v1.k794b7964.3798bc2d0dd1b8d79bb873b525f9502b4e71d0b5ea84427c3e70acf41f655f8a.1piuLJMJZ2dFAS6P3SdyhAU3Dqi0iZNpiPy1nQdY-IY
     scenes-app-error-project-unavailable--access-revoked--light:
