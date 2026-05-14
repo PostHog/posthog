@@ -8,7 +8,12 @@ from posthog.schema import PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
+from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    DateTimeDatabaseField,
+    JSONDatabaseField,
+    StringJSONDatabaseField,
+)
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import (
     EVENTS_TABLE_TYPES,
@@ -21,6 +26,7 @@ from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
+from posthog.clickhouse.json_columns import is_clickhouse_json_column
 from posthog.clickhouse.materialized_columns import (
     MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
@@ -292,12 +298,12 @@ class PropertySwapper(CloningVisitor):
             self._inside_call_depth -= 1
 
     def _try_rewrite_json_extract_to_mat_column(self, node: ast.Call) -> ast.Field | None:
-        """Rewrite JSONExtractString(properties, '$foo') to use a materialized column.
+        """Rewrite JSONExtractString(properties, '$foo') to property access.
 
         When users write raw JSONExtractString(properties, '$foo') in HogQL,
-        ClickHouse decompresses the full properties JSON blob. If '$foo' has a
-        materialized column (mat_$foo), this is unnecessary I/O. We rewrite the
-        call to a property access node that the printer resolves to the mat_ column.
+        ClickHouse decompresses the full properties JSON blob. We rewrite the
+        call to a property access node that the printer can resolve to either a
+        native JSON subcolumn or a legacy materialized column.
         """
         if node.name != "JSONExtractString":
             return None
@@ -338,6 +344,17 @@ class PropertySwapper(CloningVisitor):
             return None
 
         field_name = cast(TableColumn, database_field.name)
+        if isinstance(database_field, JSONDatabaseField) or is_clickhouse_json_column(
+            table_type.resolve_database_table(self.context).to_printed_clickhouse(self.context),
+            field_name,
+        ):
+            return ast.Field(
+                start=node.start,
+                end=node.end,
+                chain=[*field_arg.chain, property_name],
+                type=ast.PropertyType(chain=[property_name], field_type=field_type, null_if_missing_or_null=False),
+            )
+
         mat_col = get_materialized_column_for_property(
             cast(TablesWithMaterializedColumns, table_name),
             field_name,
@@ -350,7 +367,7 @@ class PropertySwapper(CloningVisitor):
             start=node.start,
             end=node.end,
             chain=[*field_arg.chain, property_name],
-            type=ast.PropertyType(chain=[property_name], field_type=field_type),
+            type=ast.PropertyType(chain=[property_name], field_type=field_type, null_if_missing_or_null=False),
         )
 
     def visit_compare_operation(self, node: ast.CompareOperation):

@@ -11,6 +11,7 @@ from posthog.test.base import (
     get_indexes_from_explain,
     materialized,
 )
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -253,19 +254,37 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             ("table_alias", "select JSONExtractString(e.properties, '$browser') from events e"),
         ]
     )
-    def test_jsonextractstring_rewritten_to_mat_column(self, _name: str, query: str):
+    @patch("posthog.hogql.printer.base.is_clickhouse_json_column", return_value=False)
+    @patch("posthog.hogql.transforms.property_types.is_clickhouse_json_column", return_value=False)
+    def test_jsonextractstring_rewritten_to_mat_column(
+        self, _name: str, query: str, _mock_transform_json_column, _mock_printer_json_column
+    ):
         with materialized("events", "$browser"):
             printed = self._print_select(query)
             assert "mat_$browser" in printed, f"Expected mat_$browser in output, got: {printed}"
             assert "JSONExtractString" not in printed, f"Expected no JSONExtractString, got: {printed}"
+
+    @parameterized.expand(
+        [
+            ("bare_properties", "select JSONExtractString(properties, '$browser') from events", "events"),
+            ("table_alias", "select JSONExtractString(e.properties, '$browser') from events e", "e"),
+        ]
+    )
+    def test_jsonextractstring_rewritten_to_json_subcolumn(self, _name: str, query: str, table_alias: str):
+        printed = self._print_select(query)
+        assert f"({table_alias}.properties).`$browser`" in printed, printed
+        assert "mat_$browser" not in printed, printed
+        assert "JSONExtractString" not in printed, printed
 
     def test_jsonextractstring_rewrites_all_calls_in_same_query(self):
         with materialized("events", "$browser"), materialized("events", "$os"):
             printed = self._print_select(
                 "select JSONExtractString(properties, '$browser'), JSONExtractString(properties, '$os') from events"
             )
-            assert "mat_$browser" in printed, printed
-            assert "mat_$os" in printed, printed
+            assert "(events.properties).`$browser`" in printed, printed
+            assert "(events.properties).`$os`" in printed, printed
+            assert "mat_$browser" not in printed, printed
+            assert "mat_$os" not in printed, printed
             assert "JSONExtractString(events.properties" not in printed, printed
 
     @parameterized.expand(
@@ -328,10 +347,9 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
     def test_rewrite_value_semantics_no_mat_column(self):
         self._seed_edge_case_events()
         values, sql = self._run_and_collect()
-        assert "JSONExtractString(events.properties" in sql, sql
+        assert "JSONExtractString(events.properties" not in sql, sql
+        assert "(events.properties).`$browser`" in sql, sql
         assert "mat_$browser" not in sql, sql
-        # JSONExtractString returns '' for JSON null (type mismatch), not 'null'.
-        # Only JSONExtractRaw returns the literal string 'null' for JSON null.
         assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": "", "unset": ""}
 
     def test_rewrite_value_semantics_non_nullable_mat_column(self):
@@ -339,27 +357,35 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         with materialized("events", "$browser", is_nullable=False):
             values, sql = self._run_and_collect()
         assert "JSONExtractString(events.properties" not in sql, sql
-        assert "mat_$browser" in sql, sql
-        # Rewritten call goes through the standard property-access path, so the mat
-        # column is wrapped in nullIf(nullIf(col, ''), 'null') — same as properties.$x.
-        assert "nullIf(nullIf(events.`mat_$browser`" in sql, sql
-        assert values == {"set": "Chrome", "empty": None, "null_str": None, "json_null": None, "unset": None}
+        assert "(events.properties).`$browser`" in sql, sql
+        assert "mat_$browser" not in sql, sql
+        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": "", "unset": ""}
 
     def test_rewrite_value_semantics_nullable_mat_column(self):
         self._seed_edge_case_events()
         with materialized("events", "$browser", is_nullable=True):
             values, sql = self._run_and_collect()
         assert "JSONExtractString(events.properties" not in sql, sql
-        assert "mat_$browser" in sql, sql
-        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": None, "unset": None}
+        assert "(events.properties).`$browser`" in sql, sql
+        assert "mat_$browser" not in sql, sql
+        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": "", "unset": ""}
 
     @parameterized.expand([("non_nullable", False), ("nullable", True)])
-    def test_jsonextractstring_synonym_of_properties_access(self, _name: str, is_nullable: bool):
+    def test_jsonextractstring_preserves_clickhouse_empty_string_default(self, _name: str, is_nullable: bool):
         self._seed_edge_case_events()
         with materialized("events", "$browser", is_nullable=is_nullable):
-            extract_values, _ = self._run_and_collect("JSONExtractString(properties, '$browser')")
-            access_values, _ = self._run_and_collect("properties.$browser")
-        assert extract_values == access_values
+            extract_values, extract_sql = self._run_and_collect("JSONExtractString(properties, '$browser')")
+            access_values, access_sql = self._run_and_collect("properties.$browser")
+        assert "mat_$browser" not in extract_sql
+        assert "mat_$browser" not in access_sql
+        assert extract_values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": "", "unset": ""}
+        assert access_values == {
+            "set": "Chrome",
+            "empty": None,
+            "null_str": "null",
+            "json_null": None,
+            "unset": None,
+        }
 
 
 # ── Timezone index pruning tests ──────────────────────────────────────────────

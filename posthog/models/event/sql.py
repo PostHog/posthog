@@ -9,11 +9,351 @@ from posthog.clickhouse.kafka_engine import (
     KAFKA_COLUMNS,
     STORAGE_POLICY,
     kafka_engine,
-    trim_quotes_expr,
 )
 from posthog.clickhouse.property_groups import property_groups
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
+
+
+def _print_json_path(path: str) -> str:
+    if path.replace("_", "a").isalnum() and not path[0].isdigit():
+        return path
+    return f"`{path.replace('`', '``')}`"
+
+
+def _json_column_type(max_dynamic_types: int, max_dynamic_paths: int, typed_paths: tuple[tuple[str, str], ...]) -> str:
+    path_definitions = ", ".join(f"{_print_json_path(path)} {type_name}" for path, type_name in typed_paths)
+    return f"JSON(max_dynamic_types = {max_dynamic_types}, max_dynamic_paths = {max_dynamic_paths}, {path_definitions})"
+
+
+def _events_table_settings(*settings_sql: str) -> str:
+    settings_items = [
+        "index_granularity = 8192",
+        "object_serialization_version = 'v3'",
+        "object_shared_data_serialization_version = 'map_with_buckets'",
+        "object_shared_data_serialization_version_for_zero_level_parts = 'map'",
+        "merge_max_block_size = 131072",
+        "merge_max_block_size_bytes = 67108864",
+        "vertical_merge_algorithm_min_rows_to_activate = 0",
+    ]
+    for setting_sql in settings_sql:
+        setting_sql = setting_sql.strip()
+        if not setting_sql:
+            continue
+        if setting_sql.startswith("SETTINGS "):
+            setting_sql = setting_sql.removeprefix("SETTINGS ").strip()
+        settings_items.append(setting_sql)
+    return f"SETTINGS {', '.join(settings_items)}"
+
+
+EVENTS_PROPERTIES_JSON_TYPED_PATHS: tuple[tuple[str, str], ...] = (
+    ("$active_feature_flags", "String"),
+    ("$ai_experiment_id", "Nullable(String)"),
+    ("$ai_http_status", "Nullable(String)"),
+    ("$ai_is_error", "Nullable(String)"),
+    ("$ai_model", "Nullable(String)"),
+    ("$ai_parent_id", "Nullable(String)"),
+    ("$ai_prompt_name", "Nullable(String)"),
+    ("$ai_provider", "Nullable(String)"),
+    ("$ai_session_id", "Nullable(String)"),
+    ("$ai_span_id", "Nullable(String)"),
+    ("$ai_total_cost_usd", "Nullable(String)"),
+    ("$ai_trace_id", "Nullable(String)"),
+    ("$anon_distinct_id", "Nullable(String)"),
+    ("$app_build", "String"),
+    ("$app_namespace", "String"),
+    ("$app_version", "String"),
+    ("$browser", "String"),
+    ("$browser_version", "String"),
+    ("$current_url", "String"),
+    ("$device", "String"),
+    ("$device_id", "String"),
+    ("$device_model", "String"),
+    ("$device_type", "String"),
+    ("$el_text", "String"),
+    ("$event_type", "String"),
+    ("$exception_fingerprint", "Nullable(String)"),
+    ("$exception_functions", "Nullable(String)"),
+    ("$exception_issue_id", "Nullable(String)"),
+    ("$exception_sources", "Nullable(String)"),
+    ("$exception_types", "Nullable(String)"),
+    ("$exception_values", "Nullable(String)"),
+    ("$feature_flag", "String"),
+    ("$feature_flag_payloads", "String"),
+    ("$feature_flag_response", "String"),
+    ("$geoip_city_name", "String"),
+    ("$geoip_country_code", "String"),
+    ("$geoip_country_name", "String"),
+    ("$geoip_subdivision_1_code", "String"),
+    ("$group_0", "String"),
+    ("$group_1", "String"),
+    ("$group_2", "String"),
+    ("$group_3", "String"),
+    ("$group_4", "String"),
+    ("$groups", "String"),
+    ("$host", "String"),
+    ("$initial_pathname", "String"),
+    ("$initial_referrer", "String"),
+    ("$initial_referring_domain", "String"),
+    ("$ip", "String"),
+    ("$is_identified", "Nullable(String)"),
+    ("$lib", "String"),
+    ("$lib_custom_api_host", "String"),
+    ("$lib_version", "String"),
+    ("$lib_version__minor", "String"),
+    ("$os", "String"),
+    ("$os_name", "String"),
+    ("$os_version", "String"),
+    ("$pathname", "String"),
+    ("$prev_pageview_max_content_percentage", "String"),
+    ("$prev_pageview_max_scroll_percentage", "String"),
+    ("$prev_pageview_pathname", "String"),
+    ("$process_person_profile", "Nullable(String)"),
+    ("$referrer", "String"),
+    ("$referring_domain", "String"),
+    ("$screen_height", "String"),
+    ("$screen_name", "String"),
+    ("$screen_width", "String"),
+    ("$sent_at", "String"),
+    ("$session_id", "String"),
+    ("$survey_id", "String"),
+    ("$survey_response", "String"),
+    ("$survey_response_1", "String"),
+    ("$time", "String"),
+    ("$user_id", "String"),
+    ("$viewport_height", "Nullable(String)"),
+    ("$viewport_width", "Nullable(String)"),
+    ("$web_vitals_CLS_value", "Nullable(String)"),
+    ("$web_vitals_FCP_value", "Nullable(String)"),
+    ("$web_vitals_INP_value", "Nullable(String)"),
+    ("$web_vitals_LCP_value", "Nullable(String)"),
+    ("$window_id", "String"),
+    ("Account.client_id", "String"),
+    ("Connection.app.name", "String"),
+    ("Event.productCode", "String"),
+    ("HTTP Method", "String"),
+    ("Plan type and filter", "String"),
+    ("Subscription.plan.amount", "String"),
+    ("action", "String"),
+    ("action_name", "String"),
+    ("address", "String"),
+    ("apiErrorMessage", "String"),
+    ("apiName", "String"),
+    ("app_name", "String"),
+    ("app_version", "String"),
+    ("arguments", "String"),
+    ("audio_duration", "String"),
+    ("authentication_method", "String"),
+    ("auto_chapters", "String"),
+    ("auto_highlights", "String"),
+    ("category", "String"),
+    ("chain", "String"),
+    ("channel", "String"),
+    ("client_id", "String"),
+    ("client_name", "String"),
+    ("commit_sha", "String"),
+    ("community_id", "String"),
+    ("conceptName", "String"),
+    ("content_length", "String"),
+    ("content_safety", "String"),
+    ("context", "String"),
+    ("contributionError", "String"),
+    ("created_at", "String"),
+    ("created_by", "String"),
+    ("created_by_system", "String"),
+    ("currentScreen", "String"),
+    ("current_member_guid", "String"),
+    ("customer_email", "String"),
+    ("deal_id", "String"),
+    ("device_type", "String"),
+    ("disable_institution_search", "String"),
+    ("disfluencies", "String"),
+    ("distinct_id", "String"),
+    ("dual_channel", "String"),
+    ("duration", "String"),
+    ("email", "String"),
+    ("email_domain", "String"),
+    ("entity_detection", "String"),
+    ("env", "String"),
+    ("environment", "String"),
+    ("event", "String"),
+    ("event_count_in_month", "String"),
+    ("event_count_in_period", "String"),
+    ("events_projected_amount", "String"),
+    ("fbclid", "String"),
+    ("filter_profanity", "String"),
+    ("filters_count", "String"),
+    ("function", "String"),
+    ("gad_source", "String"),
+    ("gbraid", "String"),
+    ("gclid", "String"),
+    ("gross", "String"),
+    ("group_id", "String"),
+    ("historical_migration", "Nullable(String)"),
+    ("iab_categories", "String"),
+    ("id", "String"),
+    ("index", "String"),
+    ("initial_dclid", "String"),
+    ("initial_fbclid", "String"),
+    ("initial_gclsrc", "String"),
+    ("initial_igshid", "String"),
+    ("initial_li_fat_id", "String"),
+    ("initial_mc_cid", "String"),
+    ("initial_msclkid", "String"),
+    ("initial_step", "String"),
+    ("initial_ttclid", "String"),
+    ("initial_twclid", "String"),
+    ("initial_wbraid", "String"),
+    ("initiator", "String"),
+    ("insight", "String"),
+    ("institution_name", "String"),
+    ("inviteCode", "String"),
+    ("is_demo_project", "String"),
+    ("is_first_component_load", "String"),
+    ("is_first_event_for_user", "String"),
+    ("is_initial_aggregation", "String"),
+    ("is_oauth", "String"),
+    ("is_organization_first_user", "String"),
+    ("is_test_user", "String"),
+    ("item_count", "String"),
+    ("job_type", "String"),
+    ("key", "String"),
+    ("kind", "String"),
+    ("language_detection", "String"),
+    ("machine_id", "String"),
+    ("message", "String"),
+    ("method", "String"),
+    ("mode", "String"),
+    ("most_recent_app_os", "String"),
+    ("msclkid", "String"),
+    ("name", "String"),
+    ("nativeBuildVersion", "String"),
+    ("numberOfSecrets", "String"),
+    ("orderId", "String"),
+    ("orderType", "String"),
+    ("organization", "String"),
+    ("organization_id", "String"),
+    ("organization_name", "String"),
+    ("organizations", "String"),
+    ("origin", "String"),
+    ("osName", "String"),
+    ("owner_type", "String"),
+    ("page", "String"),
+    ("payment_status", "String"),
+    ("phone", "String"),
+    ("platform", "String"),
+    ("product", "String"),
+    ("product_analytics_projected_amount", "String"),
+    ("product_key", "String"),
+    ("progress", "String"),
+    ("protocol", "String"),
+    ("query", "String"),
+    ("ramp", "String"),
+    ("realm", "String"),
+    ("record-id", "String"),
+    ("recording_count_in_period", "String"),
+    ("recordings_projected_amount", "String"),
+    ("redact_pii", "String"),
+    ("referrer", "String"),
+    ("referrer_id", "String"),
+    ("region", "String"),
+    ("revenue", "String"),
+    ("screen_name", "String"),
+    ("sdk", "String"),
+    ("search_term", "String"),
+    ("sentiment_analysis", "String"),
+    ("session_replay_projected_amount", "String"),
+    ("sku", "String"),
+    ("source", "String"),
+    ("speaker_labels", "String"),
+    ("statusCode", "String"),
+    ("status_message", "String"),
+    ("store_url", "String"),
+    ("stripe_amount_paid", "String"),
+    ("subdomain", "String"),
+    ("subscriptionStatus", "String"),
+    ("summarization", "String"),
+    ("surface_tag", "String"),
+    ("survey_responses_count_in_period", "String"),
+    ("symbol", "String"),
+    ("tag", "String"),
+    ("target", "String"),
+    ("team", "String"),
+    ("testSessionId", "String"),
+    ("thread_id", "String"),
+    ("ticketId", "String"),
+    ("title", "String"),
+    ("token", "String"),
+    ("total_event_actions_count", "String"),
+    ("total_usd", "String"),
+    ("type", "String"),
+    ("url", "String"),
+    ("url_promotion_id", "String"),
+    ("usd", "String"),
+    ("user_agent", "String"),
+    ("user_email_domain", "String"),
+    ("user_platform", "String"),
+    ("utm_campaign", "String"),
+    ("utm_content", "String"),
+    ("utm_medium", "String"),
+    ("utm_source", "String"),
+    ("valid_ach_accounts", "String"),
+    ("wbraid", "String"),
+    ("wlo_enabled", "String"),
+    ("workplace_billing_plan", "String"),
+    ("workspace", "String"),
+    ("workspaceId", "String"),
+)
+
+
+EVENTS_PERSON_PROPERTIES_JSON_TYPED_PATHS: tuple[tuple[str, str], ...] = (
+    ("$app_version", "String"),
+    ("$browser", "String"),
+    ("$current_url", "String"),
+    ("$geoip_continent_name", "String"),
+    ("$geoip_country_code", "String"),
+    ("$geoip_country_name", "String"),
+    ("$initial_current_url", "String"),
+    ("$initial_fbclid", "String"),
+    ("$initial_gad_source", "String"),
+    ("$initial_gbraid", "String"),
+    ("$initial_gclid", "String"),
+    ("$initial_msclkid", "String"),
+    ("$initial_pathname", "String"),
+    ("$initial_referring_domain", "String"),
+    ("$initial_utm_campaign", "String"),
+    ("$initial_utm_content", "String"),
+    ("$initial_utm_medium", "String"),
+    ("$initial_utm_source", "String"),
+    ("$initial_utm_term", "String"),
+    ("$initial_wbraid", "String"),
+    ("$os_name", "String"),
+    ("$referring_domain", "String"),
+    ("Email Domain", "String"),
+    ("companyName", "String"),
+    ("customer", "String"),
+    ("email", "String"),
+    ("hubspot_score", "String"),
+    ("id", "String"),
+    ("role", "String"),
+    ("serverMarketing", "String"),
+    ("serverMasterclass", "String"),
+    ("user_email_domain", "String"),
+    ("username", "String"),
+    ("utm_source", "String"),
+    ("val_region", "String"),
+)
+
+EVENTS_PROPERTIES_COLUMN_TYPE = _json_column_type(8, 256, EVENTS_PROPERTIES_JSON_TYPED_PATHS)
+EVENTS_PERSON_PROPERTIES_COLUMN_TYPE = _json_column_type(6, 32, EVENTS_PERSON_PROPERTIES_JSON_TYPED_PATHS)
+EVENTS_TABLE_JSON_COLUMN_FORMAT_ARGS = {
+    "properties_column_type": EVENTS_PROPERTIES_COLUMN_TYPE,
+    "person_properties_column_type": EVENTS_PERSON_PROPERTIES_COLUMN_TYPE,
+}
+EVENTS_JSON_PROPERTY_GROUP_SOURCE_EXPRESSIONS = {
+    "properties": "toJSONString(properties)",
+    "person_properties": "toJSONString(person_properties)",
+}
 
 
 def EVENTS_DATA_TABLE():
@@ -43,7 +383,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     uuid UUID,
     event VARCHAR,
-    properties VARCHAR CODEC(ZSTD(3)),
+    properties {properties_column_type},
     timestamp DateTime64(6, 'UTC'),
     team_id Int64,
     distinct_id VARCHAR,
@@ -51,7 +391,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     created_at DateTime64(6, 'UTC'),
     person_id UUID,
     person_created_at DateTime64,
-    person_properties VARCHAR Codec(ZSTD(3)),
+    person_properties {person_properties_column_type},
     group0_properties VARCHAR Codec(ZSTD(3)),
     group1_properties VARCHAR Codec(ZSTD(3)),
     group2_properties VARCHAR Codec(ZSTD(3)),
@@ -131,27 +471,27 @@ def MV_DYNAMICALLY_MATERIALIZED_COLUMNS() -> str:
 
 
 EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
-    , $group_0 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
-    , $group_1 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
-    , $group_2 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_2')")} COMMENT 'column_materializer::$group_2'
-    , $group_3 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_3')")} COMMENT 'column_materializer::$group_3'
-    , $group_4 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
-    , $window_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$window_id')")} COMMENT 'column_materializer::$window_id'
-    , $session_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::$session_id'
-    , $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)'))
+    , $group_0 VARCHAR MATERIALIZED properties.`$group_0` COMMENT 'column_materializer::$group_0'
+    , $group_1 VARCHAR MATERIALIZED properties.`$group_1` COMMENT 'column_materializer::$group_1'
+    , $group_2 VARCHAR MATERIALIZED properties.`$group_2` COMMENT 'column_materializer::$group_2'
+    , $group_3 VARCHAR MATERIALIZED properties.`$group_3` COMMENT 'column_materializer::$group_3'
+    , $group_4 VARCHAR MATERIALIZED properties.`$group_4` COMMENT 'column_materializer::$group_4'
+    , $window_id VARCHAR MATERIALIZED properties.`$window_id` COMMENT 'column_materializer::$window_id'
+    , $session_id VARCHAR MATERIALIZED properties.`$session_id` COMMENT 'column_materializer::$session_id'
+    , $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt128(toUUIDOrNull(properties.`$session_id`))
     , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|\")href="(.*?)"')
     , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"'))
     , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"'))
     , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
-    , INDEX `minmax_$group_0` `$group_0` TYPE minmax GRANULARITY 1
-    , INDEX `minmax_$group_1` `$group_1` TYPE minmax GRANULARITY 1
-    , INDEX `minmax_$group_2` `$group_2` TYPE minmax GRANULARITY 1
-    , INDEX `minmax_$group_3` `$group_3` TYPE minmax GRANULARITY 1
-    , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
-    , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
-    , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
-    , INDEX `minmax_$session_id_uuid` `$session_id_uuid` TYPE minmax GRANULARITY 1
-    , {", ".join(property_groups.get_create_table_pieces("sharded_events"))}
+    , INDEX `minmax_$group_0` properties.`$group_0` TYPE minmax GRANULARITY 1
+    , INDEX `minmax_$group_1` properties.`$group_1` TYPE minmax GRANULARITY 1
+    , INDEX `minmax_$group_2` properties.`$group_2` TYPE minmax GRANULARITY 1
+    , INDEX `minmax_$group_3` properties.`$group_3` TYPE minmax GRANULARITY 1
+    , INDEX `minmax_$group_4` properties.`$group_4` TYPE minmax GRANULARITY 1
+    , INDEX `minmax_$window_id` properties.`$window_id` TYPE minmax GRANULARITY 1
+    , INDEX `minmax_$session_id` properties.`$session_id` TYPE minmax GRANULARITY 1
+    , INDEX `minmax_$session_id_uuid` toUInt128(toUUIDOrNull(properties.`$session_id`)) TYPE minmax GRANULARITY 1
+    , {", ".join(property_groups.get_create_table_pieces("sharded_events", EVENTS_JSON_PROPERTY_GROUP_SOURCE_EXPRESSIONS))}
 """
 
 EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = f"""
@@ -194,7 +534,8 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     , {index_by_kafka_timestamp(EVENTS_DATA_TABLE())}
     """,
         sample_by="SAMPLE BY cityHash64(distinct_id)",
-        storage_policy=STORAGE_POLICY(),
+        storage_policy=_events_table_settings(STORAGE_POLICY()),
+        **EVENTS_TABLE_JSON_COLUMN_FORMAT_ARGS,
     )
 
 
@@ -230,6 +571,7 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
         indexes="",
+        **EVENTS_TABLE_JSON_COLUMN_FORMAT_ARGS,
     )
 
 
@@ -328,6 +670,7 @@ def KAFKA_EVENTS_TABLE_JSON_WS_SQL():
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
         indexes="",
+        **EVENTS_TABLE_JSON_COLUMN_FORMAT_ARGS,
     )
 
 
@@ -379,6 +722,7 @@ def EVENTS_RECENT_TABLE_SQL(on_cluster=False):
         dynamically_materialized_columns="",
         materialized_columns="",
         indexes="",
+        **EVENTS_TABLE_JSON_COLUMN_FORMAT_ARGS,
     )
 
 
@@ -395,6 +739,7 @@ def DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(on_cluster=False):
         dynamically_materialized_columns="",
         materialized_columns="",
         indexes="",
+        **EVENTS_TABLE_JSON_COLUMN_FORMAT_ARGS,
     )
 
 
@@ -411,6 +756,7 @@ def WRITABLE_EVENTS_RECENT_TABLE_SQL(on_cluster=False):
         dynamically_materialized_columns="",
         materialized_columns="",
         indexes="",
+        **EVENTS_TABLE_JSON_COLUMN_FORMAT_ARGS,
     )
 
 
@@ -421,7 +767,6 @@ def SHARDED_EVENTS_RECENT_TABLE_SQL():
 ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
 TTL toDateTime(inserted_at) + INTERVAL 7 DAY
 {storage_policy}
-SETTINGS ttl_only_drop_parts = 1
 """
     ).format(
         table_name=SHARDED_EVENTS_RECENT_DATA_TABLE(),
@@ -433,7 +778,8 @@ SETTINGS ttl_only_drop_parts = 1
         dynamically_materialized_columns="",
         materialized_columns="",
         indexes="",
-        storage_policy=STORAGE_POLICY(),
+        storage_policy=_events_table_settings(STORAGE_POLICY(), "ttl_only_drop_parts = 1"),
+        **EVENTS_TABLE_JSON_COLUMN_FORMAT_ARGS,
     )
 
 
@@ -487,6 +833,7 @@ def WRITABLE_EVENTS_TABLE_SQL():
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
         indexes="",
+        **EVENTS_TABLE_JSON_COLUMN_FORMAT_ARGS,
     )
 
 
@@ -502,6 +849,7 @@ def DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
         indexes="",
+        **EVENTS_TABLE_JSON_COLUMN_FORMAT_ARGS,
     )
 
 

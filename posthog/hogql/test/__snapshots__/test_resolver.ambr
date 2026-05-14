@@ -1802,6 +1802,7 @@
                         name: "properties"
                         table_type: <recursion ...>
                       }
+                      null_if_missing_or_null: True
                     }
                   }
                   from_asterisk: False
@@ -1976,6 +1977,7 @@
                               name: "properties"
                               table_type: <recursion ...>
                             }
+                            null_if_missing_or_null: True
                           }
                         }
                         from_asterisk: False
@@ -2985,6 +2987,7 @@
                     name: "properties"
                     table_type: <recursion ...>
                   }
+                  null_if_missing_or_null: True
                 }
               }
               from_asterisk: False
@@ -3177,6 +3180,7 @@
                           name: "properties"
                           table_type: <recursion ...>
                         }
+                        null_if_missing_or_null: True
                       }
                     }
                     from_asterisk: False
@@ -6689,6 +6693,7 @@
                           name: "properties"
                           table_type: <recursion ...>
                         }
+                        null_if_missing_or_null: True
                       }
                     }
                     from_asterisk: False
@@ -6863,6 +6868,7 @@
                                 name: "properties"
                                 table_type: <recursion ...>
                               }
+                              null_if_missing_or_null: True
                             }
                           }
                           from_asterisk: False
@@ -7823,6 +7829,7 @@
                               name: "properties"
                               table_type: <recursion ...>
                             }
+                            null_if_missing_or_null: True
                           }
                         }
                         from_asterisk: False
@@ -8015,6 +8022,7 @@
                                     name: "properties"
                                     table_type: <recursion ...>
                                   }
+                                  null_if_missing_or_null: True
                                 }
                               }
                               from_asterisk: False
@@ -9706,6 +9714,7 @@
                     name: "properties"
                     table_type: <recursion ...>
                   }
+                  null_if_missing_or_null: True
                 }
               }
               from_asterisk: False
@@ -9898,6 +9907,7 @@
                           name: "properties"
                           table_type: <recursion ...>
                         }
+                        null_if_missing_or_null: True
                       }
                     }
                     from_asterisk: False
@@ -11308,6 +11318,7 @@
                     name: "properties"
                     table_type: <recursion ...>
                   }
+                  null_if_missing_or_null: True
                 }
               }
               from_asterisk: False
@@ -11500,6 +11511,7 @@
                           name: "properties"
                           table_type: <recursion ...>
                         }
+                        null_if_missing_or_null: True
                       }
                     }
                     from_asterisk: False

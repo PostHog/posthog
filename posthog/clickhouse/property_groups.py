@@ -29,16 +29,22 @@ class PropertyGroupDefinition:
     def get_column_name(self, source_column: PropertySourceColumnName, group_name: PropertyGroupName) -> str:
         return self.column_name if self.column_name else f"{source_column}_{self.column_type_name}_{group_name}"
 
-    def get_column_definition(self, source_column: PropertySourceColumnName, group_name: PropertyGroupName) -> str:
+    def get_column_definition(
+        self,
+        source_column: PropertySourceColumnName,
+        group_name: PropertyGroupName,
+        source_expression: str | None = None,
+    ) -> str:
         column_definition = f"{self.get_column_name(source_column, group_name)} Map(String, String)"
         if not self.is_materialized:
             return column_definition
 
+        source_expression = source_expression or source_column
         return f"""\
             {column_definition}
             MATERIALIZED mapSort(
                 mapFilter((key, _) -> {self.key_filter_expression},
-                CAST(JSONExtractKeysAndValues({source_column}, 'String'), 'Map(String, String)'))
+                CAST(JSONExtractKeysAndValues({source_expression}, 'String'), 'Map(String, String)'))
             )
             CODEC({self.codec})
         """
@@ -76,14 +82,19 @@ class PropertyGroupManager:
                 if group_definition.contains(property_key):
                     yield group_definition.get_column_name(source_column, group_name)
 
-    def get_create_table_pieces(self, table: TableName) -> Iterable[str]:
+    def get_create_table_pieces(
+        self, table: TableName, source_expressions: Mapping[PropertySourceColumnName, str] | None = None
+    ) -> Iterable[str]:
         """
         Returns an iterable of SQL DDL chunks that can be used to define all property groups for the provided table as
         part of a CREATE TABLE statement.
         """
+        source_expressions = source_expressions or {}
         for source_column, groups in self.__groups[table].items():
             for group_name, group_definition in groups.items():
-                yield group_definition.get_column_definition(source_column, group_name)
+                yield group_definition.get_column_definition(
+                    source_column, group_name, source_expressions.get(source_column)
+                )
                 for index_definition in group_definition.get_index_definitions(source_column, group_name):
                     yield f"INDEX {index_definition}"
 

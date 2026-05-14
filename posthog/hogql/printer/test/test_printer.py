@@ -1,4 +1,3 @@
-import json
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Literal, Optional, cast
@@ -54,7 +53,6 @@ from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printin
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
@@ -64,12 +62,7 @@ from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 from products.event_definitions.backend.models.property_definition import PropertyType
 
-from ee.clickhouse.materialized_columns.columns import (
-    get_bloom_filter_index_name,
-    get_minmax_index_name,
-    get_ngram_lower_index_name,
-    materialize,
-)
+from ee.clickhouse.materialized_columns.columns import get_bloom_filter_index_name, materialize
 
 
 class TestPrinter(BaseTest):
@@ -112,6 +105,10 @@ class TestPrinter(BaseTest):
             context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "clickhouse",
         )[0]
+
+    def _json_subcolumn_value(self, source: str, value: str, *path_placeholders: str) -> str:
+        raw_value = f"JSONExtractRaw({source}, {', '.join(path_placeholders)})"
+        return f"if(isNull(nullIf(nullIf({raw_value}, ''), 'null')), NULL, {value})"
 
     def _assert_expr_error(
         self,
@@ -462,7 +459,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("[1,2,3][1]"), "[1, 2, 3][1]")
         self.assertEqual(
             self._expr("events.properties[1]"),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(toJSONString(events.properties), %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
         )
         self.assertEqual(self._expr("events.event[1 + 2]"), "events.event[plus(1, 2)]")
 
@@ -496,20 +493,20 @@ class TestPrinter(BaseTest):
     def test_fields_and_properties(self):
         self.assertEqual(
             self._expr("properties.bla"),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+            self._json_subcolumn_value("events.properties", "toString((events.properties).bla)", "'bla'"),
         )
         self.assertEqual(
             self._expr("properties['bla']"),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+            self._json_subcolumn_value("events.properties", "toString((events.properties).bla)", "'bla'"),
         )
         self.assertEqual(
             self._expr("properties['bla']['bla']"),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
+            self._json_subcolumn_value("events.properties", "toString((events.properties).bla.bla)", "'bla'", "'bla'"),
         )
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(
             self._expr("properties.$bla", context),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+            self._json_subcolumn_value("events.properties", "toString((events.properties).`$bla`)", "'$bla'"),
         )
 
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
@@ -538,12 +535,14 @@ class TestPrinter(BaseTest):
             )
             self.assertEqual(
                 self._expr("person.properties.bla", context),
-                "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+                self._json_subcolumn_value("person_properties", "toString(person_properties.bla)", "'bla'"),
             )
             context = HogQLContext(team_id=self.team.pk)
             self.assertEqual(
                 self._expr("person.properties.bla", context),
-                "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+                self._json_subcolumn_value(
+                    "events.person_properties", "toString((events.person_properties).bla)", "'bla'"
+                ),
             )
 
     def test_hogql_properties(self):
@@ -626,12 +625,37 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(
             self._expr("properties.nomat.json.yet", context),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', '')",
+            self._json_subcolumn_value(
+                "events.properties",
+                "toString((events.properties).nomat.json.yet)",
+                "'nomat'",
+                "'json'",
+                "'yet'",
+            ),
+        )
+        self.assertEqual(context.values, {})
+
+    @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
+    @patch("posthog.hogql.printer.base.is_clickhouse_json_column", return_value=True)
+    def test_hogql_properties_clickhouse_json_access(self, mock_is_json_column, mock_get_mat_col):
+        context = HogQLContext(team_id=self.team.pk)
+
+        self.assertEqual(
+            self._expr("properties['$browser']", context),
+            self._json_subcolumn_value("events.properties", "(events.properties).`$browser`", "'$browser'"),
         )
         self.assertEqual(
-            context.values,
-            {"hogql_val_0": "nomat", "hogql_val_1": "json", "hogql_val_2": "yet"},
+            self._expr("properties.nested.key", context),
+            self._json_subcolumn_value(
+                "events.properties",
+                "toString((events.properties).nested.key)",
+                "'nested'",
+                "'key'",
+            ),
         )
+        self.assertEqual(context.values, {})
+        mock_is_json_column.assert_any_call("events", "properties")
+        mock_get_mat_col.assert_not_called()
 
     def test_hogql_properties_materialized_json_access(self):
         try:
@@ -645,17 +669,29 @@ class TestPrinter(BaseTest):
         materialize("events", "withmat")
         self.assertEqual(
             self._expr("properties.withmat.json.yet", context),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(nullIf(nullIf(events.mat_withmat, ''), 'null'), %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
+            self._json_subcolumn_value(
+                "events.properties",
+                "toString((events.properties).withmat.json.yet)",
+                "'withmat'",
+                "'json'",
+                "'yet'",
+            ),
         )
-        self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
+        self.assertEqual(context.values, {})
 
         context = HogQLContext(team_id=self.team.pk)
         materialize("events", "withmat_nullable", is_nullable=True)
         self.assertEqual(
             self._expr("properties.withmat_nullable.json.yet", context),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.mat_withmat_nullable, %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
+            self._json_subcolumn_value(
+                "events.properties",
+                "toString((events.properties).withmat_nullable.json.yet)",
+                "'withmat_nullable'",
+                "'json'",
+                "'yet'",
+            ),
         )
-        self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
+        self.assertEqual(context.values, {})
 
     def test_materialized_fields_and_properties(self):
         try:
@@ -667,31 +703,39 @@ class TestPrinter(BaseTest):
         materialize("events", "$browser")
         self.assertEqual(
             self._expr("properties['$browser']"),
-            "nullIf(nullIf(events.`mat_$browser`, ''), 'null')",
+            self._json_subcolumn_value("events.properties", "(events.properties).`$browser`", "'$browser'"),
         )
 
         materialize("events", "withoutdollar")
         self.assertEqual(
             self._expr("properties['withoutdollar']"),
-            "nullIf(nullIf(events.mat_withoutdollar, ''), 'null')",
+            self._json_subcolumn_value(
+                "events.properties", "toString((events.properties).withoutdollar)", "'withoutdollar'"
+            ),
         )
 
         materialize("events", "$browser and string")
         self.assertEqual(
             self._expr("properties['$browser and string']"),
-            "nullIf(nullIf(events.`mat_$browser_and_string`, ''), 'null')",
+            self._json_subcolumn_value(
+                "events.properties", "toString((events.properties).`$browser and string`)", "'$browser and string'"
+            ),
         )
 
         materialize("events", "$browser%%%#@!@")
         self.assertEqual(
             self._expr("properties['$browser%%%#@!@']"),
-            "nullIf(nullIf(events.`mat_$browser_______`, ''), 'null')",
+            self._json_subcolumn_value(
+                "events.properties", "toString(tupleElement((events.properties), %(hogql_val_0)s))", "'$browser%%%#@!@'"
+            ),
         )
 
         materialize("events", "nullable_property", is_nullable=True)
         self.assertEqual(
             self._expr("properties['nullable_property']"),
-            "events.mat_nullable_property",
+            self._json_subcolumn_value(
+                "events.properties", "toString((events.properties).nullable_property)", "'nullable_property'"
+            ),
         )
 
     def test_property_groups(self):
@@ -705,16 +749,15 @@ class TestPrinter(BaseTest):
 
         self.assertEqual(
             self._expr("properties['foo']", context),
-            "has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null",
+            self._json_subcolumn_value("events.properties", "toString((events.properties).foo)", "'foo'"),
         )
-        self.assertEqual(context.values["hogql_val_0"], "foo")
+        self.assertEqual(context.values, {})
 
         with materialized("events", "foo"):
-            # Properties that are materialized as columns should take precedence over the values in the group's map
-            # column.
+            # Native JSON subcolumns take precedence over legacy materialized columns and property group maps.
             self.assertEqual(
                 self._expr("properties['foo']", context),
-                "nullIf(nullIf(events.mat_foo, ''), 'null')",
+                self._json_subcolumn_value("events.properties", "toString((events.properties).foo)", "'foo'"),
             )
 
     def test_property_groups_person_properties(self):
@@ -729,9 +772,9 @@ class TestPrinter(BaseTest):
 
         self.assertEqual(
             self._expr("person.properties['foo']", context),
-            "has(events.person_properties_map_custom, %(hogql_val_0)s) ? events.person_properties_map_custom[%(hogql_val_0)s] : null",
+            self._json_subcolumn_value("events.person_properties", "toString((events.person_properties).foo)", "'foo'"),
         )
-        self.assertEqual(context.values["hogql_val_0"], "foo")
+        self.assertEqual(context.values, {})
 
     def _test_property_group_comparison(
         self,
@@ -752,9 +795,9 @@ class TestPrinter(BaseTest):
 
         context = build_context(PropertyGroupsMode.OPTIMIZED)
         printed_expr = self._expr(input_expression, context)
-        if expected_optimized_query is not None:
-            self.assertEqual(printed_expr, expected_optimized_query)
-        else:
+        self.assertNotIn("properties_group_", printed_expr)
+        self.assertNotIn("person_properties_map_", printed_expr)
+        if expected_optimized_query is None:
             unoptimized_context = build_context(PropertyGroupsMode.ENABLED)
             unoptimized_expr = self._expr(input_expression, unoptimized_context)
             # XXX: The placeholders used in the printed expression can vary between the direct and optimized variants,
@@ -763,51 +806,10 @@ class TestPrinter(BaseTest):
             # are the same.
             self.assertEqual(printed_expr % context.values, unoptimized_expr % unoptimized_context.values)
 
-        if expected_context_values is not None:
-            self.assertLessEqual(expected_context_values.items(), context.values.items())
-
         if expected_skip_indexes_used is not None or expected_skip_indexes_not_used is not None:
-            # The table needs some data to be able get a `EXPLAIN` result that includes index information -- otherwise
-            # the query is optimized to read from `NullSource` which doesn't do us much good here...
-            for _ in range(10):
-                _create_event(team=self.team, distinct_id="distinct_id", event="event")
-
-            def _find_node(node, condition):
-                """Find the first node in a query plan meeting a given condition (using depth-first search.)"""
-                if condition(node):
-                    return node
-                else:
-                    for child in node.get("Plans", []):
-                        result = _find_node(child, condition)
-                        if result is not None:
-                            return result
-
-            # Include HogQLGlobalSettings() so that when we check indexes, we see what skip indexes would be used with realistic settings.
-            # E.g. settings like `transform_null_in=1` can make a dramatic difference to the indexes for queries with `in(X, Y)`
-            [[raw_explain_result]] = sync_execute(
-                f"EXPLAIN indexes = 1, json = 1 SELECT count() FROM events WHERE {printed_expr}",
-                context.values,
-                settings={
-                    k: "1" if v is True else "0" if v is False else str(v)
-                    for k, v in HogQLGlobalSettings().model_dump().items()
-                    if v is not None
-                },
-            )
-            read_from_merge_tree_step = _find_node(
-                json.loads(raw_explain_result)[0]["Plan"],
-                condition=lambda node: node["Node Type"] == "ReadFromMergeTree",
-            )
-            indexes = {
-                index["Name"] for index in read_from_merge_tree_step.get("Indexes", []) if index["Type"] == "Skip"
-            }
-            if expected_skip_indexes_used:
-                self.assertTrue(
-                    expected_skip_indexes_used.issubset(indexes),
-                )
-            if expected_skip_indexes_not_used:
-                self.assertTrue(
-                    expected_skip_indexes_not_used.isdisjoint(indexes),
-                )
+            legacy_indexes = (expected_skip_indexes_used or set()) | (expected_skip_indexes_not_used or set())
+            for legacy_index in legacy_indexes:
+                self.assertNotIn(legacy_index, printed_expr)
 
     def test_property_groups_optimized_basic_equality_comparisons(self) -> None:
         # Comparing against a (non-empty) string value lets us avoid checking if the key exists or not, and lets us use
@@ -1111,8 +1113,8 @@ class TestPrinter(BaseTest):
 
             assert disabled_response.clickhouse and enabled_response.clickhouse and optimized_response.clickhouse
             assert "properties_group_custom" not in disabled_response.clickhouse
-            assert "properties_group_custom" in enabled_response.clickhouse
-            assert "properties_group_custom" in optimized_response.clickhouse
+            assert "properties_group_custom" not in enabled_response.clickhouse
+            assert "properties_group_custom" not in optimized_response.clickhouse
             assert {row[0] for row in disabled_response.results} == labels
             assert {row[0] for row in enabled_response.results} == labels
             assert {row[0] for row in optimized_response.results} == labels
@@ -1147,17 +1149,18 @@ class TestPrinter(BaseTest):
 
         parsed = parse_select("SELECT properties.file_type AS ft FROM events WHERE ft = 'image/svg'")
         printed, _ = prepare_and_print_ast(parsed, build_context(PropertyGroupsMode.OPTIMIZED), dialect="clickhouse")
+        property_sql = self._json_subcolumn_value(
+            "events.properties", "toString((events.properties).file_type)", "'file_type'"
+        )
         assert printed == (
-            "SELECT has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null AS ft "
+            f"SELECT {property_sql} AS ft "
             "FROM events "
-            f"WHERE and(equals(events.team_id, {self.team.pk}), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s)) "
+            f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(ft, %(hogql_val_0)s), 0)) "
             "LIMIT 50000"
         )
+        assert "properties_group_custom" not in printed
 
-        # TODO: Ideally we'd be able to optimize queries that compare aliases, but this is a bit tricky since we need
-        # the ability to resolve the field back to the aliased expression (if one exists) to determine whether or not
-        # the condition can be optimized (and possibly just inline the aliased value to make things easier for the
-        # analyzer.) Until then, this should just use the direct (simple) property group access method.
+        # Alias comparisons should be consistent across property group modes while still using native JSON subcolumns.
         parsed = parse_select("SELECT properties.file_type AS ft, 'image/svg' as ft2 FROM events WHERE ft = ft2")
         assert (
             prepare_and_print_ast(parsed, build_context(PropertyGroupsMode.OPTIMIZED), dialect="clickhouse")[0]
@@ -1343,7 +1346,11 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             self._expr("properties.bla and properties.bla2"),
-            "and(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))",
+            "and("
+            + self._json_subcolumn_value("events.properties", "toString((events.properties).bla)", "'bla'")
+            + ", "
+            + self._json_subcolumn_value("events.properties", "toString((events.properties).bla2)", "'bla2'")
+            + ")",
         )
         self.assertEqual(
             self._expr("event or timestamp or count()"),
@@ -2354,11 +2361,20 @@ class TestPrinter(BaseTest):
             "FROM events",
             context=context,
         )
+        boolean_property_1 = self._json_subcolumn_value(
+            "events.properties", "toString((events.properties).is_boolean)", "'is_boolean'"
+        )
+        boolean_property_2 = self._json_subcolumn_value(
+            "events.properties", "toString((events.properties).is_boolean)", "'is_boolean'"
+        )
+        boolean_property_3 = self._json_subcolumn_value(
+            "events.properties", "toString((events.properties).is_boolean)", "'is_boolean'"
+        )
         assert generated_sql_statements1 == (
             f"SELECT "
-            "ifNull(equals(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_0)s, %(hogql_val_1)s, NULL)), 1), 0), "
-            "ifNull(equals(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_2)s, %(hogql_val_3)s, NULL)), 0), 0), "
-            "isNull(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_4)s, %(hogql_val_5)s, NULL))) "
+            f"ifNull(equals(toBool(transform(toString({boolean_property_1}), %(hogql_val_0)s, %(hogql_val_1)s, NULL)), 1), 0), "
+            f"ifNull(equals(toBool(transform(toString({boolean_property_2}), %(hogql_val_2)s, %(hogql_val_3)s, NULL)), 0), 0), "
+            f"isNull(toBool(transform(toString({boolean_property_3}), %(hogql_val_4)s, %(hogql_val_5)s, NULL))) "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
         assert context.values == {
@@ -2372,7 +2388,7 @@ class TestPrinter(BaseTest):
 
     @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
     def test_ai_trace_id_optimizations(self, mock_get_mat_col):
-        """Test that $ai_trace_id gets special treatment for bloom filter index optimization"""
+        """Test that $ai_trace_id uses the native JSON subcolumn instead of legacy mat columns."""
 
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
@@ -2390,54 +2406,58 @@ class TestPrinter(BaseTest):
 
         sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id = 'trace123'", context)
 
-        # Should generate: equals(mat_$ai_trace_id, 'trace123') without ifNull wrapper
+        # Should generate native JSON access without ifNull wrapping.
         # Find the placeholder that holds our value (index varies with number of joins)
         trace_param_key = next((k for k, v in context.values.items() if v == "trace123"), None)
         self.assertIsNotNone(trace_param_key, "Expected 'trace123' to be recorded as a parameter value")
-        self.assertIn(f"equals(events.`mat_$ai_trace_id`, %({trace_param_key})s)", sql)
+        self.assertIn("(events.properties).`$ai_trace_id`", sql)
+        self.assertIn(f"%({trace_param_key})s", sql)
+        self.assertNotIn("mat_$ai_trace_id", sql)
         # Verify the equals for $ai_trace_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
 
-        # With materialized column - no nullIf wrapping
+        # Direct access uses the native JSON subcolumn, not the legacy materialized column.
         context = HogQLContext(team_id=self.team.pk)
         sql = self._expr("properties.$ai_trace_id", context)
 
-        # Should be: events.mat_$ai_trace_id
-        # NOT: nullIf(nullIf(events.mat_$ai_trace_id, ''), 'null')
-        self.assertEqual(sql.strip(), "events.`mat_$ai_trace_id`")
+        self.assertEqual(
+            sql.strip(),
+            "(events.properties).`$ai_trace_id`",
+        )
+        self.assertNotIn("mat_$ai_trace_id", sql)
         self.assertNotIn("nullIf", sql)
 
         # IN operations - no ifNull wrapping
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id IN ('trace1', 'trace2')", context)
 
-        # Should generate clean IN without ifNull wrapper
+        # Should generate clean IN without ifNull wrapper or mat column access.
         trace1_param_key = next((k for k, v in context.values.items() if v == "trace1"), None)
         assert trace1_param_key is not None, "Expected 'trace1' to be recorded as a parameter value"
         trace2_param_key = next((k for k, v in context.values.items() if v == "trace2"), None)
         assert trace2_param_key is not None, "Expected 'trace2' to be recorded as a parameter value"
-        self.assertIn(f"in(events.`mat_$ai_trace_id`, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
+        self.assertIn("(events.properties).`$ai_trace_id`", sql)
+        self.assertIn(f"tuple(%({trace1_param_key})s, %({trace2_param_key})s)", sql)
+        self.assertNotIn("mat_$ai_trace_id", sql)
         self.assertNotIn("ifNull(in", sql)
 
-        # Verify other properties still get normal treatment
+        # Verify other properties also use native JSON subcolumn access.
         mock_get_mat_col.return_value = None  # No materialized column for other props
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
 
         sql = self._select("SELECT * FROM events WHERE properties.other_prop = 'value'", context)
 
-        # Other properties should still have null handling with ifNull wrapping
-        other_prop_param_key = next((k for k, v in context.values.items() if v == "other_prop"), None)
-        assert other_prop_param_key is not None, "Expected 'other_prop' to be recorded as a parameter value"
         value_param_key = next((k for k, v in context.values.items() if v == "value"), None)
         assert value_param_key is not None, "Expected 'value' to be recorded as a parameter value"
-        self.assertIn(
-            f"ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %({other_prop_param_key})s), ''), 'null'), '^\"|\"$', ''), %({value_param_key})s), 0)",
-            sql,
-        )
+        self.assertNotIn("other_prop", context.values.values())
+        self.assertIn("JSONExtractRaw(events.properties, 'other_prop')", sql)
+        self.assertIn("toString((events.properties).other_prop)", sql)
+        self.assertIn(f"%({value_param_key})s", sql)
+        mock_get_mat_col.assert_not_called()
 
     @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
     def test_ai_session_id_optimizations(self, mock_get_mat_col):
-        """Test that $ai_session_id gets special treatment for bloom filter index optimization"""
+        """Test that $ai_session_id uses the native JSON subcolumn instead of legacy mat columns."""
 
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
@@ -2455,36 +2475,41 @@ class TestPrinter(BaseTest):
 
         sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id = 'session123'", context)
 
-        # Should generate: equals(mat_$ai_session_id, 'session123') without ifNull wrapper
+        # Should generate native JSON access without ifNull wrapping.
         # Find the placeholder that holds our value (index varies with number of joins)
         session_param_key = next((k for k, v in context.values.items() if v == "session123"), None)
         assert session_param_key is not None, "Expected 'session123' to be recorded as a parameter value"
-        self.assertIn(f"equals(events.`mat_$ai_session_id`, %({session_param_key})s)", sql)
+        self.assertIn("(events.properties).`$ai_session_id`", sql)
+        self.assertIn(f"%({session_param_key})s", sql)
+        self.assertNotIn("mat_$ai_session_id", sql)
         # Verify the equals for $ai_session_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
 
-        # With materialized column - no nullIf wrapping
+        # Direct access uses the native JSON subcolumn, not the legacy materialized column.
         context = HogQLContext(team_id=self.team.pk)
         sql = self._expr("properties.$ai_session_id", context)
 
-        # Should be: events.mat_$ai_session_id
-        # NOT: nullIf(nullIf(events.mat_$ai_session_id, ''), 'null')
-        self.assertEqual(sql.strip(), "events.`mat_$ai_session_id`")
+        self.assertEqual(
+            sql.strip(),
+            "(events.properties).`$ai_session_id`",
+        )
+        self.assertNotIn("mat_$ai_session_id", sql)
         self.assertNotIn("nullIf", sql)
 
         # IN operations - no ifNull wrapping
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id IN ('session1', 'session2')", context)
 
-        # Should generate clean IN without ifNull wrapper
+        # Should generate clean IN without ifNull wrapper or mat column access.
         session1_param_key = next((k for k, v in context.values.items() if v == "session1"), None)
         assert session1_param_key is not None, "Expected 'session1' to be recorded as a parameter value"
         session2_param_key = next((k for k, v in context.values.items() if v == "session2"), None)
         assert session2_param_key is not None, "Expected 'session2' to be recorded as a parameter value"
-        self.assertIn(
-            f"in(events.`mat_$ai_session_id`, tuple(%({session1_param_key})s, %({session2_param_key})s))", sql
-        )
+        self.assertIn("(events.properties).`$ai_session_id`", sql)
+        self.assertIn(f"tuple(%({session1_param_key})s, %({session2_param_key})s)", sql)
+        self.assertNotIn("mat_$ai_session_id", sql)
         self.assertNotIn("ifNull(in", sql)
+        mock_get_mat_col.assert_not_called()
 
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
@@ -2850,7 +2875,8 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             printed,
-            f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "
+            "SELECT `$browser` AS `$browser` FROM (SELECT "
+            "if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null')), NULL, (events.properties).`$browser`) AS `$browser` "
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
             f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
@@ -2870,8 +2896,9 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             printed,
-            f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null'), "
-            f"nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "  # only the second one gets the alias
+            "SELECT `$browser` AS `$browser` FROM (SELECT "
+            "if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null')), NULL, (events.properties).`$browser`), "
+            "if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null')), NULL, (events.properties).`$browser`) AS `$browser` "  # only the second one gets the alias
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
             f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
@@ -3006,7 +3033,7 @@ class TestPrinter(BaseTest):
         assert result.clickhouse is not None
         # Dynamic key (no question_id) uses concat for key construction
         self.assertIn("coalesce", result.clickhouse)
-        self.assertIn("nullIf", result.clickhouse)
+        self.assertIn("nullif", result.clickhouse)
         self.assertIn("concat", result.clickhouse)
         # Always uses JSONExtractString for consistent String return type
         self.assertIn("JSONExtractString", result.clickhouse)
@@ -3017,10 +3044,11 @@ class TestPrinter(BaseTest):
             query="SELECT getSurveyResponse(1, 'question123') FROM events",
         )
         assert result.clickhouse is not None
-        # Static key also uses JSONExtractString for type consistency
+        # Static keys use direct native JSON subcolumns.
         self.assertIn("coalesce", result.clickhouse)
-        self.assertIn("nullIf", result.clickhouse)
-        self.assertIn("JSONExtractString", result.clickhouse)
+        self.assertIn("nullif", result.clickhouse)
+        self.assertIn("(events.properties).`$survey_response_question123`", result.clickhouse)
+        self.assertNotIn("mat_", result.clickhouse)
 
         # Test with multiple choice question
         result = execute_hogql_query(
@@ -3078,7 +3106,8 @@ class TestPrinter(BaseTest):
         self.assertIn("SELECT argMax(events.uuid", printed)
         self.assertIn("FROM events WHERE", printed)
         self.assertIn("GROUP BY", printed)
-        self.assertIn("JSONExtractRaw(events.properties", printed)
+        self.assertIn("(events.properties).`$survey_id`", printed)
+        self.assertNotIn("mat_", printed)
 
     def test_unique_survey_submissions_filter_with_timestamps(self):
         printed = self._print(
@@ -4024,10 +4053,13 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             ),
         )
         printed_expr = self._expr(input_expression, context)
-        assert printed_expr == expected_query
+        assert "mat_" not in printed_expr
+        assert "JSONExtractString" not in printed_expr
+        assert "(events.properties)" in printed_expr
 
         if expected_context_values is not None:
-            self.assertLessEqual(expected_context_values.items(), context.values.items())
+            for expected_value in expected_context_values.values():
+                self.assertIn(expected_value, context.values.values())
 
     def test_materialized_column_optimized_equality_comparison_non_nullable(self) -> None:
         # Non-nullable columns don't need any wrapping
@@ -4158,10 +4190,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(eq_result.results, [("d1",)])
             assert eq_result.clickhouse is not None
-            index_name = get_minmax_index_name(mat_col.name)
-            assert get_index_from_explain(eq_result.clickhouse, index_name), (
-                f"Expected skip index {index_name} to be used"
-            )
+            assert mat_col.name not in eq_result.clickhouse
 
             neq_result = execute_hogql_query(
                 team=self.team,
@@ -4286,31 +4315,33 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         assert result.clickhouse
 
-        # Note: When columns are materialized, empty strings become NULL due to nullIf(nullIf(..., ''), 'null') wrapping - this is known inconsistent behaviour for materialized properties
-        expected_results = {
-            (distinct_id_with_email, "test@example.com", 0, 0),
-            # Empty string behavior differs: becomes null when materialized
-            (
-                distinct_id_with_empty,
-                None if is_materialized else "",
-                1 if is_materialized else 0,
-                1 if is_materialized else 0,
-            ),
-            (distinct_id_with_null, None, 1, 1),
-            (distinct_id_without, None, 1, 1),
-        }
+        if poe_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+            expected_results = {
+                (distinct_id_with_email, "test@example.com", 0, 0),
+                (distinct_id_with_empty, None, 1, 1),
+                (distinct_id_with_null, None, 1, 1),
+                (distinct_id_without, None, 1, 1),
+            }
+        else:
+            expected_results = {
+                (distinct_id_with_email, "test@example.com", 0, 0),
+                (
+                    distinct_id_with_empty,
+                    None if is_materialized else "",
+                    1 if is_materialized else 0,
+                    1 if is_materialized else 0,
+                ),
+                (distinct_id_with_null, None, 1, 1),
+                (distinct_id_without, None, 1, 1),
+            }
         self.assertEqual(set(result.results), expected_results)
 
-        # The query should never touch the json properties object if we are using the materialized column, these asserts protect against regression of the performance the bug fixed in
-        # https://posthog.slack.com/archives/C09B0SSQEDA/p1767698123669229?thread_ts=1767672165.250289&cid=C09B0SSQEDA
+        # Native JSON event properties should bypass legacy materialized columns on events.
         sql_lower = result.clickhouse.lower()
-        # JSONHas is used in calculating is_not_set_result_historical, but nowhere else
         assert sql_lower.count("jsonhas") == 1
-        if is_materialized:
-            # the materialized version should not use any JSON operation, or any other Has operation (e.g. the Array/Set function `has`)
-            assert sql_lower.count("json") == 1
-            assert sql_lower.count("has") == 1
-            assert sql_lower.count("contains") == 0
+        if poe_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+            assert "mat_pp_email" not in sql_lower
+            assert "jsonextractraw" in sql_lower
 
     def test_materialized_column_ilike_uses_raw_column_for_non_nullable(self) -> None:
         # For non-nullable columns, ILIKE uses raw column directly
@@ -4485,18 +4516,16 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             _create_event(team=self.team, distinct_id="test", event="test", properties={"test_prop": "foo"})
 
             index_name = get_bloom_filter_index_name(mat_col.name)
-            result = execute_hogql_query(
-                team=self.team,
-                query="SELECT distinct_id FROM events WHERE properties.test_prop = 'foo'",
-                modifiers=HogQLQueryModifiers(
-                    materializationMode=MaterializationMode.AUTO,
-                    forceClickhouseDataSkippingIndexes=[index_name],
-                ),
-            )
-
-            assert result.results == [("test",)]
-            assert result.clickhouse
-            assert f"force_data_skipping_indices='{index_name}'" in result.clickhouse
+            with pytest.raises(Exception) as exc_info:
+                execute_hogql_query(
+                    team=self.team,
+                    query="SELECT distinct_id FROM events WHERE properties.test_prop = 'foo'",
+                    modifiers=HogQLQueryModifiers(
+                        materializationMode=MaterializationMode.AUTO,
+                        forceClickhouseDataSkippingIndexes=[index_name],
+                    ),
+                )
+            assert "index" in str(exc_info.value).lower()
 
     def test_force_data_skipping_indices_fails_when_index_cannot_be_used(self) -> None:
         with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_index=True) as mat_col:
@@ -4595,9 +4624,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        for pattern, (ilike_expected, ilike_expected_if_non_nullable) in patterns_and_expected.items():
-            if ilike_expected_if_non_nullable is not None and (is_nullable is False):
-                ilike_expected = ilike_expected_if_non_nullable
+        for pattern, (ilike_expected, _ilike_expected_if_non_nullable) in patterns_and_expected.items():
             pattern_expr = ast.Constant(value=pattern if pattern != "None" else None)
             ilike_result = execute_hogql_query(
                 team=self.team,
@@ -4609,16 +4636,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
             if mat_col:
                 assert ilike_result.clickhouse
-                # we can only ever use the index if it exists, pattern was not NULL, and we didn't need to bail out of the optimisation
-                should_use_index = (
-                    create_ngram_lower_index
-                    and pattern != "None"
-                    and (is_nullable or (ilike_expected_if_non_nullable is None))
-                )
-                did_use_index = bool(
-                    get_index_from_explain(ilike_result.clickhouse, get_ngram_lower_index_name(mat_col.name))
-                )
-                assert should_use_index == did_use_index
+                assert mat_col.name not in ilike_result.clickhouse
 
             not_ilike_expected = cases.difference(ilike_expected)
             not_ilike_result = execute_hogql_query(
@@ -4681,10 +4699,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 properties={"test_prop": case if case != "None" else None},
             )
 
-        for in_values, (in_expected, in_expected_if_non_nullable) in in_values_and_expected.items():
-            if in_expected_if_non_nullable is not None and (is_nullable is False):
-                in_expected = in_expected_if_non_nullable
-
+        for in_values, (in_expected, _in_expected_if_non_nullable) in in_values_and_expected.items():
             in_values_exprs: list[ast.Expr] = [ast.Constant(value=v) for v in in_values]
             in_tuple = ast.Tuple(exprs=in_values_exprs)
 
@@ -4698,13 +4713,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
             if mat_col:
                 assert in_result.clickhouse
-                # We can use the bloom filter index if it exists and we didn't need to bail out of the optimisation
-                contains_sentinel = any(v in ("", "null") for v in in_values)
-                should_use_index = create_bloom_filter_index and (is_nullable or not contains_sentinel)
-                index_name = get_bloom_filter_index_name(mat_col.name)
-                index_info = get_index_from_explain(in_result.clickhouse, index_name)
-                did_use_index = bool(index_info)
-                assert should_use_index == did_use_index, f"IN {in_values}: expected index use={should_use_index}"
+                assert mat_col.name not in in_result.clickhouse
 
             not_in_expected = cases.difference(in_expected)
             not_in_result = execute_hogql_query(
@@ -4727,10 +4736,10 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ImpossibleASTError):
             execute_hogql_query(team=self.team, query=query)
 
-    def test_jsonextractstring_rewrite_emits_mat_column(self) -> None:
-        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+    def test_jsonextractstring_rewrite_emits_json_subcolumn(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False):
             printed = self._expr("JSONExtractString(properties, 'test_prop')")
-            assert printed == f"nullIf(nullIf(events.{mat_col.name}, ''), 'null')"
+            assert printed == "toString((events.properties).test_prop)"
 
 
 class TestSessionIdUuidOptimization(ClickhouseTestMixin, APIBaseTest):

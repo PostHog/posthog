@@ -45,7 +45,7 @@
 # name: TestPropertyTypes.test_resolve_property_types_combined
   '''
   
-  SELECT multiply(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s), events__person.properties___tickets) 
+  SELECT multiply(accurateCastOrNull(if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_width'), ''), 'null')), NULL, (events.properties).`$screen_width`), %(hogql_val_4)s), events__person.properties___tickets) 
   FROM events LEFT OUTER JOIN (
   SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
   FROM person_distinct_id_overrides 
@@ -66,7 +66,7 @@
 # name: TestPropertyTypes.test_resolve_property_types_event
   '''
   
-  SELECT multiply(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s)), toBool(transform(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', '')), %(hogql_val_5)s, %(hogql_val_6)s, NULL)) AS bool 
+  SELECT multiply(accurateCastOrNull(if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_width'), ''), 'null')), NULL, (events.properties).`$screen_width`), %(hogql_val_0)s), accurateCastOrNull(if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_height'), ''), 'null')), NULL, (events.properties).`$screen_height`), %(hogql_val_1)s)), toBool(transform(toString(if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, 'bool'), ''), 'null')), NULL, toString((events.properties).bool))), %(hogql_val_2)s, %(hogql_val_3)s, NULL)) AS bool 
   FROM events 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
@@ -96,7 +96,7 @@
 # name: TestPropertyTypes.test_resolve_property_types_event_person_poe_on
   '''
   
-  SELECT parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), 6, %(hogql_val_1)s) AS provided_timestamp 
+  SELECT parseDateTime64BestEffortOrNull(if(isNull(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'provided_timestamp'), ''), 'null')), NULL, toString((events.person_properties).provided_timestamp)), 6, %(hogql_val_0)s) AS provided_timestamp 
   FROM events 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000

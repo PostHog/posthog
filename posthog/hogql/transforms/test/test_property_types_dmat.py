@@ -7,10 +7,12 @@ from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
@@ -25,8 +27,7 @@ from products.event_definitions.backend.models.property_definition import Proper
 class TestDmatIntegration(BaseTest):
     """Test that HogQL queries use dmat columns when available."""
 
-    def test_uses_dmat_column_when_slot_ready(self):
-        """Test that property access uses dmat column when slot is READY."""
+    def _create_ready_revenue_slot(self) -> None:
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             project_id=self.team.project_id,
@@ -41,6 +42,25 @@ class TestDmatIntegration(BaseTest):
             slot_index=3,
             state=MaterializedColumnSlotState.READY,
         )
+
+    def test_native_json_ignores_dmat_column_when_slot_ready(self):
+        """Test that native JSON-backed property access ignores legacy dmat columns."""
+        self._create_ready_revenue_slot()
+
+        expr = parse_select("SELECT properties.revenue FROM events")
+        query, _ = prepare_and_print_ast(
+            expr,
+            HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True),
+            "clickhouse",
+        )
+
+        assert "dmat_numeric_3" not in query
+        assert "events.properties" in query
+
+    @patch("posthog.hogql.printer.base.is_clickhouse_json_column", return_value=False)
+    def test_uses_dmat_column_when_slot_ready_for_legacy_json(self, _mock_is_json_column):
+        """Test that legacy string-JSON property access still uses dmat when slot is READY."""
+        self._create_ready_revenue_slot()
 
         expr = parse_select("SELECT properties.revenue FROM events")
         query, _ = prepare_and_print_ast(
@@ -163,8 +183,9 @@ class TestDmatExtractionConsistency(ClickhouseTestMixin, APIBaseTest):
 
         return mapping
 
+    @patch("posthog.hogql.printer.base.is_clickhouse_json_column", return_value=False)
     @pytest.mark.django_db(transaction=True)
-    def test_dmat_extraction_matches_json_for_all_property_types(self):
+    def test_dmat_extraction_matches_json_for_all_property_types(self, _mock_is_json_column):
         """
         Verify dmat columns produce identical results to JSON extraction.
 
@@ -178,8 +199,6 @@ class TestDmatExtractionConsistency(ClickhouseTestMixin, APIBaseTest):
         This ensures _generate_property_extraction_sql() produces the same output
         as HogQL's property type wrappers (toFloat, toBool, toDateTime).
         """
-        from posthog.hogql.query import execute_hogql_query
-
         # Build test data
         event_properties = {tc.name: tc.input_value for tc in TEST_CASES}
         slot_mapping = self._build_slot_mapping()

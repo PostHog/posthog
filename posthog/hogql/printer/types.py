@@ -48,3 +48,31 @@ class PrintableMaterializedPropertyGroupItem:
     @property
     def value_expr(self) -> str:
         return f"{self.__qualified_column}[{self.property_name}]"
+
+
+@dataclass
+class PrintableJSONSubcolumn:
+    table: str | None
+    column: str
+    chain: list[str]
+    raw_path_args: list[str]
+    tuple_element_chain: list[str] | None = None
+    cast_value_to_string: bool = False
+    null_if_missing_or_null: bool = True
+
+    def __str__(self) -> str:
+        source_field = self.column if self.table is None else f"{self.table}.{self.column}"
+        field = self.column if self.table is None else f"({source_field})"
+        if self.tuple_element_chain is not None:
+            expression = field
+            for chain_part in self.tuple_element_chain:
+                expression = f"tupleElement({expression}, {chain_part})"
+        else:
+            expression = ".".join([field, *self.chain])
+        if self.cast_value_to_string:
+            expression = f"toString({expression})"
+        if self.null_if_missing_or_null:
+            path_args = ", ".join(self.raw_path_args)
+            raw_value = f"JSONExtractRaw({source_field}, {path_args})"
+            return f"if(isNull(nullIf(nullIf({raw_value}, ''), 'null')), NULL, {expression})"
+        return expression

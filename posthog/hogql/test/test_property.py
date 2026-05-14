@@ -1679,22 +1679,18 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
     # Sentinel to indicate a property should not be included in the event
     NOT_SET: Any = object()
 
-    # Expected is_set value can be True, False, or a callable(is_materialized) -> bool
-    # When materialized, empty string and "null" string become NULL due to nullIf wrapping
-    # (this is a long-standing bug, and it's ok to change these tests if you fix it!)
-    ONLY_WHEN_NOT_MATERIALIZED = staticmethod(lambda m: not m)
-
     def setUp(self):
         super().setUp()
         self.event_name = "test_is_set_event"
 
         # (property_name, value, property_type, expected_is_set)
-        # expected_is_set: True, False, or callable(is_materialized) -> bool
+        # With native ClickHouse JSON columns, legacy materialized columns are ignored, so materialization does not
+        # change the semantics of empty strings or the literal "null".
         self.test_cases: list[tuple[str, Any, PropertyType, Any]] = [
             # String type: value, empty, "null" literal, null, not set
             ("string_value_prop", "hello", PropertyType.String, True),
-            ("string_empty_prop", "", PropertyType.String, self.ONLY_WHEN_NOT_MATERIALIZED),
-            ("string_null_literal_prop", "null", PropertyType.String, self.ONLY_WHEN_NOT_MATERIALIZED),
+            ("string_empty_prop", "", PropertyType.String, True),
+            ("string_null_literal_prop", "null", PropertyType.String, True),
             ("string_null_prop", None, PropertyType.String, False),
             ("string_not_set_prop", self.NOT_SET, PropertyType.String, False),
             # Numeric type: zero, non-zero int, non-zero float, string values, null, not set
@@ -1740,13 +1736,10 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
             properties=properties,
         )
 
-    def _expected_is_set_values(self, is_materialized: bool) -> dict[str, int]:
+    def _expected_is_set_values(self, _is_materialized: bool) -> dict[str, int]:
         result = {}
         for prop_name, _, _, expected in self.test_cases:
-            if callable(expected):
-                result[prop_name] = 1 if expected(is_materialized) else 0
-            else:
-                result[prop_name] = 1 if expected else 0
+            result[prop_name] = 1 if expected else 0
         return result
 
     def _expected_is_not_set_values(self, is_materialized: bool) -> dict[str, int]:

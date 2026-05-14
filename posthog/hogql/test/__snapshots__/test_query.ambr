@@ -3,16 +3,16 @@
   '''
   -- ClickHouse
   
-  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s)) AS id, count(DISTINCT events.uuid) AS occurrences, count(DISTINCT nullIf(events.`$session_id`, %(hogql_val_3)s)) AS sessions, count(DISTINCT events.distinct_id) AS users, max(toTimeZone(events.timestamp, %(hogql_val_4)s)) AS last_seen, min(toTimeZone(events.timestamp, %(hogql_val_5)s)) AS first_seen, reverse(arrayMap(x -> countEqual(groupArray(dateDiff(%(hogql_val_6)s, toStartOfHour(toTimeZone(events.timestamp, %(hogql_val_7)s)), toStartOfHour(now64(6, %(hogql_val_8)s)))), x), range(24))) AS volumeDay, reverse(arrayMap(x -> countEqual(groupArray(dateDiff(%(hogql_val_9)s, toStartOfDay(toTimeZone(events.timestamp, %(hogql_val_10)s)), toStartOfDay(now64(6, %(hogql_val_11)s)))), x), range(31))) AS volumeMonth, reverse(arrayMap(x -> countEqual(groupArray(dateDiff(%(hogql_val_12)s, toStartOfHour(toTimeZone(events.timestamp, %(hogql_val_13)s)), toStartOfHour(now64(6, %(hogql_val_14)s)))), x), range(168))) AS customVolume 
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull((events.properties).`$exception_issue_id`, %(hogql_val_0)s)) AS id, count(DISTINCT events.uuid) AS occurrences, count(DISTINCT nullIf(events.`$session_id`, %(hogql_val_1)s)) AS sessions, count(DISTINCT events.distinct_id) AS users, max(toTimeZone(events.timestamp, %(hogql_val_2)s)) AS last_seen, min(toTimeZone(events.timestamp, %(hogql_val_3)s)) AS first_seen, reverse(arrayMap(x -> countEqual(groupArray(dateDiff(%(hogql_val_4)s, toStartOfHour(toTimeZone(events.timestamp, %(hogql_val_5)s)), toStartOfHour(now64(6, %(hogql_val_6)s)))), x), range(24))) AS volumeDay, reverse(arrayMap(x -> countEqual(groupArray(dateDiff(%(hogql_val_7)s, toStartOfDay(toTimeZone(events.timestamp, %(hogql_val_8)s)), toStartOfDay(now64(6, %(hogql_val_9)s)))), x), range(31))) AS volumeMonth, reverse(arrayMap(x -> countEqual(groupArray(dateDiff(%(hogql_val_10)s, toStartOfHour(toTimeZone(events.timestamp, %(hogql_val_11)s)), toStartOfHour(now64(6, %(hogql_val_12)s)))), x), range(168))) AS customVolume 
   FROM events LEFT OUTER JOIN (
   SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id, error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint 
   FROM error_tracking_issue_fingerprint_overrides 
   WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999) 
   GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint 
   HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint) 
-  WHERE and(equals(events.team_id, 99999), and(equals(events.event, %(hogql_val_15)s), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_16)s), ''), 'null'), '^"|"$', ''), %(hogql_val_17)s))), or(and(greater(toTimeZone(events.timestamp, %(hogql_val_18)s), parseDateTime64BestEffort(%(hogql_val_19)s, 6, %(hogql_val_20)s)), less(toTimeZone(events.timestamp, %(hogql_val_21)s), parseDateTime64BestEffort(%(hogql_val_22)s, 6, %(hogql_val_23)s))), and(greater(toTimeZone(events.timestamp, %(hogql_val_24)s), toDateTime(%(hogql_val_25)s, %(hogql_val_26)s)), less(toTimeZone(events.timestamp, %(hogql_val_27)s), toDateTime64(%(hogql_val_28)s, 6, %(hogql_val_29)s)))))) 
-  GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_30)s), ''), 'null'), '^"|"$', ''), %(hogql_val_31)s)) ORDER BY occurrences DESC 
+  SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals((events.properties).`$exception_fingerprint`, events__exception_issue_override.fingerprint) 
+  WHERE and(equals(events.team_id, 99999), and(equals(events.event, %(hogql_val_13)s), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull((events.properties).`$exception_issue_id`, %(hogql_val_14)s))), or(and(greater(toTimeZone(events.timestamp, %(hogql_val_15)s), parseDateTime64BestEffort(%(hogql_val_16)s, 6, %(hogql_val_17)s)), less(toTimeZone(events.timestamp, %(hogql_val_18)s), parseDateTime64BestEffort(%(hogql_val_19)s, 6, %(hogql_val_20)s))), and(greater(toTimeZone(events.timestamp, %(hogql_val_21)s), toDateTime(%(hogql_val_22)s, %(hogql_val_23)s)), less(toTimeZone(events.timestamp, %(hogql_val_24)s), toDateTime64(%(hogql_val_25)s, 6, %(hogql_val_26)s)))))) 
+  GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull((events.properties).`$exception_issue_id`, %(hogql_val_27)s)) ORDER BY occurrences DESC 
   LIMIT 51 OFFSET 0 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
@@ -79,15 +79,15 @@
   '''
   -- ClickHouse
   WITH latest_events AS (
-  SELECT events.distinct_id AS distinct_id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, %(hogql_val_1)s)) AS latest_os_version 
+  SELECT events.distinct_id AS distinct_id, argMax(if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, '$os_version'), ''), 'null')), NULL, (events.properties).`$os_version`), toTimeZone(events.timestamp, %(hogql_val_0)s)) AS latest_os_version 
   FROM events 
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s), 0), greaterOrEquals(events.timestamp, minus(now64(6, %(hogql_val_4)s), toIntervalDay(30)))) 
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null')), NULL, (events.properties).`$os`), %(hogql_val_1)s), 0), greaterOrEquals(events.timestamp, minus(now64(6, %(hogql_val_2)s), toIntervalDay(30)))) 
   GROUP BY events.distinct_id), major_versions AS (
-  SELECT latest_events.distinct_id AS distinct_id, latest_events.latest_os_version AS latest_os_version, splitByChar(%(hogql_val_5)s, ifNull(latest_events.latest_os_version, %(hogql_val_6)s))[1] AS major_version 
+  SELECT latest_events.distinct_id AS distinct_id, latest_events.latest_os_version AS latest_os_version, splitByChar(%(hogql_val_3)s, ifNull(latest_events.latest_os_version, %(hogql_val_4)s))[1] AS major_version 
   FROM latest_events) 
   SELECT major_versions.major_version AS major_version, count() AS user_count, round(divide(multiply(100, count()), sum(count()) OVER ()), 2) AS percentage 
   FROM major_versions 
-  WHERE in(major_versions.major_version, tuple(%(hogql_val_7)s, %(hogql_val_8)s, %(hogql_val_9)s)) 
+  WHERE in(major_versions.major_version, tuple(%(hogql_val_5)s, %(hogql_val_6)s, %(hogql_val_7)s)) 
   GROUP BY major_versions.major_version ORDER BY major_versions.major_version ASC 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
@@ -113,7 +113,7 @@
   
   SELECT events.event AS event, events.distinct_id AS distinct_id 
   FROM events 
-  WHERE and(equals(events.team_id, 99999), equals(events.distinct_id, %(hogql_val_0)s), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s), 0)) 
+  WHERE and(equals(events.team_id, 99999), equals(events.distinct_id, %(hogql_val_0)s), ifNull(equals(if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, 'index'), ''), 'null')), NULL, (events.properties).index), %(hogql_val_1)s), 0)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
@@ -140,7 +140,7 @@
   
   SELECT events.event AS event, events.distinct_id AS distinct_id 
   FROM events 
-  WHERE and(equals(events.team_id, 99999), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s), 0), less(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')))) 
+  WHERE and(equals(events.team_id, 99999), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, 'index'), ''), 'null')), NULL, (events.properties).index), %(hogql_val_1)s), 0), less(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')))) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
@@ -167,7 +167,7 @@
   
   SELECT e.event AS event, e.distinct_id AS distinct_id 
   FROM events AS e 
-  WHERE and(equals(e.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
+  WHERE and(equals(e.team_id, 99999), ifNull(equals(if(isNull(nullIf(nullIf(JSONExtractRaw(e.properties, 'random_uuid'), ''), 'null')), NULL, toString((e.properties).random_uuid)), %(hogql_val_0)s), 0)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
@@ -269,7 +269,7 @@
   '''
   -- ClickHouse
   
-  SELECT toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS timestamp, JSONExtractInt(events.properties, %(hogql_val_1)s) AS json_int 
+  SELECT toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS timestamp, JSONExtractInt(toJSONString(events.properties), %(hogql_val_1)s) AS json_int 
   FROM events 
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(timestamp, addDays(today(), -10)), equals(json_int, 17)) 
   LIMIT 1 
@@ -292,8 +292,8 @@
   SELECT session_replay_events.session_id AS session_id 
   FROM session_replay_events 
   WHERE equals(session_replay_events.team_id, 99999) 
-  GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, nullIf(nullIf(e.`$session_id`, ''), 'null')) 
-  WHERE and(equals(e.team_id, 99999), isNotNull(nullIf(nullIf(e.`$session_id`, ''), 'null'))) 
+  GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, if(isNull(nullIf(nullIf(JSONExtractRaw(e.properties, '$session_id'), ''), 'null')), NULL, (e.properties).`$session_id`)) 
+  WHERE and(equals(e.team_id, 99999), isNotNull(if(isNull(nullIf(nullIf(JSONExtractRaw(e.properties, '$session_id'), ''), 'null')), NULL, (e.properties).`$session_id`))) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
@@ -323,8 +323,8 @@
   SELECT session_replay_events.session_id AS session_id 
   FROM session_replay_events 
   WHERE equals(session_replay_events.team_id, 99999) 
-  GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')) 
-  WHERE and(equals(e.team_id, 99999), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''))) 
+  GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, if(isNull(nullIf(nullIf(JSONExtractRaw(e.properties, '$$$session_id'), ''), 'null')), NULL, toString((e.properties).`$$$session_id`))) 
+  WHERE and(equals(e.team_id, 99999), isNotNull(if(isNull(nullIf(nullIf(JSONExtractRaw(e.properties, '$$$session_id'), ''), 'null')), NULL, toString((e.properties).`$$$session_id`)))) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
@@ -475,7 +475,7 @@
   
   SELECT count() AS `count()`, events.event AS event 
   FROM events 
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_uuid'), ''), 'null')), NULL, toString((events.properties).random_uuid)), %(hogql_val_0)s), 0)) 
   GROUP BY events.event 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
@@ -992,7 +992,7 @@
   '''
   -- ClickHouse
   
-  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.person_id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS sneaky_mail 
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.person_id AS id, if(isNull(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'sneaky_mail'), ''), 'null')), NULL, toString((events.person_properties).sneaky_mail)) AS sneaky_mail 
   FROM events 
   WHERE equals(events.team_id, 99999) 
   LIMIT 10 
@@ -1009,10 +1009,10 @@
   '''
   -- ClickHouse
   
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(s.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS sneaky_mail, count() AS `count()` 
+  SELECT if(isNull(nullIf(nullIf(JSONExtractRaw(s.person_properties, 'sneaky_mail'), ''), 'null')), NULL, toString((s.person_properties).sneaky_mail)) AS sneaky_mail, count() AS `count()` 
   FROM events AS s 
   WHERE equals(s.team_id, 99999) 
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(s.person_properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') 
+  GROUP BY if(isNull(nullIf(nullIf(JSONExtractRaw(s.person_properties, 'sneaky_mail'), ''), 'null')), NULL, toString((s.person_properties).sneaky_mail)) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
@@ -1032,7 +1032,7 @@
   FROM (
   SELECT count() AS cnt, events.event AS event 
   FROM events 
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_uuid'), ''), 'null')), NULL, toString((events.properties).random_uuid)), %(hogql_val_0)s), 0)) 
   GROUP BY events.event) 
   GROUP BY cnt, event 
   LIMIT 100 
@@ -1058,7 +1058,7 @@
   FROM (
   SELECT count(*) AS cnt, events.event AS event 
   FROM events 
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_uuid'), ''), 'null')), NULL, toString((events.properties).random_uuid)), %(hogql_val_0)s), 0)) 
   GROUP BY events.event) AS c 
   GROUP BY c.cnt, c.event 
   LIMIT 100 
@@ -1084,10 +1084,10 @@
   FROM (
   SELECT col_a AS col_a, groupArray(tuple(col_b, col_c)) AS g 
   FROM (
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS col_a, events.event AS col_b, count() AS col_c 
+  SELECT if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, 'index'), ''), 'null')), NULL, (events.properties).index) AS col_a, events.event AS col_b, count() AS col_c 
   FROM events 
   WHERE equals(events.team_id, 99999) 
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), events.event) 
+  GROUP BY if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, 'index'), ''), 'null')), NULL, (events.properties).index), events.event) 
   GROUP BY col_a) 
   GROUP BY col_a ORDER BY col_a ASC 
   LIMIT 100 
@@ -1111,10 +1111,10 @@
   '''
   -- ClickHouse
   WITH PIVOT_TABLE_COL_ABC AS (
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS col_a, events.event AS col_b, count() AS col_c 
+  SELECT if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, 'index'), ''), 'null')), NULL, (events.properties).index) AS col_a, events.event AS col_b, count() AS col_c 
   FROM events 
   WHERE equals(events.team_id, 99999) 
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), events.event), PIVOT_FUNCTION_1 AS (
+  GROUP BY if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, 'index'), ''), 'null')), NULL, (events.properties).index), events.event), PIVOT_FUNCTION_1 AS (
   SELECT PIVOT_TABLE_COL_ABC.col_a AS col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
   FROM PIVOT_TABLE_COL_ABC 
   GROUP BY PIVOT_TABLE_COL_ABC.col_a), PIVOT_FUNCTION_2 AS (
@@ -1146,10 +1146,10 @@
   '''
   -- ClickHouse
   WITH PIVOT_TABLE_COL_ABC AS (
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS col_a, events.event AS col_b, count() AS col_c 
+  SELECT if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, 'index'), ''), 'null')), NULL, (events.properties).index) AS col_a, events.event AS col_b, count() AS col_c 
   FROM events 
   WHERE equals(events.team_id, 99999) 
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), events.event), PIVOT_FUNCTION_1 AS (
+  GROUP BY if(isNull(nullIf(nullIf(JSONExtractRaw(events.properties, 'index'), ''), 'null')), NULL, (events.properties).index), events.event), PIVOT_FUNCTION_1 AS (
   SELECT PIVOT_TABLE_COL_ABC.col_a AS col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
   FROM PIVOT_TABLE_COL_ABC 
   GROUP BY PIVOT_TABLE_COL_ABC.col_a), PIVOT_FUNCTION_2 AS (

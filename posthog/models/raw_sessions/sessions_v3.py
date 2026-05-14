@@ -2,6 +2,8 @@ from typing import Optional
 
 from django.conf import settings
 
+from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
+
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
 """Raw sessions table v3
@@ -255,68 +257,52 @@ SESSION_V3_LOWER_TIER_AD_IDS = [
 
 new_line = "\n"
 
+
+def source_json_string_column(column_name: str, source_column: str = "properties") -> str:
+    raw_path = f"JSONExtractRaw({source_column}, {escape_clickhouse_string(column_name)})"
+    subcolumn = f"{source_column}.{escape_clickhouse_identifier(column_name)}"
+    return f"if(isNull(nullIf(nullIf({raw_path}, ''), 'null')), NULL, toString({subcolumn}))"
+
+
+def source_json_int_column(column_name: str, source_column: str = "properties") -> str:
+    return f"accurateCastOrNull({source_json_string_column(column_name, source_column)}, 'Int64')"
+
+
 # See https://kb.altinity.com/altinity-kb-queries-and-syntax/jsonextract-to-parse-many-attributes-at-a-time/
 # Or https://posthog.slack.com/archives/C02JQ320FV3/p1721406540313379?thread_ts=1721334861.073739&cid=C02JQ320FV3
 PROPERTIES = f"""
-        JSONExtract(properties, 'Tuple(
-            `$current_url` Nullable(String),
-            `$external_click_url` Nullable(String),
-            `$browser` Nullable(String),
-            `$browser_version` Nullable(String),
-            `$os` Nullable(String),
-            `$os_version` Nullable(String),
-            `$device_type` Nullable(String),
-            `$viewport_width` Nullable(Int64),
-            `$viewport_height` Nullable(Int64),
-            `$geoip_country_code` Nullable(String),
-            `$geoip_subdivision_1_code` Nullable(String),
-            `$geoip_subdivision_1_name` Nullable(String),
-            `$geoip_subdivision_city_name` Nullable(String),
-            `$geoip_time_zone` Nullable(String),
-            `$referring_domain` Nullable(String),
-            `utm_source` Nullable(String),
-            `utm_campaign` Nullable(String),
-            `utm_medium` Nullable(String),
-            `utm_term` Nullable(String),
-            `utm_content` Nullable(String),
-            `gclid` Nullable(String),
-            `gad_source` Nullable(String),
-            `fbclid` Nullable(String),
-            `$host` Nullable(String),
-{f",{new_line}".join([f"            `{ad_id}` Nullable(String)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
-        )') as p,
-        JSONExtractString(person_properties, 'email') as _person_email,
-        tupleElement(p, '$current_url') as _current_url,
-        tupleElement(p, '$external_click_url') as _external_click_url,
-        tupleElement(p, '$browser') as _browser,
-        tupleElement(p, '$browser_version') as _browser_version,
-        tupleElement(p, '$os') as _os,
-        tupleElement(p, '$os_version') as _os_version,
-        tupleElement(p, '$device_type') as _device_type,
-        tupleElement(p, '$viewport_width') as _viewport_width,
-        tupleElement(p, '$viewport_height') as _viewport_height,
-        tupleElement(p, '$geoip_country_code') as _geoip_country_code,
-        tupleElement(p, '$geoip_subdivision_1_code') as _geoip_subdivision_1_code,
-        tupleElement(p, '$geoip_subdivision_1_name') as _geoip_subdivision_1_name,
-        tupleElement(p, '$geoip_subdivision_city_name') as _geoip_subdivision_city_name,
-        tupleElement(p, '$geoip_time_zone') as _geoip_time_zone,
-        tupleElement(p, '$referring_domain') as _referring_domain,
-        tupleElement(p, 'utm_source') as _utm_source,
-        tupleElement(p, 'utm_campaign') as _utm_campaign,
-        tupleElement(p, 'utm_medium') as _utm_medium,
-        tupleElement(p, 'utm_term') as _utm_term,
-        tupleElement(p, 'utm_content') as _utm_content,
-        tupleElement(p, 'gclid') as _gclid,
-        tupleElement(p, 'gad_source') as _gad_source,
-        tupleElement(p, 'fbclid') as _fbclid,
-{f",{new_line}".join([f"        tupleElement(p, '{ad_id}') as {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])},
+        {source_json_string_column("email", "person_properties")} as _person_email,
+        {source_json_string_column("$current_url")} as _current_url,
+        {source_json_string_column("$external_click_url")} as _external_click_url,
+        {source_json_string_column("$browser")} as _browser,
+        {source_json_string_column("$browser_version")} as _browser_version,
+        {source_json_string_column("$os")} as _os,
+        {source_json_string_column("$os_version")} as _os_version,
+        {source_json_string_column("$device_type")} as _device_type,
+        {source_json_int_column("$viewport_width")} as _viewport_width,
+        {source_json_int_column("$viewport_height")} as _viewport_height,
+        {source_json_string_column("$geoip_country_code")} as _geoip_country_code,
+        {source_json_string_column("$geoip_subdivision_1_code")} as _geoip_subdivision_1_code,
+        {source_json_string_column("$geoip_subdivision_1_name")} as _geoip_subdivision_1_name,
+        {source_json_string_column("$geoip_subdivision_city_name")} as _geoip_subdivision_city_name,
+        {source_json_string_column("$geoip_time_zone")} as _geoip_time_zone,
+        {source_json_string_column("$referring_domain")} as _referring_domain,
+        {source_json_string_column("utm_source")} as _utm_source,
+        {source_json_string_column("utm_campaign")} as _utm_campaign,
+        {source_json_string_column("utm_medium")} as _utm_medium,
+        {source_json_string_column("utm_term")} as _utm_term,
+        {source_json_string_column("utm_content")} as _utm_content,
+        {source_json_string_column("gclid")} as _gclid,
+        {source_json_string_column("gad_source")} as _gad_source,
+        {source_json_string_column("fbclid")} as _fbclid,
+{f",{new_line}".join([f"        {source_json_string_column(ad_id)} as {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])},
         CAST(mapFilter((k, v) -> v IS NOT NULL, map(
 {f",{new_line}".join([f"            '{ad_id}', {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
         )) AS Map(String, String)) as ad_ids_map,
         CAST(arrayFilter(x -> x IS NOT NULL, [
 {f",{new_line}".join([f"            if({ad_id} IS NOT NULL, '{ad_id}', NULL)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
         ]) AS Array(String)) as ad_ids_set,
-        tupleElement(p, '$host') as _host"""
+        {source_json_string_column("$host")} as _host"""
 
 
 def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False):

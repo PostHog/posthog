@@ -97,6 +97,16 @@ class StringJSONDatabaseField(DatabaseField):
         return ""
 
 
+class JSONDatabaseField(StringJSONDatabaseField):
+    """
+    ClickHouse's native JSON type.
+
+    HogQL treats native JSON columns like string-backed JSON for resolution and
+    type inference, but printers can use this marker to emit native subcolumn
+    access instead of JSONExtract* calls.
+    """
+
+
 class StructDatabaseField(DatabaseField):
     fields: dict[str, "DatabaseField"] = PydanticField(default_factory=dict)
 

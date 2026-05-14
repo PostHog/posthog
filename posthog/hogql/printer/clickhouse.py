@@ -11,7 +11,13 @@ from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
 from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, SavedQuery
+from posthog.hogql.database.models import (
+    DANGEROUS_NoTeamIdCheckTable,
+    DatabaseField,
+    FunctionCallTable,
+    JSONDatabaseField,
+    SavedQuery,
+)
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
@@ -23,6 +29,7 @@ from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMa
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import GetFieldsTraverser, TraversingVisitor, clone_expr
 
+from posthog.clickhouse.json_columns import is_clickhouse_json_column
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
@@ -36,6 +43,28 @@ _NON_EQUALITY_JOIN_OPS = frozenset(
         ast.CompareOperationOp.Lt,
         ast.CompareOperationOp.LtEq,
         ast.CompareOperationOp.NotEq,
+    }
+)
+
+_JSON_STRING_SOURCE_FUNCTIONS = frozenset(
+    {
+        "isValidJSON",
+        "JSONArrayLength",
+        "JSONExtract",
+        "JSONExtractArrayRaw",
+        "JSONExtractBool",
+        "JSONExtractFloat",
+        "JSONExtractInt",
+        "JSONExtractKeys",
+        "JSONExtractKeysAndValues",
+        "JSONExtractKeysAndValuesRaw",
+        "JSONExtractRaw",
+        "JSONExtractString",
+        "JSONExtractUInt",
+        "JSONHas",
+        "JSONLength",
+        "JSONType",
+        "JSON_VALUE",
     }
 )
 
@@ -242,6 +271,13 @@ class ClickHousePrinter(BasePrinter):
             # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
             args.insert(1, WeekStartDay(self._get_week_start_day()).clickhouse_mode)
 
+        if (
+            relevant_clickhouse_name in _JSON_STRING_SOURCE_FUNCTIONS
+            and node.args
+            and self._is_native_json_source(node.args[0])
+        ):
+            args[0] = f"toJSONString({args[0]})"
+
         if node.name == "trimLeft" and len(args) == 2:
             return f"trim(LEADING {args[1]} FROM {args[0]})"
         elif node.name == "trimRight" and len(args) == 2:
@@ -322,6 +358,46 @@ class ClickHousePrinter(BasePrinter):
             raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
 
         return super().visit_select_query(node)
+
+    def _print_select_column(self, column: ast.Expr) -> str:
+        if isinstance(column, ast.Alias) and not column.hidden:
+            expr_sql = self.visit(column.expr)
+            if self._is_native_json_source(column.expr) or self._is_native_json_field_sql(expr_sql):
+                return f"toJSONString({expr_sql}) AS {self._print_identifier(column.alias)}"
+            return f"{expr_sql} AS {self._print_identifier(column.alias)}"
+        column_sql = self.visit(column)
+        if self._is_native_json_source(column) or self._is_native_json_field_sql(column_sql):
+            return f"toJSONString({column_sql})"
+        return column_sql
+
+    def visit_asterisk_type(self, type: ast.AsteriskType):
+        for stack_node in reversed(self.stack[:-1]):
+            if isinstance(stack_node, ast.Call):
+                return super().visit_asterisk_type(type)
+            if isinstance(stack_node, ast.SelectQuery):
+                break
+
+        if not isinstance(type.table_type, ast.BaseTableType):
+            return super().visit_asterisk_type(type)
+
+        table = type.table_type.resolve_database_table(self.context)
+        if not hasattr(table, "get_asterisk"):
+            return super().visit_asterisk_type(type)
+
+        field_names = (
+            type.table_type.alias_to_original.keys()
+            if isinstance(type.table_type, ast.ColumnAliasedTableType)
+            else table.get_asterisk().keys()
+        )
+        columns: list[str] = []
+        for field_name in field_names:
+            field_type = ast.FieldType(name=field_name, table_type=type.table_type)
+            field_sql = self.visit_field_type(field_type)
+            if self._is_native_json_field_type(field_type):
+                field_sql = f"toJSONString({field_sql})"
+            columns.append(f"{field_sql} AS {self._print_identifier(field_name)}")
+
+        return ", ".join(columns)
 
     def visit_join_expr(self, node: ast.JoinExpr):
         if node.type is None:
@@ -463,10 +539,17 @@ class ClickHousePrinter(BasePrinter):
         if not isinstance(table, ast.TableType):
             return None
 
-        table_name = table.table.to_printed_clickhouse(self.context)
         if field is None or not isinstance(field, DatabaseField):
             return None
         field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
+        if isinstance(field, JSONDatabaseField):
+            return None
+        if isinstance(table.table, FunctionCallTable):
+            return None
+
+        table_name = table.table.to_printed_clickhouse(self.context)
+        if is_clickhouse_json_column(table_name, field_name):
+            return None
 
         for property_group_column in property_groups.get_property_group_columns(table_name, field_name, property_name):
             return PrintableMaterializedPropertyGroupItem(
@@ -1232,6 +1315,35 @@ class ClickHousePrinter(BasePrinter):
 
         return super().visit_call(node)
 
+    def _is_native_json_source(self, arg: ast.Expr) -> bool:
+        field_type = resolve_field_type(arg)
+        if not isinstance(field_type, ast.FieldType):
+            return False
+
+        return self._is_native_json_field_type(field_type)
+
+    def _is_native_json_field_type(self, field_type: ast.FieldType) -> bool:
+        field = field_type.resolve_database_field(self.context)
+        table = field_type.table_type
+        while isinstance(table, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
+            table = table.table_type
+
+        if field is None or not isinstance(field, DatabaseField) or not isinstance(table, ast.TableType):
+            return False
+
+        if isinstance(field, JSONDatabaseField):
+            return True
+        if isinstance(table.table, FunctionCallTable):
+            return False
+        return is_clickhouse_json_column(table.table.to_printed_clickhouse(self.context), str(field.name))
+
+    def _is_native_json_field_sql(self, field_sql: str) -> bool:
+        match = re.fullmatch(r"`?([A-Za-z_][A-Za-z0-9_]*)`?\.`?([^`.]+)`?", field_sql)
+        if match is None:
+            return False
+        table_name, field_name = match.groups()
+        return is_clickhouse_json_column(table_name, field_name)
+
     def visit_array_slice(self, node: ast.ArraySlice):
         array_str = self.visit(node.array)
         start_str = self.visit(node.start_expr) if node.start_expr is not None else "1"
@@ -1341,7 +1453,7 @@ class ClickHousePrinter(BasePrinter):
                     printed_alias = column_alias
                 else:
                     printed_alias = None
-            columns_sql.append(self.visit(column))
+            columns_sql.append(self._print_select_column(column))
             if printed_alias is not None:
                 used_aliases.add(printed_alias)
 

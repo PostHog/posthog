@@ -768,13 +768,18 @@ class UnresolvedFieldType(Type):
 class PropertyType(Type):
     chain: list[str | int]
     field_type: FieldType
+    null_if_missing_or_null: bool = True
 
     # The property has been moved into a field we query from a joined subquery
     joined_subquery: Optional[SelectQueryAliasType] = field(default=None, init=False)
     joined_subquery_field_name: Optional[str] = field(default=None, init=False)
 
     def get_child(self, name: str | int, context: HogQLContext) -> Type:
-        return PropertyType(chain=[*self.chain, name], field_type=self.field_type)
+        return PropertyType(
+            chain=[*self.chain, name],
+            field_type=self.field_type,
+            null_if_missing_or_null=self.null_if_missing_or_null,
+        )
 
     def has_child(self, name: str | int, context: HogQLContext) -> bool:
         return True

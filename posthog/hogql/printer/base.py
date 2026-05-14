@@ -20,7 +20,13 @@ from posthog.hogql.constants import (
     get_max_limit_for_context,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField, FunctionCallTable, Table
+from posthog.hogql.database.models import (
+    DatabaseField,
+    FunctionCallTable,
+    JSONDatabaseField,
+    StringJSONDatabaseField,
+    Table,
+)
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.functions import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
@@ -32,6 +38,7 @@ from posthog.hogql.functions.mapping import (
 )
 from posthog.hogql.printer.types import (
     JoinExprResponse,
+    PrintableJSONSubcolumn,
     PrintableMaterializedColumn,
     PrintableMaterializedPropertyGroupItem,
 )
@@ -39,7 +46,9 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import Visitor, clone_expr
 
+from posthog.clickhouse.json_columns import get_clickhouse_json_typed_path_type, is_clickhouse_json_column
 from posthog.clickhouse.materialized_columns import (
+    MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
     TablesWithMaterializedColumns,
     get_materialized_column_for_property,
@@ -1237,28 +1246,36 @@ class BasePrinter(Visitor[str]):
 
     def _get_materialized_property_source_for_property_type(
         self, type: ast.PropertyType
-    ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
+    ) -> PrintableJSONSubcolumn | PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
         """
         Find the most efficient materialized property source for the provided property type.
         """
-        for source in self._get_all_materialized_property_sources(type.field_type, str(type.chain[0])):
+        for source in self._get_all_materialized_property_sources(type.field_type, type.chain):
             return source
         return None
 
     def _get_table_name(self, table: ast.TableType) -> str:
         return table.table.to_printed_hogql()
 
+    def _get_clickhouse_table_name(self, table: ast.TableType) -> str:
+        return table.table.to_printed_clickhouse(self.context)
+
+    def _get_json_detection_table_name(self, table: ast.TableType) -> str | None:
+        if isinstance(table.table, FunctionCallTable):
+            return None
+        return self._get_clickhouse_table_name(table)
+
     def _get_all_materialized_property_sources(
-        self, field_type: ast.FieldType, property_name: str
-    ) -> Iterable[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
+        self, field_type: ast.FieldType, property_chain: list[str | int]
+    ) -> Iterable[PrintableJSONSubcolumn | PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
         """
         Find all materialized property sources for the provided field type and property name, ordered from what is
         likely to be the most efficient access path to the least efficient.
         """
-        # TODO: It likely makes sense to make this independent of whether or not property groups are used.
-        if self.context.modifiers.materializationMode == "disabled":
+        if not property_chain:
             return
 
+        property_name = str(property_chain[0])
         field = field_type.resolve_database_field(self.context)
 
         # check for a materialised column
@@ -1275,15 +1292,55 @@ class BasePrinter(Visitor[str]):
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-            # In non-HogQL contexts (legacy queries, data deletion predicates) the consumer splices
-            # this fragment into a query whose table scope is fixed and known (e.g. ``events e``,
-            # ``DELETE FROM sharded_events``). Mirror what visit_field_type already does for regular
-            # columns at line 1201: drop the table prefix. In particular, lightweight DELETE rewrites
-            # the predicate into a mutation, whose expression analyzer rejects table-qualified
-            # references like ``sharded_events.mat_$current_url`` even when the column exists.
-            table_prefix: str | None = (
-                None if self.context.within_non_hogql_query else self.visit(field_type.table_type)
-            )
+            if (
+                self.DIALECT_NAME == "clickhouse"
+                and all(isinstance(chain_part, str) for chain_part in property_chain)
+                and isinstance(field, StringJSONDatabaseField)
+            ):
+                clickhouse_table_name = self._get_json_detection_table_name(table)
+                is_native_json_field = isinstance(field, JSONDatabaseField) or (
+                    clickhouse_table_name is not None and is_clickhouse_json_column(clickhouse_table_name, field.name)
+                )
+                if is_native_json_field:
+                    printed_chain: list[str] = []
+                    tuple_element_chain: list[str] | None = None
+                    for chain_part in property_chain:
+                        try:
+                            printed_chain.append(self._print_identifier(str(chain_part)))
+                        except QueryError:
+                            tuple_element_chain = [
+                                self.context.add_value(str(chain_part)) for chain_part in property_chain
+                            ]
+                            break
+                    string_property_chain = tuple(str(chain_part) for chain_part in property_chain)
+
+                    typed_path_type = (
+                        get_clickhouse_json_typed_path_type(clickhouse_table_name, field.name, string_property_chain)
+                        if clickhouse_table_name is not None
+                        else None
+                    )
+                    is_typed_path = typed_path_type is not None
+                    is_nullable_typed_path = bool(typed_path_type and typed_path_type.startswith("Nullable("))
+                    null_if_missing_or_null = not is_nullable_typed_path
+                    yield PrintableJSONSubcolumn(
+                        self._get_property_source_table_prefix(field_type),
+                        self._print_identifier(field.name),
+                        printed_chain,
+                        [self._print_escaped_string(str(chain_part)) for chain_part in property_chain],
+                        tuple_element_chain,
+                        not is_typed_path,
+                        null_if_missing_or_null,
+                    )
+                    return
+
+            # TODO: It likely makes sense to make this independent of whether or not property groups are used.
+            if self.context.modifiers.materializationMode == "disabled":
+                return
+
+            if table_name not in MATERIALIZATION_VALID_TABLES:
+                return
+
+            table_prefix = self._get_property_source_table_prefix(field_type)
 
             materialized_column = self._get_materialized_column(table_name, property_name, field_name)
             if materialized_column is not None:
@@ -1326,12 +1383,27 @@ class BasePrinter(Visitor[str]):
                     has_bloom_filter_index=materialized_column.has_bloom_filter_index,
                 )
 
+    def _get_property_source_table_prefix(self, field_type: ast.FieldType) -> str | None:
+        # In non-HogQL contexts (legacy queries, data deletion predicates) the consumer splices
+        # this fragment into a query whose table scope is fixed and known (e.g. ``events e``,
+        # ``DELETE FROM sharded_events``). Mirror what visit_field_type already does for regular
+        # columns at line 1201: drop the table prefix. In particular, lightweight DELETE rewrites
+        # the predicate into a mutation, whose expression analyzer rejects table-qualified
+        # references like ``sharded_events.mat_$current_url`` even when the column exists.
+        return None if self.context.within_non_hogql_query else self.visit(field_type.table_type)
+
     def visit_property_type(self, type: ast.PropertyType):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
         materialized_property_source = self._get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
+            if isinstance(materialized_property_source, PrintableJSONSubcolumn):
+                materialized_property_source.null_if_missing_or_null = (
+                    materialized_property_source.null_if_missing_or_null and type.null_if_missing_or_null
+                )
+                return str(materialized_property_source)
+
             # Special handling for $ai_trace_id, $ai_session_id, and $ai_is_error to avoid nullIf wrapping for index optimization
             if (
                 len(type.chain) == 1
@@ -1359,7 +1431,29 @@ class BasePrinter(Visitor[str]):
                     self._json_property_args(type.chain[1:]),
                 )
 
-        return self._unsafe_json_extract_trim_quotes(self.visit(type.field_type), self._json_property_args(type.chain))
+        field_sql = self.visit(type.field_type)
+        if self._is_clickhouse_json_field(type.field_type):
+            field_sql = f"toJSONString({field_sql})"
+        return self._unsafe_json_extract_trim_quotes(field_sql, self._json_property_args(type.chain))
+
+    def _is_clickhouse_json_field(self, field_type: ast.FieldType) -> bool:
+        if self.DIALECT_NAME != "clickhouse":
+            return False
+
+        field = field_type.resolve_database_field(self.context)
+        if not isinstance(field, StringJSONDatabaseField):
+            return False
+        if isinstance(field, JSONDatabaseField):
+            return True
+
+        table = field_type.table_type
+        while isinstance(table, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
+            table = table.table_type
+        if not isinstance(table, ast.TableType):
+            return False
+
+        clickhouse_table_name = self._get_json_detection_table_name(table)
+        return clickhouse_table_name is not None and is_clickhouse_json_column(clickhouse_table_name, field.name)
 
     def visit_sample_expr(self, node: ast.SampleExpr) -> Optional[str]:
         # SAMPLE 1 means no sampling, skip it entirely
