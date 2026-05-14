@@ -1,6 +1,7 @@
 import chalk from 'chalk'
 import { highlight } from 'cli-highlight'
 import Table from 'cli-table3'
+import { run as runJq } from 'node-jq'
 import { createRequire } from 'node:module'
 
 import {
@@ -177,19 +178,16 @@ function truncate(value: string, maxLength: number): string {
     return `${value.slice(0, maxLength - 1)}…`
 }
 
-function printRawJson(result: unknown): void {
-    console.log(JSON.stringify(result, null, 2))
-}
-
-function printPrettyJson(result: unknown): void {
-    const json = JSON.stringify(result, null, 2)
-
+function printHighlightedJson(json: string): void {
     if (!process.stdout.isTTY) {
         console.log(json)
         return
     }
-
     console.log(highlight(json, { language: 'json', ignoreIllegals: true }))
+}
+
+function printPrettyJson(result: unknown): void {
+    printHighlightedJson(JSON.stringify(result, null, 2))
 }
 
 function printListTable(result: unknown, emptyMessage: string, columns: TableColumn[]): void {
@@ -1247,9 +1245,27 @@ function printHumanResult(toolName: string, result: unknown): void {
     printPrettyJson(result)
 }
 
-export function printResult(argv: unknown, toolName: string, result: unknown): void {
+export async function applyJqFilter(filter: string, result: unknown): Promise<string> {
+    const output = await runJq(filter, result as Parameters<typeof runJq>[1], {
+        input: 'json',
+        output: 'pretty',
+    })
+    return typeof output === 'string' ? output : JSON.stringify(output ?? null, null, 2)
+}
+
+export async function printResult(argv: unknown, toolName: string, result: unknown): Promise<void> {
     if (isRecord(argv) && argv.json === true) {
-        printRawJson(result)
+        if (typeof argv.jq === 'string' && argv.jq.length > 0) {
+            try {
+                const filtered = await applyJqFilter(argv.jq, result)
+                printHighlightedJson(filtered)
+            } catch (error) {
+                console.error(chalk.red('jq error:'), (error as Error).message)
+                process.exit(1)
+            }
+            return
+        }
+        printPrettyJson(result)
         return
     }
 

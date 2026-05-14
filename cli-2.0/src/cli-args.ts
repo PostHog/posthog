@@ -1,4 +1,4 @@
-const INTERNAL_COMMAND_PARAM_KEYS = new Set(['_', '$0', 'mcpContext', 'json', 'projectId', 'project-id'])
+const INTERNAL_COMMAND_PARAM_KEYS = new Set(['_', '$0', 'mcpContext', 'json', 'jq', 'projectId', 'project-id'])
 
 export function getProjectIdOverride(argv: Record<string, unknown>): string | undefined {
     const rawProjectId = argv.projectId ?? argv['project-id']

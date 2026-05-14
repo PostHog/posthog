@@ -31,6 +31,7 @@ describe('buildCommandParams', () => {
                 $0: 'ph',
                 mcpContext: {},
                 json: true,
+                jq: '.[0]',
                 projectId: '123',
                 'project-id': '123',
                 id: 'flag-id',
