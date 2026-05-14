@@ -31,9 +31,14 @@ export function SignupForm(): JSX.Element | null {
         panel,
         passkeySignupEnabled,
         panelTitle,
+        showReferralSignupBanner,
     } = useValues(signupLogic)
     const { setPanel } = useActions(signupLogic)
     const [showSpinner, setShowSpinner] = useState(true)
+
+    const referralSignupBanner = showReferralSignupBanner ? (
+        <LemonBanner type="info">You're signing up from a PostHog referral link.</LemonBanner>
+    ) : null
 
     useEffect(() => {
         setShowSpinner(true)
@@ -48,6 +53,7 @@ export function SignupForm(): JSX.Element | null {
         return !user ? (
             <div className="deprecated-space-y-2">
                 {panelTitle ? <h2>{panelTitle}</h2> : null}
+                {referralSignupBanner}
                 {!isSignupPanelOnboardingSubmitting && signupPanelOnboardingManualErrors?.generic && (
                     <LemonBanner type="error">
                         {signupPanelOnboardingManualErrors.generic?.detail ||
@@ -96,6 +102,7 @@ export function SignupForm(): JSX.Element | null {
     return !user ? (
         <div className="deprecated-space-y-2">
             {panelTitle ? <h2>{panelTitle}</h2> : null}
+            {referralSignupBanner}
             {!isSignupPanel2Submitting && signupPanel2ManualErrors?.generic && (
                 <LemonBanner type="error">
                     {signupPanel2ManualErrors.generic?.detail || 'Could not complete your signup. Please try again.'}
