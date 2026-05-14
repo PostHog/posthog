@@ -79,24 +79,27 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(self._expr("1e-18"), ast.Constant(value=1e-18))
             self.assertEqual(self._expr("2.34e+20"), ast.Constant(value=2.34e20))
 
-        def test_hexadecimal_literals(self):
-            # Regression: HEXADECIMAL_LITERAL tokens were being parsed via base-10 stoll/int,
-            # which stops at the 'x' and silently yields 0.
-            self.assertEqual(self._expr("0x1F"), ast.Constant(value=31))
-            self.assertEqual(self._expr("0x0"), ast.Constant(value=0))
-            self.assertEqual(self._expr("0xff"), ast.Constant(value=255))
-            self.assertEqual(self._expr("-0x1F"), ast.Constant(value=-31))
-
-        def test_octal_literals(self):
-            # Regression: OCTAL_LITERAL tokens (leading '0' followed by octal digits) were
-            # being parsed as base-10 integers, e.g. "017" → 17 instead of 15.
-            self.assertEqual(self._expr("017"), ast.Constant(value=15))
-            self.assertEqual(self._expr("-017"), ast.Constant(value=-15))
-
-        def test_positive_inf_literal(self):
-            # Regression: the grammar admits `(PLUS | DASH)? INF`, but the visitor only
-            # matched the exact strings "inf" and "-inf", so "+inf" fell through to NaN.
-            self.assertEqual(self._expr("+inf"), ast.Constant(value=float("inf")))
+        @parameterized.expand(
+            [
+                # Hex: HEXADECIMAL_LITERAL tokens were being parsed via base-10 stoll/int,
+                # which stops at the 'x' and silently yielded 0.
+                ("hex_positive", "0x1F", 31),
+                ("hex_zero", "0x0", 0),
+                ("hex_ff", "0xff", 255),
+                ("hex_negative", "-0x1F", -31),
+                ("hex_positive_sign", "+0x1F", 31),
+                # Octal: OCTAL_LITERAL tokens were being parsed as base-10 integers,
+                # e.g. "017" → 17 instead of 15.
+                ("octal_positive", "017", 15),
+                ("octal_negative", "-017", -15),
+                ("octal_positive_sign", "+017", 15),
+                # +inf: grammar admits `(PLUS | DASH)? INF`, but visitor only matched
+                # "inf" and "-inf", so "+inf" fell through to NaN.
+                ("positive_inf", "+inf", float("inf")),
+            ]
+        )
+        def test_signed_radix_number_literals(self, _name: str, expr: str, expected: int | float):
+            self.assertEqual(self._expr(expr), ast.Constant(value=expected))
 
         def test_booleans(self):
             self.assertEqual(self._expr("true"), ast.Constant(value=True))
