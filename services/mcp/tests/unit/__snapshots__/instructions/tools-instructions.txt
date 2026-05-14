@@ -190,6 +190,10 @@ Examples of use cases include:
 
 Reach for `execute-sql` only when the question genuinely cannot be expressed as a typed insight (entity search via `system.*`, multi-event joins, custom CTEs, data-warehouse joins). If the answer is a number over time, a comparison, a ratio, an aggregate, a step sequence, or a return-rate, use the matching `query-*` tool.
 
+#### Schema for SQL on tables
+
+For SQL on tables (warehouse, saved-query views, system, PostHog), discover schema via `system.tables`, `system.columns`, and `system.relationships` before querying. See `info execute-sql` for the column list.
+
 #### Schema-first workflow
 
 Verify the data schema before constructing any insight query. Canonical-looking events

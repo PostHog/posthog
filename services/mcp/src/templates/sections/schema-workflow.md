@@ -1,3 +1,7 @@
+#### Schema for SQL on tables
+
+For SQL on tables (warehouse, saved-query views, system, PostHog), discover schema via `system.tables`, `system.columns`, and `system.relationships` before querying. See `info execute-sql` for the column list.
+
 #### Schema-first workflow
 
 Verify the data schema before constructing any insight query. Canonical-looking events

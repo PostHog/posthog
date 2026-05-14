@@ -20,12 +20,10 @@ Before writing any SQL, read the PostHog `querying-posthog-data` skill. It is th
 
 ### Discovery workflow (mandatory)
 
-1. **Warehouse schema** — call `read-data-warehouse-schema` to verify tables, views, and columns. Do not guess names. For a specific custom warehouse table, inspect its columns with:
-
-   ```sql
-   SELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'
-   ```
-
+1. **Schema** — query the catalog system tables to verify tables, columns, and joins. Do not guess names.
+   - List tables in scope (warehouse tables, saved-query views, system tables, core PostHog tables) with their semantic role and business domain: `SELECT id, kind, name, description, semantic_role, business_domain, tags FROM system.tables WHERE name ILIKE '%order%' LIMIT 50`
+   - Inspect a table's columns (types, nullability, semantic type, PII class, descriptions): `SELECT name, position, clickhouse_type, hogql_type, nullable, semantic_type, pii_class, description FROM system.columns WHERE node_id = '<table id from system.tables>' ORDER BY position`
+   - Find joins, foreign keys, or lineage between tables before writing a multi-table query: `SELECT source_node_id, source_column_id, target_node_id, target_column_id, kind, confidence, status FROM system.relationships WHERE source_node_id IN (<ids>) OR target_node_id IN (<ids>)`
 2. **Event taxonomy** — call `read-data-schema` to verify events, properties, and property values. Do not rely on training data or PostHog defaults.
 3. **Write the SQL** only after steps 1 and 2 confirm the data exists, using the verified table and column names.
 
