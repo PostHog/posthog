@@ -13,6 +13,7 @@ from typing import Any
 
 from django.db.models import Exists, OuterRef
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import filters, status, viewsets
@@ -22,6 +23,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission
@@ -30,7 +35,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from ..adapters import GitHubError
 from ..domain.trigger import TriggerKind
 from ..models import Deployment, DeploymentEvent, DeploymentProject
-from ..serializers import DeploymentEventSerializer, DeploymentSerializer
+from ..serializers import DeploymentEventSerializer, DeploymentLogsResponseSerializer, DeploymentSerializer
 from ..serializers.deployment import (
     DeploymentActionResponseSerializer,
     DeploymentConflictResponseSerializer,
@@ -38,6 +43,27 @@ from ..serializers.deployment import (
 )
 from ..services import cancel, create_deployment, redeploy, refresh_preview, rollback
 from .deployment_projects import DeploymentsAccessPermission
+
+logger = structlog.get_logger(__name__)
+
+
+# Build logs land in the standard `events` table as `$log` events tagged with
+# `properties.deployment_id`. See `2026-05-13-deployments.md` (Pipeline →
+# "Build logs") for the emission contract owned by the build-runner stream.
+LOGS_ROW_LIMIT = 1000
+_LOGS_QUERY_SQL = """
+SELECT
+    timestamp,
+    properties.level AS level,
+    properties.step AS step,
+    properties.$log_line AS line,
+    properties.exit_code AS exit_code
+FROM events
+WHERE event = {log_event}
+  AND properties.deployment_id = {deployment_id}
+ORDER BY timestamp ASC
+LIMIT {row_limit}
+"""
 
 
 @extend_schema(
@@ -324,24 +350,69 @@ class DeploymentViewSet(
         data = DeploymentEventSerializer(qs, many=True).data
         return Response(data)
 
-    @extend_schema(responses={status.HTTP_200_OK: DeploymentActionResponseSerializer})
+    @extend_schema(
+        responses={
+            status.HTTP_200_OK: DeploymentLogsResponseSerializer,
+            status.HTTP_502_BAD_GATEWAY: OpenApiResponse(
+                description="HogQL query against the events store failed.",
+            ),
+        },
+    )
     @action(detail=True, methods=["get"])
     def logs(self, request: Request, **kwargs: Any) -> Response:
-        # Build logs land as `$log` PostHog events tagged with
-        # `properties.deployment_id`. The real Logs ingest endpoint is
-        # owned by another team; this stub returns an empty page until
-        # the HogQL bridge lands. Frontend stream can iterate against
-        # the empty shape today and we'll fill it in once the contract
-        # is final.
+        # Build logs land as `$log` events on the standard `events` table,
+        # tagged with `properties.deployment_id`. We project the deployment-
+        # specific properties (level, step, $log_line, exit_code) the build
+        # runner emits per `2026-05-13-deployments.md`. `execute_hogql_query`
+        # auto-scopes to the current team via HogQLContext, so the URL's
+        # team_id is already enforced; `get_object()` covers the project +
+        # deployment scope and RBAC.
         source = self.get_object()
-        # TODO(deployments-v1): swap stub for an `execute_hogql_query` call:
-        #   SELECT timestamp, level, step, line, exit_code
-        #   FROM events
-        #   WHERE event = '$log'
-        #     AND properties.deployment_id = {deployment_id}
-        #   ORDER BY timestamp ASC
-        #   LIMIT 1000
-        return Response(
-            {"detail": f"Logs proxy not implemented yet (deployment_id={source.pk})."},
-            status=status.HTTP_200_OK,
+        select = parse_select(_LOGS_QUERY_SQL)
+        # Fetch one row beyond the cap so we can distinguish "ran out at
+        # exactly the cap" (`has_more=False`) from "more rows exist beyond
+        # the page" (`has_more=True`). The extra row is sliced off before
+        # serialization so the response shape stays bounded.
+        fetch_limit = LOGS_ROW_LIMIT + 1
+        try:
+            result = execute_hogql_query(
+                query=select,
+                team=self.team,
+                placeholders={
+                    "log_event": ast.Constant(value="$log"),
+                    "deployment_id": ast.Constant(value=str(source.pk)),
+                    "row_limit": ast.Constant(value=fetch_limit),
+                },
+                query_type="DeploymentLogsQuery",
+            )
+        except Exception as exc:
+            logger.exception(
+                "deployments.logs.hogql_failed",
+                deployment_id=str(source.pk),
+                error=str(exc),
+            )
+            return Response(
+                {"detail": "Failed to fetch logs from the analytics store."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        rows = result.results or []
+        has_more = len(rows) > LOGS_ROW_LIMIT
+        page = rows[:LOGS_ROW_LIMIT]
+        serialized = DeploymentLogsResponseSerializer(
+            {
+                "results": [
+                    {
+                        "timestamp": row[0],
+                        "level": row[1],
+                        "step": row[2],
+                        "line": row[3],
+                        "exit_code": row[4],
+                    }
+                    for row in page
+                ],
+                "has_more": has_more,
+                "row_limit": LOGS_ROW_LIMIT,
+            }
         )
+        return Response(serialized.data, status=status.HTTP_200_OK)
