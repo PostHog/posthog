@@ -2,7 +2,6 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -393,17 +392,15 @@ function GalacticMode({ message }: { message: string }): JSX.Element {
 
 // -- Main modal --
 
+function isDeliveryMode(value: string | undefined): value is DeliveryMode {
+    return value === 'envelope' || value === 'scroll' || value === 'galactic'
+}
+
 export function ConciergeModal({ isOpen, onClose, title, body }: ConciergeModalProps): JSX.Element {
-    const [mode, setMode] = useState<DeliveryMode>('envelope')
     const payload = parsePayload(body)
     const message = payload.body || title || ''
     const cta = payload.call_to_action
-
-    // Reset animation state when mode changes by keying the components
-    const [animKey, setAnimKey] = useState(0)
-    useEffect(() => {
-        setAnimKey((k) => k + 1)
-    }, [mode])
+    const mode: DeliveryMode = isDeliveryMode(payload.notification_style) ? payload.notification_style : 'envelope'
 
     return (
         <>
@@ -412,20 +409,8 @@ export function ConciergeModal({ isOpen, onClose, title, body }: ConciergeModalP
 
             <LemonModal isOpen={isOpen} onClose={onClose} simple closable hideCloseButton>
                 <div className="flex flex-col" style={{ width: '85vw', maxWidth: 960, height: '80vh', maxHeight: 720 }}>
-                    {/* Header: mode toggle + close button */}
-                    <div className="flex items-center gap-2 p-3 border-b border-border">
-                        <div className="flex-1">
-                            <LemonSegmentedButton
-                                fullWidth
-                                value={mode}
-                                onChange={(value) => setMode(value)}
-                                options={[
-                                    { value: 'envelope' as DeliveryMode, label: 'Envelope' },
-                                    { value: 'scroll' as DeliveryMode, label: 'Scroll' },
-                                    { value: 'galactic' as DeliveryMode, label: 'Galactic' },
-                                ]}
-                            />
-                        </div>
+                    {/* Header: close button */}
+                    <div className="flex items-center justify-end gap-2 p-3 border-b border-border">
                         <LemonButton icon={<IconX />} size="small" onClick={onClose} tooltip="Close" />
                     </div>
 
@@ -433,7 +418,7 @@ export function ConciergeModal({ isOpen, onClose, title, body }: ConciergeModalP
                     <div className="flex-1 relative overflow-hidden">
                         <AnimatePresence mode="wait">
                             <motion.div
-                                key={`${mode}-${animKey}`}
+                                key={mode}
                                 className="w-full h-full"
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}

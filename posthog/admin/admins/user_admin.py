@@ -38,15 +38,13 @@ from products.notifications.backend.facade.api import (
 )
 
 NOTIFICATION_STYLE_CHOICES = [
-    ("pirate", "Pirate"),
-    ("star_wars", "Star Wars"),
-    ("royal", "Royal"),
+    ("envelope", "Envelope"),
+    ("scroll", "Scroll"),
+    ("galactic", "Galactic"),
 ]
 
 
 class SendNotificationForm(forms.Form):
-    title = forms.CharField(max_length=255, widget=forms.TextInput(attrs={"size": "60"}))
-    body = forms.CharField(widget=forms.Textarea(attrs={"rows": 4, "cols": 60}), required=False)
     priority = forms.ChoiceField(
         choices=[(Priority.NORMAL.value, "Normal"), (Priority.CRITICAL.value, "Critical")],
         initial=Priority.NORMAL.value,
@@ -55,10 +53,16 @@ class SendNotificationForm(forms.Form):
         choices=[("", "---------"), *NOTIFICATION_STYLE_CHOICES],
         required=True,
     )
-    call_to_action = forms.CharField(
-        max_length=255,
+    title = forms.CharField(max_length=255, widget=forms.TextInput(attrs={"size": "60"}))
+    body = forms.CharField(widget=forms.Textarea(attrs={"rows": 4, "cols": 60}), required=False)
+    long_form_wizard_text = forms.CharField(
+        label="Long-form wizard text",
+        widget=forms.Textarea(attrs={"rows": 8, "cols": 60}),
         required=False,
-        widget=forms.TextInput(attrs={"size": "60"}),
+    )
+    skill = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 6, "cols": 60}),
+        required=False,
     )
 
 
@@ -166,7 +170,8 @@ class UserAdmin(DjangoUserAdmin):
                 payload = json.dumps(
                     {
                         "body": form.cleaned_data["body"],
-                        "call_to_action": form.cleaned_data["call_to_action"],
+                        "skill": form.cleaned_data["skill"],
+                        "long_form_wizard_text": form.cleaned_data["long_form_wizard_text"],
                         "notification_style": form.cleaned_data["notification_style"],
                     }
                 )
