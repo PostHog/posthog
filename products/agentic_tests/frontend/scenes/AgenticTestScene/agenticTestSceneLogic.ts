@@ -160,7 +160,18 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
             },
         },
     })),
-    listeners(({ props, actions, values }) => ({
+    listeners(({ props, actions, values, cache }) => ({
+        // Poll runs every 3s while any run is in 'running' state, so the Runs tab
+        // shows live progress (refresh-resilient — backend persists log_entries every
+        // ~1.5s so a page reload picks the stream up right where it left off).
+        loadRunsSuccess: () => {
+            if (values.hasRunningRuns) {
+                cache.disposables.add(() => {
+                    const t = setTimeout(() => actions.loadRuns(), 3000)
+                    return () => clearTimeout(t)
+                }, 'pollRuns')
+            }
+        },
         loadTestSuccess: ({ test }) => {
             if (!test) {
                 return
@@ -321,6 +332,7 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
                 return draftEnabled !== persistedEnabled
             },
         ],
+        hasRunningRuns: [(s) => [s.runs], (runs: AgenticTestRun[]) => runs.some((r) => r.status === 'running')],
     }),
     events(({ actions, props }) => ({
         afterMount: () => {

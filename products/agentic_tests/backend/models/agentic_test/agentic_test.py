@@ -64,9 +64,9 @@ class AgenticTest(UUIDModel):
         default=list,
         blank=True,
         help_text=(
-            "List of post-run checks the test must satisfy in addition to the agent's own "
-            "self-evaluation. Each item: {type, ...config}. Supported types: url_contains, "
-            "event_captured."
+            "List of post-run checks the test must satisfy, scoped to the agent's own "
+            "PostHog session. Each item: {type, ...config}. Supported types: "
+            "event_captured, event_not_captured, no_console_errors."
         ),
     )
 

@@ -68,6 +68,25 @@ const STATUS_TAG: Record<string, { type: LemonTagType; label: string }> = {
     error: { type: 'danger', label: 'Error' },
 }
 
+function formatDurationMs(ms: number): string {
+    // Sub-second: show as ms ("420 ms"). Sub-minute: "12.4s". Else "1m 9s" / "2h 17m".
+    if (ms < 1000) {
+        return `${ms} ms`
+    }
+    const totalSeconds = Math.round(ms / 1000)
+    if (totalSeconds < 60) {
+        return `${(ms / 1000).toFixed(1)}s`
+    }
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    if (minutes < 60) {
+        return `${minutes}m ${seconds}s`
+    }
+    const hours = Math.floor(minutes / 60)
+    const remainingMinutes = minutes % 60
+    return `${hours}h ${remainingMinutes}m`
+}
+
 const ASSERTION_TYPE_OPTIONS: { value: AgenticTestAssertionType; label: string }[] = (
     Object.entries(ASSERTION_TYPE_LABELS) as [AgenticTestAssertionType, string][]
 ).map(([value, label]) => ({ value, label }))
@@ -96,16 +115,7 @@ function AssertionsEditor({ assertions, onAdd, onUpdate, onRemove }: AssertionsE
                         }}
                         data-attr={`assertion-${idx}-type`}
                     />
-                    {assertion.type === 'url_contains' && (
-                        <LemonInput
-                            size="small"
-                            placeholder="/success"
-                            value={assertion.value}
-                            onChange={(v) => onUpdate(idx, { value: v } as Partial<AgenticTestAssertion>)}
-                            data-attr={`assertion-${idx}-value`}
-                        />
-                    )}
-                    {assertion.type === 'event_captured' && (
+                    {(assertion.type === 'event_captured' || assertion.type === 'event_not_captured') && (
                         <>
                             <LemonInput
                                 size="small"
@@ -131,6 +141,25 @@ function AssertionsEditor({ assertions, onAdd, onUpdate, onRemove }: AssertionsE
                             <span className="text-xs text-muted">seconds</span>
                         </>
                     )}
+                    {assertion.type === 'no_console_errors' && (
+                        <>
+                            <span className="text-xs text-muted">at most</span>
+                            <LemonInput
+                                size="small"
+                                type="number"
+                                min={0}
+                                max={1000}
+                                value={assertion.max_errors}
+                                onChange={(v) =>
+                                    onUpdate(idx, {
+                                        max_errors: Number(v) || 0,
+                                    } as Partial<AgenticTestAssertion>)
+                                }
+                                data-attr={`assertion-${idx}-max-errors`}
+                            />
+                            <span className="text-xs text-muted">console error(s) during the run</span>
+                        </>
+                    )}
                     <div className="grow" />
                     <LemonButton
                         size="xsmall"
@@ -142,7 +171,12 @@ function AssertionsEditor({ assertions, onAdd, onUpdate, onRemove }: AssertionsE
                     </LemonButton>
                 </div>
             ))}
-            <LemonButton size="small" type="secondary" onClick={() => onAdd('url_contains')} data-attr="assertion-add">
+            <LemonButton
+                size="small"
+                type="secondary"
+                onClick={() => onAdd('event_captured')}
+                data-attr="assertion-add"
+            >
                 + Add assertion
             </LemonButton>
         </div>
@@ -321,67 +355,72 @@ function ConfigurationTab({ id }: { id: string | 'new' }): JSX.Element {
     )
 }
 
-function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
-    const logic = agenticTestSceneLogic({ id })
-    const { runs, runsLoading, logsUrl, liveEvents, streaming } = useValues(logic)
-    const { clearLiveEvents } = useActions(logic)
-    const liveLogRef = useRef<HTMLDivElement>(null)
+function RunLogEntries({ entries, streaming }: { entries: any[]; streaming: boolean }): JSX.Element {
+    const ref = useRef<HTMLDivElement>(null)
     useEffect(() => {
-        const el = liveLogRef.current
-        if (el) {
+        const el = ref.current
+        if (el && streaming) {
             el.scrollTop = el.scrollHeight
         }
-    }, [liveEvents])
+    }, [entries, streaming])
+
+    if (!entries || entries.length === 0) {
+        return (
+            <div className="text-xs text-muted italic p-3">
+                {streaming ? 'Waiting for the agent to emit its first event…' : 'No log entries captured for this run.'}
+            </div>
+        )
+    }
+
+    return (
+        <div ref={ref} className="border rounded p-2 max-h-96 overflow-auto bg-bg-light font-mono text-xs">
+            {entries.map((ev, idx) => {
+                const type = ev.type ?? ev.event
+                const data = ev.data ?? {}
+                const step = data.step ?? ev.step
+                return (
+                    <div key={idx} className="py-0.5">
+                        <span className="text-muted">[{type}]</span>{' '}
+                        {step != null && <span className="text-muted">step {step} </span>}
+                        {type === 'tool_call' ? (
+                            <span>
+                                <strong>{data.name}</strong>({JSON.stringify(data.input ?? {})})
+                            </span>
+                        ) : type === 'tool_result' ? (
+                            <span className="text-muted">→ {String(data.result).slice(0, 200)}</span>
+                        ) : type === 'model_text' ? (
+                            <span className="text-muted italic">{data.text}</span>
+                        ) : type === 'status' ? (
+                            <span>
+                                {data.message}{' '}
+                                {data.replay_url && (
+                                    <Link to={data.replay_url} target="_blank">
+                                        (browserbase replay)
+                                    </Link>
+                                )}
+                            </span>
+                        ) : type === 'final' ? (
+                            <span>
+                                verdict: {data.passed ? '✓ passed' : '✗ failed'} —{' '}
+                                {data.output?.verdict?.reason ?? data.error ?? ''}
+                            </span>
+                        ) : (
+                            <span>{JSON.stringify(data)}</span>
+                        )}
+                    </div>
+                )
+            })}
+            {streaming && <div className="text-muted italic">streaming…</div>}
+        </div>
+    )
+}
+
+function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
+    const logic = agenticTestSceneLogic({ id })
+    const { runs, runsLoading, logsUrl } = useValues(logic)
 
     return (
         <section>
-            {(liveEvents.length > 0 || streaming) && (
-                <div className="mb-6">
-                    <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold">Live run {streaming ? '(streaming…)' : ''}</h3>
-                        <LemonButton type="tertiary" size="small" onClick={clearLiveEvents}>
-                            Clear
-                        </LemonButton>
-                    </div>
-                    <div
-                        ref={liveLogRef}
-                        className="border rounded p-2 max-h-96 overflow-auto bg-bg-light font-mono text-xs"
-                    >
-                        {liveEvents.map((ev, idx) => (
-                            <div key={idx} className="py-0.5">
-                                <span className="text-muted">[{ev.event}]</span>{' '}
-                                {ev.data?.step != null && <span className="text-muted">step {ev.data.step} </span>}
-                                {ev.event === 'tool_call' ? (
-                                    <span>
-                                        <strong>{ev.data.name}</strong>({JSON.stringify(ev.data.input ?? {})})
-                                    </span>
-                                ) : ev.event === 'tool_result' ? (
-                                    <span className="text-muted">→ {String(ev.data.result).slice(0, 200)}</span>
-                                ) : ev.event === 'model_text' ? (
-                                    <span className="text-muted italic">{ev.data.text}</span>
-                                ) : ev.event === 'status' ? (
-                                    <span>
-                                        {ev.data.message}{' '}
-                                        {ev.data.replay_url && (
-                                            <Link to={ev.data.replay_url} target="_blank">
-                                                (replay)
-                                            </Link>
-                                        )}
-                                    </span>
-                                ) : ev.event === 'final' ? (
-                                    <span>
-                                        verdict: {ev.data.passed ? '✓ passed' : '✗ failed'} —{' '}
-                                        {ev.data.output?.verdict?.reason ?? ev.data.error ?? ''}
-                                    </span>
-                                ) : (
-                                    <span>{JSON.stringify(ev.data)}</span>
-                                )}
-                            </div>
-                        ))}
-                        {liveEvents.length === 0 && <div className="text-muted">Waiting for events…</div>}
-                    </div>
-                </div>
-            )}
             <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold">Run history</h3>
                 {logsUrl && (
@@ -395,6 +434,18 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
                 loading={runsLoading}
                 rowKey="id"
                 emptyState="No runs yet — hit Run now to execute the prompt."
+                expandable={{
+                    expandedRowRender: (run) => (
+                        <div className="p-2">
+                            <RunLogEntries
+                                entries={(run as any).log_entries ?? []}
+                                streaming={run.status === 'running'}
+                            />
+                        </div>
+                    ),
+                    rowExpandable: (run) => Boolean((run as any).log_entries?.length) || run.status === 'running',
+                    noIndent: true,
+                }}
                 columns={[
                     {
                         title: 'Started',
@@ -415,7 +466,7 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
                     {
                         title: 'Duration',
                         key: 'duration_ms',
-                        render: (_, run) => (run.duration_ms != null ? `${run.duration_ms} ms` : '—'),
+                        render: (_, run) => (run.duration_ms != null ? formatDurationMs(run.duration_ms) : '—'),
                     },
                     {
                         title: 'Source',
@@ -488,9 +539,9 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
 
 export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
     const logic = agenticTestSceneLogic({ id })
-    const { test, testForm, isNew, testFormChanged, isTestFormSubmitting, willChangeEnabledOnSave, streaming } =
+    const { test, testForm, isNew, testFormChanged, isTestFormSubmitting, willChangeEnabledOnSave, hasRunningRuns } =
         useValues(logic)
-    const { streamRun, activate, reject, submitTestForm, setTestFormValue, clearChanges } = useActions(logic)
+    const { runNow, activate, reject, submitTestForm, setTestFormValue, clearChanges } = useActions(logic)
     const { searchParams } = useValues(router)
     const currentTab: AgenticTestTab = (searchParams.tab as AgenticTestTab) || 'configuration'
 
@@ -545,13 +596,13 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
                                 type="secondary"
                                 size="small"
                                 onClick={() => {
-                                    streamRun()
+                                    runNow()
                                     if (currentTab !== 'runs') {
                                         router.actions.push(`/agentic_tests/${id}?tab=runs`)
                                     }
                                 }}
-                                loading={streaming}
-                                disabledReason={streaming ? 'A run is already in progress' : undefined}
+                                loading={hasRunningRuns}
+                                disabledReason={hasRunningRuns ? 'A run is already in progress' : undefined}
                                 data-attr="agentic-test-run-detail"
                             >
                                 Run

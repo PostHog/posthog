@@ -15,6 +15,7 @@ event — no per-test config needed.
 """
 
 import time
+import threading
 from dataclasses import asdict
 from datetime import timedelta
 from typing import Any
@@ -96,14 +97,23 @@ def execute_agentic_test_run(run_id: str) -> None:
     run.external_session_id = result.get("external_session_id", "")
     run.screenshot_url = result.get("screenshot_url", "")
     run.region = result.get("region", "")
-    run.posthog_session_id = _lookup_posthog_session_id(team_id=test.team_id, run=run)
+    # Eager pairing: the runner reads `window.posthog.get_session_id()` directly via
+    # page.evaluate right after navigation, so we usually already have the session id
+    # by the time we get here — no CH query needed. Only fall back to lookup + retry
+    # if the customer's posthog-js wasn't available on the page.
+    eager_session_id = result.get("posthog_session_id", "")
+    if eager_session_id:
+        run.posthog_session_id = eager_session_id
+    else:
+        run.posthog_session_id = _lookup_posthog_session_id(team_id=test.team_id, run=run)
     run.log_entries = log_entries
     if not run.posthog_session_id:
-        # Events may still be in flight through Kafka -> CH; retry after a delay so
-        # the link populates without the user needing to refresh.
+        # Recording-blob-ingestion writes blobs in ~5-10s windows and the aggregating
+        # MV merges on its own schedule, so session_replay_events isn't always
+        # queryable immediately at run finish. Retry at 15s/60s/120s.
         from products.agentic_tests.backend.tasks.tasks import pair_posthog_session_for_run
 
-        pair_posthog_session_for_run.apply_async(args=[str(run.id)], countdown=20)
+        pair_posthog_session_for_run.apply_async(args=[str(run.id)], countdown=15)
     run.status = AgenticTestRun.Status.PASSED if overall_passed else AgenticTestRun.Status.FAILED
     if not overall_passed:
         if not agent_passed:
@@ -121,22 +131,35 @@ def execute_agentic_test_run(run_id: str) -> None:
 def _evaluate_assertions(
     *, test: AgenticTest, run: AgenticTestRun, agent_output: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """Evaluate each assertion declared on the test. Returns a list of per-assertion result dicts."""
+    """Evaluate each assertion against the agent's specific PostHog session.
+
+    Every assertion is scoped to `run.posthog_session_id` (set by the runner's eager
+    pairing). If no session was paired (customer site has no posthog-js, or it failed to
+    load), assertions return passed=False with an explicit "no session" message rather
+    than silently widening the scope and risking false positives.
+    """
     results: list[dict[str, Any]] = []
     for assertion in test.assertions or []:
         kind = assertion.get("type")
         try:
-            if kind == "url_contains":
-                value = (assertion.get("value") or "").strip()
-                final_url = str(agent_output.get("final_url") or test.target_url)
-                passed = bool(value) and value in final_url
-                message = f"URL contains '{value}'" if passed else f"URL '{final_url}' does not contain '{value}'"
-            elif kind == "event_captured":
-                passed, message = _check_event_captured(
-                    team_id=test.team_id,
+            if kind == "event_captured":
+                passed, message = _check_event_count(
+                    run=run,
                     event=(assertion.get("event") or "").strip(),
                     within_seconds=int(assertion.get("within_seconds") or 30),
-                    started_at=run.started_at,
+                    expect_present=True,
+                )
+            elif kind == "event_not_captured":
+                passed, message = _check_event_count(
+                    run=run,
+                    event=(assertion.get("event") or "").strip(),
+                    within_seconds=int(assertion.get("within_seconds") or 30),
+                    expect_present=False,
+                )
+            elif kind == "no_console_errors":
+                passed, message = _check_no_console_errors(
+                    run=run,
+                    max_errors=int(assertion.get("max_errors") or 0),
                 )
             else:
                 passed = False
@@ -150,35 +173,79 @@ def _evaluate_assertions(
     return results
 
 
-def _check_event_captured(*, team_id: int, event: str, within_seconds: int, started_at: Any) -> tuple[bool, str]:
-    """Query the events table for at least one matching event in the window."""
+def _check_event_count(
+    *, run: AgenticTestRun, event: str, within_seconds: int, expect_present: bool
+) -> tuple[bool, str]:
+    """Count events for the agent's session, scoped by `$session_id = run.posthog_session_id`.
+
+    `expect_present=True` -> assertion passes when count > 0 (event was captured).
+    `expect_present=False` -> assertion passes when count == 0 (event NOT captured).
+    """
     if not event:
         return False, "Event name is required"
+    if not run.posthog_session_id:
+        return False, "No PostHog session paired — this assertion needs posthog-js on the target site"
 
     from posthog.clickhouse.client import sync_execute
 
-    window_end = started_at + timedelta(seconds=within_seconds)
+    window_end = run.started_at + timedelta(seconds=within_seconds)
     rows = sync_execute(
         """
-        SELECT count() FROM events
+        SELECT count()
+        FROM events
         WHERE team_id = %(team_id)s
+          AND $session_id = %(session_id)s
           AND event = %(event)s
           AND timestamp >= %(start)s
-          AND timestamp < %(end)s
+          AND timestamp <  %(end)s
         """,
-        {"team_id": team_id, "event": event, "start": started_at, "end": window_end},
+        {
+            "team_id": run.agentic_test.team_id,
+            "session_id": run.posthog_session_id,
+            "event": event,
+            "start": run.started_at,
+            "end": window_end,
+        },
     )
-    count = rows[0][0] if rows else 0
-    if count > 0:
-        return True, f"Captured {count} '{event}' event(s) within {within_seconds}s"
-    return False, f"No '{event}' events captured within {within_seconds}s"
+    count = int(rows[0][0]) if rows and rows[0] else 0
+    if expect_present:
+        if count > 0:
+            return True, f"Captured {count} '{event}' event(s)"
+        return False, f"No '{event}' events captured within {within_seconds}s"
+    # expect absent
+    if count == 0:
+        return True, f"'{event}' was not captured (as expected)"
+    return False, f"Unexpected: captured {count} '{event}' event(s)"
+
+
+def _check_no_console_errors(*, run: AgenticTestRun, max_errors: int = 0) -> tuple[bool, str]:
+    """Verify the agent's session produced no console errors (per session_replay_events)."""
+    if not run.posthog_session_id:
+        return False, "No PostHog session paired — this assertion needs posthog-js on the target site"
+
+    from posthog.clickhouse.client import sync_execute
+
+    rows = sync_execute(
+        """
+        SELECT sum(console_error_count)
+        FROM session_replay_events
+        WHERE team_id = %(team_id)s
+          AND session_id = %(session_id)s
+        """,
+        {"team_id": run.agentic_test.team_id, "session_id": run.posthog_session_id},
+    )
+    errors = int(rows[0][0] or 0) if rows and rows[0] else 0
+    if errors <= max_errors:
+        return True, "No console errors" if errors == 0 else f"{errors} console error(s) (<= {max_errors} allowed)"
+    return False, f"{errors} console error(s) (max allowed: {max_errors})"
 
 
 def _run(test: AgenticTest, *, run: AgenticTestRun, log_entries: list[dict[str, Any]]) -> dict[str, Any]:
     """Dispatch to the real Python agent loop or the deterministic mock based on settings.
 
-    Every AgentEvent emitted by the runner is appended to `log_entries` (mutated in place)
-    so the caller can persist them on the run row, even if the runner crashes mid-stream.
+    Every AgentEvent emitted by the runner is appended to `log_entries` AND flushed to
+    the run row incrementally, so the UI's polling loop sees live progress (refresh-
+    resilient — works even after a page reload).
     """
     if getattr(settings, "AGENTIC_TESTS_USE_MOCK_RUNNER", False):
         return _run_mock(test)
@@ -188,6 +255,8 @@ def _run(test: AgenticTest, *, run: AgenticTestRun, log_entries: list[dict[str, 
     # falls back to the Browserbase default. The fan-out across regions happens at queue
     # time in `queue_agentic_test_runs`, not in the runner.
     regions = [run.region] if run.region else []
+    last_flush = time.monotonic()
+    eager_session_persisted = False
     for event in run_agent(
         prompt=test.prompt,
         target_url=test.target_url,
@@ -199,6 +268,23 @@ def _run(test: AgenticTest, *, run: AgenticTestRun, log_entries: list[dict[str, 
         log_entries.append(_event_to_dict(event))
         if event.type == "final":
             final = event.data
+        # As soon as the runner publishes the eagerly-paired session id (via a `status`
+        # event right after navigation), persist it to the run row so the UI's polling
+        # loop can show "View replay →" within seconds of run start — not at run end.
+        if not eager_session_persisted and event.type == "status":
+            sid = event.data.get("posthog_session_id", "")
+            if sid:
+                _flush_run_field_in_background(run_id=run.id, field="posthog_session_id", value=sid)
+                eager_session_persisted = True
+        # Flush every ~1.5s so polling clients see progress without hammering the DB
+        # on every event (a busy agent emits ~2-3 events per second).
+        # NOTE: this loop is consumed inside the runner's `sync_playwright()` context,
+        # which keeps an asyncio loop running on this thread. Django ORM refuses sync
+        # calls from a thread with a running event loop, so we offload the write to a
+        # plain daemon thread that has no loop attached.
+        if time.monotonic() - last_flush > 1.5:
+            _flush_log_entries_in_background(run_id=run.id, log_entries=list(log_entries))
+            last_flush = time.monotonic()
     if final is None:
         return {"passed": False, "output": {}, "error": "Runner produced no final event"}
     return final
@@ -209,6 +295,41 @@ def _event_to_dict(event: AgentEvent) -> dict[str, Any]:
     d = asdict(event)
     d["ts"] = timezone.now().isoformat()
     return d
+
+
+def _flush_run_field_in_background(*, run_id: Any, field: str, value: Any) -> None:
+    """Persist a single field on the run row from a fresh thread (bypasses Playwright loop)."""
+
+    def _write() -> None:
+        try:
+            AgenticTestRun.objects.filter(id=run_id).update(**{field: value})
+        except Exception as exc:  # noqa: BLE001 — never let a flush failure crash the runner
+            logger.warning("agentic_test_field_flush_failed", run_id=str(run_id), field=field, error=str(exc))
+
+    t = threading.Thread(target=_write, daemon=True)
+    t.start()
+    t.join(timeout=3.0)
+
+
+def _flush_log_entries_in_background(*, run_id: Any, log_entries: list[dict[str, Any]]) -> None:
+    """Persist `log_entries` to the run row from a fresh thread.
+
+    Django refuses sync ORM calls from any thread with an active asyncio loop, and the
+    caller of this function runs inside `sync_playwright()` which keeps a loop running.
+    A plain Thread without a loop bypasses that check. We `.join` with a short timeout
+    so we don't hang the runner if the DB is briefly slow; if it times out the next
+    flush will overwrite anyway.
+    """
+
+    def _write() -> None:
+        try:
+            AgenticTestRun.objects.filter(id=run_id).update(log_entries=log_entries)
+        except Exception as exc:  # noqa: BLE001 — never let a flush failure crash the runner
+            logger.warning("agentic_test_log_flush_failed", run_id=str(run_id), error=str(exc))
+
+    t = threading.Thread(target=_write, daemon=True)
+    t.start()
+    t.join(timeout=3.0)
 
 
 def _lookup_posthog_session_id(*, team_id: int, run: AgenticTestRun) -> str:
@@ -226,23 +347,21 @@ def _lookup_posthog_session_id(*, team_id: int, run: AgenticTestRun) -> str:
     from posthog.clickhouse.client import sync_execute
 
     try:
-        # We append `?_phag=run-<id>` to the target URL before the agent navigates, so
-        # the customer's posthog-js auto-captures it into `$current_url`. Lookup is a
-        # substring match on that property, plus a UA fallback for defense in depth.
+        # Primary: query `session_replay_events` directly. The recordings ingestion
+        # path is independent of the events/person-processing pipeline, so this lands
+        # faster and more reliably than searching `events.properties.$current_url`.
+        # We match on `first_url` — the landing URL — which always contains our
+        # `?_phag=run-<id>` tag since the runner appends it before the agent navigates.
         rows = sync_execute(
             """
-            SELECT $session_id
-            FROM events
+            SELECT session_id
+            FROM session_replay_events
             WHERE team_id = %(team_id)s
-              AND timestamp >= %(start)s
-              AND timestamp <  %(end)s
-              AND $session_id != ''
-              AND (
-                positionUTF8(JSONExtractString(properties, '$current_url'), %(needle)s) > 0
-                OR positionUTF8(JSONExtractString(properties, '$initial_current_url'), %(needle)s) > 0
-                OR positionUTF8(JSONExtractString(properties, '$raw_user_agent'), %(ua_needle)s) > 0
-              )
-            ORDER BY timestamp ASC
+              AND min_first_timestamp >= %(start)s
+              AND min_first_timestamp <  %(end)s
+            GROUP BY session_id, team_id
+            HAVING positionUTF8(coalesce(argMinMerge(first_url), ''), %(needle)s) > 0
+            ORDER BY min(min_first_timestamp) ASC
             LIMIT 1
             """,
             {
@@ -250,9 +369,36 @@ def _lookup_posthog_session_id(*, team_id: int, run: AgenticTestRun) -> str:
                 "start": run.started_at,
                 "end": run.finished_at + timedelta(minutes=5),
                 "needle": f"_phag=run-{run.id}",
-                "ua_needle": f"run={run.id}",
             },
         )
+        if not rows:
+            # Fallback: try the events table by `$current_url` + UA. Slower path but
+            # covers cases where recording metadata isn't populated yet (e.g. session
+            # was too short to produce a recording row).
+            rows = sync_execute(
+                """
+                SELECT $session_id
+                FROM events
+                WHERE team_id = %(team_id)s
+                  AND timestamp >= %(start)s
+                  AND timestamp <  %(end)s
+                  AND $session_id != ''
+                  AND (
+                    positionUTF8(JSONExtractString(properties, '$current_url'), %(needle)s) > 0
+                    OR positionUTF8(JSONExtractString(properties, '$initial_current_url'), %(needle)s) > 0
+                    OR positionUTF8(JSONExtractString(properties, '$raw_user_agent'), %(ua_needle)s) > 0
+                  )
+                ORDER BY timestamp ASC
+                LIMIT 1
+                """,
+                {
+                    "team_id": team_id,
+                    "start": run.started_at,
+                    "end": run.finished_at + timedelta(minutes=5),
+                    "needle": f"_phag=run-{run.id}",
+                    "ua_needle": f"run={run.id}",
+                },
+            )
     except Exception as exc:  # noqa: BLE001 — non-fatal, just no link
         logger.warning("agentic_test_session_lookup_failed", run_id=str(run.id), error=str(exc))
         return ""

@@ -3655,7 +3655,7 @@ export namespace Schemas {
       /** Natural-language instructions for the browser agent. */
       prompt: string;
       status?: AgenticTestStatusEnum;
-      /** List of post-run checks the test must satisfy in addition to the agent's own self-evaluation. Each item: {type, ...config}. Supported types: url_contains, event_captured. */
+      /** List of post-run checks the test must satisfy, scoped to the agent's own PostHog session. Each item: {type, ...config}. Supported types: event_captured, event_not_captured, no_console_errors. */
       assertions?: unknown;
       /**
          * Cron expression (5 fields, UTC) describing the run cadence. Empty means manual-only — no automatic runs.
@@ -24810,7 +24810,7 @@ export namespace Schemas {
       /** Natural-language instructions for the browser agent. */
       prompt?: string;
       status?: AgenticTestStatusEnum;
-      /** List of post-run checks the test must satisfy in addition to the agent's own self-evaluation. Each item: {type, ...config}. Supported types: url_contains, event_captured. */
+      /** List of post-run checks the test must satisfy, scoped to the agent's own PostHog session. Each item: {type, ...config}. Supported types: event_captured, event_not_captured, no_console_errors. */
       assertions?: unknown;
       /**
          * Cron expression (5 fields, UTC) describing the run cadence. Empty means manual-only — no automatic runs.
