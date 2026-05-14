@@ -497,7 +497,7 @@ class TestExperimentService(APIBaseTest):
         self, _: str, exposure_criteria: object, expected_error_fragment: str
     ) -> None:
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)  # type: ignore[arg-type]
+            ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)
 
         assert expected_error_fragment in str(ctx.exception), (
             f"Expected fragment {expected_error_fragment!r} in error: {ctx.exception}"
@@ -534,7 +534,7 @@ class TestExperimentService(APIBaseTest):
     def test_validate_experiment_exposure_criteria_accepts_valid_payloads(
         self, _: str, exposure_criteria: object
     ) -> None:
-        ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)  # type: ignore[arg-type]
+        ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)
 
     def test_validate_experiment_exposure_criteria_hint_is_actionable(self) -> None:
         """The error hint should name both supported kinds so the LLM can self-correct."""

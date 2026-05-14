@@ -186,8 +186,12 @@ class ExperimentService:
         return rendered
 
     @classmethod
-    def validate_experiment_exposure_criteria(cls, exposure_criteria: dict | None) -> None:
-        """Validate experiment exposure criteria payloads."""
+    def validate_experiment_exposure_criteria(cls, exposure_criteria: object) -> None:
+        """Validate experiment exposure criteria payloads.
+
+        Accepts `object` because the input arrives from a DRF `JSONField`, which
+        can deserialize to any JSON shape. The validator narrows defensively.
+        """
         if exposure_criteria is None:
             return
 
