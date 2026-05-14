@@ -26,7 +26,6 @@ from .coder import (
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     GIT_SIGNING_KEY_SECRET,
-    TEMPLATE_NAMES,
     _fail,
     create_task,
     create_workspace,
@@ -741,7 +740,6 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
 @click.option(
     "-t",
     "--template",
-    type=click.Choice(TEMPLATE_NAMES),
     default=DEFAULT_TEMPLATE,
     show_default=True,
     help="Coder workspace template to use when creating a new devbox",
@@ -900,7 +898,6 @@ def devbox_logs(workspace: str | None, follow: bool) -> None:
 @click.option(
     "-t",
     "--template",
-    type=click.Choice(TEMPLATE_NAMES),
     default=DEFAULT_TEMPLATE,
     show_default=True,
     help="Coder workspace template to run the task on",

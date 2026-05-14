@@ -11,7 +11,6 @@ import sys
 import json
 import shlex
 import shutil
-import tempfile
 import itertools
 import threading
 import subprocess
@@ -19,14 +18,12 @@ import webbrowser
 from pathlib import Path
 from typing import Any, NoReturn
 
-import yaml
 import click
 import requests
 from hogli.manifest import load_manifest
 
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 DEFAULT_TEMPLATE = "posthog-linux"
-TEMPLATE_NAMES: tuple[str, ...] = ("posthog-linux", "posthog-microvm")
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
@@ -46,32 +43,12 @@ JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
 GIT_SIGNING_KEY_SECRET = "POSTHOG_GIT_SIGNING_KEY"
 
 
-# Per-template: the parameters each Coder template accepts, mapped to default
-# values that prevent the Coder CLI from prompting interactively when the
-# caller does not supply a value. Parameters not listed for a template are
-# silently dropped from create calls because passing an unknown parameter
-# would error from `coder create --rich-parameter-file`. Update this dict
-# when a template gains or drops a parameter.
-_TEMPLATE_PARAMETER_DEFAULTS: dict[str, dict[str, str]] = {
-    "posthog-linux": {
-        "disk_size": "",
-        "repo": "",
-        CLAUDE_OAUTH_PARAMETER: "",
-        GIT_NAME_PARAMETER: "",
-        GIT_EMAIL_PARAMETER: "",
-        DOTFILES_URI_PARAMETER: "",
-        DOTFILES_BRANCH_PARAMETER: "",
-        JETBRAINS_IDES_PARAMETER: "[]",
-    },
-    "posthog-microvm": {
-        CLAUDE_OAUTH_PARAMETER: "",
-        GIT_NAME_PARAMETER: "",
-        GIT_EMAIL_PARAMETER: "",
-        DOTFILES_URI_PARAMETER: "",
-        DOTFILES_BRANCH_PARAMETER: "",
-        JETBRAINS_IDES_PARAMETER: "[]",
-    },
-}
+# Coder rejects --parameter values for keys the chosen template does not
+# define, with this exact message: `parameter "X" is not present in the
+# template`. The check happens client-side before any provisioning starts,
+# so a failed call is cheap to retry. _run_create_with_param_retry drops the
+# offending key from the candidate set and retries on this match.
+_PARAM_NOT_PRESENT_RE = re.compile(r'parameter "([^"]+)" is not present')
 
 _STEP_RE = re.compile(r"^==>.*?(\w[\w ]+)")
 _LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
@@ -211,26 +188,37 @@ def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.Complete
     return subprocess.CompletedProcess(args, returncode, "".join(captured), "")
 
 
-def _run_with_rich_parameters(
-    args: list[str], parameters: dict[str, str], *, verbose: bool | None = None
+def _append_parameter_flags(args: list[str], parameters: dict[str, str]) -> list[str]:
+    """Append `--parameter key=value` flags for each entry in ``parameters``."""
+    out = list(args)
+    for key, value in parameters.items():
+        out += ["--parameter", f"{key}={value}"]
+    return out
+
+
+def _run_create_with_param_retry(
+    base_args: list[str],
+    parameters: dict[str, str],
+    *,
+    verbose: bool = False,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a Coder command with sensitive parameters passed via a temp YAML file.
+    """Run a `coder create` build, dropping unknown parameters and retrying.
 
-    When verbose is None, runs without build filtering. When True/False,
-    delegates to _run_build for spinner-based output.
+    Param validation happens client-side before any provisioning starts, so
+    retrying after a `parameter "X" is not present in the template` error is
+    cheap and safe. All other failures bubble up unchanged.
     """
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as parameter_file:
-        yaml.safe_dump(parameters, parameter_file)
-        file_path = Path(parameter_file.name)
-
-    try:
-        file_path.chmod(0o600)
-        full_args = [*args, "--rich-parameter-file", str(file_path)]
-        if verbose is None:
-            return _run(full_args)
-        return _run_build(full_args, verbose=verbose)
-    finally:
-        file_path.unlink(missing_ok=True)
+    remaining = dict(parameters)
+    while True:
+        result = _run_build(_append_parameter_flags(base_args, remaining), verbose=verbose)
+        if result.returncode == 0:
+            return result
+        match = _PARAM_NOT_PRESENT_RE.search(result.stdout or "")
+        if not match or match.group(1) not in remaining:
+            return result
+        dropped = match.group(1)
+        click.echo(click.style(f"Template doesn't accept '{dropped}', retrying without it.", fg="yellow"))
+        del remaining[dropped]
 
 
 def _resolve_tailscale() -> str | None:
@@ -732,33 +720,37 @@ def create_workspace(
     template: str = DEFAULT_TEMPLATE,
     verbose: bool = False,
 ) -> None:
-    """Create a new Coder workspace."""
-    defaults = _TEMPLATE_PARAMETER_DEFAULTS.get(template)
-    if defaults is None:
-        _fail(f"Unknown template '{template}'. Choose one of: {', '.join(TEMPLATE_NAMES)}")
-    candidates: dict[str, str] = {
+    """Create a new Coder workspace.
+
+    Only parameters with explicit caller-supplied values are forwarded.
+    Anything the template defines but we do not supply falls back to the
+    template's Terraform default via ``--use-parameter-defaults``. If a
+    forwarded parameter does not exist on the chosen template, coder errors
+    pre-provisioning and the retry loop drops the offending key.
+    """
+    parameters: dict[str, str] = {
         "disk_size": str(disk_size),
         "repo": repo,
-        CLAUDE_OAUTH_PARAMETER: claude_oauth_token or "",
     }
+    if claude_oauth_token:
+        parameters[CLAUDE_OAUTH_PARAMETER] = claude_oauth_token
     if git_name:
-        candidates[GIT_NAME_PARAMETER] = git_name
+        parameters[GIT_NAME_PARAMETER] = git_name
     if git_email:
-        candidates[GIT_EMAIL_PARAMETER] = git_email
+        parameters[GIT_EMAIL_PARAMETER] = git_email
     if dotfiles_uri:
-        candidates[DOTFILES_URI_PARAMETER] = dotfiles_uri
+        parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
 
-    parameters = {**defaults, **{k: v for k, v in candidates.items() if k in defaults}}
-
-    args = [
+    base_args = [
         "coder",
         "create",
         name,
         "--template",
         template,
+        "--use-parameter-defaults",
         "--yes",
     ]
-    result = _run_with_rich_parameters(args, parameters, verbose=verbose)
+    result = _run_create_with_param_retry(base_args, parameters, verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
@@ -790,15 +782,14 @@ def update_workspace(
     *,
     verbose: bool = False,
 ) -> None:
-    """Update a workspace to the latest template version."""
-    # Only seed defaults for the truly-optional fields so we don't blank out
-    # required parameters (disk_size, repo) already set on the workspace.
-    optional_keys = (DOTFILES_URI_PARAMETER, DOTFILES_BRANCH_PARAMETER, JETBRAINS_IDES_PARAMETER)
-    template_defaults = _TEMPLATE_PARAMETER_DEFAULTS[DEFAULT_TEMPLATE]
-    defaults = {k: template_defaults[k] for k in optional_keys if k in template_defaults}
-    merged = {**defaults, **(parameters or {})}
-    args = ["coder", "update", name]
-    result = _run_with_rich_parameters(args, merged, verbose=verbose)
+    """Update a workspace to the latest template version.
+
+    ``--use-parameter-defaults`` lets coder fall back to the template's own
+    defaults for any parameter not explicitly supplied here, so we never
+    need a hogli-side defaults dict.
+    """
+    base_args = ["coder", "update", name, "--use-parameter-defaults"]
+    result = _run_build(_append_parameter_flags(base_args, parameters or {}), verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
@@ -811,8 +802,9 @@ def delete_workspace(name: str, *, verbose: bool = False) -> None:
 
 
 def update_workspace_parameters(name: str, parameters: dict[str, str]) -> None:
-    """Update mutable workspace parameters using a temp YAML file."""
-    result = _run_with_rich_parameters(["coder", "update", name], parameters)
+    """Update mutable workspace parameters."""
+    base_args = ["coder", "update", name, "--use-parameter-defaults"]
+    result = _run(_append_parameter_flags(base_args, parameters))
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
