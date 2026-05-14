@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -38,6 +38,7 @@ export const orchestraLogic = kea<orchestraLogicType>([
         closeTriggerModal: true,
         triggerExecution: (executionType: string, inputJson: string) => ({ executionType, inputJson }),
         refreshAll: true,
+        setShowAllDeploymentVersions: (show: boolean) => ({ show }),
     }),
 
     reducers({
@@ -79,6 +80,12 @@ export const orchestraLogic = kea<orchestraLogicType>([
             {
                 loadDeploymentsSuccess: () => true,
                 loadDeploymentsFailure: () => true,
+            },
+        ],
+        showAllDeploymentVersions: [
+            false,
+            {
+                setShowAllDeploymentVersions: (_, { show }) => show,
             },
         ],
     }),
@@ -126,6 +133,25 @@ export const orchestraLogic = kea<orchestraLogicType>([
             },
         ],
     })),
+
+    selectors({
+        filteredDeployments: [
+            (s) => [s.deployments, s.showAllDeploymentVersions],
+            (deployments: OrchestraDeployment[], showAll: boolean): OrchestraDeployment[] => {
+                if (showAll) {
+                    return deployments
+                }
+                const seen = new Set<string>()
+                return deployments.filter((d) => {
+                    if (seen.has(d.code_version)) {
+                        return false
+                    }
+                    seen.add(d.code_version)
+                    return true
+                })
+            },
+        ],
+    }),
 
     listeners(({ actions, values }) => ({
         setStatusFilter: () => {

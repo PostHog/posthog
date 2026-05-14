@@ -6,6 +6,7 @@ import {
     LemonInput,
     LemonModal,
     LemonSelect,
+    LemonSwitch,
     LemonTable,
     LemonTableColumns,
     LemonTag,
@@ -184,7 +185,9 @@ function TriggerExecutionModal(): JSX.Element {
 }
 
 function DeploymentsTable(): JSX.Element {
-    const { deployments, deploymentsLoading, deploymentsLoadedOnce } = useValues(orchestraLogic)
+    const { filteredDeployments, deploymentsLoading, deploymentsLoadedOnce, showAllDeploymentVersions } =
+        useValues(orchestraLogic)
+    const { setShowAllDeploymentVersions } = useActions(orchestraLogic)
 
     const columns: LemonTableColumns<OrchestraDeployment> = [
         {
@@ -216,9 +219,17 @@ function DeploymentsTable(): JSX.Element {
 
     return (
         <SceneSection title="Deployment history">
+            <div className="flex items-center gap-2 mb-2">
+                <LemonSwitch
+                    checked={showAllDeploymentVersions}
+                    onChange={setShowAllDeploymentVersions}
+                    label="Show all versions"
+                    bordered
+                />
+            </div>
             <LemonTable
                 columns={columns}
-                dataSource={deployments}
+                dataSource={filteredDeployments}
                 loading={!deploymentsLoadedOnce && deploymentsLoading}
                 emptyState="No deployments yet."
                 pagination={{ pageSize: 10 }}

@@ -1,12 +1,14 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import { IconArrowLeft } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -237,6 +239,9 @@ function OrchestraExecutionScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <LemonButton type="tertiary" icon={<IconArrowLeft />} to={urls.orchestra()} size="small" className="mb-2">
+                Back to Orchestra
+            </LemonButton>
             <SceneTitleSection
                 name={`Execution: ${execution.execution_id}`}
                 description={execution.execution_type}
