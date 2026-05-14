@@ -245,7 +245,7 @@ function ScrollMode({ message }: { message: string }): JSX.Element {
             return () => clearTimeout(timer)
         }
         setHoggieSettled(false)
-    }, [hoggie?.isWriting])
+    }, [hoggie?.isWriting, hoggie])
 
     useEffect(() => {
         const t1 = setTimeout(() => setUnrolled(true), 400)

@@ -78,66 +78,74 @@ export function NotificationRow({
     }
 
     return (
-        <div
-            className={`flex gap-2.5 p-2 rounded transition-colors ${isConcierge ? 'items-center' : 'items-start'} ${
-                notification.read ? 'hover:bg-fill-highlight-100' : 'bg-fill-highlight-50 hover:bg-fill-highlight-100'
-            }`}
-            onClick={() => {
-                if (isConcierge) {
-                    setConciergeOpen(true)
-                } else if (notification.body) {
-                    setExpanded(!expanded)
-                }
-            }}
-        >
-            <div className={`shrink-0 ${isConcierge ? '' : 'mt-0.5'}`}>
-                {getNotificationIcon(notification.notification_type)}
-            </div>
-            <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-1">
-                    <span className={`text-xs leading-snug ${notification.read ? 'text-secondary' : 'font-semibold'}`}>
-                        {notification.title}
-                    </span>
-                    <div className="flex items-center gap-1 shrink-0">
-                        {hasNavigationTarget && (
-                            <Tooltip title="Go to source">
+        <>
+            <div
+                className={`flex gap-2.5 p-2 rounded transition-colors ${
+                    isConcierge ? 'items-center' : 'items-start'
+                } ${
+                    notification.read
+                        ? 'hover:bg-fill-highlight-100'
+                        : 'bg-fill-highlight-50 hover:bg-fill-highlight-100'
+                }`}
+                onClick={() => {
+                    if (isConcierge) {
+                        setConciergeOpen(true)
+                    } else if (notification.body) {
+                        setExpanded(!expanded)
+                    }
+                }}
+            >
+                <div className={`shrink-0 ${isConcierge ? '' : 'mt-0.5'}`}>
+                    {getNotificationIcon(notification.notification_type)}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1">
+                        <span
+                            className={`text-xs leading-snug ${notification.read ? 'text-secondary' : 'font-semibold'}`}
+                        >
+                            {notification.title}
+                        </span>
+                        <div className="flex items-center gap-1 shrink-0">
+                            {hasNavigationTarget && (
+                                <Tooltip title="Go to source">
+                                    <button
+                                        className="min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary cursor-pointer"
+                                        onClick={handleNavigate}
+                                    >
+                                        <IconOpenInNew className="size-4" />
+                                    </button>
+                                </Tooltip>
+                            )}
+                            <Tooltip title={notification.read ? 'Mark as unread' : 'Mark as read'}>
                                 <button
-                                    className="min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary cursor-pointer"
-                                    onClick={handleNavigate}
+                                    className="group/read min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 cursor-pointer"
+                                    onClick={handleToggleRead}
                                 >
-                                    <IconOpenInNew className="size-4" />
+                                    {notification.read ? (
+                                        <IconCheckCircle className="size-4 text-success" />
+                                    ) : (
+                                        <>
+                                            <IconRadioButtonUnchecked className="size-4 text-muted opacity-40 group-hover/read:hidden" />
+                                            <IconCheckCircle className="size-4 text-muted opacity-60 hidden group-hover/read:block" />
+                                        </>
+                                    )}
                                 </button>
                             </Tooltip>
-                        )}
-                        <Tooltip title={notification.read ? 'Mark as unread' : 'Mark as read'}>
-                            <button
-                                className="group/read min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 cursor-pointer"
-                                onClick={handleToggleRead}
-                            >
-                                {notification.read ? (
-                                    <IconCheckCircle className="size-4 text-success" />
-                                ) : (
-                                    <>
-                                        <IconRadioButtonUnchecked className="size-4 text-muted opacity-40 group-hover/read:hidden" />
-                                        <IconCheckCircle className="size-4 text-muted opacity-60 hidden group-hover/read:block" />
-                                    </>
-                                )}
-                            </button>
-                        </Tooltip>
+                        </div>
                     </div>
+                    {!isConcierge && (
+                        <div className="flex items-center gap-1.5 mt-2">
+                            <span className="text-[10px] text-muted">{dayjs(notification.created_at).fromNow()}</span>
+                            {otherProjectName && (
+                                <Tooltip title={`Notified on project ${otherProjectName}`}>
+                                    <span className="text-[10px] text-muted bg-fill-highlight-100 px-1 py-px rounded truncate max-w-[240px]">
+                                        {otherProjectName}
+                                    </span>
+                                </Tooltip>
+                            )}
+                        </div>
+                    )}
                 </div>
-                {!isConcierge && (
-                    <div className="flex items-center gap-1.5 mt-2">
-                        <span className="text-[10px] text-muted">{dayjs(notification.created_at).fromNow()}</span>
-                        {otherProjectName && (
-                            <Tooltip title={`Notified on project ${otherProjectName}`}>
-                                <span className="text-[10px] text-muted bg-fill-highlight-100 px-1 py-px rounded truncate max-w-[240px]">
-                                    {otherProjectName}
-                                </span>
-                            </Tooltip>
-                        )}
-                    </div>
-                )}
             </div>
             {isConcierge && (
                 <ConciergeModal
@@ -148,6 +156,6 @@ export function NotificationRow({
                     body={notification.body}
                 />
             )}
-        </div>
+        </>
     )
 }
