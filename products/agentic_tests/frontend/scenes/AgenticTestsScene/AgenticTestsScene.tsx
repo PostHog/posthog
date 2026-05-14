@@ -81,7 +81,7 @@ function HealthSummary({
     const activeCount = tests.filter((t) => t.status === 'active').length
 
     return (
-        <div className="flex items-center gap-4 text-sm mb-4">
+        <div className="flex items-center gap-4 text-sm mb-2">
             <span>
                 <strong>{activeCount}</strong>
                 <span className="text-secondary ml-1">active</span>
@@ -188,7 +188,7 @@ export function AgenticTestsScene(): JSX.Element {
                                 }
                                 data-attr="agentic-tests-detect-flows"
                             >
-                                Auto-detect key flows
+                                Auto-detect more key flows
                             </LemonButton>
                             <LemonButton
                                 type="primary"
@@ -212,7 +212,7 @@ export function AgenticTestsScene(): JSX.Element {
                         proposedCount={proposedCount}
                     />
 
-                    <div className="flex justify-between gap-2 flex-wrap mb-4">
+                    <div className="flex justify-between gap-2 flex-wrap mb-2">
                         <LemonInput
                             type="search"
                             placeholder="Search for tests"
