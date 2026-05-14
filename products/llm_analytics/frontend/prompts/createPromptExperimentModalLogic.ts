@@ -112,17 +112,21 @@ export const createPromptExperimentModalLogic = kea<createPromptExperimentModalL
             (slots: VersionSlots): number[] => slots.filter((v): v is number => v !== null),
         ],
         canSubmit: [
-            (s) => [s.selectedVersions, s.selectedTemplates, s.isSubmitting, s.promptName],
+            (s) => [s.selectedVersions, s.selectedTemplates, s.isSubmitting, s.promptName, s.versionSlots],
             (
                 versions: number[],
                 selectedTemplates: TemplatesEnumApi[],
                 submitting: boolean,
-                promptName: string | null
+                promptName: string | null,
+                versionSlots: VersionSlots
             ): boolean => {
                 if (submitting || selectedTemplates.length === 0 || !promptName) {
                     return false
                 }
                 if (versions.length < MIN_VERSIONS) {
+                    return false
+                }
+                if (versionSlots.some((v) => v === null)) {
                     return false
                 }
                 return new Set(versions).size === versions.length

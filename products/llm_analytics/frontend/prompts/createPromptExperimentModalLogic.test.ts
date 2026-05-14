@@ -168,6 +168,26 @@ describe('createPromptExperimentModalLogic', () => {
         await expectLogic(logic).toMatchValues({ canSubmit: false })
     })
 
+    // Regression: adding an empty slot should immediately re-disable submit, even though
+    // selectedVersions still satisfies MIN_VERSIONS (the null slot was being silently
+    // dropped from the submitted payload).
+    it('canSubmit is false when any slot is unfilled', async () => {
+        logic.actions.openModal(MOCK_PROMPT_NAME, MOCK_VERSIONS)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setSelectedTemplates([])
+
+        logic.actions.setVersionAt(0, 1)
+        logic.actions.setVersionAt(1, 2)
+        logic.actions.toggleTemplate('cost')
+        await expectLogic(logic).toMatchValues({ canSubmit: true })
+
+        logic.actions.addVersionSlot()
+        await expectLogic(logic).toMatchValues({ canSubmit: false })
+
+        logic.actions.setVersionAt(2, 3)
+        await expectLogic(logic).toMatchValues({ canSubmit: true })
+    })
+
     it('addVersionSlot grows the list and removeVersionSlot shrinks it', async () => {
         logic.actions.openModal(MOCK_PROMPT_NAME, MOCK_VERSIONS)
         logic.actions.setVersionAt(0, 1)
