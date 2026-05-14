@@ -2289,6 +2289,7 @@ class FileSystemIconType(StrEnum):
     LLM_PROMPTS = "llm_prompts"
     LLM_CLUSTERS = "llm_clusters"
     EXPORTS = "exports"
+    DEPLOYMENTS = "deployments"
 
 
 class FileSystemViewLogEntry(BaseModel):
