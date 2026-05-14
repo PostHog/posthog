@@ -15,6 +15,25 @@ const DEFAULT_FILTERS: MCPSessionsFilters = {
     search: '',
 }
 
+const SEARCH_DEBOUNCE_MS = 300
+
+// Must stay aligned with SESSION_SORT_FIELDS on the backend (logic.py).
+export type MCPSessionSortColumn =
+    | 'session_id'
+    | 'session_start'
+    | 'session_end'
+    | 'duration_seconds'
+    | 'tool_call_count'
+    | 'mcp_client_name'
+    | 'distinct_id'
+
+export interface MCPSessionSorting {
+    column: MCPSessionSortColumn
+    order: 1 | -1
+}
+
+const DEFAULT_SORTING: MCPSessionSorting = { column: 'session_end', order: -1 }
+
 export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'sessions', 'mcpSessionsLogic']),
     connect(() => ({
@@ -22,17 +41,29 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
     })),
     actions({
         setFilters: (filters: Partial<MCPSessionsFilters>) => ({ filters }),
+        setSorting: (sorting: MCPSessionSorting | null) => ({ sorting }),
         selectSession: (sessionId: string | null) => ({ sessionId }),
     }),
     loaders(({ values }) => ({
-        allSessions: [
+        sessions: [
             [] as MCPSessionApi[],
             {
-                loadSessions: async () => {
+                loadSessions: async (_, breakpoint) => {
+                    // Debounce keystroke-driven loads. afterMount fires loadSessions with no
+                    // payload, in which case we still want the initial fetch to be fast — so
+                    // only honour the debounce when there is a search term.
+                    if (values.filters.search) {
+                        await breakpoint(SEARCH_DEBOUNCE_MS)
+                    }
                     if (!values.currentProjectId) {
                         return []
                     }
-                    const response = await mcpAnalyticsSessionsList(String(values.currentProjectId))
+                    const sorting = values.sorting
+                    const orderBy = sorting ? `${sorting.order === -1 ? '-' : ''}${sorting.column}` : undefined
+                    const response = await mcpAnalyticsSessionsList(String(values.currentProjectId), {
+                        search: values.filters.search || undefined,
+                        order_by: orderBy,
+                    })
                     return [...(response.results ?? [])]
                 },
             },
@@ -63,48 +94,50 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 selectSession: (_, { sessionId }) => sessionId,
             },
         ],
-    }),
-    selectors({
-        sessions: [
-            (s) => [s.allSessions, s.filters],
-            (allSessions, filters): MCPSessionApi[] => {
-                const term = filters.search.trim().toLowerCase()
-                if (!term) {
-                    return allSessions
-                }
-                return allSessions.filter((session) => {
-                    if (session.session_id.toLowerCase().includes(term)) {
-                        return true
-                    }
-                    if (session.mcp_client_name.toLowerCase().includes(term)) {
-                        return true
-                    }
-                    return session.tools_used.some((tool) => tool.toLowerCase().includes(term))
-                })
+        sorting: [
+            DEFAULT_SORTING as MCPSessionSorting | null,
+            {
+                setSorting: (_, { sorting }) => sorting,
             },
         ],
+    }),
+    selectors({
         selectedSession: [
-            (s) => [s.allSessions, s.selectedSessionId],
-            (allSessions, selectedSessionId): MCPSessionApi | null => {
+            (s) => [s.sessions, s.selectedSessionId],
+            (sessions, selectedSessionId): MCPSessionApi | null => {
                 if (!selectedSessionId) {
                     return null
                 }
-                return allSessions.find((session) => session.session_id === selectedSessionId) ?? null
+                return sessions.find((session) => session.session_id === selectedSessionId) ?? null
             },
         ],
     }),
     listeners(({ actions, values }) => ({
+        setFilters: () => {
+            actions.loadSessions()
+        },
+        setSorting: () => {
+            actions.loadSessions()
+        },
         selectSession: ({ sessionId }) => {
             if (sessionId) {
                 actions.loadToolCalls(sessionId)
             }
         },
-        loadSessionsSuccess: ({ allSessions }) => {
-            // Auto-select the first (most recent) session once data lands, but only
-            // if the user has not already picked one — otherwise their choice would
-            // be clobbered by every refresh.
-            if (!values.selectedSessionId && allSessions.length > 0) {
-                actions.selectSession(allSessions[0].session_id)
+        loadSessionsSuccess: ({ sessions }) => {
+            // Auto-select the first session whenever results come back. If the user
+            // had a session pinned that is no longer in the filtered set, clear it.
+            if (sessions.length === 0) {
+                if (values.selectedSessionId) {
+                    actions.selectSession(null)
+                }
+                return
+            }
+            const stillVisible = values.selectedSessionId
+                ? sessions.some((s) => s.session_id === values.selectedSessionId)
+                : false
+            if (!stillVisible) {
+                actions.selectSession(sessions[0].session_id)
             }
         },
     })),

@@ -48,8 +48,10 @@ def create_missing_capability_submission(
     return _to_submission(logic.create_missing_capability_submission(team, created_by, submission))
 
 
-def list_mcp_sessions(team: Team, limit: int, offset: int) -> list[contracts.MCPSession]:
-    return logic.list_mcp_sessions(team, limit=limit, offset=offset)
+def list_mcp_sessions(
+    team: Team, limit: int, offset: int, search: str = "", order_by: str = ""
+) -> list[contracts.MCPSession]:
+    return logic.list_mcp_sessions(team, limit=limit, offset=offset, search=search, order_by=order_by)
 
 
 def list_mcp_tool_calls(team: Team, session_id: str) -> list[contracts.MCPToolCall]:
