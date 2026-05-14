@@ -39,7 +39,6 @@ from products.catalog.backend.temporal.activities.run import (
 )
 from products.catalog.backend.temporal.activities.upsert import UpsertNodeBatchArgs, upsert_node_batch
 from products.catalog.backend.temporal.constants import (
-    AGENT_RETRY_POLICY,
     AGENT_SPAWN_ACTIVITY_TIMEOUT,
     AGENT_WAIT_ACTIVITY_TIMEOUT,
     AGENT_WAIT_HEARTBEAT_TIMEOUT,
@@ -175,7 +174,9 @@ class CatalogTraversalWorkflow(PostHogWorkflow):
                 task_run_id,
                 start_to_close_timeout=AGENT_WAIT_ACTIVITY_TIMEOUT,
                 heartbeat_timeout=AGENT_WAIT_HEARTBEAT_TIMEOUT,
-                retry_policy=AGENT_RETRY_POLICY,
+                # Stream subscription is idempotent (replays from start_id="0"),
+                # so worker bounces shouldn't kill the whole catalog run.
+                retry_policy=DEFAULT_RETRY_POLICY,
             )
             if agent_status != "completed":
                 raise RuntimeError(f"Catalog agent task ended in non-COMPLETED status: {agent_status}")

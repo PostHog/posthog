@@ -33,7 +33,7 @@ from posthog.temporal.oauth import MCP_READ_SCOPES
 from products.catalog.backend.models import CatalogColumn, CatalogNode
 from products.catalog.backend.temporal.agent_prompts import CATALOG_DESCRIPTION_SYSTEM_PROMPT
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, TaskRunStreamError
+from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
 
 from ee.hogai.sandbox import is_turn_complete
 
@@ -149,7 +149,7 @@ async def _signal_complete_on_end_turn(task_run_id: str, workflow_id: str) -> No
     real failure (tool error, network blip) surfaces as a non-`completed`
     TaskRun status from ProcessTaskWorkflow's own error path.
     """
-    stream = TaskRunRedisStream(task_run_id)
+    stream = TaskRunRedisStream(get_task_run_stream_key(task_run_id))
     try:
         async for event in stream.read_stream(start_id="0", block_ms=1000, keepalive_interval_seconds=30):
             if event is None:

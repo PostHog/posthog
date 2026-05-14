@@ -58,6 +58,3 @@ AGENT_SPAWN_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 # workflow's except clause runs fail_traversal_run.
 AGENT_WAIT_ACTIVITY_TIMEOUT = timedelta(minutes=30)
 AGENT_WAIT_HEARTBEAT_TIMEOUT = timedelta(minutes=2)
-# Agent runs are expensive (LLM tokens, sandbox boot). Don't retry — one shot,
-# fail loudly.
-AGENT_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
