@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { IconGitBranch } from '@posthog/icons'
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { IconGitBranch, IconGithub } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -136,6 +136,17 @@ export function GitHogRepoScene({ owner, name, number }: GitHogRepoSceneProps): 
                 name={repository}
                 description="Inbox of open pull requests. Click one to open its review workspace."
                 resourceType={{ type: 'githog' }}
+                actions={
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconGithub />}
+                        to={`https://github.com/${owner}/${name}`}
+                        targetBlank
+                    >
+                        View on GitHub
+                    </LemonButton>
+                }
             />
             <div className="flex gap-4 items-start min-h-[60vh]">
                 {/* Inbox column */}

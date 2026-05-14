@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCheck, IconCode, IconGitBranch, IconPlus, IconRefresh, IconX } from '@posthog/icons'
+import { IconCheck, IconGitBranch, IconGithub, IconPlus, IconRefresh, IconX } from '@posthog/icons'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -66,17 +66,16 @@ const SAMPLE_COMMENTS = [
 
 // Note: the agent chat and risk assessment are pinned and not part of this
 // menu — they're always visible at the right and at the top respectively.
-type WidgetType = 'conversation' | 'stats' | 'files' | 'reviewers' | 'dataFlow'
+type WidgetType = 'conversation' | 'stats' | 'reviewers' | 'dataFlow'
 
 const WIDGET_DEFS: Record<WidgetType, { label: string; description: string }> = {
     dataFlow: { label: 'Data flow', description: 'AI-generated execution flow before vs after' },
-    files: { label: 'Files changed', description: 'Modified files with line counts' },
     stats: { label: 'Stats', description: 'Additions, deletions, and commits' },
     conversation: { label: 'Conversation', description: 'Comments and review discussion' },
     reviewers: { label: 'Reviewers', description: 'Review status per reviewer' },
 }
 
-const DEFAULT_WIDGETS: WidgetType[] = ['dataFlow', 'files', 'stats']
+const DEFAULT_WIDGETS: WidgetType[] = ['dataFlow', 'stats']
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
@@ -140,24 +139,21 @@ function ConversationWidget(): JSX.Element {
 }
 
 function StatsWidget({ pr }: { pr: GitHogPullRequestDetail }): JSX.Element {
+    const items: { label: string; value: string | number; className?: string }[] = [
+        { label: 'Additions', value: `+${pr.additions}`, className: 'text-success' },
+        { label: 'Deletions', value: `-${pr.deletions}`, className: 'text-danger' },
+        { label: 'Files', value: pr.changed_files },
+        { label: 'Commits', value: pr.commits },
+    ]
     return (
-        <div className="flex flex-col divide-y divide-border">
-            <div className="px-4 py-3">
-                <span className="font-semibold text-sm">Stats</span>
-            </div>
-            <div className="grid grid-cols-2 divide-x divide-y divide-border">
-                {[
-                    { label: 'Additions', value: `+${pr.additions}`, className: 'text-success' },
-                    { label: 'Deletions', value: `-${pr.deletions}`, className: 'text-danger' },
-                    { label: 'Files', value: pr.changed_files, className: '' },
-                    { label: 'Commits', value: pr.commits, className: '' },
-                ].map(({ label, value, className }) => (
-                    <div key={label} className="flex flex-col gap-y-0.5 px-4 py-4">
-                        <span className={`text-2xl font-bold tabular-nums ${className}`}>{value}</span>
-                        <span className="text-xs text-secondary">{label}</span>
-                    </div>
-                ))}
-            </div>
+        <div className="px-4 py-2.5 flex items-center gap-x-6 flex-wrap">
+            <span className="font-semibold text-sm shrink-0">Stats</span>
+            {items.map(({ label, value, className }) => (
+                <div key={label} className="flex items-baseline gap-x-1.5">
+                    <span className={`text-sm font-semibold tabular-nums ${className ?? ''}`}>{value}</span>
+                    <span className="text-xs text-secondary">{label}</span>
+                </div>
+            ))}
         </div>
     )
 }
@@ -178,35 +174,6 @@ function ReviewersWidget(): JSX.Element {
                     </div>
                 ))}
             </div>
-        </div>
-    )
-}
-
-function FilesWidget({ files }: { files: GitHogPullRequestFile[] }): JSX.Element {
-    return (
-        <div className="flex flex-col divide-y divide-border">
-            <div className="px-4 py-3 flex items-center justify-between">
-                <span className="font-semibold text-sm">Files changed</span>
-                <span className="text-xs text-secondary">{files.length} files</span>
-            </div>
-            {files.map((f) => (
-                <div key={f.filename} className="px-4 py-2.5 flex items-center gap-x-3">
-                    <IconCode className="size-3.5 text-muted shrink-0" />
-                    <span className="text-sm flex-1 font-mono truncate">{f.filename}</span>
-                    {f.status === 'added' && (
-                        <LemonTag type="success" size="small">
-                            New
-                        </LemonTag>
-                    )}
-                    {f.status === 'removed' && (
-                        <LemonTag type="danger" size="small">
-                            Removed
-                        </LemonTag>
-                    )}
-                    <span className="text-xs text-success shrink-0">+{f.additions}</span>
-                    <span className="text-xs text-danger shrink-0">-{f.deletions}</span>
-                </div>
-            ))}
         </div>
     )
 }
@@ -443,8 +410,6 @@ function GitHogPRWorkspaceInner({
         switch (type) {
             case 'conversation':
                 return <ConversationWidget />
-            case 'files':
-                return <FilesWidget files={prDetail.files} />
             case 'dataFlow':
                 return <DataFlowWidgetForPR owner={owner} name={repoName} number={number} />
             case 'stats':
@@ -523,22 +488,27 @@ function GitHogPRWorkspaceInner({
                         )}
                     </div>
                 </div>
-                <LemonMenu
-                    items={available.map((key) => ({
-                        label: WIDGET_DEFS[key].label,
-                        onClick: () => addWidget(key),
-                    }))}
-                    closeParentPopoverOnClickInside
-                >
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlus />}
-                        disabledReason={available.length === 0 ? 'All widgets are already visible' : undefined}
-                        size="small"
-                    >
-                        Add widget
+                <div className="flex items-center gap-x-2 shrink-0">
+                    <LemonButton type="secondary" size="small" icon={<IconGithub />} to={pr.url} targetBlank>
+                        View on GitHub
                     </LemonButton>
-                </LemonMenu>
+                    <LemonMenu
+                        items={available.map((key) => ({
+                            label: WIDGET_DEFS[key].label,
+                            onClick: () => addWidget(key),
+                        }))}
+                        closeParentPopoverOnClickInside
+                    >
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlus />}
+                            disabledReason={available.length === 0 ? 'All widgets are already visible' : undefined}
+                            size="small"
+                        >
+                            Add widget
+                        </LemonButton>
+                    </LemonMenu>
+                </div>
             </div>
 
             <div className="flex gap-4 items-start mt-2">
