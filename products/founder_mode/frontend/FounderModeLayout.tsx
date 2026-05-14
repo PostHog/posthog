@@ -189,10 +189,16 @@ function FlowTimeline(): JSX.Element {
         container.scrollTo({ top: offset, behavior: 'smooth' })
     }, [currentStepKey])
 
+    // Only render past + current steps. Future steps don't exist in the DOM yet, so
+    // there's nothing to scroll into — the container's scroll height is bounded by
+    // (past steps + current step), and `pb-8` keeps the active step from butting
+    // against the bottom edge.
+    const visibleSteps = STEP_ORDER.slice(0, stepIndex + 1)
+
     return (
         <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto px-6 pb-[60vh]"
+            className="flex-1 overflow-y-auto px-6 pb-[35vh]"
             style={{
                 paddingTop: FADE_MASK_HEIGHT + 80,
                 maskImage: `linear-gradient(to bottom, transparent 0px, black ${FADE_MASK_HEIGHT}px)`,
@@ -200,7 +206,7 @@ function FlowTimeline(): JSX.Element {
             }}
         >
             <div className="max-w-xl mx-auto flex flex-col gap-24">
-                {STEP_ORDER.map((key, idx) => (
+                {visibleSteps.map((key, idx) => (
                     <div
                         key={key}
                         ref={(el) => {
@@ -208,11 +214,7 @@ function FlowTimeline(): JSX.Element {
                         }}
                         className={cn(
                             'transition-opacity duration-500',
-                            idx < stepIndex
-                                ? 'opacity-30'
-                                : idx === stepIndex
-                                  ? 'opacity-100'
-                                  : 'opacity-0 pointer-events-none'
+                            idx < stepIndex ? 'opacity-30' : 'opacity-100'
                         )}
                     >
                         <StepBlock stepKey={key} isActive={idx === stepIndex} />
@@ -369,6 +371,7 @@ function IdeaTopicChat({
     const { setDraft, sendIdeaAnswer, resetIdeaChat } = useActions(cofounderFlowLogic)
     const ref = React.useRef<HTMLTextAreaElement>(null)
     const cardRef = React.useRef<HTMLDivElement>(null)
+    const messagesRef = React.useRef<HTMLDivElement>(null)
     React.useEffect(() => {
         if (isActive) {
             ref.current?.focus()
@@ -381,6 +384,15 @@ function IdeaTopicChat({
     }, [isCurrent])
 
     const messages = ideaMessages[topic.key] ?? []
+    // Keep the latest reply visible inside the capped messages pane so the textarea
+    // below never has to move when new messages land.
+    React.useEffect(() => {
+        const el = messagesRef.current
+        if (el) {
+            el.scrollTop = el.scrollHeight
+        }
+    }, [messages.length, ideaSubmitting])
+
     const hasThread = messages.length > 0
     const crystallized = crystallizedByTopic[topic.key]
     const isDone = !!crystallized
@@ -415,7 +427,11 @@ function IdeaTopicChat({
             </div>
 
             {hasThread && (
-                <div className="flex flex-col gap-3 mb-4">
+                <div
+                    ref={messagesRef}
+                    className="flex flex-col gap-3 mb-4 overflow-y-auto"
+                    style={{ maxHeight: 'calc(50vh - 220px)' }}
+                >
                     {messages.map((m, i) => {
                         const gif = m.author === 'agent' ? reactionGifUrl(m.reactionKey) : null
                         return (
