@@ -23,7 +23,7 @@ prompt="1. run npx skills add https://github.com/PostHog/qa-swarm.git to downloa
 
 3. add the playwright MCP, reload the playwright mcp, and tell me the list of tools. you probably also need to install chrome-for-testing. if you hit any obstacles, try to overcome them yourself.
 
-5. run following skills:
+4. run following skills:
     - /generating-mcp-scenarios
     - /qa-runtime
 "
