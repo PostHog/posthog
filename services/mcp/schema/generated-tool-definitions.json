@@ -468,6 +468,21 @@
             "readOnlyHint": false
         }
     },
+    "catalog-metrics-create": {
+        "description": "Propose a semantic metric in the catalog — a named, reusable measurement (e.g. \"monthly_recurring_revenue\", \"signup_conversion_rate\"). The `definition` field carries how the metric is computed and accepts exactly one of three shapes, discriminated by `kind`: (1) `{\"kind\": \"EventsNode\", \"event\": \"<event_name>\", \"math\": \"<dau|total|unique_users|sum|...>\", \"math_property\": \"<property_name>\", \"properties\": [<filter>...]}` for event-based metrics; (2) `{\"kind\": \"DataWarehouseNode\", \"id\": \"<table_name>\", \"id_field\": \"id\", \"distinct_id_field\": \"<column>\", \"math\": \"<sum|avg|...>\", \"math_property\": \"<column>\"}` for warehouse-table aggregates; (3) `{\"kind\": \"HogQLQuery\", \"query\": \"SELECT ...\"}` for raw HogQL when the metric doesn't fit the structured shapes. This is the same shape an `Insight.query.series` item uses. Idempotent on (team, name): re-call with the same name to update description and definition without creating duplicates. Atomically creates both the metric row and a bound CatalogNode(kind=metric) in the catalog graph; returns the metric with its `node_id` for use when proposing relationships (e.g. metric `depends_on` event_definition).",
+        "category": "Catalog",
+        "feature": "catalog",
+        "summary": "Propose catalog metric",
+        "title": "Propose catalog metric",
+        "required_scopes": ["catalog:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "catalog-nodes-create": {
         "description": "Upsert a catalog node — a table-shaped entity in the semantic graph (warehouse table, saved query, system table, or PostHog first-party table). Use this to record what a table is, when to use it, and what business domain it belongs to. Idempotent: re-call with the same (kind, name) to update the description, semantic role, tags, or confidence without creating a duplicate. Typically called during catalog traversal after inspecting a table's schema and sample data. Returns the node's id, which you'll use when upserting columns or proposing relationships.",
         "category": "Catalog",

@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     CatalogColumnsCreateBody,
+    CatalogMetricsCreateBody,
     CatalogNodesCreateBody,
     CatalogRelationshipsCreateBody,
 } from '@/generated/catalog/api'
@@ -153,8 +154,41 @@ const catalogRelationshipsCreate = (): ToolBase<
     },
 })
 
+const CatalogMetricsCreateSchema = CatalogMetricsCreateBody
+
+const catalogMetricsCreate = (): ToolBase<typeof CatalogMetricsCreateSchema, Schemas.CatalogMetricDTO> => ({
+    name: 'catalog-metrics-create',
+    schema: CatalogMetricsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof CatalogMetricsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.definition !== undefined) {
+            body['definition'] = params.definition
+        }
+        if (params.generator_model !== undefined) {
+            body['generator_model'] = params.generator_model
+        }
+        if (params.confidence !== undefined) {
+            body['confidence'] = params.confidence
+        }
+        const result = await context.api.request<Schemas.CatalogMetricDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/catalog/metrics/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'catalog-columns-create': catalogColumnsCreate,
     'catalog-nodes-create': catalogNodesCreate,
     'catalog-relationships-create': catalogRelationshipsCreate,
+    'catalog-metrics-create': catalogMetricsCreate,
 }

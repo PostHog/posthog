@@ -6641,6 +6641,26 @@ export namespace Schemas {
       generated_at?: string | null;
     }
 
+    /**
+     * Schema for `CatalogMetric.definition` — same shape as an `Insight.query.series` item.
+
+    A metric is computed from exactly one of: an event count (EventsNode), a data-warehouse
+    aggregate (DataWarehouseNode), or a raw HogQL query (HogQLQuery). All three carry a
+    `kind` discriminator so consumers can route on shape without parsing the body.
+     */
+    export type MetricDefinitionSchema = EventsNode | DataWarehouseNode | HogQLQuery;
+
+    export interface CatalogMetricDTO {
+      definition: MetricDefinitionSchema;
+      id: string;
+      team_id: number;
+      name: string;
+      description: string;
+      node_id: string;
+      created_at: string;
+      updated_at: string;
+    }
+
     export interface CategoricalScoreOption {
       /**
          * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
@@ -31164,6 +31184,7 @@ export namespace Schemas {
     * `lineage` - lineage
     * `declared_join` - declared_join
     * `join_candidate` - join_candidate
+    * `depends_on` - depends_on
      */
     export type ProposeRelationshipInputKindEnum = typeof ProposeRelationshipInputKindEnum[keyof typeof ProposeRelationshipInputKindEnum];
 
@@ -31174,6 +31195,7 @@ export namespace Schemas {
       Lineage: 'lineage',
       DeclaredJoin: 'declared_join',
       JoinCandidate: 'join_candidate',
+      DependsOn: 'depends_on',
     } as const;
 
     /**
@@ -31184,13 +31206,14 @@ export namespace Schemas {
       source_node_id: string;
       /** ID of the node the relationship points to. For joins this is the other table; for foreign keys, the referenced table. */
       target_node_id: string;
-      /** Relationship type. `foreign_key` when the source column references a target PK. `same_entity` when two columns identify the same business object (Stripe.customer_id ≈ Postgres.users.id). `lineage` when the target table is derived from the source. `declared_join` for an officially supported join. `join_candidate` for an inferred-but-unconfirmed join.
+      /** Relationship type. `foreign_key` when the source column references a target PK. `same_entity` when two columns identify the same business object (Stripe.customer_id ≈ Postgres.users.id). `lineage` when the target table is derived from the source (data-flow lineage). `declared_join` for an officially supported join. `join_candidate` for an inferred-but-unconfirmed join. `depends_on` for a logical dependency that isn't data-flow lineage (e.g. a metric built from an event definition or property).
 
       * `foreign_key` - foreign_key
       * `same_entity` - same_entity
       * `lineage` - lineage
       * `declared_join` - declared_join
-      * `join_candidate` - join_candidate */
+      * `join_candidate` - join_candidate
+      * `depends_on` - depends_on */
       kind: ProposeRelationshipInputKindEnum;
       /**
          * Agent's confidence (0..1) that this relationship is correct. Drives the review queue — low-confidence edges surface for human approval before agents trust them for joins.
@@ -35154,6 +35177,38 @@ export namespace Schemas {
       generator_model?: string | null;
       /**
          * Agent confidence (0..1) in the description and semantic typing.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      confidence?: number | null;
+    }
+
+    /**
+     * Body for catalog-metrics-create. team_id is taken from the URL, not the body.
+
+    Idempotent on (team, name): re-posting with the same name updates description and
+    definition in place. The bound CatalogNode(kind=metric) is created on first insert
+    and reused on update — agents can re-propose metrics across traversal runs safely.
+     */
+    export interface UpsertMetricInput {
+      /**
+         * Stable identifier for the metric, unique per team. Use a short snake_case or kebab-case slug that won't change as the metric evolves (e.g. `monthly_recurring_revenue`, `signup_conversion_rate`). The agent looks metrics up by name before upserting, so keep this stable across runs.
+         * @maxLength 400
+         */
+      name: string;
+      /** Human-readable description of what this metric measures, when to use it, and any caveats — 1-2 sentences. Becomes the primary signal future agents use to decide whether this is the right metric to reference for a question. */
+      description?: string;
+      /** How the metric is computed. Exactly one of `EventsNode` (event count with math and filters), `DataWarehouseNode` (warehouse-table aggregate), or `HogQLQuery` (raw HogQL SQL) — the same shape an `Insight.query.series` item uses, discriminated by the inner `kind` field. Example: `{"kind": "EventsNode", "event": "signup_completed", "math": "dau"}`. */
+      definition: MetricDefinitionSchema;
+      /**
+         * Model that proposed the metric — e.g. `claude-opus-4-7`. Stored on the bound CatalogNode for auditing. Leave null when humans author the metric.
+         * @maxLength 64
+         * @nullable
+         */
+      generator_model?: string | null;
+      /**
+         * Agent's confidence (0..1) that this metric is correctly defined and worth showing to humans. Surfaces as a draft/confirmed indicator on the bound CatalogNode. Use 1.0 for metrics derived directly from a popular dashboard's saved query; lower values for inferred or aggregated proposals.
          * @minimum 0
          * @maximum 1
          * @nullable

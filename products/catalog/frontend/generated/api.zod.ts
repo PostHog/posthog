@@ -172,6 +172,13 @@ export const CatalogColumnsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Body for catalog-columns-partial-update. Every field optional.')
 
 /**
+ * Propose a semantic metric and bind its CatalogNode in one call.
+ */
+export const CatalogMetricsCreateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
  * Upsert a catalog node and its agent-authored descriptions.
  */
 export const catalogNodesCreateBodyNameMax = 400
@@ -340,12 +347,12 @@ export const CatalogRelationshipsCreateBody = /* @__PURE__ */ zod
                 'ID of the node the relationship points to. For joins this is the other table; for foreign keys, the referenced table.'
             ),
         kind: zod
-            .enum(['foreign_key', 'same_entity', 'lineage', 'declared_join', 'join_candidate'])
+            .enum(['foreign_key', 'same_entity', 'lineage', 'declared_join', 'join_candidate', 'depends_on'])
             .describe(
-                '\* `foreign_key` - foreign_key\n\* `same_entity` - same_entity\n\* `lineage` - lineage\n\* `declared_join` - declared_join\n\* `join_candidate` - join_candidate'
+                '\* `foreign_key` - foreign_key\n\* `same_entity` - same_entity\n\* `lineage` - lineage\n\* `declared_join` - declared_join\n\* `join_candidate` - join_candidate\n\* `depends_on` - depends_on'
             )
             .describe(
-                'Relationship type. `foreign_key` when the source column references a target PK. `same_entity` when two columns identify the same business object (Stripe.customer_id ≈ Postgres.users.id). `lineage` when the target table is derived from the source. `declared_join` for an officially supported join. `join_candidate` for an inferred-but-unconfirmed join.\n\n\* `foreign_key` - foreign_key\n\* `same_entity` - same_entity\n\* `lineage` - lineage\n\* `declared_join` - declared_join\n\* `join_candidate` - join_candidate'
+                "Relationship type. `foreign_key` when the source column references a target PK. `same_entity` when two columns identify the same business object (Stripe.customer_id ≈ Postgres.users.id). `lineage` when the target table is derived from the source (data-flow lineage). `declared_join` for an officially supported join. `join_candidate` for an inferred-but-unconfirmed join. `depends_on` for a logical dependency that isn't data-flow lineage (e.g. a metric built from an event definition or property).\n\n\* `foreign_key` - foreign_key\n\* `same_entity` - same_entity\n\* `lineage` - lineage\n\* `declared_join` - declared_join\n\* `join_candidate` - join_candidate\n\* `depends_on` - depends_on"
             ),
         confidence: zod
             .number()

@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CatalogColumnDTOApi,
     CatalogGraphDTOApi,
+    CatalogMetricDTOApi,
     CatalogNodeDTOApi,
     CatalogNodesListParams,
     CatalogRelationshipDTOApi,
@@ -20,6 +21,7 @@ import type {
     PatchedUpdateRelationshipInputApi,
     ProposeRelationshipInputApi,
     UpsertColumnInputApi,
+    UpsertMetricInputApi,
     UpsertNodeInputApi,
 } from './api.schemas'
 
@@ -79,6 +81,26 @@ export const catalogColumnsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedUpdateColumnInputApi),
+    })
+}
+
+export const getCatalogMetricsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/catalog/metrics/`
+}
+
+/**
+ * Propose a semantic metric and bind its CatalogNode in one call.
+ */
+export const catalogMetricsCreate = async (
+    projectId: string,
+    upsertMetricInputApi: UpsertMetricInputApi,
+    options?: RequestInit
+): Promise<CatalogMetricDTOApi> => {
+    return apiMutator<CatalogMetricDTOApi>(getCatalogMetricsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(upsertMetricInputApi),
     })
 }
 
