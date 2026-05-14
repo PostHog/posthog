@@ -146,6 +146,7 @@ export type SettingId =
     | 'integration-posthog-code-discord'
     | 'integration-error-tracking'
     | 'integration-linear'
+    | 'integration-linear-agent'
     | 'integration-github'
     | 'integration-other'
     | 'integration-ip-allowlist'

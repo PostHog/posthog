@@ -80,7 +80,7 @@ import { FeaturePreviewsComingSoon, FeaturePreviewsSettings } from './environmen
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
-import { GithubIntegration, LinearIntegration } from './environment/Integrations'
+import { GithubIntegration, LinearAgentIntegration, LinearIntegration } from './environment/Integrations'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { JsSnippetVersionPin } from './environment/JsSnippetVersionPin'
@@ -1373,12 +1373,27 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['linear', 'issue', 'project management', 'task'],
             },
             {
+                id: 'integration-linear-agent',
+                title: 'Linear (Agent) integration',
+                description:
+                    'Install the PostHog AI agent into your Linear workspace so it can be @mentioned on issues and comments.',
+                component: <LinearAgentIntegration />,
+                keywords: ['linear', 'agent', 'ai', 'mention', 'bot'],
+            },
+            {
                 id: 'integration-other',
                 title: 'Other integrations',
                 description: 'Browse and manage additional third-party integrations.',
                 component: (
                     <IntegrationsList
-                        omitKinds={['slack', 'slack-posthog-code', 'discord-posthog-code', 'github', 'linear']}
+                        omitKinds={[
+                            'slack',
+                            'slack-posthog-code',
+                            'discord-posthog-code',
+                            'github',
+                            'linear',
+                            'linear-agent',
+                        ]}
                     />
                 ),
                 keywords: ['integration', 'connect', 'third-party', 'app'],

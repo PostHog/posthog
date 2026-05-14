@@ -168,6 +168,7 @@ class Integration(models.Model):
         INTERCOM = "intercom"
         JIRA = "jira"
         LINEAR = "linear"
+        LINEAR_AGENT = "linear-agent"
         LINKEDIN_ADS = "linkedin-ads"
         META_ADS = "meta-ads"
         PINTEREST_ADS = "pinterest-ads"
@@ -304,6 +305,7 @@ class OauthIntegration:
         "meta-ads",
         "intercom",
         "linear",
+        "linear-agent",
         "clickup",
         "jira",
         "pinterest-ads",
@@ -533,6 +535,32 @@ class OauthIntegration:
                 id_path="data.viewer.organization.id",
                 name_path="data.viewer.organization.name",
             )
+        elif kind == "linear-agent":
+            if not settings.LINEAR_AGENT_APP_CLIENT_ID or not settings.LINEAR_AGENT_APP_CLIENT_SECRET:
+                raise NotImplementedError("Linear (Agent) app not configured")
+
+            # Installs as `actor=app` so the OAuth token acts on behalf of the
+            # app's own user. The viewer query yields both the bot user id (the
+            # actor) and the organization — hognipotent needs both to drive the
+            # agent at runtime.
+            return OauthConfig(
+                authorize_url="https://linear.app/oauth/authorize",
+                additional_authorize_params={"actor": "app"},
+                token_url="https://api.linear.app/oauth/token",
+                token_info_url="https://api.linear.app/graphql",
+                token_info_graphql_query="{ viewer { id name organization { id name urlKey } } }",
+                token_info_config_fields=[
+                    "data.viewer.id",
+                    "data.viewer.organization.id",
+                    "data.viewer.organization.name",
+                    "data.viewer.organization.urlKey",
+                ],
+                client_id=settings.LINEAR_AGENT_APP_CLIENT_ID,
+                client_secret=settings.LINEAR_AGENT_APP_CLIENT_SECRET,
+                scope="read,write,comments:create,issues:create,app:mentionable",
+                id_path="data.viewer.organization.id",
+                name_path="data.viewer.organization.name",
+            )
         elif kind == "meta-ads":
             if not settings.META_ADS_APP_CLIENT_ID or not settings.META_ADS_APP_CLIENT_SECRET:
                 raise NotImplementedError("Meta Ads app not configured")
@@ -661,8 +689,9 @@ class OauthIntegration:
         path_kind = "slack" if kind == "slack-posthog-code" else kind
         if settings.DEBUG and settings.NGROK_URL:
             return f"{settings.NGROK_URL}/integrations/{path_kind}/callback"
-        # Discord accepts http://localhost in OAuth redirects, so don't force https in local dev
-        if settings.DEBUG and kind == "discord-posthog-code":
+        # In local DEBUG mode we want http://localhost:<port> to round-trip as-is —
+        # Linear/Discord's dev OAuth app check the correct protocol was used.
+        if settings.DEBUG:
             return f"{settings.SITE_URL}/integrations/{path_kind}/callback"
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{path_kind}/callback"
 
@@ -2181,6 +2210,141 @@ class LinearIntegration:
             json={"query": query},
         )
         return response.json()
+
+
+class LinearAgentIntegration:
+    """Linear OAuth app installed as an agent (`actor=app`).
+
+    Token refresh is handled by hognipotent (the chat-bot service that owns
+    the runtime). We only ever push the installation here and forward the
+    install/uninstall to hognipotent — we never refresh from PostHog.
+    """
+
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "linear-agent":
+            raise Exception("LinearAgentIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    def organization_id(self) -> str | None:
+        return dot_get(self.integration.config, "data.viewer.organization.id")
+
+    def bot_user_id(self) -> str | None:
+        return dot_get(self.integration.config, "data.viewer.id")
+
+    def push_to_hognipotent(self) -> None:
+        if not settings.HOGNIPOTENT_URL or not settings.HOGNIPOTENT_SHARED_SECRET:
+            raise ValidationError("Linear agent runtime is not configured on this instance")
+
+        organization_id = self.organization_id()
+        bot_user_id = self.bot_user_id()
+        access_token = self.integration.sensitive_config.get("access_token")
+        if not organization_id or not bot_user_id or not access_token:
+            raise ValidationError("Linear OAuth response did not include the expected actor/organization fields")
+
+        # `expires_in` is stored in seconds and `refreshed_at` is unix-seconds.
+        # Hognipotent expects ms-epoch.
+        refreshed_at = self.integration.config.get("refreshed_at") or int(time.time())
+        expires_in = self.integration.config.get("expires_in") or 0
+        expires_at_ms = (int(refreshed_at) + int(expires_in)) * 1000
+
+        try:
+            response = requests.post(
+                f"{settings.HOGNIPOTENT_URL.rstrip('/')}/api/linear/installed",
+                headers={
+                    "Authorization": f"Bearer {settings.HOGNIPOTENT_SHARED_SECRET}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "organizationId": organization_id,
+                    "accessToken": access_token,
+                    "refreshToken": self.integration.sensitive_config.get("refresh_token"),
+                    "expiresAt": expires_at_ms,
+                    "botUserId": bot_user_id,
+                },
+                timeout=10,
+            )
+        except requests.RequestException as e:
+            logger.exception(
+                "linear_agent_hognipotent_push_failed",
+                integration_id=self.integration.id,
+                error=str(e),
+            )
+            capture_exception(
+                e,
+                {
+                    "integration_id": self.integration.id,
+                    "team_id": self.integration.team_id,
+                    "kind": "linear-agent",
+                    "stage": "push_to_hognipotent",
+                },
+            )
+            raise ValidationError("Failed to register Linear agent installation with the agent runtime.")
+
+        if response.status_code != 200:
+            logger.error(
+                "linear_agent_hognipotent_push_non_200",
+                integration_id=self.integration.id,
+                status_code=response.status_code,
+                response=response.text[:500],
+            )
+            capture_exception(
+                Exception(f"Linear agent hognipotent push returned {response.status_code}"),
+                {
+                    "integration_id": self.integration.id,
+                    "team_id": self.integration.team_id,
+                    "kind": "linear-agent",
+                    "stage": "push_to_hognipotent",
+                    "status_code": response.status_code,
+                    "response_snippet": response.text[:500],
+                },
+            )
+            raise ValidationError(f"Linear agent runtime rejected the installation (status {response.status_code}).")
+
+    @classmethod
+    def delete_from_hognipotent(cls, organization_id: str | None) -> None:
+        # Best-effort uninstall: we don't want a transient hognipotent outage to
+        # block a user from deleting their Integration record locally.
+        if not settings.HOGNIPOTENT_URL or not settings.HOGNIPOTENT_SHARED_SECRET or not organization_id:
+            return
+        try:
+            response = requests.delete(
+                f"{settings.HOGNIPOTENT_URL.rstrip('/')}/api/linear/installed",
+                headers={"Authorization": f"Bearer {settings.HOGNIPOTENT_SHARED_SECRET}"},
+                params={"organizationId": organization_id},
+                timeout=10,
+            )
+        except requests.RequestException as e:
+            logger.exception("linear_agent_hognipotent_delete_failed", organization_id=organization_id)
+            capture_exception(
+                e,
+                {
+                    "organization_id": organization_id,
+                    "kind": "linear-agent",
+                    "stage": "delete_from_hognipotent",
+                },
+            )
+            return
+
+        if response.status_code >= 400:
+            logger.error(
+                "linear_agent_hognipotent_delete_non_2xx",
+                organization_id=organization_id,
+                status_code=response.status_code,
+                response=response.text[:500],
+            )
+            capture_exception(
+                Exception(f"Linear agent hognipotent delete returned {response.status_code}"),
+                {
+                    "organization_id": organization_id,
+                    "kind": "linear-agent",
+                    "stage": "delete_from_hognipotent",
+                    "status_code": response.status_code,
+                    "response_snippet": response.text[:500],
+                },
+            )
 
 
 class JiraIntegration:

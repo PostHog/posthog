@@ -38,6 +38,20 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRE
 LINEAR_APP_CLIENT_ID = get_from_env("LINEAR_APP_CLIENT_ID", "")
 LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
 
+# Linear (Agent) — separate OAuth app from LINEAR_* above. This one installs as an
+# `actor=app` agent on the connecting Linear workspace; runtime side lives in
+# hognipotent (the Next.js chat-bot service). Token refresh happens on the
+# hognipotent side once the install is pushed, so this app does not refresh.
+LINEAR_AGENT_APP_CLIENT_ID = get_from_env("LINEAR_AGENT_APP_CLIENT_ID", "")
+LINEAR_AGENT_APP_CLIENT_SECRET = get_from_env("LINEAR_AGENT_APP_CLIENT_SECRET", "")
+
+# Hognipotent — internal Next.js chat-bot service that owns the Linear agent
+# runtime. We POST the installation here right after the OAuth exchange and
+# DELETE it on disconnect. The shared secret is symmetric with hognipotent's
+# MAIN_APP_SHARED_SECRET — coordinate rotations with the hognipotent owner.
+HOGNIPOTENT_URL = get_from_env("HOGNIPOTENT_URL", "")
+HOGNIPOTENT_SHARED_SECRET = get_from_env("HOGNIPOTENT_SHARED_SECRET", "")
+
 GITHUB_APP_CLIENT_ID = get_from_env("GITHUB_APP_CLIENT_ID", "")
 GITHUB_APP_PRIVATE_KEY = get_from_env("GITHUB_APP_PRIVATE_KEY", "")
 # OAuth *secret* for the same GitHub App as above - generated in the App's settings

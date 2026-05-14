@@ -57,6 +57,7 @@ from posthog.models.integration import (
     GoogleCloudServiceAccountIntegration,
     Integration,
     JiraIntegration,
+    LinearAgentIntegration,
     LinearIntegration,
     LinkedInAdsIntegration,
     OauthIntegration,
@@ -626,6 +627,13 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 except Exception as e:
                     capture_exception(e)
 
+            if validated_data["kind"] == "linear-agent":
+                # Hognipotent (the chat-bot runtime) needs the installation
+                # before any agent traffic can flow. If this push fails we
+                # raise a ValidationError so the user sees the failure and
+                # can retry — the integration row stays in PostHog either way.
+                LinearAgentIntegration(instance).push_to_hognipotent()
+
             return instance
 
         raise ValidationError("Kind not supported")
@@ -689,6 +697,12 @@ class IntegrationViewSet(
             try:
                 stripe_integration = StripeIntegration(instance)
                 stripe_integration.clear_posthog_secrets()
+            except Exception as e:
+                capture_exception(e)
+
+        if instance.kind == "linear-agent":
+            try:
+                LinearAgentIntegration.delete_from_hognipotent(instance.integration_id)
             except Exception as e:
                 capture_exception(e)
 
