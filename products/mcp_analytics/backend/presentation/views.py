@@ -4,6 +4,7 @@ from django.db.models import QuerySet
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -24,6 +25,7 @@ from .serializers import (
     MCPFeedbackCreateSerializer,
     MCPMissingCapabilityCreateSerializer,
     MCPSessionSerializer,
+    MCPToolCallSerializer,
 )
 
 
@@ -130,6 +132,17 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         offset = paginator.get_offset(request)
         sessions = api.list_mcp_sessions(self.team, limit=limit, offset=offset)
         serializer = self.get_serializer(sessions, many=True)
+        return Response({"results": serializer.data})
+
+    @extend_schema(
+        operation_id="mcp_analytics_sessions_tool_calls",
+        description="List all mcp_tool_call events that belong to a given $session_id, in chronological order.",
+        responses={200: MCPToolCallSerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="tool_calls")
+    def tool_calls(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        tool_calls = api.list_mcp_tool_calls(self.team, session_id=str(pk or ""))
+        serializer = MCPToolCallSerializer(tool_calls, many=True)
         return Response({"results": serializer.data})
 
 

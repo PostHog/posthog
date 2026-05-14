@@ -122,6 +122,23 @@ class MCPFeedbackCreateSerializer(MCPAnalyticsSubmissionContextSerializer):
     )
 
 
+class MCPToolCallSerializer(serializers.Serializer):
+    event_id = serializers.CharField(read_only=True, help_text="ClickHouse uuid of the mcp_tool_call event.")
+    timestamp = serializers.DateTimeField(read_only=True, help_text="When the tool call was captured.")
+    tool_name = serializers.CharField(read_only=True, help_text="Tool that was invoked ($mcp_tool_name).")
+    intent = serializers.CharField(
+        read_only=True,
+        help_text="Agent intent for this tool call ($mcp_intent). Empty when the SDK did not capture context.",
+    )
+    is_error = serializers.BooleanField(read_only=True, help_text="Whether the tool call resulted in an error.")
+    error_message = serializers.CharField(
+        read_only=True, help_text="Error message when is_error is true, otherwise empty."
+    )
+    duration_ms = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="Duration of the tool call in milliseconds when captured."
+    )
+
+
 class MCPSessionSerializer(serializers.Serializer):
     session_id = serializers.CharField(
         read_only=True, help_text="PostHog $session_id grouping all mcp_tool_call events."
@@ -143,6 +160,22 @@ class MCPSessionSerializer(serializers.Serializer):
     )
     mcp_client_name = serializers.CharField(
         read_only=True, help_text="Most recent $mcp_client_name observed in the session."
+    )
+    person_id = serializers.CharField(
+        read_only=True,
+        help_text="PostHog person UUID for the session, empty when the session is anonymous.",
+    )
+    person_email = serializers.CharField(
+        read_only=True,
+        help_text="email property of the resolved person, empty when anonymous or not set.",
+    )
+    person_name = serializers.CharField(
+        read_only=True,
+        help_text="name property of the resolved person, empty when anonymous or not set.",
+    )
+    distinct_id = serializers.CharField(
+        read_only=True,
+        help_text="Most recent distinct_id seen on the session, useful as a fallback display when no person is resolved.",
     )
 
 

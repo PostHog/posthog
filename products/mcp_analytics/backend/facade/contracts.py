@@ -60,3 +60,18 @@ class MCPSession:
     distinct_id_count: int
     tools_used: list[str]
     mcp_client_name: str
+    person_id: str
+    person_email: str
+    person_name: str
+    distinct_id: str
+
+
+@dataclass(frozen=True)
+class MCPToolCall:
+    event_id: str
+    timestamp: datetime
+    tool_name: str
+    intent: str
+    is_error: bool
+    error_message: str
+    duration_ms: int | None

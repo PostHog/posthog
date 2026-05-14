@@ -15,8 +15,10 @@ import type {
     McpAnalyticsFeedbackListParams,
     McpAnalyticsMissingCapabilitiesListParams,
     McpAnalyticsSessionsListParams,
+    McpAnalyticsSessionsToolCallsParams,
     PaginatedMCPAnalyticsSubmissionListApi,
     PaginatedMCPSessionListApi,
+    PaginatedMCPToolCallListApi,
 } from './api.schemas'
 
 export const getMcpAnalyticsFeedbackListUrl = (projectId: string, params?: McpAnalyticsFeedbackListParams) => {
@@ -150,6 +152,41 @@ export const mcpAnalyticsSessionsList = async (
     options?: RequestInit
 ): Promise<PaginatedMCPSessionListApi> => {
     return apiMutator<PaginatedMCPSessionListApi>(getMcpAnalyticsSessionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMcpAnalyticsSessionsToolCallsUrl = (
+    projectId: string,
+    id: string,
+    params?: McpAnalyticsSessionsToolCallsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/mcp_analytics/sessions/${id}/tool_calls/?${stringifiedParams}`
+        : `/api/environments/${projectId}/mcp_analytics/sessions/${id}/tool_calls/`
+}
+
+/**
+ * List all mcp_tool_call events that belong to a given $session_id, in chronological order.
+ */
+export const mcpAnalyticsSessionsToolCalls = async (
+    projectId: string,
+    id: string,
+    params?: McpAnalyticsSessionsToolCallsParams,
+    options?: RequestInit
+): Promise<PaginatedMCPToolCallListApi> => {
+    return apiMutator<PaginatedMCPToolCallListApi>(getMcpAnalyticsSessionsToolCallsUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

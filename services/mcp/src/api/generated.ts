@@ -19755,6 +19755,34 @@ export namespace Schemas {
       readonly tools_used: readonly string[];
       /** Most recent $mcp_client_name observed in the session. */
       readonly mcp_client_name: string;
+      /** PostHog person UUID for the session, empty when the session is anonymous. */
+      readonly person_id: string;
+      /** email property of the resolved person, empty when anonymous or not set. */
+      readonly person_email: string;
+      /** name property of the resolved person, empty when anonymous or not set. */
+      readonly person_name: string;
+      /** Most recent distinct_id seen on the session, useful as a fallback display when no person is resolved. */
+      readonly distinct_id: string;
+    }
+
+    export interface MCPToolCall {
+      /** ClickHouse uuid of the mcp_tool_call event. */
+      readonly event_id: string;
+      /** When the tool call was captured. */
+      readonly timestamp: string;
+      /** Tool that was invoked ($mcp_tool_name). */
+      readonly tool_name: string;
+      /** Agent intent for this tool call ($mcp_intent). Empty when the SDK did not capture context. */
+      readonly intent: string;
+      /** Whether the tool call resulted in an error. */
+      readonly is_error: boolean;
+      /** Error message when is_error is true, otherwise empty. */
+      readonly error_message: string;
+      /**
+         * Duration of the tool call in milliseconds when captured.
+         * @nullable
+         */
+      readonly duration_ms: number | null;
     }
 
     export interface MarkToleratedInput {
@@ -21446,6 +21474,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MCPSession[];
+    }
+
+    export interface PaginatedMCPToolCallList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPToolCall[];
     }
 
     export interface PaginatedMaterializedColumnSlotList {
@@ -38699,6 +38736,17 @@ export namespace Schemas {
     };
 
     export type McpAnalyticsSessionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpAnalyticsSessionsToolCallsParams = {
     /**
      * Number of results to return per page.
      */

@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db.models import QuerySet
 
 from posthog.hogql import ast
@@ -13,6 +15,22 @@ from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 MCP_TOOL_CALL_EVENT = "mcp_tool_call"
 
+_MCP_TOOL_CALLS_SQL = """
+SELECT
+    uuid AS event_id,
+    timestamp,
+    toString(properties.$mcp_tool_name) AS tool_name,
+    toString(properties.$mcp_intent) AS intent,
+    toString(properties.$mcp_is_error) AS is_error_raw,
+    toString(properties.$mcp_error_message) AS error_message,
+    toString(properties.$mcp_duration_ms) AS duration_ms_raw
+FROM events
+WHERE event = {event}
+    AND properties.$session_id = {session_id}
+ORDER BY timestamp ASC
+LIMIT 500
+"""
+
 _MCP_SESSIONS_SQL = """
 SELECT
     properties.$session_id AS session_id,
@@ -21,7 +39,11 @@ SELECT
     max(timestamp) AS last_seen,
     count(DISTINCT distinct_id) AS distinct_id_count,
     arrayDistinct(groupArray(properties.$mcp_tool_name)) AS tools_used,
-    argMax(properties.$mcp_client_name, timestamp) AS mcp_client_name
+    argMax(properties.$mcp_client_name, timestamp) AS mcp_client_name,
+    argMax(person_id, timestamp) AS person_id,
+    argMax(toString(person.properties.email), timestamp) AS person_email,
+    argMax(toString(person.properties.name), timestamp) AS person_name,
+    argMax(distinct_id, timestamp) AS last_distinct_id
 FROM events
 WHERE event = {event}
     AND properties.$session_id IS NOT NULL
@@ -57,9 +79,64 @@ def list_mcp_sessions(team: Team, limit: int, offset: int) -> list[contracts.MCP
             distinct_id_count=int(row[4] or 0),
             tools_used=[tool for tool in (row[5] or []) if tool],
             mcp_client_name=row[6] or "",
+            person_id=_clean_person_id(row[7]),
+            person_email=_clean_person_property(row[8]),
+            person_name=_clean_person_property(row[9]),
+            distinct_id=row[10] or "",
         )
         for row in (response.results or [])
     ]
+
+
+_ANONYMOUS_PERSON_ID = "00000000-0000-0000-0000-000000000000"
+
+
+def _clean_person_id(value: Any) -> str:
+    if value is None:
+        return ""
+    value_str = str(value)
+    return "" if value_str == _ANONYMOUS_PERSON_ID else value_str
+
+
+def _clean_person_property(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    # HogQL returns the literal string 'null' when the property is missing
+    return "" if text in ("", "null") else text
+
+
+def list_mcp_tool_calls(team: Team, session_id: str) -> list[contracts.MCPToolCall]:
+    query = parse_select(
+        _MCP_TOOL_CALLS_SQL,
+        placeholders={
+            "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
+            "session_id": ast.Constant(value=session_id),
+        },
+    )
+    with tags_context(product=Product.MCP, feature=Feature.QUERY, team_id=team.id):
+        response = execute_hogql_query(query=query, team=team)
+    return [
+        contracts.MCPToolCall(
+            event_id=str(row[0]) if row[0] else "",
+            timestamp=row[1],
+            tool_name=row[2] or "",
+            intent=row[3] or "",
+            is_error=str(row[4]).lower() in ("true", "1"),
+            error_message=row[5] or "",
+            duration_ms=_parse_int(row[6]),
+        )
+        for row in (response.results or [])
+    ]
+
+
+def _parse_int(value: str | int | None) -> int | None:
+    if value is None or value == "" or value == "null":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def create_feedback_submission(

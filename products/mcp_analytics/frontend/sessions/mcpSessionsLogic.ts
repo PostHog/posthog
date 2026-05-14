@@ -1,10 +1,10 @@
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { mcpAnalyticsSessionsList } from '../generated/api'
-import type { MCPSessionApi } from '../generated/api.schemas'
+import { mcpAnalyticsSessionsList, mcpAnalyticsSessionsToolCalls } from '../generated/api'
+import type { MCPSessionApi, MCPToolCallApi } from '../generated/api.schemas'
 import type { mcpSessionsLogicType } from './mcpSessionsLogicType'
 
 export interface MCPSessionsFilters {
@@ -22,6 +22,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
     })),
     actions({
         setFilters: (filters: Partial<MCPSessionsFilters>) => ({ filters }),
+        selectSession: (sessionId: string | null) => ({ sessionId }),
     }),
     loaders(({ values }) => ({
         allSessions: [
@@ -36,12 +37,30 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 },
             },
         ],
+        toolCalls: [
+            [] as MCPToolCallApi[],
+            {
+                loadToolCalls: async (sessionId: string) => {
+                    if (!values.currentProjectId || !sessionId) {
+                        return []
+                    }
+                    const response = await mcpAnalyticsSessionsToolCalls(String(values.currentProjectId), sessionId)
+                    return [...(response.results ?? [])]
+                },
+            },
+        ],
     })),
     reducers({
         filters: [
             DEFAULT_FILTERS,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
+            },
+        ],
+        selectedSessionId: [
+            null as string | null,
+            {
+                selectSession: (_, { sessionId }) => sessionId,
             },
         ],
     }),
@@ -64,7 +83,31 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 })
             },
         ],
+        selectedSession: [
+            (s) => [s.allSessions, s.selectedSessionId],
+            (allSessions, selectedSessionId): MCPSessionApi | null => {
+                if (!selectedSessionId) {
+                    return null
+                }
+                return allSessions.find((session) => session.session_id === selectedSessionId) ?? null
+            },
+        ],
     }),
+    listeners(({ actions, values }) => ({
+        selectSession: ({ sessionId }) => {
+            if (sessionId) {
+                actions.loadToolCalls(sessionId)
+            }
+        },
+        loadSessionsSuccess: ({ allSessions }) => {
+            // Auto-select the first (most recent) session once data lands, but only
+            // if the user has not already picked one — otherwise their choice would
+            // be clobbered by every refresh.
+            if (!values.selectedSessionId && allSessions.length > 0) {
+                actions.selectSession(allSessions[0].session_id)
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadSessions()
     }),
