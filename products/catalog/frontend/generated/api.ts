@@ -12,11 +12,14 @@ import type {
     CatalogColumnDTOApi,
     CatalogGraphDTOApi,
     CatalogMetricDTOApi,
+    CatalogMetricsListParams,
     CatalogNodeDTOApi,
     CatalogNodesListParams,
     CatalogRelationshipDTOApi,
+    PaginatedCatalogMetricDTOListApi,
     PaginatedCatalogNodeDTOListApi,
     PatchedUpdateColumnInputApi,
+    PatchedUpdateMetricInputApi,
     PatchedUpdateNodeInputApi,
     PatchedUpdateRelationshipInputApi,
     ProposeRelationshipInputApi,
@@ -84,6 +87,36 @@ export const catalogColumnsPartialUpdate = async (
     })
 }
 
+export const getCatalogMetricsListUrl = (projectId: string, params?: CatalogMetricsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/catalog/metrics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/catalog/metrics/`
+}
+
+/**
+ * List all semantic metrics for the team, ordered by name.
+ */
+export const catalogMetricsList = async (
+    projectId: string,
+    params?: CatalogMetricsListParams,
+    options?: RequestInit
+): Promise<PaginatedCatalogMetricDTOListApi> => {
+    return apiMutator<PaginatedCatalogMetricDTOListApi>(getCatalogMetricsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getCatalogMetricsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/catalog/metrics/`
 }
@@ -101,6 +134,45 @@ export const catalogMetricsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(upsertMetricInputApi),
+    })
+}
+
+export const getCatalogMetricsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/catalog/metrics/${id}/`
+}
+
+/**
+ * Retrieve a single metric with its bound CatalogNode (status, tags, etc.).
+ */
+export const catalogMetricsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CatalogMetricDTOApi> => {
+    return apiMutator<CatalogMetricDTOApi>(getCatalogMetricsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCatalogMetricsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/catalog/metrics/${id}/`
+}
+
+/**
+ * Update a metric's description or definition. Status/tags live on the bound node — PATCH /catalog/nodes/:node.id/ instead.
+ */
+export const catalogMetricsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedUpdateMetricInputApi?: PatchedUpdateMetricInputApi,
+    options?: RequestInit
+): Promise<CatalogMetricDTOApi> => {
+    return apiMutator<CatalogMetricDTOApi>(getCatalogMetricsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUpdateMetricInputApi),
     })
 }
 

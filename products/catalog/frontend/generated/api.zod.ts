@@ -179,6 +179,13 @@ export const CatalogMetricsCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Update a metric's description or definition. Status/tags live on the bound node — PATCH /catalog/nodes/:node.id/ instead.
+ */
+export const CatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
  * Upsert a catalog node and its agent-authored descriptions.
  */
 export const catalogNodesCreateBodyNameMax = 400

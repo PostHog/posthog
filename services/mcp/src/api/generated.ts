@@ -6652,11 +6652,11 @@ export namespace Schemas {
 
     export interface CatalogMetricDTO {
       definition: MetricDefinitionSchema;
+      node: CatalogNodeDTO;
       id: string;
       team_id: number;
       name: string;
       description: string;
-      node_id: string;
       created_at: string;
       updated_at: string;
     }
@@ -20942,6 +20942,15 @@ export namespace Schemas {
       results: CIMDVerificationToken[];
     }
 
+    export interface PaginatedCatalogMetricDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CatalogMetricDTO[];
+    }
+
     export interface PaginatedCatalogNodeDTOList {
       count: number;
       /** @nullable */
@@ -29857,6 +29866,19 @@ export namespace Schemas {
          * @nullable
          */
       confidence?: number | null;
+    }
+
+    /**
+     * Body for catalog-metrics-partial-update. Every field optional; only supplied fields are written.
+
+    Status / tags / semantic_role for the metric live on the bound CatalogNode(kind=metric).
+    Use the metric DTO's `node_id` to PATCH `/catalog/nodes/:node_id/` for those.
+     */
+    export interface PatchedUpdateMetricInput {
+      /** Human-readable description of what this metric measures, when to use it, and any caveats. Updating clears the old text — pass the full description, not a diff. */
+      description?: string;
+      /** How the metric is computed. Exactly one of `EventsNode`, `DataWarehouseNode`, or `HogQLQuery` — the same shape `Insight.query.series` uses, discriminated by the inner `kind` field. Replaces the existing definition wholesale; supply the complete body. */
+      definition?: MetricDefinitionSchema;
     }
 
     /**
@@ -40632,6 +40654,17 @@ export namespace Schemas {
 
     export type BusinessKnowledgeSourcesTextRetrieve200 = {
       text?: string;
+    };
+
+    export type CatalogMetricsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type CatalogNodesListParams = {

@@ -63,6 +63,10 @@ class CatalogRelationshipDTOSerializer(DataclassSerializer):
 
 class CatalogMetricDTOSerializer(DataclassSerializer):
     definition = MetricDefinitionField()
+    # Not read_only — matches CatalogNodeDTOSerializer.columns: @validated_request
+    # round-trips responses through is_valid() in DEBUG, and read-only fields get
+    # stripped from validated_data, breaking the nested DTO reconstruction.
+    node = CatalogNodeDTOSerializer()
 
     class Meta:
         dataclass = CatalogMetricDTO
@@ -444,6 +448,31 @@ class ProposeRelationshipInputSerializer(serializers.Serializer):
         allow_null=True,
         max_length=64,
         help_text="Model that proposed the relationship — same convention as on nodes and columns.",
+    )
+
+
+class UpdateMetricInputSerializer(serializers.Serializer):
+    """Body for catalog-metrics-partial-update. Every field optional; only supplied fields are written.
+
+    Status / tags / semantic_role for the metric live on the bound CatalogNode(kind=metric).
+    Use the metric DTO's `node.id` to PATCH `/catalog/nodes/:id/` for those.
+    """
+
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Human-readable description of what this metric measures, when to use it, and any caveats. "
+            "Updating clears the old text — pass the full description, not a diff."
+        ),
+    )
+    definition = MetricDefinitionField(
+        required=False,
+        help_text=(
+            "How the metric is computed. Exactly one of `EventsNode`, `DataWarehouseNode`, or `HogQLQuery` — "
+            "the same shape `Insight.query.series` uses, discriminated by the inner `kind` field. "
+            "Replaces the existing definition wholesale; supply the complete body."
+        ),
     )
 
 

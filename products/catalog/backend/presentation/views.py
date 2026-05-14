@@ -36,6 +36,7 @@ from ..facade import api as catalog_api
 from ..facade.contracts import (
     ProposeRelationshipParams,
     UpdateColumnParams,
+    UpdateMetricParams,
     UpdateNodeParams,
     UpdateRelationshipParams,
     UpsertColumnParams,
@@ -50,6 +51,7 @@ from .serializers import (
     CatalogRelationshipDTOSerializer,
     ProposeRelationshipInputSerializer,
     UpdateColumnInputSerializer,
+    UpdateMetricInputSerializer,
     UpdateNodeInputSerializer,
     UpdateRelationshipInputSerializer,
     UpsertColumnInputSerializer,
@@ -300,7 +302,25 @@ class CatalogMetricViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "catalog"
-    scope_object_write_actions = ["create"]
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["create", "partial_update"]
+
+    @extend_schema(responses={200: CatalogMetricDTOSerializer(many=True)})
+    def list(self, request: Request, **kwargs) -> Response:
+        """List all semantic metrics for the team, ordered by name."""
+        metrics = catalog_api.CatalogAPI.list_metrics(cast(int, self.team_id))
+        page = self.paginate_queryset(metrics)
+        if page is not None:
+            return self.get_paginated_response(CatalogMetricDTOSerializer(instance=page, many=True).data)
+        return Response(CatalogMetricDTOSerializer(instance=metrics, many=True).data)
+
+    @extend_schema(parameters=[_NODE_ID_PARAM], responses={200: CatalogMetricDTOSerializer})
+    def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
+        """Retrieve a single metric with its bound CatalogNode (status, tags, etc.)."""
+        metric = catalog_api.CatalogAPI.get_metric(cast(int, self.team_id), UUID(pk))
+        if metric is None:
+            return Response({"detail": "Metric not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CatalogMetricDTOSerializer(instance=metric).data)
 
     @validated_request(
         request_serializer=UpsertMetricInputSerializer,
@@ -319,3 +339,22 @@ class CatalogMetricViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         metric = catalog_api.CatalogAPI.upsert_metric(params)
         return Response(CatalogMetricDTOSerializer(instance=metric).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(parameters=[_NODE_ID_PARAM])
+    @validated_request(
+        request_serializer=UpdateMetricInputSerializer,
+        responses={200: OpenApiResponse(response=CatalogMetricDTOSerializer)},
+    )
+    def partial_update(self, request: TypedRequest[dict[str, Any]], pk: str, **kwargs) -> Response:
+        """Update a metric's description or definition. Status/tags live on the bound node — PATCH /catalog/nodes/:node.id/ instead."""
+        data = request.validated_data
+        params = UpdateMetricParams(
+            team_id=cast(int, self.team_id),
+            metric_id=UUID(pk),
+            description=data.get("description"),
+            definition=data.get("definition"),
+        )
+        metric = catalog_api.CatalogAPI.update_metric(params)
+        if metric is None:
+            return Response({"detail": "Metric not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CatalogMetricDTOSerializer(instance=metric).data)
