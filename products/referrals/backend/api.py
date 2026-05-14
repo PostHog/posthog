@@ -1,12 +1,15 @@
 from typing import Any, cast
 
+from django.db.models import QuerySet
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import SocialReferral
 from posthog.models.user import User
+
+from products.referrals.backend.models import SocialReferral
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -64,7 +67,7 @@ class SocialReferralViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # TODO(permissioning): Add explicit permission classes beyond TeamAndOrgViewSetMixin defaults; align with API scopes / AccessControl.
     permission_classes = []
 
-    def safely_get_queryset(self, queryset):
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         user = cast(User, self.request.user)
         return queryset.filter(organization_id=self.organization_id, user_id=user.id)
 

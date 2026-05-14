@@ -109,6 +109,7 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.notifications.backend.presentation.views import NotificationsViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
+from products.referrals.backend.api import SocialReferralViewSet
 from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
@@ -174,7 +175,6 @@ from . import (
     schema_property_group,
     search,
     sharing,
-    social_referral,
     tagged_item,
     team,
     uploaded_media,
@@ -720,7 +720,7 @@ organizations_router.register(
 )
 organizations_router.register(
     r"social_referrals",
-    social_referral.SocialReferralViewSet,
+    SocialReferralViewSet,
     "organization_social_referrals",
     ["organization_id"],
 )

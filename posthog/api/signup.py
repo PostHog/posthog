@@ -37,12 +37,13 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
-from posthog.models.social_referral import record_signup_social_referral_attribution
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
 from posthog.utils import get_can_create_org, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
+
+from products.referrals.backend.models import record_signup_social_referral_attribution
 
 logger = structlog.get_logger(__name__)
 

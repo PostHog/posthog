@@ -36,7 +36,6 @@ class SocialReferral(UUIDModel):
     )
 
     class Meta:
-        db_table = "posthog_social_referral"
         indexes = [
             models.Index(fields=["organization", "-created_at"], name="social_ref_org_created_idx"),
         ]

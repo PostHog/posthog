@@ -82,7 +82,6 @@ from .scheduled_change import ScheduledChange
 from products.event_definitions.backend.models import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
-from .social_referral import SocialReferral
 from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
@@ -221,7 +220,6 @@ __all__ = [
     "SessionRecordingPlaylistItem",
     "SharePassword",
     "SharingConfiguration",
-    "SocialReferral",
     "Subscription",
     "Tag",
     "TaggedItem",
