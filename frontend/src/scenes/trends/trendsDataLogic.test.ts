@@ -276,29 +276,37 @@ describe('trendsDataLogic', () => {
                     filter: {},
                 }) as unknown as TrendResult
 
-            it('name mode sorts breakdowns alphabetically regardless of aggregate magnitude', async () => {
+            // Tests the indexedResults sort dispatch: same input, two sort modes, two expected orderings.
+            // Shared fixture intentionally pairs aggregate magnitude inverse to alphabetical order so
+            // a Name-mode bug that fell through to aggregate sort (or vice versa) would flip the assertion.
+            const sharedSortInput = [fixture('zeta', 300), fixture('alpha', 100), fixture('beta', 200)]
+            it.each([
+                {
+                    name: 'name mode sorts breakdowns alphabetically regardless of aggregate magnitude',
+                    sortMode: BreakdownSortBy.Name,
+                    display: ChartDisplayType.ActionsBar,
+                    expectedOrder: ['alpha', 'beta', 'zeta'],
+                },
+                {
+                    name: 'aggregate-value mode sorts pie breakdowns by aggregated value descending',
+                    sortMode: BreakdownSortBy.AggregateValue,
+                    display: ChartDisplayType.ActionsPie,
+                    expectedOrder: ['zeta', 'beta', 'alpha'],
+                },
+            ])('$name', async ({ sortMode, display, expectedOrder }) => {
                 const query: TrendsQuery = {
                     kind: NodeKind.TrendsQuery,
                     series: [],
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsBar,
-                        breakdownSortBy: BreakdownSortBy.Name,
-                    },
+                    trendsFilter: { display, breakdownSortBy: sortMode },
                     breakdownFilter: { breakdown: '$survey_response', breakdown_type: 'event' },
                 }
-                const insight: Partial<InsightModel> = {
-                    result: [fixture('zeta', 300), fixture('alpha', 100), fixture('beta', 200)],
-                }
+                const insight: Partial<InsightModel> = { result: sharedSortInput }
 
                 await expectLogic(logic, () => {
                     insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
-                    indexedResults: [
-                        expect.objectContaining({ breakdown_value: 'alpha' }),
-                        expect.objectContaining({ breakdown_value: 'beta' }),
-                        expect.objectContaining({ breakdown_value: 'zeta' }),
-                    ],
+                    indexedResults: expectedOrder.map((bv) => expect.objectContaining({ breakdown_value: bv })),
                 })
             })
 
@@ -362,31 +370,6 @@ describe('trendsDataLogic', () => {
                     ['zeta', 'previous'],
                     ['zeta', 'current'],
                 ])
-            })
-
-            it('aggregate-value mode preserves existing pie sort', async () => {
-                const query: TrendsQuery = {
-                    kind: NodeKind.TrendsQuery,
-                    series: [],
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsPie,
-                        breakdownSortBy: BreakdownSortBy.AggregateValue,
-                    },
-                }
-                const insight: Partial<InsightModel> = {
-                    result: trendPieResult.result,
-                }
-
-                await expectLogic(logic, () => {
-                    insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
-                    builtDataNodeLogic.actions.loadDataSuccess(insight)
-                }).toMatchValues({
-                    indexedResults: [
-                        expect.objectContaining({ aggregated_value: 3377681 }),
-                        expect.objectContaining({ aggregated_value: 874570 }),
-                        expect.objectContaining({ aggregated_value: 553348 }),
-                    ],
-                })
             })
         })
     })

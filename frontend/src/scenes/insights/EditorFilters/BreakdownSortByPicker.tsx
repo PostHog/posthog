@@ -7,7 +7,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { BreakdownSortBy } from '~/queries/schema/schema-general'
 
-export function BreakdownSortByPicker(): JSX.Element | null {
+export function BreakdownSortByPicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { breakdownSortBy } = useValues(trendsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(trendsDataLogic(insightProps))
