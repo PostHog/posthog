@@ -10,16 +10,16 @@ import type { TemplatesEnumApi } from '../../../experiments/frontend/generated/a
 import { MAX_VERSIONS, createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
 
 // Mirrors the variant-key generation in products/experiments/backend/presentation/views.py
-// (_build_prompt_variants): 2-variant runs use "Control"/"Test"; 3+-variant runs use numbered
-// "Test 1", "Test 2", … for the trailing variants.
+// (_build_prompt_variants). Labels are the literal variant keys so the modal matches what
+// gets stored on the feature flag.
 function variantLabel(index: number, total: number): string {
     if (index === 0) {
-        return 'Control'
+        return 'control'
     }
     if (total === 2) {
-        return 'Test'
+        return 'test'
     }
-    return `Test ${index}`
+    return `test-${index}`
 }
 
 export function CreatePromptExperimentModal(): JSX.Element | null {
