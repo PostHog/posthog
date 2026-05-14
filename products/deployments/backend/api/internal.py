@@ -29,6 +29,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import InternalAPIAuthentication
+from posthog.models.scoping import team_scope
 
 from ..domain.status import InvalidStatusTransition, Status
 from ..domain.trigger import ErrorStep
@@ -129,36 +130,37 @@ class InternalDeploymentTransitionsViewSet(viewsets.ViewSet):
         error_step_raw = body.validated_data.get("error_step")
         error_step = ErrorStep(error_step_raw) if error_step_raw else None
 
-        # `update_status.execute` does its own `SELECT FOR UPDATE` on the
-        # row, so we catch the missing-row case here instead of pre-fetching
-        # (which would just be a wasted query and still race the worker that
-        # deletes the row between the two reads). `Deployment.DoesNotExist`
-        # otherwise bubbles up as a 500.
-        try:
-            deployment = update_status.execute(
-                update_status.UpdateStatusInput(
-                    deployment_id=deployment_id,
-                    status=target,
-                    cloudflare_deployment_id=body.validated_data.get("cloudflare_deployment_id") or None,
-                    deployment_url=body.validated_data.get("deployment_url") or None,
-                    error_message=body.validated_data.get("error_message") or None,
-                    error_step=error_step,
-                    started_at=body.validated_data.get("started_at"),
-                    finished_at=body.validated_data.get("finished_at"),
+        # InternalAPIAuthentication does not set team context. Resolve the row
+        # with `all_teams`, then enter scope so ModelActivityMixin and any
+        # ProductTeamModel writes inside the transition use the deployment's
+        # canonical team.
+        deployment_for_scope = self._get_deployment(deployment_id)
+        with team_scope(deployment_for_scope.team_id, canonical=True):
+            try:
+                deployment = update_status.execute(
+                    update_status.UpdateStatusInput(
+                        deployment_id=deployment_id,
+                        status=target,
+                        cloudflare_deployment_id=body.validated_data.get("cloudflare_deployment_id") or None,
+                        deployment_url=body.validated_data.get("deployment_url") or None,
+                        error_message=body.validated_data.get("error_message") or None,
+                        error_step=error_step,
+                        started_at=body.validated_data.get("started_at"),
+                        finished_at=body.validated_data.get("finished_at"),
+                    )
                 )
-            )
-        except Deployment.DoesNotExist as exc:
-            raise NotFound(f"Deployment {deployment_id} not found.") from exc
-        except InvalidStatusTransition as exc:
-            logger.warning(
-                "internal_deployments.invalid_transition",
-                deployment_id=str(deployment_id),
-                current=str(exc.current),
-                target=str(exc.target),
-            )
-            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+            except Deployment.DoesNotExist as exc:
+                raise NotFound(f"Deployment {deployment_id} not found.") from exc
+            except InvalidStatusTransition as exc:
+                logger.warning(
+                    "internal_deployments.invalid_transition",
+                    deployment_id=str(deployment_id),
+                    current=str(exc.current),
+                    target=str(exc.target),
+                )
+                return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
-        return Response(DeploymentSerializer(deployment).data, status=status.HTTP_200_OK)
+            return Response(DeploymentSerializer(deployment).data, status=status.HTTP_200_OK)
 
     @extend_schema(exclude=True)
     def events(self, request: Request, deployment_id: str, *args: Any, **kwargs: Any) -> Response:
@@ -167,13 +169,14 @@ class InternalDeploymentTransitionsViewSet(viewsets.ViewSet):
         body = InternalEventInputSerializer(data=request.data)
         body.is_valid(raise_exception=True)
 
-        event = DeploymentEvent.objects.create(
-            deployment_id=deployment.pk,
-            team_id=deployment.team_id,
-            event_type=body.validated_data["event_type"],
-            payload=body.validated_data.get("payload") or {},
-        )
-        return Response(
-            {"id": str(event.id), "occurred_at": event.occurred_at.isoformat()},
-            status=status.HTTP_202_ACCEPTED,
-        )
+        with team_scope(deployment.team_id, canonical=True):
+            event = DeploymentEvent.objects.create(
+                deployment_id=deployment.pk,
+                team_id=deployment.team_id,
+                event_type=body.validated_data["event_type"],
+                payload=body.validated_data.get("payload") or {},
+            )
+            return Response(
+                {"id": str(event.id), "occurred_at": event.occurred_at.isoformat()},
+                status=status.HTTP_202_ACCEPTED,
+            )
