@@ -64,6 +64,8 @@ from .make.template_make import template as make
 from .meta_ads.template_meta_ads import template as meta_ads
 from .microsoft_teams.template_microsoft_teams import template as microsoft_teams
 from .onesignal.template_onesignal import template as onesignal
+from .organization_enrichment.template_organization_enrichment import template as organization_enrichment
+from .person_enrichment.template_person_enrichment import template as person_enrichment
 from .posthog.template_posthog import (
     TemplatePostHogMigrator,
     template as posthog,
@@ -125,6 +127,8 @@ HOG_FUNCTION_TEMPLATES = [
     meta_ads,
     microsoft_teams,
     onesignal,
+    organization_enrichment,
+    person_enrichment,
     posthog,
     reddit_pixel,
     rudderstack,
