@@ -42,11 +42,11 @@ export function MCPAnalyticsScene(): JSX.Element {
             'data-attr': 'mcp-analytics-sessions-tab',
         },
         {
-            key: 'tool-quality',
-            label: 'Tool quality',
+            key: 'tools',
+            label: 'Tools',
             content: <MCPAnalyticsToolQuality />,
-            link: combineUrl(urls.mcpAnalyticsToolQuality(), searchParams).url,
-            'data-attr': 'mcp-analytics-tool-quality-tab',
+            link: combineUrl(urls.mcpAnalyticsTools(), searchParams).url,
+            'data-attr': 'mcp-analytics-tools-tab',
         },
         {
             key: 'tasks',

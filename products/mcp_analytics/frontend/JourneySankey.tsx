@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
-import sankey, { sankeyLeft, sankeyLinkHorizontal } from 'lib/d3/sankey'
+import sankey, { sankeyJustify, sankeyLeft, sankeyLinkHorizontal } from 'lib/d3/sankey'
 
 export type JourneyOutcome = 'completed' | 'error'
 
@@ -24,6 +24,10 @@ export interface JourneySankeyProps {
     height?: number
     /** When false, the leak sentence under the chart is hidden. */
     showLeakSentence?: boolean
+    /** When true: skip null steps (no Ended nodes), share outcome nodes by name across paths,
+     * and use sankey-justify so outcomes always land in the rightmost column regardless
+     * of how many tool steps a path has. Dashboard variant; cluster detail keeps default. */
+    unifyOutcomes?: boolean
 }
 
 const DEFAULT_WIDTH = 720
@@ -78,7 +82,10 @@ function nodeText(kind: NodeKind): string {
     return NODE_TEXT[kind]
 }
 
-function buildGraph(paths: readonly JourneyPath[]): {
+function buildGraph(
+    paths: readonly JourneyPath[],
+    unifyOutcomes: boolean
+): {
     nodes: JourneyNode[]
     links: JourneyLink[]
 } {
@@ -86,7 +93,11 @@ function buildGraph(paths: readonly JourneyPath[]): {
     const nodes: JourneyNode[] = []
 
     const getNode = (column: number, name: string, kind: NodeKind): number => {
-        const key = `${column}::${name}`
+        // Outcome nodes are shared by name when unifyOutcomes is on, so every
+        // path's terminal link points to the same Completed / Error node and
+        // d3-sankey can place it at max-depth (rightmost column).
+        const key =
+            unifyOutcomes && (kind === 'completed' || kind === 'error') ? `outcome::${name}` : `${column}::${name}`
         const existing = nodeIndex.get(key)
         if (existing !== undefined) {
             return existing
@@ -104,6 +115,12 @@ function buildGraph(paths: readonly JourneyPath[]): {
         const columns: { name: string; kind: NodeKind }[] = [{ name: 'Init', kind: 'init' }]
         for (const step of path.steps) {
             if (step === null) {
+                if (unifyOutcomes) {
+                    // In the dashboard variant null steps are not meaningful — the
+                    // last real tool links directly to the outcome, with the ribbon
+                    // stretched to span any unused columns.
+                    continue
+                }
                 columns.push({ name: ENDED_LABEL, kind: 'ended' })
             } else {
                 columns.push({ name: step, kind: 'tool' })
@@ -146,8 +163,9 @@ export function JourneySankey({
     width = DEFAULT_WIDTH,
     height = DEFAULT_HEIGHT,
     showLeakSentence = true,
+    unifyOutcomes = false,
 }: JourneySankeyProps): JSX.Element {
-    const graph = useMemo(() => buildGraph(paths), [paths])
+    const graph = useMemo(() => buildGraph(paths, unifyOutcomes), [paths, unifyOutcomes])
 
     const layout = useMemo(() => {
         if (graph.nodes.length === 0 || graph.links.length === 0) {
@@ -156,7 +174,7 @@ export function JourneySankey({
         const layoutFn = sankey<JourneyNode, JourneyLink>()
             .nodeWidth(32)
             .nodePadding(8)
-            .nodeAlign(sankeyLeft)
+            .nodeAlign(unifyOutcomes ? sankeyJustify : sankeyLeft)
             .extent([
                 [4, 22],
                 [width - 4, height - 14],
@@ -165,7 +183,7 @@ export function JourneySankey({
             nodes: graph.nodes.map((n) => ({ ...n })),
             links: graph.links.map((l) => ({ ...l })),
         })
-    }, [graph, width, height])
+    }, [graph, width, height, unifyOutcomes])
 
     if (!layout) {
         return <div className="bg-surface-secondary rounded p-4 text-xs text-muted">{emptyMessage}</div>
@@ -175,10 +193,12 @@ export function JourneySankey({
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="text-xs text-muted">
-                {totalSessions} session{totalSessions === 1 ? '' : 's'} · top {paths.length} path
-                {paths.length === 1 ? '' : 's'}
-            </div>
+            {!unifyOutcomes ? (
+                <div className="text-xs text-muted">
+                    {totalSessions} session{totalSessions === 1 ? '' : 's'} · top {paths.length} path
+                    {paths.length === 1 ? '' : 's'}
+                </div>
+            ) : null}
             <div className="overflow-x-auto">
                 <svg width={width} height={height} className="block">
                     <defs>
@@ -234,7 +254,8 @@ export function JourneySankey({
                                         style={{
                                             stroke: gradient,
                                             strokeOpacity: 0.55,
-                                            strokeWidth: Math.max(1, link.width),
+                                            // Floor at 3px so single-session ribbons stay readable on sparse data.
+                                            strokeWidth: Math.max(3, link.width),
                                         }}
                                     />
                                 </Tooltip>

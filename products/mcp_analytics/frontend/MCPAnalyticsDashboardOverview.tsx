@@ -167,7 +167,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         {
             label: 'Sessions',
             metric: kpis.sessions,
-            href: urls.mcpAnalyticsConversations(),
+            href: urls.mcpAnalyticsSessions(),
             format: formatNumber,
             color: 'blue',
             loading: kpisLoading,
@@ -185,7 +185,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         {
             label: 'Error rate',
             metric: kpis.errorRatePct,
-            href: urls.mcpAnalyticsConversations(),
+            href: urls.mcpAnalyticsSessions(),
             format: formatPercent,
             color: 'red',
             loading: kpisLoading,
@@ -454,9 +454,24 @@ function describeLeakSteps(steps: readonly (string | null)[]): string {
 }
 
 function AgentJourneysBlock({ journey }: { journey: DashboardJourney }): JSX.Element {
-    const { paths, totalSessions, leak } = journey
+    const { paths, totalSessions, leak, singleToolSessions } = journey
 
     if (paths.length === 0) {
+        // No multi-tool journeys to plot. If there's traffic at all, say so explicitly —
+        // otherwise nudge the user toward recomputing the intent clusters.
+        if (singleToolSessions > 0) {
+            return (
+                <Card>
+                    <div className="py-6 text-center text-[12px] text-secondary">
+                        Most sessions only called one tool — no multi-step journeys to visualize yet.
+                        <br />
+                        <span className="text-tertiary">
+                            {singleToolSessions} single-tool session{singleToolSessions === 1 ? '' : 's'} tracked.
+                        </span>
+                    </div>
+                </Card>
+            )
+        }
         return (
             <Card>
                 <div className="py-6 text-center text-[12px] text-secondary">
@@ -466,19 +481,20 @@ function AgentJourneysBlock({ journey }: { journey: DashboardJourney }): JSX.Ele
         )
     }
 
-    const averageStepsPerPath = paths.reduce((acc, p) => acc + p.steps.length, 0) / paths.length
-    if (averageStepsPerPath < 1.5) {
-        return (
-            <Card>
-                <div className="py-6 text-center text-[12px] text-secondary">
-                    Most sessions only call one tool — no multi-step journey to visualize yet.
-                </div>
-            </Card>
-        )
-    }
+    const journeysSessions = paths.reduce((acc, p) => acc + p.count, 0)
 
     return (
         <Card>
+            <div className="mb-2 text-[11px] text-secondary">
+                {journeysSessions} session{journeysSessions === 1 ? '' : 's'} · top {paths.length} journey
+                {paths.length === 1 ? '' : 's'}
+                {singleToolSessions > 0 ? (
+                    <span className="text-tertiary">
+                        {' '}
+                        · {singleToolSessions} single-tool session{singleToolSessions === 1 ? '' : 's'} hidden
+                    </span>
+                ) : null}
+            </div>
             <JourneySankey
                 paths={paths}
                 totalSessions={totalSessions}
@@ -486,7 +502,8 @@ function AgentJourneysBlock({ journey }: { journey: DashboardJourney }): JSX.Ele
                 showLeakSentence={false}
                 width={640}
                 height={280}
-                columnLabels={['Session start', 'First tool', 'Second tool', 'Outcome']}
+                columnLabels={[]}
+                unifyOutcomes
             />
             <LeakCallout leak={leak} totalSessions={totalSessions} />
         </Card>
@@ -512,7 +529,7 @@ function LeakCallout({ leak, totalSessions }: { leak: DashboardJourney['leak']; 
                 </span>{' '}
                 into {leak.outcome === 'error' ? 'Error / Abandoned' : 'Other'} — the single biggest leak.
             </span>
-            <Link to={urls.mcpAnalyticsConversations()} className="shrink-0 whitespace-nowrap text-[11px]">
+            <Link to={urls.mcpAnalyticsSessions()} className="shrink-0 whitespace-nowrap text-[11px]">
                 See {leak.count} sessions ↗
             </Link>
         </div>
@@ -601,7 +618,7 @@ function NotableSessionsTable({ sessions, loading }: { sessions: NotableSession[
                         }}
                     >
                         <Link
-                            to={urls.mcpAnalyticsConversations()}
+                            to={urls.mcpAnalyticsSessions()}
                             className="truncate font-mono text-[11px]"
                             title={entry.session.session_id}
                         >
@@ -618,7 +635,7 @@ function NotableSessionsTable({ sessions, loading }: { sessions: NotableSession[
             )}
             {sessions.length > 0 && (
                 <div className="mt-1.5 flex justify-end">
-                    <Link to={urls.mcpAnalyticsConversations()} className="text-[10px]">
+                    <Link to={urls.mcpAnalyticsSessions()} className="text-[10px]">
                         Open all flagged sessions in Sessions tab ↗
                     </Link>
                 </div>

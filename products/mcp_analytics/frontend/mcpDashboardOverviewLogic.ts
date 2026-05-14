@@ -5,7 +5,7 @@ import { hogqlQuery } from '~/queries/query'
 import { hogql } from '~/queries/utils'
 
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
-import type { MCPIntentClusterApi, MCPIntentClusterJourneyPathApi } from './generated/api.schemas'
+import type { MCPIntentClusterApi } from './generated/api.schemas'
 import type { JourneyPath } from './JourneySankey'
 import type { mcpDashboardOverviewLogicType } from './mcpDashboardOverviewLogicType'
 
@@ -125,13 +125,18 @@ export interface DashboardJourney {
     paths: JourneyPath[]
     totalSessions: number
     leak: JourneyPath | null
+    /** Sessions excluded from the Sankey because they called fewer than 2 distinct tools. */
+    singleToolSessions: number
 }
 
 const MAX_DASHBOARD_JOURNEY_PATHS = 10
 const MIN_PATH_SHARE_PCT = 1
-// Truncate dashboard journeys to first 2 tool steps so the Sankey stays at 4
-// columns (Init → 1st → 2nd → Outcome). Cluster-detail journeys keep all steps.
+// Cap the dashboard Sankey at 2 distinct tool columns (matches the mockup's
+// Init → 1st → 2nd → Outcome layout). Longer journeys keep their first two
+// distinct tools and merge with shorter prefixes — drill into a cluster on
+// the Tasks tab for the full 4-step breakdown.
 const DASHBOARD_MAX_STEPS = 2
+const DASHBOARD_MIN_TOOLS = 2
 
 const EMPTY_METRIC: KPIMetric = { value: 0, previousValue: 0, deltaPct: null, sparkline: [], goodDirection: 'up' }
 const EMPTY_KPIS: KPIData = {
@@ -301,13 +306,25 @@ function median(values: number[]): number {
 // the intent clustering snapshot. Same (steps, outcome) tuple across different
 // clusters is summed. This is intentionally a composition of existing data —
 // no new HogQL — and inherits the snapshot's `completed`/`error` outcomes.
+//
+// Shape decisions for the dashboard journey:
+//   - Drop null steps. Backend pads short sessions with null to a fixed length;
+//     those padding slots are not real tool calls.
+//   - Dedupe consecutive duplicates so [query_run, query_run] collapses to
+//     [query_run] (avoids the "same node twice in adjacent columns" artifact).
+//   - Require ≥ 2 distinct tools. Single-tool sessions aren't journeys —
+//     they're one-shot calls and we track them separately as `singleToolSessions`.
+//   - Truncate to first 3 distinct tools to bound chart width on busy teams.
+//   - Variable depth: paths produce as many tool columns as they need, all
+//     terminating at a single shared outcome node on the right.
 function buildDashboardJourney(clusters: readonly MCPIntentClusterApi[]): DashboardJourney {
     if (clusters.length === 0) {
-        return { paths: [], totalSessions: 0, leak: null }
+        return { paths: [], totalSessions: 0, leak: null, singleToolSessions: 0 }
     }
 
     const byKey = new Map<string, JourneyPath>()
     let totalSessions = 0
+    let singleToolSessions = 0
 
     for (const cluster of clusters) {
         const journey = cluster.journey
@@ -316,55 +333,65 @@ function buildDashboardJourney(clusters: readonly MCPIntentClusterApi[]): Dashbo
         }
         totalSessions += journey.total_sessions
         for (const path of journey.paths) {
-            const truncated: MCPIntentClusterJourneyPathApi = {
-                steps: normalizeDashboardSteps(path.steps),
+            const normalized = normalizeDashboardSteps(path.steps)
+            if (normalized.length < DASHBOARD_MIN_TOOLS) {
+                singleToolSessions += path.count
+                continue
+            }
+            const dashboardPath: JourneyPath = {
+                steps: normalized,
                 outcome: path.outcome,
                 count: path.count,
             }
-            byKey.set(pathKey(truncated), mergePath(byKey.get(pathKey(truncated)), truncated))
+            byKey.set(pathKey(dashboardPath), mergePath(byKey.get(pathKey(dashboardPath)), dashboardPath))
         }
     }
 
     if (totalSessions === 0 || byKey.size === 0) {
-        return { paths: [], totalSessions: 0, leak: null }
+        return { paths: [], totalSessions, leak: null, singleToolSessions }
     }
 
     const minCount = Math.max(1, Math.ceil((totalSessions * MIN_PATH_SHARE_PCT) / 100))
     const allPaths = [...byKey.values()].sort((a, b) => b.count - a.count)
     const paths = allPaths.filter((p) => p.count >= minCount).slice(0, MAX_DASHBOARD_JOURNEY_PATHS)
 
-    // Leak: highest-volume error path (always render *something* per spec). Fall
-    // back to the single biggest path when no error path exists at all.
+    // Leak: highest-volume error path. Falls back to the biggest path if every
+    // path completed successfully so the callout always says *something*.
     const errorPaths = allPaths.filter((p) => p.outcome === 'error')
     const leak = errorPaths[0] ?? null
 
-    return { paths: paths.length ? paths : allPaths.slice(0, MAX_DASHBOARD_JOURNEY_PATHS), totalSessions, leak }
+    return {
+        paths: paths.length ? paths : allPaths.slice(0, MAX_DASHBOARD_JOURNEY_PATHS),
+        totalSessions,
+        leak,
+        singleToolSessions,
+    }
 }
 
-function pathKey(path: MCPIntentClusterJourneyPathApi | JourneyPath): string {
-    return `${path.outcome}::${path.steps.map((s) => s ?? '∅').join('>')}`
+function pathKey(path: JourneyPath): string {
+    return `${path.outcome}::${path.steps.join('>')}`
 }
 
-// Collapse consecutive duplicate steps, truncate to DASHBOARD_MAX_STEPS, then
-// pad with null so every dashboard path has exactly DASHBOARD_MAX_STEPS entries.
-// This keeps the visualization at a uniform 4 columns (Init + 2 steps + outcome)
-// and avoids the "same tool in two adjacent columns" artifact that backend
-// paths like [query_run, query_run, null, null] would otherwise produce.
-function normalizeDashboardSteps(steps: readonly (string | null)[]): (string | null)[] {
-    const deduped: (string | null)[] = []
+// Drop nulls, dedupe consecutive duplicates, truncate to DASHBOARD_MAX_STEPS.
+// Returns ONLY real tool names — the renderer no longer inserts synthetic
+// "Ended" nodes for null entries.
+function normalizeDashboardSteps(steps: readonly (string | null)[]): string[] {
+    const out: string[] = []
     for (const step of steps) {
-        if (deduped.length === 0 || deduped[deduped.length - 1] !== step) {
-            deduped.push(step)
+        if (step === null) {
+            continue
+        }
+        if (out.length === 0 || out[out.length - 1] !== step) {
+            out.push(step)
+        }
+        if (out.length >= DASHBOARD_MAX_STEPS) {
+            break
         }
     }
-    const truncated = deduped.slice(0, DASHBOARD_MAX_STEPS)
-    while (truncated.length < DASHBOARD_MAX_STEPS) {
-        truncated.push(null)
-    }
-    return truncated
+    return out
 }
 
-function mergePath(existing: JourneyPath | undefined, incoming: MCPIntentClusterJourneyPathApi): JourneyPath {
+function mergePath(existing: JourneyPath | undefined, incoming: JourneyPath): JourneyPath {
     if (!existing) {
         return { steps: [...incoming.steps], outcome: incoming.outcome, count: incoming.count }
     }

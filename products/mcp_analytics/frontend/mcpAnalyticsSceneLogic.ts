@@ -6,19 +6,19 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 
 import type { mcpAnalyticsSceneLogicType } from './mcpAnalyticsSceneLogicType'
 
-export type MCPAnalyticsTab = 'dashboard' | 'sessions' | 'tool-quality' | 'tasks'
+export type MCPAnalyticsTab = 'dashboard' | 'sessions' | 'tools' | 'tasks'
 
 export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
     dashboard: 'Overview of your MCP usage.',
     sessions: 'Sessions where users interacted with your MCP tools.',
-    'tool-quality': 'Understand how reliably your MCP tools support user workflows.',
+    tools: 'Understand how reliably your MCP tools support user workflows.',
     tasks: 'Groups of similar agent goals, with the tools each group used and where they failed.',
 }
 
 const SCENE_KEY_TO_TAB: Record<string, MCPAnalyticsTab> = {
     mcpAnalyticsDashboard: 'dashboard',
     mcpAnalyticsSessions: 'sessions',
-    mcpAnalyticsToolQuality: 'tool-quality',
+    mcpAnalyticsTools: 'tools',
     mcpAnalyticsTasks: 'tasks',
 }
 

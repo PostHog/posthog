@@ -28,7 +28,7 @@ export const manifest: ProductManifest = {
         // Define routes here
         '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
         '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
-        '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
+        '/mcp-analytics/tools': ['MCPAnalytics', 'mcpAnalyticsTools'],
         '/mcp-analytics/tasks': ['MCPAnalytics', 'mcpAnalyticsTasks'],
     },
     redirects: {},
@@ -36,7 +36,7 @@ export const manifest: ProductManifest = {
         // Define URL helpers here
         mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
         mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
-        mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
+        mcpAnalyticsTools: (): string => '/mcp-analytics/tools',
         mcpAnalyticsTasks: (): string => '/mcp-analytics/tasks',
     },
     fileSystemTypes: {},
