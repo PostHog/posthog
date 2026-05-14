@@ -38,10 +38,21 @@ async function main(): Promise<void> {
         logger.warn('REDIS_URL not set; using in-memory bus (single-process only — not safe for production)')
     }
 
-    const app = buildServer({ queue, bus, resolver, repository, domainSuffix: config.domainSuffix })
+    const app = buildServer({
+        queue,
+        bus,
+        resolver,
+        repository,
+        domainSuffix: config.domainSuffix,
+        routingMode: config.routingMode,
+    })
 
     const server = app.listen(config.port, () => {
-        logger.info('agent-ingress listening', { port: config.port })
+        logger.info('agent-ingress listening', {
+            port: config.port,
+            routingMode: config.routingMode,
+            domainSuffix: config.routingMode === 'domain' ? config.domainSuffix : undefined,
+        })
     })
 
     const shutdown = async (signal: string): Promise<void> => {
@@ -75,6 +86,8 @@ function loadLocalRevisions(path: string | undefined, domainSuffix: string): Map
         const revision = entry as ResolvedRevision
         map.set(`app:${revision.applicationId}`, revision)
         map.set(`domain:${revision.applicationSlug}${domainSuffix}`, revision)
+        // Also key by bare slug so path-mode resolves against the same fixture.
+        map.set(`slug:${revision.applicationSlug}`, revision)
     }
     logger.warn('agent-ingress using AGENT_DEV_REVISIONS_PATH fixture — dev only', { path, count: map.size / 2 })
     return map

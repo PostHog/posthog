@@ -12,8 +12,9 @@ import {
     metricsText,
 } from '@posthog/agent-core'
 
+import type { RoutingMode } from './config'
 import { RevisionResolver } from './resolver'
-import { extractHost } from './routes/host'
+import { extractHost, extractSlugFromPath } from './routes/host'
 
 export interface ServerDeps {
     queue: SessionQueueManager
@@ -21,6 +22,13 @@ export interface ServerDeps {
     resolver: RevisionResolver
     repository: ApplicationsRepository
     domainSuffix: string
+    /**
+     * How tenants are identified on inbound requests. See `config.ts`. The
+     * branch lives inside `handleAgentRequest` — in `domain` mode we read the
+     * Host header; in `path` mode we expect `/agents/<slug>/...` and route()
+     * sees the stripped remainder so it never has to know about the prefix.
+     */
+    routingMode: RoutingMode
     /**
      * Validate a bearer token for an agent that declares `auth: pat`. The
      * default implementation looks the token up against the resolved revision's
@@ -68,13 +76,29 @@ export function buildServer(deps: ServerDeps): Express {
 }
 
 async function handleAgentRequest(req: Request, res: Response, deps: ServerDeps): Promise<void> {
-    const host = extractHost(req, deps.domainSuffix)
-    if (!host) {
-        res.status(400).json({ error: `host does not match ${deps.domainSuffix}` })
-        return
+    // Resolve the tenant. `domain` mode uses the Host header (the prod model);
+    // `path` mode uses a `/agents/<slug>/...` URL prefix (dev-friendly when a
+    // wildcard subdomain isn't available, e.g. behind a Cloudflare Quick
+    // Tunnel). Both branches end with a `ResolvedRevision` + the path that
+    // `route()` should see (`pathForRoute`).
+    let revision: import('@posthog/agent-core').ResolvedRevision | null
+    let pathForRoute = req.path
+    if (deps.routingMode === 'path') {
+        const match = extractSlugFromPath(req.path)
+        if (!match) {
+            res.status(400).json({ error: 'path-mode expects /agents/<slug>/<route>' })
+            return
+        }
+        revision = await deps.resolver.resolveSlug(match.slug)
+        pathForRoute = match.remainder
+    } else {
+        const host = extractHost(req, deps.domainSuffix)
+        if (!host) {
+            res.status(400).json({ error: `host does not match ${deps.domainSuffix}` })
+            return
+        }
+        revision = await deps.resolver.resolveDomain(host)
     }
-
-    const revision = await deps.resolver.resolveDomain(host)
     if (!revision) {
         res.status(404).json({ error: 'application not found' })
         return
@@ -85,7 +109,7 @@ async function handleAgentRequest(req: Request, res: Response, deps: ServerDeps)
     }
 
     const agent = compileAgent(revision)
-    const incoming = normalizeRequest(req)
+    const incoming = normalizeRequest(req, pathForRoute)
 
     // Lazy-decrypt the encrypted env at most once per request. Slack signature
     // verification needs one entry from it; nothing else here cares yet.
@@ -118,7 +142,7 @@ async function handleAgentRequest(req: Request, res: Response, deps: ServerDeps)
     await dispatchRouteResult(result, req, res, deps, revision)
 }
 
-function normalizeRequest(req: Request): IncomingRequest {
+function normalizeRequest(req: Request, pathOverride?: string): IncomingRequest {
     const headers: Record<string, string> = {}
     for (const [key, value] of Object.entries(req.headers)) {
         if (value === undefined) {
@@ -133,7 +157,7 @@ function normalizeRequest(req: Request): IncomingRequest {
     const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)
     return {
         method: req.method,
-        path: req.path,
+        path: pathOverride ?? req.path,
         query,
         headers,
         rawBody,

@@ -16,3 +16,39 @@ export function extractHost(req: Request, domainSuffix: string): string | null {
     }
     return raw
 }
+
+/**
+ * Path-based dispatch entry. When ingress is configured with
+ * `ROUTING_MODE=path`, the URL carries the slug instead of the hostname:
+ *
+ *     /agents/<slug>/run
+ *     /agents/<slug>/webhooks/slack
+ *     /agents/<slug>/listen/<session_id>
+ *     /agents/<slug>/send/<session_id>
+ *
+ * Useful for ngrok / cloudflared Quick Tunnels and other setups where you
+ * can't get a wildcard subdomain. Returns the slug + the path the underlying
+ * `route()` handler should see (the prefix stripped).
+ *
+ * Validates the slug shape conservatively so we don't accidentally treat
+ * `..` / empty / arbitrary garbage as a tenant identifier.
+ */
+const PATH_PREFIX = '/agents/'
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/
+
+export function extractSlugFromPath(path: string): { slug: string; remainder: string } | null {
+    if (!path.startsWith(PATH_PREFIX)) {
+        return null
+    }
+    const rest = path.slice(PATH_PREFIX.length)
+    const sep = rest.indexOf('/')
+    if (sep <= 0) {
+        return null
+    }
+    const slug = rest.slice(0, sep).toLowerCase()
+    if (!SLUG_PATTERN.test(slug)) {
+        return null
+    }
+    const remainder = rest.slice(sep)
+    return { slug, remainder }
+}

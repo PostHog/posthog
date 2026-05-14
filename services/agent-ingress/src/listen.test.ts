@@ -41,6 +41,7 @@ describe('agent-ingress /listen SSE flow', () => {
             resolver,
             repository,
             domainSuffix: '.agents.posthog.com',
+            routingMode: 'domain',
         }
         const app = buildServer(deps)
 

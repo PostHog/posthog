@@ -53,6 +53,21 @@ export class RevisionResolver {
         return this.lookup(`app:${applicationId}`, () => this.options.repository.resolveById(applicationId))
     }
 
+    /**
+     * Resolve by bare application slug — used by path-based routing
+     * (`/agents/<slug>/...`). Domain mode prefers `resolveDomain` so the cache
+     * key matches the inbound Host header.
+     */
+    async resolveSlug(slug: string): Promise<ResolvedRevision | null> {
+        const local =
+            this.options.localRevisions?.get(`slug:${slug}`) ??
+            this.options.localRevisions?.get(`domain:${slug}${this.options.domainSuffix}`)
+        if (local) {
+            return local
+        }
+        return this.lookup(`slug:${slug}`, () => this.options.repository.resolveBySlug(slug))
+    }
+
     /** Manually evict a cache entry — useful when Django wants to push an invalidation. */
     invalidate(key: { domain?: string; applicationId?: string }): void {
         if (key.domain) {

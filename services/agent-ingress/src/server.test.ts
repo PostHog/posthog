@@ -68,6 +68,7 @@ async function startServer(overrides: Partial<ServerDeps> = {}): Promise<TestHar
         resolver,
         repository,
         domainSuffix: '.agents.posthog.com',
+        routingMode: 'domain',
         ...overrides,
     }
     const app = buildServer(deps)
