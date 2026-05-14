@@ -32,7 +32,7 @@ from posthog.api.embedding_worker import emit_embedding_request
 from posthog.constants import AvailableFeature
 from posthog.models.sharing_configuration import SharingConfiguration
 
-from .models import UserInterview
+from .models import UserInterview, UserInterviewTopic
 
 logger = structlog.get_logger(__name__)
 
@@ -40,18 +40,17 @@ logger = structlog.get_logger(__name__)
 _EMBEDDING_MODELS = [m.value for m in EmbeddingModelName]
 
 
-def _emit_interview_embeddings(interview: UserInterview) -> None:
+def _emit_interview_embeddings(interview: UserInterview, topic: UserInterviewTopic) -> None:
     """Emit transcript and summary as two separate embedding documents so each can be
     searched independently. Failures are logged but never propagated: Vapi retries are
     idempotent on call.id, so a re-delivery would skip creation and never re-emit —
     making a thrown exception here strictly worse than a degraded but acknowledged row."""
-    topic = interview.topic
     metadata = {
-        "topic_id": str(topic.id) if topic is not None else "",
+        "topic_id": str(topic.id),
         "interviewee_identifier": interview.interviewee_identifier,
     }
     for document_type, content in (("transcript", interview.transcript), ("summary", interview.summary)):
-        if not content:
+        if not content or not content.strip():
             continue
         try:
             emit_embedding_request(
@@ -251,7 +250,7 @@ def vapi_webhook(request: Request) -> Response:
             call_metadata=call,
             created_by=topic.created_by,
         )
-        transaction.on_commit(lambda: _emit_interview_embeddings(interview))
+        transaction.on_commit(lambda: _emit_interview_embeddings(interview, topic))
 
     logger.info(
         "user_interviews_vapi_webhook_stored",

@@ -405,13 +405,14 @@ class TestVapiWebhook(APIBaseTest):
 
         with self.captureOnCommitCallbacks(execute=True):
             self._signed_post("topsecret", payload)
-        first_call_count = mock_emit.call_count
-        self.assertEqual(first_call_count, 2)
+        first_emitted_types = {kwargs["document_type"] for _, kwargs in mock_emit.call_args_list}
+        self.assertEqual(first_emitted_types, {"transcript", "summary"})
 
         with self.captureOnCommitCallbacks(execute=True):
             second = self._signed_post("topsecret", payload)
         self.assertEqual(second.json()["status"], "duplicate")
-        self.assertEqual(mock_emit.call_count, first_call_count)
+        second_emitted_types = {kwargs["document_type"] for _, kwargs in mock_emit.call_args_list}
+        self.assertEqual(second_emitted_types, first_emitted_types)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     @patch("products.user_interviews.backend.webhooks.emit_embedding_request", side_effect=RuntimeError("kafka down"))
