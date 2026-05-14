@@ -17,7 +17,7 @@ from django.utils import timezone
 import structlog
 from celery import shared_task
 
-from products.agentic_tests.backend.logic.execution import execute_agentic_test_run, queue_agentic_test_run
+from products.agentic_tests.backend.logic.execution import execute_agentic_test_run, queue_agentic_test_runs
 from products.agentic_tests.backend.logic.scheduling import compute_next_run_at
 from products.agentic_tests.backend.models import AgenticTest, AgenticTestRun
 
@@ -46,7 +46,7 @@ def run_due_agentic_tests() -> None:
 
     for test in due_tests:
         try:
-            queue_agentic_test_run(test, source=AgenticTestRun.Source.SCHEDULED)
+            queue_agentic_test_runs(test, source=AgenticTestRun.Source.SCHEDULED)
         except Exception as exc:  # noqa: BLE001
             logger.exception("agentic_test_enqueue_failed", test_id=str(test.id), error=str(exc))
 

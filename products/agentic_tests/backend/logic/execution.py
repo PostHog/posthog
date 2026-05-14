@@ -34,23 +34,36 @@ from .runner import AgentEvent, run_agent
 logger = structlog.get_logger(__name__)
 
 
-def queue_agentic_test_run(test: AgenticTest, *, source: str = AgenticTestRun.Source.MANUAL) -> AgenticTestRun:
-    """
-    Create a run row in RUNNING state and dispatch a celery task to finish it.
-
-    The API returns the row immediately so the UI shows "Running" while the task
-    picks it up and updates the row to passed/failed.
-    """
+def queue_agentic_test_run(
+    test: AgenticTest, *, source: str = AgenticTestRun.Source.MANUAL, region: str = ""
+) -> AgenticTestRun:
+    """Create a single run row pinned to one region and dispatch celery to execute it."""
     from products.agentic_tests.backend.tasks.tasks import run_agentic_test_run
 
     run = AgenticTestRun.objects.create(
         agentic_test=test,
         status=AgenticTestRun.Status.RUNNING,
         source=source,
+        region=region,
     )
     run_id = str(run.id)
     transaction.on_commit(lambda: run_agentic_test_run.delay(run_id))
     return run
+
+
+def queue_agentic_test_runs(test: AgenticTest, *, source: str = AgenticTestRun.Source.MANUAL) -> list[AgenticTestRun]:
+    """
+    Fan out: create one run row per configured region. If the test has no regions
+    configured, a single run is created with the runner's default region.
+
+    This is what triggers a "test execution" — every entry point (manual Run, scheduled
+    beat tick, future webhook/API) calls this so users get the same multi-region behaviour
+    regardless of how the test was triggered.
+    """
+    regions = [r for r in (test.regions or []) if r]
+    if not regions:
+        return [queue_agentic_test_run(test, source=source, region="")]
+    return [queue_agentic_test_run(test, source=source, region=region) for region in regions]
 
 
 def execute_agentic_test_run(run_id: str) -> None:
@@ -171,10 +184,14 @@ def _run(test: AgenticTest, *, run: AgenticTestRun, log_entries: list[dict[str, 
         return _run_mock(test)
 
     final: dict[str, Any] | None = None
+    # Pin this run to its own region (set when the row was created). If empty, the runner
+    # falls back to the Browserbase default. The fan-out across regions happens at queue
+    # time in `queue_agentic_test_runs`, not in the runner.
+    regions = [run.region] if run.region else []
     for event in run_agent(
         prompt=test.prompt,
         target_url=test.target_url,
-        regions=list(test.regions or []),
+        regions=regions,
         test_id=str(test.id),
         test_name=test.name,
         run_id=str(run.id),

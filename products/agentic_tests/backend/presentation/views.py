@@ -23,7 +23,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.renderers import ServerSentEventRenderer
 
-from products.agentic_tests.backend.logic.execution import queue_agentic_test_run
+from products.agentic_tests.backend.logic.execution import queue_agentic_test_run, queue_agentic_test_runs
 from products.agentic_tests.backend.logic.runner import AgentEvent, run_agent
 from products.agentic_tests.backend.logic.scheduling import refresh_next_run_at
 from products.agentic_tests.backend.models import AgenticTest, AgenticTestRun
@@ -139,8 +139,11 @@ class AgenticTestViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def run_now(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         test: AgenticTest = self.get_object()
-        run = queue_agentic_test_run(test)
-        return Response(AgenticTestRunSerializer(run).data, status=status.HTTP_202_ACCEPTED)
+        runs = queue_agentic_test_runs(test)
+        return Response(
+            AgenticTestRunSerializer(runs, many=True).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
 
     @extend_schema(
         request=None,
@@ -154,11 +157,20 @@ class AgenticTestViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], renderer_classes=[ServerSentEventRenderer])
     def stream(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         test: AgenticTest = self.get_object()
+        # If the test has multiple regions configured, fan out: stream the first region's
+        # run inline, dispatch the rest as background celery runs. Each becomes its own
+        # AgenticTestRun row tagged with its region.
+        configured = [r for r in (test.regions or []) if r]
+        primary_region = configured[0] if configured else ""
         run = AgenticTestRun.objects.create(
             agentic_test=test,
             status=AgenticTestRun.Status.RUNNING,
             source=AgenticTestRun.Source.MANUAL,
+            region=primary_region,
         )
+        # Fan out the additional regions via the same celery queue used by the schedule.
+        for region in configured[1:]:
+            queue_agentic_test_run(test, source=AgenticTestRun.Source.MANUAL, region=region)
 
         response = StreamingHttpResponse(
             _stream_run(run=run, test=test),
@@ -259,7 +271,7 @@ async def _stream_run(*, run: AgenticTestRun, test: AgenticTest) -> AsyncIterato
             for event in run_agent(
                 prompt=test.prompt,
                 target_url=test.target_url,
-                regions=list(test.regions or []),
+                regions=[run.region] if run.region else [],
                 test_id=str(test.id),
                 test_name=test.name,
                 run_id=str(run.id),
