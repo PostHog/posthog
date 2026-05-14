@@ -12,6 +12,7 @@ from rest_framework import serializers
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.auth import InternalAPIUser
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
@@ -205,7 +206,9 @@ class TaskSerializer(serializers.ModelSerializer):
         validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
 
         if "request" in self.context and hasattr(self.context["request"], "user"):
-            validated_data["created_by"] = self.context["request"].user
+            user = self.context["request"].user
+            if not isinstance(user, InternalAPIUser):
+                validated_data["created_by"] = user
 
         link_relationship = validated_data.pop(
             "signal_report_task_relationship",
