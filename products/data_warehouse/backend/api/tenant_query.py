@@ -31,8 +31,6 @@ from products.data_warehouse.backend.tenant_query import (
 @extend_schema_field(
     {
         "oneOf": [{"type": "string"}, {"type": "integer"}],
-        "nullable": True,
-        "description": "Tenant value to enforce against the configured tenant column.",
     }
 )
 class TenantValueField(serializers.Field):
@@ -58,9 +56,8 @@ class TenantValueField(serializers.Field):
             {"type": "boolean"},
             {"type": "object"},
             {"type": "array", "items": {}},
+            {"type": "null"},
         ],
-        "nullable": True,
-        "description": "One result cell returned by the tenant-scoped query.",
     }
 )
 class TenantQueryResultValueField(serializers.JSONField):
@@ -151,6 +148,12 @@ class TenantQueryConfigResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Per-table tenant column overrides keyed by direct Postgres table name.",
     )
+    foreign_key_tenant_paths_by_table = serializers.SerializerMethodField(
+        help_text=(
+            "Valid per-table tenant paths through direct Postgres foreign-key joins, keyed by direct Postgres table "
+            "name. Values use HogQL dotted field paths such as dashboard.team_id."
+        ),
+    )
     default_timeout_ms = serializers.IntegerField(help_text="Default statement timeout in milliseconds.")
     max_timeout_ms = serializers.IntegerField(help_text="Maximum allowed statement timeout in milliseconds.")
     max_result_limit = serializers.IntegerField(help_text="Maximum result row limit.")
@@ -162,6 +165,19 @@ class TenantQueryConfigResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Previously enabled tables disabled during configuration because they lacked the tenant column.",
     )
+
+    @extend_schema_field(
+        {
+            "type": "object",
+            "additionalProperties": {"type": "array", "items": {"type": "string"}},
+            "description": (
+                "Valid per-table tenant paths through direct Postgres foreign-key joins, keyed by direct Postgres "
+                "table name. Values use HogQL dotted field paths such as dashboard.team_id."
+            ),
+        }
+    )
+    def get_foreign_key_tenant_paths_by_table(self, obj: dict[str, object]) -> object:
+        return obj.get("foreign_key_tenant_paths_by_table", {})
 
 
 class TenantQueryResponseSerializer(serializers.Serializer):
@@ -248,9 +264,8 @@ class TenantQueryExecutionDetailRequestSerializer(serializers.Serializer):
             {"type": "boolean"},
             {"type": "object"},
             {"type": "array", "items": {}},
+            {"type": "null"},
         ],
-        "nullable": True,
-        "description": "Structured tenant query execution log value.",
     }
 )
 class TenantQueryJSONValueField(serializers.JSONField):

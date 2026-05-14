@@ -97,6 +97,9 @@ const tenantQueryConfigSet = (): ToolBase<typeof TenantQueryConfigSetSchema, Sch
         if (params.tenant_column_name !== undefined) {
             body['tenant_column_name'] = params.tenant_column_name
         }
+        if (params.tenant_column_names_by_table !== undefined) {
+            body['tenant_column_names_by_table'] = params.tenant_column_names_by_table
+        }
         if (params.default_timeout_ms !== undefined) {
             body['default_timeout_ms'] = params.default_timeout_ms
         }

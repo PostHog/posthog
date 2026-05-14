@@ -21,12 +21,8 @@ export interface TenantQueryRequestApi {
     timeout_ms?: number
 }
 
-/**
- * One result cell returned by the tenant-scoped query.
- */
 export type TenantQueryResponseApiResultsItemItem =
     | string
-    | number
     | number
     | boolean
     | { [key: string]: unknown }
@@ -117,6 +113,11 @@ export interface TenantQueryConfigRequestApi {
 export type TenantQueryConfigResponseApiTenantColumnNamesByTable = { [key: string]: string }
 
 /**
+ * Valid per-table tenant paths through direct Postgres foreign-key joins, keyed by direct Postgres table name. Values use HogQL dotted field paths such as dashboard.team_id.
+ */
+export type TenantQueryConfigResponseApiForeignKeyTenantPathsByTable = { [key: string]: string[] }
+
+/**
  * * `integer` - integer
  * `string` - string
  * `uuid` - uuid
@@ -128,10 +129,6 @@ export const TenantColumnTypeEnumApi = {
     String: 'string',
     Uuid: 'uuid',
 } as const
-
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
 
 export interface TenantQueryConfigResponseApi {
     /** Direct Postgres connection ID. */
@@ -145,12 +142,14 @@ export interface TenantQueryConfigResponseApi {
     tenant_column_name?: string | null
     /** Tenant column type inferred from direct Postgres schema metadata.
 
-* `integer` - integer
-* `string` - string
-* `uuid` - uuid */
-    tenant_column_type?: TenantColumnTypeEnumApi | NullEnumApi | null
+  * `integer` - integer
+  * `string` - string
+  * `uuid` - uuid */
+    tenant_column_type?: TenantColumnTypeEnumApi | null
     /** Per-table tenant column overrides keyed by direct Postgres table name. */
     tenant_column_names_by_table: TenantQueryConfigResponseApiTenantColumnNamesByTable
+    /** Valid per-table tenant paths through direct Postgres foreign-key joins, keyed by direct Postgres table name. Values use HogQL dotted field paths such as dashboard.team_id. */
+    readonly foreign_key_tenant_paths_by_table: TenantQueryConfigResponseApiForeignKeyTenantPathsByTable
     /** Default statement timeout in milliseconds. */
     default_timeout_ms: number
     /** Maximum allowed statement timeout in milliseconds. */
@@ -225,21 +224,21 @@ export interface TenantQueryExecutionDetailRequestApi {
 }
 
 export type TenantQueryExecutionDetailApiReferencedTableMetadataItem = {
-    [key: string]: string | number | number | boolean | { [key: string]: unknown } | unknown[] | null
+    [key: string]: string | number | boolean | { [key: string]: unknown } | unknown[] | null
 }
 
 /**
  * Direct Postgres connection metadata captured at execution time.
  */
 export type TenantQueryExecutionDetailApiConnectionMetadata = {
-    [key: string]: string | number | number | boolean | { [key: string]: unknown } | unknown[] | null
+    [key: string]: string | number | boolean | { [key: string]: unknown } | unknown[] | null
 }
 
 /**
  * Raw structured log attributes for this execution.
  */
 export type TenantQueryExecutionDetailApiAttributes = {
-    [key: string]: string | number | number | boolean | { [key: string]: unknown } | unknown[] | null
+    [key: string]: string | number | boolean | { [key: string]: unknown } | unknown[] | null
 }
 
 export interface TenantQueryExecutionDetailApi {

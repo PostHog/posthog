@@ -17,8 +17,8 @@ import * as zod from 'zod'
 export const TenantQueryCreateBody = /* @__PURE__ */ zod.object({
     connection_id: zod.uuid().describe('Direct Postgres connection ID to query.'),
     tenant_value: zod
-        .union([zod.string(), zod.number()])
-        .nullish()
+        .union([zod.string(), zod.number(), zod.null(), zod.null(), zod.null()])
+        .optional()
         .describe('Tenant value to enforce against the configured tenant column.'),
     query: zod.string().describe('HogQL SELECT query to execute against the tenant-scoped connection.'),
     timeout_ms: zod
@@ -77,14 +77,17 @@ export const tenantQueryErrorsSummaryCreateBodyLimitMax = 1000
 export const TenantQueryErrorsSummaryCreateBody = /* @__PURE__ */ zod.object({
     connection_id: zod.uuid().optional().describe('Optional direct Postgres connection ID to filter executions.'),
     tenant_value: zod
-        .union([zod.string(), zod.number()])
-        .nullish()
+        .union([zod.string(), zod.number(), zod.null(), zod.null(), zod.null()])
+        .optional()
         .describe('Optional tenant value to filter executions.'),
     date_from: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .optional()
         .describe('Start timestamp for the execution log search. Defaults to 24 hours before date_to.'),
-    date_to: zod.iso.datetime({}).optional().describe('End timestamp for the execution log search. Defaults to now.'),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('End timestamp for the execution log search. Defaults to now.'),
     limit: zod
         .number()
         .min(1)
@@ -100,7 +103,7 @@ export const TenantQueryErrorsSummaryCreateBody = /* @__PURE__ */ zod.object({
 export const TenantQueryExecutionCreateBody = /* @__PURE__ */ zod.object({
     execution_id: zod.string().describe('Execution log UUID returned by the executions list.'),
     timestamp: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .optional()
         .describe('Optional execution timestamp to narrow the Logs search window.'),
 })
@@ -115,14 +118,17 @@ export const tenantQueryExecutionsCreateBodyLimitMax = 1000
 export const TenantQueryExecutionsCreateBody = /* @__PURE__ */ zod.object({
     connection_id: zod.uuid().optional().describe('Optional direct Postgres connection ID to filter executions.'),
     tenant_value: zod
-        .union([zod.string(), zod.number()])
-        .nullish()
+        .union([zod.string(), zod.number(), zod.null(), zod.null(), zod.null()])
+        .optional()
         .describe('Optional tenant value to filter executions.'),
     date_from: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .optional()
         .describe('Start timestamp for the execution log search. Defaults to 24 hours before date_to.'),
-    date_to: zod.iso.datetime({}).optional().describe('End timestamp for the execution log search. Defaults to now.'),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('End timestamp for the execution log search. Defaults to now.'),
     limit: zod
         .number()
         .min(1)
@@ -142,14 +148,17 @@ export const tenantQueryUsageSummaryCreateBodyLimitMax = 1000
 export const TenantQueryUsageSummaryCreateBody = /* @__PURE__ */ zod.object({
     connection_id: zod.uuid().optional().describe('Optional direct Postgres connection ID to filter executions.'),
     tenant_value: zod
-        .union([zod.string(), zod.number()])
-        .nullish()
+        .union([zod.string(), zod.number(), zod.null(), zod.null(), zod.null()])
+        .optional()
         .describe('Optional tenant value to filter executions.'),
     date_from: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .optional()
         .describe('Start timestamp for the execution log search. Defaults to 24 hours before date_to.'),
-    date_to: zod.iso.datetime({}).optional().describe('End timestamp for the execution log search. Defaults to now.'),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('End timestamp for the execution log search. Defaults to now.'),
     limit: zod
         .number()
         .min(1)

@@ -49,6 +49,7 @@ export type TenantQueryTableVisibilityKey = keyof TenantQueryTableVisibility
 export const TENANT_QUERY_PLAYGROUND_ID = 'tenant-query-playground'
 export const TENANT_QUERY_TABLE_DISABLED = '__posthog_table_disabled__'
 export const TENANT_QUERY_NO_TENANT_FIELD = '__posthog_no_tenant_field__'
+export const TENANT_QUERY_FOREIGN_KEY_FIELD = '__posthog_foreign_key_field__'
 
 const DEFAULT_TENANT_QUERY_CONFIG_FORM: TenantQueryConfigFormValues = {
     enabled: false,

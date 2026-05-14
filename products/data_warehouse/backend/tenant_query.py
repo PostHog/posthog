@@ -15,7 +15,14 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_defau
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
-from posthog.hogql.database.models import BooleanDatabaseField, FieldOrTable, StringDatabaseField, Table, TableNode
+from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    FieldOrTable,
+    LazyJoin,
+    StringDatabaseField,
+    Table,
+    TableNode,
+)
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
@@ -156,6 +163,34 @@ def _postgres_schema_columns(schema: ExternalDataSchema) -> list[dict[str, objec
 
 def _postgres_schema_column(schema: ExternalDataSchema, column_name: str) -> dict[str, object] | None:
     return next((column for column in _postgres_schema_columns(schema) if column.get("name") == column_name), None)
+
+
+def _postgres_schema_foreign_keys(schema: ExternalDataSchema) -> list[dict[str, str]]:
+    metadata = schema.schema_metadata
+    foreign_keys = metadata.get("foreign_keys") if metadata else None
+    if not isinstance(foreign_keys, list):
+        return []
+
+    postgres_foreign_keys: list[dict[str, str]] = []
+    for foreign_key in foreign_keys:
+        if not isinstance(foreign_key, dict):
+            continue
+
+        column = foreign_key.get("column")
+        target_table = foreign_key.get("target_table")
+        target_column = foreign_key.get("target_column")
+        if not (isinstance(column, str) and isinstance(target_table, str) and isinstance(target_column, str)):
+            continue
+
+        postgres_foreign_keys.append(
+            {
+                "column": column,
+                "target_table": target_table,
+                "target_column": target_column,
+            }
+        )
+
+    return postgres_foreign_keys
 
 
 def _schema_metadata_value(schema: ExternalDataSchema, key: str) -> str | None:
@@ -301,6 +336,14 @@ def _tenant_column_name_for_schema_value(override_value: str | None, default_ten
     return override_value or default_tenant_column_name
 
 
+def _tenant_column_field_chain(tenant_column_name: str) -> list[str]:
+    return [part for part in tenant_column_name.split(".") if part]
+
+
+def _foreign_key_field_name(column_name: str) -> str:
+    return column_name[:-3] if column_name.endswith("_id") and len(column_name) > 3 else column_name
+
+
 def _schema_lookup_names(schema: ExternalDataSchema) -> set[str]:
     source_schema_name = _schema_source_schema_name(schema)
     source_table_name = _schema_source_table_name(schema)
@@ -320,6 +363,127 @@ def _schema_by_tenant_column_override_key(schemas: list[ExternalDataSchema]) -> 
             schema_by_name[name] = schema
 
     return {name: schema for name, schema in schema_by_name.items() if name_counts[name] == 1}
+
+
+def _foreign_key_target_schema(
+    schemas: list[ExternalDataSchema],
+    source_schema: ExternalDataSchema,
+    target_table: str,
+) -> ExternalDataSchema | None:
+    schema_by_name = _schema_by_tenant_column_override_key(schemas)
+    candidate_names: list[str] = []
+    source_schema_name = _schema_source_schema_name(source_schema)
+    if source_schema_name is not None and "." not in target_table:
+        candidate_names.append(f"{source_schema_name}.{target_table}")
+    candidate_names.append(target_table)
+
+    for candidate_name in candidate_names:
+        schema = schema_by_name.get(candidate_name)
+        if schema is not None:
+            return schema
+
+    return None
+
+
+def _foreign_key_for_field_name(
+    schemas: list[ExternalDataSchema],
+    source_schema: ExternalDataSchema,
+    field_name: str,
+) -> tuple[dict[str, str], ExternalDataSchema] | None:
+    for foreign_key in _postgres_schema_foreign_keys(source_schema):
+        if _foreign_key_field_name(foreign_key["column"]) != field_name:
+            continue
+
+        target_schema = _foreign_key_target_schema(schemas, source_schema, foreign_key["target_table"])
+        if target_schema is None:
+            continue
+
+        return foreign_key, target_schema
+
+    return None
+
+
+def _tenant_column_type_for_schema_path(
+    schema: ExternalDataSchema,
+    tenant_column_path: str,
+    schemas: list[ExternalDataSchema],
+    visited_schema_names: set[str] | None = None,
+) -> str | None:
+    field_chain = _tenant_column_field_chain(tenant_column_path)
+    if len(field_chain) == 0:
+        return None
+
+    if len(field_chain) == 1:
+        return _tenant_column_type_for_schema_column(schema, field_chain[0])
+
+    visited_names = visited_schema_names or set()
+    schema_name = _schema_display_name(schema)
+    if schema_name in visited_names:
+        return None
+
+    foreign_key_target = _foreign_key_for_field_name(schemas, schema, field_chain[0])
+    if foreign_key_target is None:
+        return None
+
+    _foreign_key, target_schema = foreign_key_target
+    return _tenant_column_type_for_schema_path(
+        target_schema,
+        ".".join(field_chain[1:]),
+        schemas,
+        {*visited_names, schema_name},
+    )
+
+
+def _foreign_key_tenant_paths_by_table_for_schemas(
+    schemas: list[ExternalDataSchema],
+    default_tenant_column_name: str | None,
+    tenant_column_names_by_table: TenantColumnNamesByTable,
+    tenant_column_type: str | None = None,
+) -> dict[str, list[str]]:
+    if not default_tenant_column_name:
+        return {}
+
+    paths_by_table: dict[str, list[str]] = {}
+    for schema in schemas:
+        table_name = _schema_display_name(schema)
+        paths: set[str] = set()
+        for foreign_key in _postgres_schema_foreign_keys(schema):
+            target_schema = _foreign_key_target_schema(schemas, schema, foreign_key["target_table"])
+            if target_schema is None:
+                continue
+
+            target_table_name = _schema_display_name(target_schema)
+            target_override_value = tenant_column_names_by_table.get(target_table_name)
+            if not target_schema.should_sync and not _tenant_column_override_requires_enabled_table(
+                target_override_value or TENANT_QUERY_TABLE_DISABLED
+            ):
+                continue
+
+            target_tenant_column_name = _tenant_column_name_for_schema_value(
+                target_override_value,
+                default_tenant_column_name,
+            )
+            if target_tenant_column_name is None:
+                continue
+            if "." in target_tenant_column_name:
+                continue
+
+            target_tenant_column_type = _tenant_column_type_for_schema_path(
+                target_schema,
+                target_tenant_column_name,
+                schemas,
+            )
+            if target_tenant_column_type is None:
+                continue
+            if tenant_column_type is not None and target_tenant_column_type != tenant_column_type:
+                continue
+
+            paths.add(f"{_foreign_key_field_name(foreign_key['column'])}.{target_tenant_column_name}")
+
+        if paths:
+            paths_by_table[table_name] = sorted(paths)
+
+    return paths_by_table
 
 
 def _canonical_tenant_column_overrides(
@@ -385,9 +549,16 @@ def _tenant_column_type_for_effective_columns(
 def _validate_tenant_column_overrides(
     schemas: list[ExternalDataSchema],
     tenant_column_names_by_table: TenantColumnNamesByTable,
+    default_tenant_column_name: str,
     tenant_column_type: str,
 ) -> TenantColumnNamesByTable:
     schema_by_name = {_schema_display_name(schema): schema for schema in schemas}
+    foreign_key_tenant_paths_by_table = _foreign_key_tenant_paths_by_table_for_schemas(
+        schemas,
+        default_tenant_column_name,
+        tenant_column_names_by_table,
+        tenant_column_type,
+    )
     validated_overrides: TenantColumnNamesByTable = {}
 
     for table_name, tenant_column_name in tenant_column_names_by_table.items():
@@ -399,10 +570,21 @@ def _validate_tenant_column_overrides(
             validated_overrides[table_name] = tenant_column_name
             continue
 
-        override_type = _tenant_column_type_for_schema_column(schema, tenant_column_name)
+        override_type = (
+            _tenant_column_type_for_schema_path(schema, tenant_column_name, schemas)
+            if "." in tenant_column_name
+            else _tenant_column_type_for_schema_column(schema, tenant_column_name)
+        )
         if override_type is None:
             raise ExposedHogQLError(
                 f"Tenant column `{tenant_column_name}` is missing from table `{_schema_display_name(schema)}`."
+            )
+        if "." in tenant_column_name and tenant_column_name not in foreign_key_tenant_paths_by_table.get(
+            table_name, []
+        ):
+            raise ExposedHogQLError(
+                f"Tenant column `{tenant_column_name}` is not a valid foreign key tenancy path for table "
+                f"`{_schema_display_name(schema)}`."
             )
         if override_type != tenant_column_type:
             raise ExposedHogQLError(
@@ -1140,12 +1322,19 @@ def _tenant_query_config_response(
     config: DataWarehouseTenantQueryConfig | None,
     disabled_tables: list[str] | None = None,
 ) -> dict[str, object]:
+    tenant_column_names_by_table = _tenant_column_overrides(config)
     return {
         "connection_id": str(source.id),
         "enabled": config.enabled if config is not None else False,
         "tenant_column_name": config.tenant_column_name if config is not None else None,
         "tenant_column_type": config.tenant_column_type if config is not None else None,
-        "tenant_column_names_by_table": _tenant_column_overrides(config),
+        "tenant_column_names_by_table": tenant_column_names_by_table,
+        "foreign_key_tenant_paths_by_table": _foreign_key_tenant_paths_by_table_for_schemas(
+            _direct_postgres_schemas(source),
+            config.tenant_column_name if config is not None else None,
+            tenant_column_names_by_table,
+            config.tenant_column_type if config is not None else None,
+        ),
         "default_timeout_ms": (config.default_timeout_ms if config is not None else DEFAULT_TENANT_QUERY_TIMEOUT_MS),
         "max_timeout_ms": config.max_timeout_ms if config is not None else DEFAULT_TENANT_QUERY_MAX_TIMEOUT_MS,
         "max_result_limit": (config.max_result_limit if config is not None else DEFAULT_TENANT_QUERY_MAX_RESULT_LIMIT),
@@ -1260,6 +1449,7 @@ def configure_tenant_query(
         canonical_tenant_column_names_by_table = _validate_tenant_column_overrides(
             all_schemas,
             canonical_tenant_column_names_by_table,
+            resolved_tenant_column_name,
             tenant_column_type,
         )
 
@@ -1290,7 +1480,7 @@ def configure_tenant_query(
             )
             if schema_tenant_column_name is None:
                 continue
-            if _postgres_schema_column(schema, schema_tenant_column_name) is None:
+            if _tenant_column_type_for_schema_path(schema, schema_tenant_column_name, all_schemas) is None:
                 missing_tenant_column_schemas.append(schema)
 
         disabled_tables = _disable_schemas_without_tenant_column(source, missing_tenant_column_schemas)
@@ -1298,6 +1488,7 @@ def configure_tenant_query(
         canonical_tenant_column_names_by_table = _validate_tenant_column_overrides(
             all_schemas,
             canonical_tenant_column_names_by_table,
+            resolved_tenant_column_name,
             tenant_column_type,
         )
 
@@ -1355,6 +1546,44 @@ def _hide_tenant_field(field: FieldOrTable) -> FieldOrTable:
     return field.model_copy(update={"hidden": True})
 
 
+def _tenant_predicate(
+    tenant_field_chain: list[str],
+    tenant_field: FieldOrTable,
+    predicate_value: object | None,
+) -> ast.CompareOperation | None:
+    if len(tenant_field_chain) == 1:
+        return ast.CompareOperation(
+            left=ast.Field(chain=tenant_field_chain),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=predicate_value),
+        )
+
+    if not isinstance(tenant_field, LazyJoin):
+        return None
+
+    join_table = tenant_field.join_table
+    if isinstance(join_table, Table) and isinstance(join_table.name, str):
+        join_table_chain = join_table.name.split(".")
+    elif isinstance(join_table, str):
+        join_table_chain = join_table.split(".")
+    else:
+        return None
+
+    return ast.CompareOperation(
+        left=ast.Field(chain=tenant_field.from_field),
+        op=ast.CompareOperationOp.In,
+        right=ast.SelectQuery(
+            select=[ast.Field(chain=tenant_field.to_field)],
+            select_from=ast.JoinExpr(table=ast.Field(chain=join_table_chain)),
+            where=ast.CompareOperation(
+                left=ast.Field(chain=tenant_field_chain[1:]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=predicate_value),
+            ),
+        ),
+    )
+
+
 class _TenantColumnOutputVisitor(TraversingVisitor):
     def __init__(self, tenant_column_names: set[str]) -> None:
         self.tenant_column_names = tenant_column_names
@@ -1403,7 +1632,12 @@ def apply_tenant_query_config(
         if tenant_column_name is None:
             continue
 
-        tenant_field = table.fields.get(tenant_column_name)
+        tenant_field_chain = _tenant_column_field_chain(tenant_column_name)
+        if not tenant_field_chain:
+            missing_table_names.append(table.to_printed_hogql())
+            continue
+
+        tenant_field = table.fields.get(tenant_field_chain[0])
         if tenant_field is None:
             missing_table_names.append(table.to_printed_hogql())
             continue
@@ -1412,17 +1646,15 @@ def apply_tenant_query_config(
             predicate_value = _coerce_tenant_value(config, tenant_value)
             has_predicate_value = True
 
+        predicate = _tenant_predicate(tenant_field_chain, tenant_field, predicate_value)
+        if predicate is None:
+            missing_table_names.append(table.to_printed_hogql())
+            continue
+
         default_tenant_field = table.fields.get(config.tenant_column_name)
         if default_tenant_field is not None:
             table.fields[config.tenant_column_name] = _hide_tenant_field(default_tenant_field)
-        table.predicates = [
-            *table.predicates,
-            ast.CompareOperation(
-                left=ast.Field(chain=[tenant_column_name]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value=predicate_value),
-            ),
-        ]
+        table.predicates = [*table.predicates, predicate]
 
     if missing_table_names:
         table_list = ", ".join(sorted(missing_table_names))

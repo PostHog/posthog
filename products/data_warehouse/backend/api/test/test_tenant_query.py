@@ -57,6 +57,7 @@ class TestTenantQuery(APIBaseTest):
         source: ExternalDataSource,
         name: str = "trips",
         postgres_columns: list[tuple[str, str, bool]] | None = None,
+        postgres_foreign_keys: list[tuple[str, str, str]] | None = None,
         should_sync: bool = True,
         source_schema: str = "public",
         source_table_name: str | None = None,
@@ -85,6 +86,7 @@ class TestTenantQuery(APIBaseTest):
             sync_type_config={
                 "schema_metadata": postgres_schema_metadata(
                     columns,
+                    postgres_foreign_keys,
                     source_schema=source_schema,
                     source_table_name=resolved_source_table_name,
                 )
@@ -95,13 +97,14 @@ class TestTenantQuery(APIBaseTest):
     def _create_config(
         self,
         source: ExternalDataSource,
+        tenant_column_name: str = "customer_id",
         tenant_column_names_by_table: dict[str, str] | None = None,
     ) -> DataWarehouseTenantQueryConfig:
         return DataWarehouseTenantQueryConfig.objects.create(
             team=self.team,
             external_data_source=source,
             enabled=True,
-            tenant_column_name="customer_id",
+            tenant_column_name=tenant_column_name,
             tenant_column_type=DataWarehouseTenantQueryConfig.TenantColumnType.INTEGER,
             tenant_column_names_by_table=tenant_column_names_by_table or {},
             max_result_limit=100_000,
@@ -214,6 +217,38 @@ class TestTenantQuery(APIBaseTest):
         assert response["enabled_tables"] == ["bookings", "trips"]
         assert response["disabled_tables"] == []
         assert ExternalDataSchema.objects.get(source=source, name="bookings").should_sync is True
+
+    def test_configure_tenant_query_stores_foreign_key_tenant_column_override(self):
+        source = self._create_direct_source()
+        self._create_table(
+            source,
+            name="posthog_dashboards",
+            postgres_columns=[("id", "bigint", False), ("team_id", "bigint", False), ("name", "text", True)],
+        )
+        self._create_table(
+            source,
+            name="posthog_dashboard_tiles",
+            postgres_columns=[("id", "bigint", False), ("dashboard_id", "bigint", False), ("name", "text", True)],
+            postgres_foreign_keys=[("dashboard_id", "posthog_dashboards", "id")],
+            should_sync=False,
+        )
+
+        response = configure_tenant_query(
+            team=self.team,
+            connection_id=str(source.id),
+            enabled=True,
+            tenant_column_name="team_id",
+            tenant_column_names_by_table={"posthog_dashboard_tiles": "dashboard.team_id"},
+        )
+
+        config = DataWarehouseTenantQueryConfig.objects.get(team=self.team, external_data_source=source)
+        assert config.tenant_column_type == DataWarehouseTenantQueryConfig.TenantColumnType.INTEGER
+        assert config.tenant_column_names_by_table == {"posthog_dashboard_tiles": "dashboard.team_id"}
+        assert response["tenant_column_names_by_table"] == {"posthog_dashboard_tiles": "dashboard.team_id"}
+        assert response["foreign_key_tenant_paths_by_table"] == {"posthog_dashboard_tiles": ["dashboard.team_id"]}
+        assert response["enabled_tables"] == ["posthog_dashboard_tiles", "posthog_dashboards"]
+        assert response["disabled_tables"] == []
+        assert ExternalDataSchema.objects.get(source=source, name="posthog_dashboard_tiles").should_sync is True
 
     def test_configure_tenant_query_allows_table_without_tenant_column_as_dimension(self):
         source = self._create_direct_source()
@@ -395,6 +430,32 @@ class TestTenantQuery(APIBaseTest):
         normalized_sql = sql.lower()
         assert normalized_sql.count("posthog_team.id") >= 2
         assert "id = 42" in sql
+        assert "LIMIT 100" in sql
+
+    def test_injects_foreign_key_tenant_predicate(self):
+        source = self._create_direct_source()
+        self._create_table(
+            source,
+            name="posthog_dashboards",
+            postgres_columns=[("id", "bigint", False), ("team_id", "bigint", False), ("name", "text", True)],
+        )
+        self._create_table(
+            source,
+            name="posthog_dashboard_tiles",
+            postgres_columns=[("id", "bigint", False), ("dashboard_id", "bigint", False), ("name", "text", True)],
+            postgres_foreign_keys=[("dashboard_id", "posthog_dashboards", "id")],
+        )
+        config = self._create_config(
+            source,
+            tenant_column_name="team_id",
+            tenant_column_names_by_table={"posthog_dashboard_tiles": "dashboard.team_id"},
+        )
+
+        sql = self._prepare_sql(source, config, "select * from posthog_dashboard_tiles")
+
+        assert "team_id = 42" in sql
+        assert "dashboard_id" in sql
+        assert " IN (" in sql
         assert "LIMIT 100" in sql
 
     def test_no_tenant_field_table_exposes_all_columns_without_tenant_predicate(self):

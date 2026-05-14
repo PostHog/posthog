@@ -13,6 +13,7 @@ import {
     LemonTable,
     LemonTag,
     Link,
+    type LemonSelectOptions,
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -30,6 +31,7 @@ import type {
 
 import { splitDirectQuerySchemaName } from './DirectQuerySchemasTab'
 import {
+    TENANT_QUERY_FOREIGN_KEY_FIELD,
     TENANT_QUERY_NO_TENANT_FIELD,
     TENANT_QUERY_PLAYGROUND_ID,
     TENANT_QUERY_TABLE_DISABLED,
@@ -53,7 +55,9 @@ interface TenantQueryTableRow {
     tenantColumnName: string | null
     hasTenantColumn: boolean | null
     columns: TenantQueryTableColumn[]
-    tenantColumnOptions: { label: string; value: string }[]
+    tenantColumnOptions: LemonSelectOptions<string>
+    tenantColumnForeignKeySelection: string | null
+    tenantColumnForeignKeyOptions: { label: string; value: string }[]
 }
 
 interface TenantQueryTableColumn {
@@ -118,6 +122,7 @@ function tenantQueryTableRows(
     schemas: ExternalDataSourceSchema[],
     selectedTenantColumn: string,
     tenantColumnNamesByTable: Record<string, string>,
+    foreignKeyTenantPathsByTable: Record<string, string[]>,
     tenantColumnType: TenantQueryColumnType | null,
     enabledTables: string[]
 ): TenantQueryTableRow[] {
@@ -127,46 +132,83 @@ function tenantQueryTableRows(
         const { schemaName, tableName } = splitDirectQuerySchemaName(qualifiedName)
         const tenantColumnOverride = tenantColumnNamesByTable[qualifiedName] ?? null
         const hasNoTenantField = tenantColumnOverride === TENANT_QUERY_NO_TENANT_FIELD
+        const foreignKeyTenantPaths = foreignKeyTenantPathsByTable[qualifiedName] ?? []
+        const hasForeignKeyTenantPath = !!tenantColumnOverride && foreignKeyTenantPaths.includes(tenantColumnOverride)
         const configuredTenantColumnName = isSpecialTenantQueryTableValue(tenantColumnOverride)
             ? ''
-            : (tenantColumnOverride ?? selectedTenantColumn)
+            : hasForeignKeyTenantPath
+              ? ''
+              : (tenantColumnOverride ?? selectedTenantColumn)
         const allColumns = (schema.table?.columns ?? [])
             .map((column) => ({
                 name: column.name,
                 type: typeof column.type === 'string' ? column.type : null,
             }))
             .sort((columnA, columnB) => columnA.name.localeCompare(columnB.name))
-        const hasTenantColumn = configuredTenantColumnName
-            ? allColumns.some((column) => column.name === configuredTenantColumnName)
-            : null
-        const tenantColumnName = hasTenantColumn ? configuredTenantColumnName : null
+        const hasTenantColumn = hasForeignKeyTenantPath
+            ? true
+            : configuredTenantColumnName
+              ? allColumns.some((column) => column.name === configuredTenantColumnName)
+              : null
+        const tenantColumnName = hasForeignKeyTenantPath
+            ? tenantColumnOverride
+            : hasTenantColumn
+              ? configuredTenantColumnName
+              : null
         const enabledForTenantQuery =
             tenantColumnOverride !== TENANT_QUERY_TABLE_DISABLED &&
             (schema.should_sync || enabledTableNames.has(qualifiedName) || enabledTableNames.has(tableName))
         const notQueryableReason = !enabledForTenantQuery
             ? 'Table disabled'
-            : !hasNoTenantField && configuredTenantColumnName && hasTenantColumn === false
+            : !hasNoTenantField && !hasForeignKeyTenantPath && configuredTenantColumnName && hasTenantColumn === false
               ? 'Missing tenant column'
               : null
-        const columns = hasNoTenantField ? allColumns : allColumns.filter((column) => column.name !== tenantColumnName)
+        const columns =
+            hasNoTenantField || hasForeignKeyTenantPath
+                ? allColumns
+                : allColumns.filter((column) => column.name !== tenantColumnName)
         const tenantColumnSelection = !enabledForTenantQuery
             ? TENANT_QUERY_TABLE_DISABLED
             : hasNoTenantField
               ? TENANT_QUERY_NO_TENANT_FIELD
-              : (tenantColumnName ?? '')
-        const tenantColumnOptions = [
+              : hasForeignKeyTenantPath
+                ? TENANT_QUERY_FOREIGN_KEY_FIELD
+                : (tenantColumnName ?? '')
+        const tenantColumnForeignKeyOptions = foreignKeyTenantPaths.map((tenantPath) => ({
+            label: tenantPath,
+            value: tenantPath,
+        }))
+        const tenantColumnOptions: LemonSelectOptions<string> = [
             {
-                label: 'Table disabled (can not query)',
-                labelInMenu: <span className="text-muted">Table disabled (can not query)</span>,
-                value: TENANT_QUERY_TABLE_DISABLED,
+                options: [
+                    {
+                        label: 'Table disabled (can not query)',
+                        labelInMenu: <span className="text-muted">Table disabled (can not query)</span>,
+                        value: TENANT_QUERY_TABLE_DISABLED,
+                    },
+                    { label: 'No tenancy field (expose entire table)', value: TENANT_QUERY_NO_TENANT_FIELD },
+                ],
             },
-            { label: 'No tenancy field (expose entire table)', value: TENANT_QUERY_NO_TENANT_FIELD },
-            ...allColumns
-                .filter((column) => isTenantQueryColumnTypeCompatible(column.type, tenantColumnType))
-                .map((column) => ({
-                    label: column.type ? `${column.name} (${column.type})` : column.name,
-                    value: column.name,
-                })),
+            {
+                title: 'Tenancy via foreign key',
+                options: [
+                    {
+                        label: 'Tenancy via foreign key',
+                        value: TENANT_QUERY_FOREIGN_KEY_FIELD,
+                        disabledReason:
+                            foreignKeyTenantPaths.length === 0 ? 'No foreign keys to tenant-scoped tables' : undefined,
+                    },
+                ],
+            },
+            {
+                title: 'Columns',
+                options: allColumns
+                    .filter((column) => isTenantQueryColumnTypeCompatible(column.type, tenantColumnType))
+                    .map((column) => ({
+                        label: column.type ? `${column.name} (${column.type})` : column.name,
+                        value: column.name,
+                    })),
+            },
         ]
 
         return {
@@ -182,6 +224,8 @@ function tenantQueryTableRows(
             hasTenantColumn,
             columns,
             tenantColumnOptions,
+            tenantColumnForeignKeySelection: hasForeignKeyTenantPath ? tenantColumnOverride : null,
+            tenantColumnForeignKeyOptions,
         }
     })
 
@@ -386,6 +430,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
         source.schemas,
         selectedTenantColumn,
         tenantQueryConfigForm.tenant_column_names_by_table,
+        tenantQueryConfig?.foreign_key_tenant_paths_by_table ?? {},
         selectedTenantColumnType,
         tenantQueryConfig?.enabled_tables ?? []
     )
@@ -590,11 +635,27 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                                 title: 'Tenant column',
                                 render: function RenderTenantColumn(_, row) {
                                     return (
-                                        <div className="min-w-80" onClick={(event) => event.stopPropagation()}>
+                                        <div
+                                            className="min-w-80 space-y-2"
+                                            onClick={(event) => event.stopPropagation()}
+                                        >
                                             <LemonSelect<string>
                                                 value={row.tenantColumnSelection || undefined}
                                                 onChange={(value) => {
                                                     if (value) {
+                                                        if (value === TENANT_QUERY_FOREIGN_KEY_FIELD) {
+                                                            const tenantPath =
+                                                                row.tenantColumnForeignKeySelection ||
+                                                                row.tenantColumnForeignKeyOptions[0]?.value
+                                                            if (tenantPath) {
+                                                                saveTenantQueryTableColumnOverride(
+                                                                    row.id,
+                                                                    row.qualifiedName,
+                                                                    tenantPath
+                                                                )
+                                                            }
+                                                            return
+                                                        }
                                                         saveTenantQueryTableColumnOverride(
                                                             row.id,
                                                             row.qualifiedName,
@@ -624,6 +685,30 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                                                         : undefined)
                                                 }
                                             />
+                                            {row.tenantColumnSelection === TENANT_QUERY_FOREIGN_KEY_FIELD && (
+                                                <LemonSelect<string>
+                                                    value={row.tenantColumnForeignKeySelection || undefined}
+                                                    onChange={(value) => {
+                                                        if (value) {
+                                                            saveTenantQueryTableColumnOverride(
+                                                                row.id,
+                                                                row.qualifiedName,
+                                                                value
+                                                            )
+                                                        }
+                                                    }}
+                                                    options={row.tenantColumnForeignKeyOptions}
+                                                    placeholder="Select foreign key"
+                                                    fullWidth
+                                                    loading={savingTenantQueryTableColumnOverride === row.id}
+                                                    disabledReason={
+                                                        tenantColumnEditDisabledReason ||
+                                                        (!selectedTenantColumn
+                                                            ? 'Select a default tenant column first'
+                                                            : undefined)
+                                                    }
+                                                />
+                                            )}
                                         </div>
                                     )
                                 },
