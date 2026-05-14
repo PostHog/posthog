@@ -11,7 +11,7 @@ import { SpanTreeNode } from '~/queries/schema/schema-general'
 
 import { formatDuration } from './TraceFlameChart'
 
-interface TreeNode {
+export interface TreeNode {
     serviceName: string
     name: string
     node: SpanTreeNode | null
@@ -449,7 +449,7 @@ function findPathByName(root: TreeNode, name: string): string[] | null {
  * Returns the original tree if the target name isn't found, so callers don't accidentally
  * blank the flame when the row's span name no longer matches anything in the result set.
  */
-function pruneToLineage(root: TreeNode, targetName: string): TreeNode {
+export function pruneToLineage(root: TreeNode, targetName: string): TreeNode {
     const path = findPathByName(root, targetName)
     if (!path) {
         return root
