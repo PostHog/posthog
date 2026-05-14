@@ -1,4 +1,5 @@
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'
+import { DIRECT_REFERRER, type ResolvedTrafficSource } from './LiveWebAnalyticsMetricsTypes'
 
 const MINUTE = 60 * 1000
 
@@ -12,6 +13,15 @@ const WALL_CLOCK_MS = new Date(WALL_CLOCK).getTime()
 
 const relativeTime = (offsetMs: number): string => new Date(WALL_CLOCK_MS + offsetMs).toISOString()
 const toUnixSeconds = (isoString: string): number => new Date(isoString).getTime() / 1000
+const source = (
+    source: string,
+    kind: ResolvedTrafficSource['kind'],
+    confidence: ResolvedTrafficSource['confidence'] = kind === 'click_id'
+        ? 'medium'
+        : kind === 'user_agent'
+          ? 'low'
+          : 'high'
+): ResolvedTrafficSource => ({ source, kind, confidence })
 
 describe('LiveMetricsSlidingWindow', () => {
     const WINDOW_SIZE_MINUTES = 30
@@ -952,50 +962,44 @@ describe('LiveMetricsSlidingWindow', () => {
         })
     })
 
-    describe('referrer tracking', () => {
-        it('tracks referrers via addDataPoint', () => {
+    describe('source tracking', () => {
+        it('tracks sources by source and kind via addDataPoint', () => {
             const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
 
             window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-1', {
                 pageviews: 1,
-                referringDomain: 'google.com',
+                source: source('google.com', 'referrer'),
             })
             window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-2', {
                 pageviews: 1,
-                referringDomain: 'google.com',
+                source: source('google.com', 'referrer'),
             })
             window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-3', {
                 pageviews: 1,
-                referringDomain: 'twitter.com',
+                source: source('google.com', 'click_id'),
             })
 
-            const topReferrers = window.getTopReferrers(10)
-            expect(topReferrers).toEqual([
-                { referrer: 'google.com', views: 2 },
-                { referrer: 'twitter.com', views: 1 },
+            expect(window.getTopReferrers(10)).toEqual([
+                { source: 'google.com', referrer: 'google.com', kind: 'referrer', confidence: 'high', views: 2 },
+                { source: 'google.com', referrer: 'google.com', kind: 'click_id', confidence: 'medium', views: 1 },
             ])
         })
 
-        it('aggregates referrers across buckets', () => {
+        it('aggregates mixed UTM, referrer, inferred, and direct sources', () => {
             const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+            const ts = toUnixSeconds(relativeTime(-5 * MINUTE))
 
-            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-1', {
-                pageviews: 1,
-                referringDomain: 'google.com',
-            })
-            window.addDataPoint(toUnixSeconds(relativeTime(-4 * MINUTE)), 'user-2', {
-                pageviews: 1,
-                referringDomain: 'google.com',
-            })
-            window.addDataPoint(toUnixSeconds(relativeTime(-4 * MINUTE)), 'user-3', {
-                pageviews: 1,
-                referringDomain: '$direct',
-            })
+            window.addDataPoint(ts, 'user-1', { pageviews: 1, source: source('instagram', 'utm') })
+            window.addDataPoint(ts, 'user-2', { pageviews: 1, source: source('facebook.com', 'referrer') })
+            window.addDataPoint(ts, 'user-3', { pageviews: 1, source: source('reddit.com', 'user_agent') })
+            window.addDataPoint(ts, 'user-4', { pageviews: 1, source: source(DIRECT_REFERRER, 'direct') })
+            window.addDataPoint(ts, 'user-5', { pageviews: 1, source: source('instagram', 'utm') })
 
-            const topReferrers = window.getTopReferrers(10)
-            expect(topReferrers).toEqual([
-                { referrer: 'google.com', views: 2 },
-                { referrer: '$direct', views: 1 },
+            expect(window.getTopReferrers(10)).toEqual([
+                { source: 'instagram', referrer: 'instagram', kind: 'utm', confidence: 'high', views: 2 },
+                { source: 'facebook.com', referrer: 'facebook.com', kind: 'referrer', confidence: 'high', views: 1 },
+                { source: 'reddit.com', referrer: 'reddit.com', kind: 'user_agent', confidence: 'low', views: 1 },
+                { source: DIRECT_REFERRER, referrer: DIRECT_REFERRER, kind: 'direct', confidence: 'high', views: 1 },
             ])
         })
 
@@ -1004,31 +1008,30 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-1', {
                 pageviews: 1,
-                referringDomain: 'google.com',
+                source: source('google.com', 'referrer'),
             })
             window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-2', {
                 pageviews: 1,
-                referringDomain: 'twitter.com',
+                source: source('twitter.com', 'referrer'),
             })
             window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-3', {
                 pageviews: 1,
-                referringDomain: 'facebook.com',
+                source: source('facebook.com', 'referrer'),
             })
 
-            const topReferrers = window.getTopReferrers(2)
-            expect(topReferrers).toHaveLength(2)
+            expect(window.getTopReferrers(2)).toHaveLength(2)
         })
 
-        it('decrements referrer counts when buckets are pruned', () => {
+        it('decrements source counts when buckets are pruned', () => {
             const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
 
             window.addDataPoint(toUnixSeconds(relativeTime(-30 * MINUTE)), 'user-1', {
                 pageviews: 1,
-                referringDomain: 'old-referrer.com',
+                source: source('old-referrer.com', 'referrer'),
             })
             window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-2', {
                 pageviews: 1,
-                referringDomain: 'google.com',
+                source: source('google.com', 'referrer'),
             })
 
             expect(window.getTopReferrers(10)).toHaveLength(2)
@@ -1036,11 +1039,53 @@ describe('LiveMetricsSlidingWindow', () => {
             tickMinute()
             window.prune()
 
-            const topReferrers = window.getTopReferrers(10)
-            expect(topReferrers).toEqual([{ referrer: 'google.com', views: 1 }])
+            expect(window.getTopReferrers(10)).toEqual([
+                { source: 'google.com', referrer: 'google.com', kind: 'referrer', confidence: 'high', views: 1 },
+            ])
         })
 
-        it('tracks referrers via extendBucketData', () => {
+        describe('with showResolvedSources=false', () => {
+            it('collapses UTM, click ID, and UA sources back into direct', () => {
+                const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+                const ts = toUnixSeconds(relativeTime(-5 * MINUTE))
+
+                window.addDataPoint(ts, 'user-1', { pageviews: 1, source: source('instagram', 'utm') })
+                window.addDataPoint(ts, 'user-2', { pageviews: 1, source: source('facebook.com', 'click_id') })
+                window.addDataPoint(ts, 'user-3', { pageviews: 1, source: source('reddit.com', 'user_agent') })
+                window.addDataPoint(ts, 'user-4', { pageviews: 1, source: source('google.com', 'referrer') })
+
+                expect(window.getTopReferrers(10, false)).toEqual([
+                    {
+                        source: DIRECT_REFERRER,
+                        referrer: DIRECT_REFERRER,
+                        kind: 'direct',
+                        confidence: 'high',
+                        views: 3,
+                    },
+                    { source: 'google.com', referrer: 'google.com', kind: 'referrer', confidence: 'high', views: 1 },
+                ])
+            })
+
+            it('merges direct traffic with collapsed resolved-only traffic', () => {
+                const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+                const ts = toUnixSeconds(relativeTime(-5 * MINUTE))
+
+                window.addDataPoint(ts, 'user-1', { pageviews: 1, source: source(DIRECT_REFERRER, 'direct') })
+                window.addDataPoint(ts, 'user-2', { pageviews: 1, source: source('facebook.com', 'click_id') })
+
+                expect(window.getTopReferrers(10, false)).toEqual([
+                    {
+                        source: DIRECT_REFERRER,
+                        referrer: DIRECT_REFERRER,
+                        kind: 'direct',
+                        confidence: 'high',
+                        views: 2,
+                    },
+                ])
+            })
+        })
+
+        it('tracks sources via extendBucketData', () => {
             const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
@@ -1051,8 +1096,9 @@ describe('LiveMetricsSlidingWindow', () => {
                 devices: new Map(),
                 paths: new Map(),
                 referrers: new Map([
-                    ['google.com', 10],
-                    ['$direct', 5],
+                    ['referrer:google.com', { ...source('google.com', 'referrer'), count: 10 }],
+                    ['direct:$direct', { ...source(DIRECT_REFERRER, 'direct'), count: 5 }],
+                    ['utm:instagram', { ...source('instagram', 'utm'), count: 3 }],
                 ]),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
@@ -1060,8 +1106,9 @@ describe('LiveMetricsSlidingWindow', () => {
             })
 
             expect(window.getTopReferrers(10)).toEqual([
-                { referrer: 'google.com', views: 10 },
-                { referrer: '$direct', views: 5 },
+                { source: 'google.com', referrer: 'google.com', kind: 'referrer', confidence: 'high', views: 10 },
+                { source: DIRECT_REFERRER, referrer: DIRECT_REFERRER, kind: 'direct', confidence: 'high', views: 5 },
+                { source: 'instagram', referrer: 'instagram', kind: 'utm', confidence: 'high', views: 3 },
             ])
         })
 

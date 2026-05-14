@@ -1,13 +1,17 @@
 import { BotCategory, CATEGORY_LABELS } from 'lib/utils/botDetection'
 
+import { addReferrerEntry, collapseToRawReferrerEntries, subtractReferrerEntry } from './inferReferrerSource'
 import {
     BotBreakdownItem,
     BrowserBreakdownItem,
     buildCityKey,
     CityBreakdownItem,
     CountryBreakdownItem,
+    DIRECT_REFERRER,
     parseCityKey,
+    ReferrerBucketEntry,
     ReferrerItem,
+    ResolvedTrafficSource,
     SlidingWindowBucket,
 } from './LiveWebAnalyticsMetricsTypes'
 
@@ -26,7 +30,7 @@ export class LiveMetricsSlidingWindow {
     private _totalPageviews = 0
     private _totalBotEligibleEvents = 0
     private _globalPathCounts = new Map<string, number>()
-    private _globalReferrerCounts = new Map<string, number>()
+    private _globalReferrerCounts = new Map<string, ReferrerBucketEntry>()
     private _globalBotCounts = new Map<string, number>()
     private _globalBotCategoryCounts = new Map<string, number>()
     private _botNameToCategory = new Map<string, string>()
@@ -42,7 +46,7 @@ export class LiveMetricsSlidingWindow {
             pageviews?: number
             botEligibleEvents?: number
             pathname?: string
-            referringDomain?: string
+            source?: ResolvedTrafficSource
             device?: { deviceId: string; deviceType: string }
             browser?: { deviceId: string; browserType: string }
             bot?: { name: string; category: string }
@@ -67,12 +71,8 @@ export class LiveMetricsSlidingWindow {
             this._globalPathCounts.set(data.pathname, (this._globalPathCounts.get(data.pathname) || 0) + 1)
         }
 
-        if (data.referringDomain) {
-            bucket.referrers.set(data.referringDomain, (bucket.referrers.get(data.referringDomain) || 0) + 1)
-            this._globalReferrerCounts.set(
-                data.referringDomain,
-                (this._globalReferrerCounts.get(data.referringDomain) || 0) + 1
-            )
+        if (data.source) {
+            this.addSourceContribution(bucket, data.source, 1)
         }
 
         if (data.device) {
@@ -147,9 +147,8 @@ export class LiveMetricsSlidingWindow {
         }
 
         if (data.referrers) {
-            for (const [referrer, count] of data.referrers) {
-                bucket.referrers.set(referrer, (bucket.referrers.get(referrer) || 0) + count)
-                this._globalReferrerCounts.set(referrer, (this._globalReferrerCounts.get(referrer) || 0) + count)
+            for (const entry of data.referrers.values()) {
+                this.addSourceContribution(bucket, entry, entry.count)
             }
         }
 
@@ -175,6 +174,11 @@ export class LiveMetricsSlidingWindow {
                 this.addBotToBucketBulk(bucket, botName, entry.category, entry.count)
             }
         }
+    }
+
+    private addSourceContribution(bucket: SlidingWindowBucket, source: ResolvedTrafficSource, count: number): void {
+        addReferrerEntry(bucket.referrers, source, count)
+        addReferrerEntry(this._globalReferrerCounts, source, count)
     }
 
     private addUserToBucket(bucket: SlidingWindowBucket, userId: string): void {
@@ -366,6 +370,12 @@ export class LiveMetricsSlidingWindow {
         }
     }
 
+    private decrementGlobalReferrerCounts(bucketMap: Map<string, ReferrerBucketEntry>): void {
+        for (const entry of bucketMap.values()) {
+            subtractReferrerEntry(this._globalReferrerCounts, entry, entry.count)
+        }
+    }
+
     prune(): void {
         const nowTs = Date.now() / 1000
         const threshold = nowTs - this.windowSizeSeconds
@@ -377,7 +387,7 @@ export class LiveMetricsSlidingWindow {
                 this.removeCountriesFromTracking(bucket)
                 this.removeCitiesFromTracking(bucket)
                 this.decrementGlobalCounts(bucket.paths, this._globalPathCounts)
-                this.decrementGlobalCounts(bucket.referrers, this._globalReferrerCounts)
+                this.decrementGlobalReferrerCounts(bucket.referrers)
                 if (bucket.bots) {
                     this.decrementBotCounts(bucket.bots)
                 }
@@ -494,8 +504,30 @@ export class LiveMetricsSlidingWindow {
         return this.getTopEntries(this._globalPathCounts, limit).map(([path, views]) => ({ path, views }))
     }
 
-    getTopReferrers(limit: number): ReferrerItem[] {
-        return this.getTopEntries(this._globalReferrerCounts, limit).map(([referrer, views]) => ({ referrer, views }))
+    getTopReferrers(limit: number, showResolvedSources: boolean = true): ReferrerItem[] {
+        if (showResolvedSources) {
+            return [...this._globalReferrerCounts.values()]
+                .sort((a, b) => b.count - a.count)
+                .slice(0, limit)
+                .map(({ source, kind, confidence, count }) => ({
+                    source,
+                    referrer: source,
+                    kind,
+                    confidence,
+                    views: count,
+                }))
+        }
+
+        return [...collapseToRawReferrerEntries(this._globalReferrerCounts).entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, limit)
+            .map(([source, views]) => ({
+                source,
+                referrer: source,
+                kind: source === DIRECT_REFERRER ? 'direct' : 'referrer',
+                confidence: 'high',
+                views,
+            }))
     }
 
     private getTopEntries(map: Map<string, number>, limit: number): [string, number][] {
@@ -621,7 +653,7 @@ export class LiveMetricsSlidingWindow {
                 devices: new Map<string, Set<string>>(),
                 browsers: new Map<string, Set<string>>(),
                 paths: new Map<string, number>(),
-                referrers: new Map<string, number>(),
+                referrers: new Map<string, ReferrerBucketEntry>(),
                 uniqueUsers: new Set<string>(),
                 countries: new Map<string, Set<string>>(),
                 cities: new Map<string, Set<string>>(),

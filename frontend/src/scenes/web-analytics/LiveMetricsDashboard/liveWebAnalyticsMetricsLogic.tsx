@@ -28,6 +28,14 @@ import {
 import { BaseMathType, LiveEvent, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { createStreamConnection } from './createStreamConnection'
+import {
+    addReferrerEntry,
+    buildTrafficSourceHogQL,
+    buildTrafficSourceKindHogQL,
+    CLICK_ID_PROPERTIES,
+    resolveTrafficSource,
+    resolvedTrafficSourceFromHogQL,
+} from './inferReferrerSource'
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'
 import type { liveWebAnalyticsMetricsLogicType } from './liveWebAnalyticsMetricsLogicType'
 import {
@@ -40,12 +48,13 @@ import {
     CityBreakdownItem,
     CountryBreakdownItem,
     DeviceBreakdownItem,
-    DIRECT_REFERRER,
     LiveGeoEvent,
     parseBotKey,
     PathItem,
+    ReferrerBucketEntry,
     ReferrerItem,
     SlidingWindowBucket,
+    type TrafficSourceKind,
 } from './LiveWebAnalyticsMetricsTypes'
 import {
     FILTERED_LIVE_USER_WINDOW_SECONDS,
@@ -115,6 +124,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         resumeStream: true,
         clearRecentEvents: true,
         clearFilteredLiveUsers: true,
+        setShowInferredReferrers: (showInferred: boolean) => ({ showInferred }),
     })),
     reducers({
         slidingWindow: [
@@ -138,7 +148,6 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                             const deviceType = event.properties?.$device_type
                             const deviceId = event.properties?.$device_id
                             const browser = event.properties?.$browser
-                            const referringDomain = event.properties?.$referring_domain
 
                             // For cookieless events, device_id isn't set before preprocessing
                             // so we create a device key from IP + user agent
@@ -151,17 +160,8 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
                             const isPageview = event.event === '$pageview'
                             const isBotEligibleEvent = (BOT_ELIGIBLE_EVENTS as readonly string[]).includes(event.event)
-                            const normalizedReferrer =
-                                isPageview &&
-                                referringDomain &&
-                                referringDomain !== DIRECT_REFERRER &&
-                                referringDomain !== ''
-                                    ? referringDomain
-                                    : isPageview
-                                      ? DIRECT_REFERRER
-                                      : undefined
+                            const source = isPageview ? resolveTrafficSource(event.properties) : undefined
 
-                            // Server-side classification from livestream ($virt_* properties)
                             const virtBotName = event.properties?.$virt_bot_name as string | undefined
                             const virtCategory = event.properties?.$virt_traffic_category as string | undefined
                             const virtIsBot = event.properties?.$virt_is_bot as boolean | undefined
@@ -183,7 +183,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                                 device: deviceType ? { deviceId: deviceKey, deviceType } : undefined,
                                 browser: browser ? { deviceId: deviceKey, browserType: browser } : undefined,
                                 pathname: isPageview ? pathname : undefined,
-                                referringDomain: normalizedReferrer,
+                                source,
                                 bot: botData,
                             })
 
@@ -249,6 +249,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             {
                 addEvents: (state, { events }) => deduplicateEvents(state, events, 50),
                 clearRecentEvents: () => [],
+            },
+        ],
+        showInferredReferrers: [
+            true,
+            { persist: true },
+            {
+                setShowInferredReferrers: (_, { showInferred }) => showInferred,
             },
         ],
     }),
@@ -333,8 +340,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             { resultEqualityCheck: equal },
         ],
         topReferrers: [
-            (s) => [s.slidingWindow, s.eventsVersion],
-            (slidingWindow: LiveMetricsSlidingWindow): ReferrerItem[] => slidingWindow.getTopReferrers(10),
+            (s) => [s.slidingWindow, s.eventsVersion, s.showInferredReferrers],
+            (slidingWindow: LiveMetricsSlidingWindow, _v: number, showInferredReferrers: boolean): ReferrerItem[] =>
+                slidingWindow.getTopReferrers(10, showInferredReferrers),
             { resultEqualityCheck: equal },
         ],
         totalPageviews: [
@@ -488,8 +496,19 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             }
 
             const url = new URL(`${host}/events`)
-            const baseColumns =
-                '$pathname,$current_url,$host,$device_type,$device_id,$browser,$ip,$raw_user_agent,$referring_domain'
+            const baseColumns = [
+                '$pathname',
+                '$current_url',
+                '$host',
+                '$device_type',
+                '$device_id',
+                '$browser',
+                '$ip',
+                '$raw_user_agent',
+                '$referring_domain',
+                '$utm_source',
+                ...CLICK_ID_PROPERTIES,
+            ].join(',')
             const cityColumns = values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN]
                 ? ',$geoip_city_name,$geoip_country_code'
                 : ''
@@ -780,16 +799,27 @@ const loadQueryData = async ({
         properties: filtersEnabled ? filters : [],
     }
 
+    const sourceExpr = buildTrafficSourceHogQL(
+        'properties.$utm_source',
+        'properties.$referring_domain',
+        'properties.$raw_user_agent'
+    )
+    const sourceKindExpr = buildTrafficSourceKindHogQL(
+        'properties.$utm_source',
+        'properties.$referring_domain',
+        'properties.$raw_user_agent'
+    )
     const referrerQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `SELECT
                     toStartOfMinute(timestamp) AS minute_bucket,
-                    if(isNotNull(properties.$referring_domain) AND properties.$referring_domain != '', properties.$referring_domain, '$direct') AS referring_domain,
+                    ${sourceExpr} AS source,
+                    ${sourceKindExpr} AS source_kind,
                     count() AS view_count
                 FROM events
                 WHERE ${whereClause}
                     AND event = '$pageview'
-                GROUP BY minute_bucket, referring_domain
+                GROUP BY minute_bucket, source, source_kind
                 ORDER BY minute_bucket ASC`,
         ...queryParams,
     }
@@ -999,14 +1029,13 @@ const addReferrerDataToBuckets = (
     referrerResponse: HogQLQueryResponse,
     bucketMap: Map<number, SlidingWindowBucket>
 ): void => {
-    const results = referrerResponse.results as [string, string, number][]
+    const results = referrerResponse.results as [string, string, TrafficSourceKind, number][]
 
-    for (const [timestampStr, referringDomain, viewCount] of results) {
+    for (const [timestampStr, source, kind, viewCount] of results) {
         const timestamp = Date.parse(timestampStr)
         const bucket = getOrCreateBucket(bucketMap, timestamp)
 
-        const domain = referringDomain || DIRECT_REFERRER
-        bucket.referrers.set(domain, (bucket.referrers.get(domain) ?? 0) + viewCount)
+        addReferrerEntry(bucket.referrers, resolvedTrafficSourceFromHogQL(source, kind), viewCount)
     }
 }
 
@@ -1106,7 +1135,7 @@ const createEmptyBucket = (): SlidingWindowBucket => {
         devices: new Map<string, Set<string>>(),
         browsers: new Map<string, Set<string>>(),
         paths: new Map<string, number>(),
-        referrers: new Map<string, number>(),
+        referrers: new Map<string, ReferrerBucketEntry>(),
         uniqueUsers: new Set<string>(),
         countries: new Map<string, Set<string>>(),
         cities: new Map<string, Set<string>>(),

@@ -270,8 +270,9 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         hasActiveFilters,
         isLoading,
         recentEvents,
+        showInferredReferrers,
     } = useValues(liveWebAnalyticsMetricsLogic)
-    const { pauseStream, resumeStream } = useActions(liveWebAnalyticsMetricsLogic)
+    const { pauseStream, resumeStream, setShowInferredReferrers } = useActions(liveWebAnalyticsMetricsLogic)
     const { liveUserCount: allDomainsLiveUserCount } = useValues(
         liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS })
     )
@@ -343,6 +344,8 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         referrers={topReferrers}
                         isLoading={isLoading}
                         totalPageviews={totalPageviews}
+                        showResolvedSources={showInferredReferrers}
+                        setShowResolvedSources={setShowInferredReferrers}
                     />
                 )
             case 'devices':

@@ -73,6 +73,7 @@ interface LiveAnimatedTableProps<T> {
     viewsExtractor: (item: T) => number
     renderLabel: (item: T) => { node: ReactNode; tooltipTitle: string }
     title: string
+    titleAction?: ReactNode
     columnLabel: string
     emptyMessage: string
     isLoading: boolean
@@ -86,6 +87,7 @@ export function LiveAnimatedTable<T>({
     viewsExtractor,
     renderLabel,
     title,
+    titleAction,
     columnLabel,
     emptyMessage,
     isLoading,
@@ -114,7 +116,10 @@ export function LiveAnimatedTable<T>({
 
     return (
         <div className={clsx('bg-bg-light rounded-lg border p-4 h-full min-h-[340px] flex flex-col', className)}>
-            <h3 className="text-sm font-semibold mb-4">{title}</h3>
+            <div className="flex items-center justify-between gap-2 mb-4 min-h-[1.5rem]">
+                <h3 className="text-sm font-semibold min-w-0 truncate">{title}</h3>
+                {titleAction && <div className="flex-shrink-0">{titleAction}</div>}
+            </div>
             {isLoading ? (
                 <div className="flex-1 flex flex-col justify-center space-y-2">
                     {Array.from({ length: 5 }).map((_, i) => (

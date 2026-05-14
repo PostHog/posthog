@@ -27,9 +27,28 @@ export interface PathItem {
 
 export const DIRECT_REFERRER = '$direct'
 
+export type TrafficSourceKind = 'utm' | 'referrer' | 'click_id' | 'user_agent' | 'direct'
+export type TrafficSourceConfidence = 'high' | 'medium' | 'low'
+
+export interface ResolvedTrafficSource {
+    source: string
+    kind: TrafficSourceKind
+    confidence: TrafficSourceConfidence
+}
+
 export interface ReferrerItem {
-    referrer: string
+    source: string
     views: number
+    kind: TrafficSourceKind
+    confidence: TrafficSourceConfidence
+    referrer?: string
+}
+
+export interface ReferrerBucketEntry {
+    source: string
+    kind: TrafficSourceKind
+    confidence: TrafficSourceConfidence
+    count: number
 }
 
 export interface SlidingWindowBucket {
@@ -42,7 +61,7 @@ export interface SlidingWindowBucket {
     devices: Map<string, Set<string>>
     browsers: Map<string, Set<string>>
     paths: Map<string, number>
-    referrers: Map<string, number>
+    referrers: Map<string, ReferrerBucketEntry>
     uniqueUsers: Set<string>
     countries: Map<string, Set<string>>
     // Optional to keep existing test fixtures and backfill helpers concise. Keyed via `buildCityKey`.
