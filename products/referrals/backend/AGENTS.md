@@ -14,9 +14,11 @@ intentionally not combined into a single multi-step session — see _Design note
 products/referrals/backend/
 ├── apps.py                 # Django app config (label="referrals")
 ├── AGENTS.md               # this file
-├── twitter/research/       # Twitter/X enthusiast flow
-│   ├── prompts.py
-│   └── research.py         # run_twitter_research(...)
+├── twitter/                # Twitter/X enthusiast flow
+│   ├── research/
+│   │   ├── prompts.py
+│   │   └── research.py     # run_twitter_research(...)
+│   └── x_dm.py             # send_referral_dms(...) — OAuth refresh, lookup, DM send
 ├── internal/research/      # PostHog power-user flow
 │   ├── prompts.py
 │   └── research.py         # run_internal_research(...)
@@ -40,7 +42,7 @@ products/referrals/backend/
 | **Output identity** | Twitter handle                                                       | PostHog email + org                                                          |
 | **Time window**     | Last 1 hour (configurable)                                           | 30–180 days (per-signal, fixed in queries)                                   |
 | **Cadence**         | Hourly Temporal schedule                                             | Hourly Temporal schedule (dedup deferred)                                    |
-| **Side effect**     | _Placeholder_: log only; will post a reply tweet per candidate       | _Placeholder_: log only; will send a referral-ask email per candidate        |
+| **Side effect**     | DM each candidate via X v2 (`/2/dm_conversations/with/:id/messages`) | _Placeholder_: log only; will send a referral-ask email per candidate        |
 
 ## Twitter flow
 
@@ -65,6 +67,11 @@ python manage.py analyze_twitter_posts --verbose
 
 `TWITTERAPI_IO_KEY` must be in the shell environment of the command (it is injected into the
 prompt at call time; the sandbox itself does not need env-var plumbing).
+
+The DM side effect (in the activity, not this command) additionally needs `X_CLIENT_ID`,
+`X_CLIENT_SECRET`, and `X_REFRESH_TOKEN` to be set on the worker. Use the helper at
+`.scratch/x_oauth2_x/server.mjs` to do the one-time OAuth 2.0 dance and obtain the initial
+refresh token; subsequent rotations are persisted to Django cache automatically.
 
 ## Internal flow
 
@@ -118,7 +125,7 @@ ScheduleSpec(every=1h)           # in posthog/temporal/schedule.py
     → Activity (Heartbeater + scoped_temporal)
       → resolve_sandbox_context_for_local_dev(...)
       → run_{twitter|internal}_research(...)        # spawns a Task → process-task workflow
-      → _post_referral_replies_placeholder | _send_referral_emails_placeholder
+      → _post_referral_dms | _send_referral_emails_placeholder
 ```
 
 ### Registered surface
@@ -129,7 +136,7 @@ ScheduleSpec(every=1h)           # in posthog/temporal/schedule.py
 | Workflow    | `TwitterReferralResearchWorkflow`        | `InternalReferralResearchWorkflow`        |
 | Workflow ID | `referrals-twitter-research`             | `referrals-internal-research`             |
 | Activity    | `run_twitter_referral_research_activity` | `run_internal_referral_research_activity` |
-| Side effect | `_post_referral_replies_placeholder`     | `_send_referral_emails_placeholder`       |
+| Side effect | `_post_referral_dms` (real DM send)      | `_send_referral_emails_placeholder`       |
 
 ### Worker / schedule registration
 
@@ -148,18 +155,22 @@ ScheduleSpec(every=1h)           # in posthog/temporal/schedule.py
   30–180 days). It WILL re-surface the same users until we add an ignore-list / DM-sent
   table. The placeholder side-effect hook logs the duplicates rather than re-DMing.
 
-### Side-effect placeholders
+### Side effects
 
-`activities.py` defines two no-op functions that mark the wire-up points:
+`activities.py` wires the per-flow side effect inline:
 
-- `_post_referral_replies_placeholder(result: TwitterReferralCandidates)` — will post a
-  referral-ask reply tweet via twitterapi.io.
-- `_send_referral_emails_placeholder(result: InternalReferralCandidates)` — will send a
-  referral-ask email (likely via the `messaging` product).
+- `_post_referral_dms(result: TwitterReferralCandidates)` — DMs each candidate via the
+  X v2 API (`twitter/x_dm.py::send_referral_dms`). Credentials come from env vars
+  (`X_CLIENT_ID`, `X_CLIENT_SECRET`, `X_REFRESH_TOKEN`); the refresh token rotates on
+  every refresh and the rotated value is cached in Django cache with the env var as the
+  recovery fallback. **No idempotency yet** — a tweet that re-surfaces in a later window
+  will trigger a duplicate DM. The `TODO(referrals)` in the hook is the wire-up point.
+- `_send_referral_emails_placeholder(result: InternalReferralCandidates)` — still a
+  placeholder; will send a referral-ask email (likely via the `messaging` product).
 
-Both log a `WARNING` ("hook not implemented — N candidate(s) would receive a reply/email")
-plus per-candidate `INFO` lines, so the schedule output stays observable until the real
-sinks are wired. Grep for `TODO(referrals)` to find them when promoting to real behaviour.
+The placeholder still logs a `WARNING` ("hook not implemented — N candidate(s) would
+receive an email") plus per-candidate `INFO` lines so the schedule output stays
+observable. Grep for `TODO(referrals)` to find the remaining wire-up points.
 
 ### CI worker trigger
 
@@ -213,14 +224,17 @@ Things that are not obvious from reading the code and would have to be re-discov
   do not need a separate deployment for one workflow per hour.
 - **Side-effect hooks are inside the activity, not the workflow.** If the workflow restarts
   mid-run (worker crash, etc.) Temporal will replay the activity from scratch — running the
-  research again is expensive but tolerable, and so is calling the side-effect hook again
-  (it is currently a no-op log; once real, the implementation must be idempotent, e.g.
-  keyed on `tweet_id` or `(distinct_id, day)`).
+  research again is expensive but tolerable. The Twitter DM hook is NOT yet idempotent: a
+  worker crash mid-dispatch will re-DM whichever subset already received a message. The
+  hourly cadence + 1h disjoint windows make this acceptable for the hackathon, but the
+  `TODO(referrals)` in `_post_referral_dms` is the wire-up point — pick a key
+  (`tweet_id` or `twitter_user_id`), persist sent DMs, and skip-on-conflict before
+  widening the look-back window.
 - **`non_retryable_error_types=["ValueError", "TypeError"]`.** Config errors
-  (missing `TWITTERAPI_IO_KEY`, missing `posthog_mcp_scopes`) raise `ValueError` so they
-  fail loudly on the first attempt instead of burning 2× cost on a re-run that cannot
-  possibly succeed. Transient infra issues bubble up as `RuntimeError`/network errors and
-  retry once.
+  (missing `TWITTERAPI_IO_KEY`, missing X OAuth creds, missing `posthog_mcp_scopes`) raise
+  `ValueError` so they fail loudly on the first attempt instead of burning 2× cost on a
+  re-run that cannot possibly succeed. Transient infra issues bubble up as
+  `RuntimeError`/network errors and retry once.
 
 ## When editing these flows
 

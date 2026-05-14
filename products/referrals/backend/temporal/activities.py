@@ -4,8 +4,8 @@ Two unrelated concerns share this module:
 
 1. **Research flows** (hourly) — surface Twitter and internal referral candidates via the
    sandbox-based research agents. Each activity resolves a sandbox context, runs the
-   agent, and calls a placeholder side-effect hook so the wire-up (reply tweets / send
-   emails) is easy to find when it is implemented.
+   agent, and dispatches the side effect inline: the Twitter flow DMs each candidate; the
+   internal flow's email hook is still a placeholder.
 2. **Social referral referee status sync** (nightly) — scan ``SocialReferral.referee_state``
    for orgs that have started sending events, flip the per-org ``first_event_sent`` flag,
    and record per-row failures separately so one bad row doesn't poison the sweep.
@@ -51,6 +51,7 @@ from products.referrals.backend.temporal.types import (
 )
 from products.referrals.backend.twitter.research.prompts import TwitterReferralCandidates
 from products.referrals.backend.twitter.research.research import run_twitter_research
+from products.referrals.backend.twitter.x_dm import send_referral_dms
 from products.tasks.backend.services.dev_sandbox_context import resolve_sandbox_context_for_local_dev
 
 logger = logging.getLogger(__name__)
@@ -77,24 +78,36 @@ class InternalReferralResearchActivityInput:
     repository: str = _DEFAULT_REPOSITORY
 
 
-def _post_referral_replies_placeholder(result: TwitterReferralCandidates) -> None:
-    """Placeholder: will post a referral-ask reply tweet to each candidate's original tweet.
+_TWITTER_DM_TEMPLATE = "Hey, {nickname}, Posthog Referrals is coming soon"
 
-    TODO(referrals): wire this up to the twitterapi.io reply endpoint once we have approval
-    to post on the PostHog handle. Until then, log what we WOULD reply to so the schedule's
-    output is observable.
+
+async def _post_referral_dms(result: TwitterReferralCandidates) -> None:
+    """DM each candidate via the X v2 API.
+
+    TODO(referrals): make this idempotent before promoting beyond the hackathon — currently
+    nothing prevents re-DMing the same handle if a tweet re-surfaces in a later window. Pick
+    a key (tweet_id or twitter_user_id), persist in a small model, and skip-on-conflict.
     """
-    logger.warning(
-        "twitter referral reply hook not implemented — %d candidate(s) would receive a reply",
-        len(result.candidates),
-    )
+    if not result.candidates:
+        logger.info("twitter referral dm: no candidates this run")
+        return
+    handle_to_text = [
+        (candidate.user, _TWITTER_DM_TEMPLATE.format(nickname=candidate.user)) for candidate in result.candidates
+    ]
     for candidate in result.candidates:
         logger.info(
-            "twitter referral reply (placeholder): tweet_id=%s user=@%s reason=%s",
+            "twitter referral dm (queued): tweet_id=%s user=@%s reason=%s",
             candidate.id,
             candidate.user,
             candidate.reason,
         )
+    summary = await send_referral_dms(handle_to_text)
+    logger.info(
+        "twitter referral dm summary: sent=%d failed_lookup=%d failed_send=%d",
+        summary.sent,
+        summary.failed_lookup,
+        summary.failed_send,
+    )
 
 
 def _send_referral_emails_placeholder(result: InternalReferralCandidates) -> None:
@@ -125,9 +138,9 @@ async def run_twitter_referral_research_activity(
 ) -> int:
     """Run the Twitter referral research agent for the last `hours` hours.
 
-    Returns the number of candidates found. Side effects (the reply tweets) are dispatched
-    via `_post_referral_replies_placeholder` inside the activity, so they are retried with
-    the activity if the workflow restarts mid-run.
+    Returns the number of candidates found. Side effects (the DMs) are dispatched via
+    `_post_referral_dms` inside the activity, so they are retried with the activity if the
+    workflow restarts mid-run.
     """
     api_key = os.environ.get("TWITTERAPI_IO_KEY")
     if not api_key:
@@ -155,7 +168,20 @@ async def run_twitter_referral_research_activity(
             "twitter_referral_research_activity: agent returned %d candidate(s)",
             len(result.candidates),
         )
-        _post_referral_replies_placeholder(result)
+        # TEMP(referrals): hackathon override — DM only @nightowl_coder once per run instead of
+        # iterating over every candidate the agent found. The list-of-one means there's no
+        # loop to break out of; the original behavior is `await _post_referral_dms(result)`.
+        test_handle = "nightowl_coder"
+        test_text = (
+            "you didn't ask for this DM. we didn't ask to be loved on twitter. here we are. posthog.com/pyramide"
+        )
+        summary = await send_referral_dms([(test_handle, test_text)])
+        logger.info(
+            "twitter referral dm summary (single-recipient override): sent=%d failed_lookup=%d failed_send=%d",
+            summary.sent,
+            summary.failed_lookup,
+            summary.failed_send,
+        )
     return len(result.candidates)
 
 
