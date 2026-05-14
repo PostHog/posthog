@@ -3234,6 +3234,7 @@ export type FileSystemIconType =
     | 'llm_clusters'
     | 'exports'
     | 'agentic_tests'
+    | 'deployments'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string

@@ -114,7 +114,7 @@ from products.product_tours.backend.api import ProductTourViewSet
 from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
-from products.user_interviews.backend.api import UserInterviewViewSet
+from products.user_interviews.backend.api import UserInterviewTopicViewSet, UserInterviewViewSet
 from products.visual_review.backend.presentation.views import (
     RepoRunsViewSet as VisualReviewRepoRunsViewSet,
     RepoViewSet as VisualReviewRepoViewSet,
@@ -1322,6 +1322,13 @@ environments_router.register(
     r"user_interviews",
     UserInterviewViewSet,
     "environment_user_interviews",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"user_interview_topics",
+    UserInterviewTopicViewSet,
+    "environment_user_interview_topics",
     ["team_id"],
 )
 

@@ -4710,6 +4710,38 @@
             "readOnlyHint": false
         }
     },
+    "user-interview-topics-create": {
+        "description": "Plan a user interview by recording who you want to target and what product or idea you want to ask them about. `topic` is the free-text description of the question or product area. Targets can be specified as any combination of `interviewee_cohort` (optional cohort identifier), `interviewee_emails` (list of email addresses), and `interviewee_distinct_ids` (list of PostHog distinct IDs) — at least one target must be provided. Pass `agent_context` (free text) to give the voice agent extra background or instructions, and `questions` (list of strings) for the ordered set of questions the agent should work through.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Create user interview topic",
+        "title": "Create user interview topic",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interview-topics-list": {
+        "description": "List planned user interview topics in the current project, newest first. Each result includes the topic, targeting (interviewee_cohort, interviewee_emails, interviewee_distinct_ids), and the voice agent setup (agent_context, questions). Supports `search` for substring match against the topic, and `limit`/`offset` for pagination.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "List user interview topics",
+        "title": "List user interview topics",
+        "required_scopes": ["user_interview:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "user-interviews"
+    },
     "user-settings-update": {
         "description": "Update the authenticated user's profile and settings using PATCH semantics — only the fields included in the request body are changed. Pass `@me` as the UUID; non-staff callers may only update their own account. Use `user-get` first to inspect current settings. `notification_settings` merges key-by-key; changing `email` triggers a verification flow; changing `password` also requires `current_password`. Always confirm changes with the user before applying.",
         "category": "Core",
