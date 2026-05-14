@@ -399,6 +399,40 @@ comments. The script already strips response bodies from error output.
 
 Read `references/pr-comment-template.md` before composing output.
 
+Every run writes two artifacts before rendering anything user-facing:
+
+1. `.qa-runtime/runs/<run-id>/findings.json` - structured findings array (see
+   schema below). The PR comment and local report are renders of this file.
+2. A single first line on stdout: `QA-VERDICT: <verdict>` so an outer
+   orchestrator can grep status without parsing markdown. Examples:
+   - `QA-VERDICT: PASS`
+   - `QA-VERDICT: FAIL findings=3 fixes=1 coverage_gaps=2`
+   - `QA-VERDICT: FORK_READONLY findings=1`
+   - `QA-VERDICT: COMMENT_ONLY findings=2`
+
+`findings.json` schema (array, one entry per finding or coverage gap):
+
+```json
+{
+  "id": "<sha1(target+step)[:12]>",
+  "kind": "finding|coverage_gap",
+  "severity": "high|medium|low",
+  "confidence": "high|medium",
+  "target": "/route-or-endpoint",
+  "step": "user-visible step",
+  "expected": "expected outcome",
+  "actual": "actual outcome",
+  "evidence": ["<uploaded url or local path>"],
+  "status": "new|fix-applied|suggested-patch|skipped",
+  "fix_commit": "<sha or null>"
+}
+```
+
+`coverage_gap` entries record routes or files the QA loop could not exercise
+(missing scene mapping, blocked by a feature flag, dark-mode skipped, etc.).
+They must surface as visible rows in the PR comment's test-plan table, not as
+a footer note.
+
 PR mode - every completed run posts one PR comment:
 
 - Clean run: PASS verdict plus collapsed test plan.

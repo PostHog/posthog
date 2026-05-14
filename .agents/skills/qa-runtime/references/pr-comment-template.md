@@ -21,14 +21,20 @@ QA runtime: PASS - no reproducible runtime issues found.
 <details>
 <summary>What was tested</summary>
 
-| Target           | Type    | Action                            | Outcome |
-| ---------------- | ------- | --------------------------------- | ------- |
-| `/dashboard/:id` | Browser | Loaded dashboard and clicked Save | Passed  |
+| Target           | Type         | Action                            | Outcome          |
+| ---------------- | ------------ | --------------------------------- | ---------------- |
+| `/dashboard/:id` | Browser      | Loaded dashboard and clicked Save | Passed           |
+| `/billing`       | Coverage gap | Could not load (auth boundary)    | Skipped (reason) |
 
 </details>
 
 Run metadata: tested `<sha>` at `<timestamp>` using `<BASE_URL>`.
 ```
+
+Coverage gaps from the walker or runtime loop must appear in this table as
+`Coverage gap` rows with an explicit "Skipped (reason)" outcome. Do not
+mention them only in a footer note - reviewers need to see what was _not_
+exercised alongside what was.
 
 For findings:
 
