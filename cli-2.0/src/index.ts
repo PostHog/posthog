@@ -10,6 +10,7 @@ import { config } from './config.js'
 import { commands, executeToolCall } from './generated/commands.js'
 import { CHARTABLE_INSIGHT_TOOLS } from './insight-display.js'
 import { createMCPContext, type AuthenticatedConfig, type Context } from './mcp-context.js'
+import { openBrowser } from './oauth.js'
 import { printResult } from './output.js'
 
 const GLOBAL_PATH_PARAMS = new Set(['project_id', 'org_id'])
@@ -229,7 +230,15 @@ async function main() {
                                     })
                                 }
                             }
-
+                            
+                            // Add --web option for view commands
+                            if (subcommandName === 'view' && subcommand.method === 'GET') {
+                                yargsBuilder = yargsBuilder.option('web', {
+                                    type: 'boolean',
+                                    describe: 'Open the resource in your browser instead of showing JSON',
+                                    default: false,
+                                })
+                            }
                             return yargsBuilder.strictOptions(false) // Allow additional API parameters
                         },
                         async (argv) => {
@@ -240,7 +249,13 @@ async function main() {
                             if (CHARTABLE_INSIGHT_TOOLS.has(subcommand.mcp_tool) && params.refresh === undefined) {
                                 params.refresh = 'blocking'
                             }
-                            await executeGeneratedTool(argv, subcommand.mcp_tool, params)
+                            
+                            // Handle --web option for view commands
+                            if (argv.web && subcommandName === 'view' && subcommand.method === 'GET') {
+                                await executeViewCommandWithWeb(argv, subcommand.mcp_tool, params)
+                            } else {
+                                await executeGeneratedTool(argv, subcommand.mcp_tool, params)
+                            }
                         }
                     )
                 }
@@ -303,6 +318,62 @@ async function executeGeneratedTool(argv: any, toolName: string, params: any) {
         console.error(chalk.red('Error:'), error.message)
         process.exit(1)
     }
+}
+
+async function executeViewCommandWithWeb(argv: any, toolName: string, params: any) {
+    try {
+        // Construct PostHog URL directly without API call
+        const url = await constructPostHogUrl(argv.mcpContext as Context, toolName, null, params)
+        
+        if (!url) {
+            console.error(chalk.red('Error: Could not determine PostHog URL for this resource'))
+            // Fall back to normal execution with API call
+            await executeGeneratedTool(argv, toolName, params)
+            return
+        }
+        
+        // Open URL in browser
+        openBrowser(url)
+        console.log(chalk.green(`Opened in browser: ${url}`))
+    } catch (error: any) {
+        console.error(chalk.red('Error:'), error.message)
+        process.exit(1)
+    }
+}
+
+async function constructPostHogUrl(context: Context, toolName: string, result: any, params: any): Promise<string | undefined> {
+    const projectId = await context.stateManager.getProjectId()
+    
+    // Extract host from the API client config
+    const baseUrl = (context.api as any).config.baseUrl
+    
+    if (!baseUrl || !projectId) {
+        return undefined
+    }
+    
+    // Map tool names to PostHog paths
+    const resourceId = params.id || result?.id
+    
+    if (!resourceId) {
+        return undefined
+    }
+    
+    const urlMappings: Record<string, string> = {
+        'feature-flag-get-definition': `/project/${projectId}/feature_flags/${resourceId}`,
+        'insight-get': `/project/${projectId}/insights/${resourceId}`,
+        'experiment-get': `/project/${projectId}/experiments/${resourceId}`,
+        'cohorts-retrieve': `/project/${projectId}/cohorts/${resourceId}`,
+        'dashboard-get': `/project/${projectId}/dashboard/${resourceId}`,
+        'survey-get': `/project/${projectId}/surveys/${resourceId}`,
+        'notebook-get': `/project/${projectId}/notebooks/${resourceId}`
+    }
+    
+    const path = urlMappings[toolName]
+    if (path) {
+        return `${baseUrl}${path}`
+    }
+    
+    return undefined
 }
 
 main().catch((err) => {
