@@ -50,8 +50,6 @@ def _upsert_node_batch_sync(args: UpsertNodeBatchArgs) -> BatchUpsertResult:
                 warehouse_table_id = backing_id
             elif ref.kind == CatalogNode.Kind.SAVED_QUERY:
                 saved_query_id = backing_id
-            # Other kinds (system_table, posthog_table) currently have no
-            # backing-row binding even when an id is provided — leave both null.
 
         node = CatalogAPI.upsert_node(
             UpsertNodeParams(

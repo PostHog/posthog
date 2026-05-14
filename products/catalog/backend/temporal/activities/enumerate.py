@@ -5,11 +5,14 @@ Each `enumerate_*` activity returns a list of small `CatalogNodeRef` dataclasses
 the shared `upsert_node_batch` activity. Splitting enumerate from upsert keeps
 the read phase cheap and lets the workflow control batch sizing.
 
-This module covers four sources today:
+This module covers the dynamic-content sources:
   - Imported data warehouse tables
   - Saved queries (derived views over the warehouse)
-  - HogQL system tables (Postgres-backed metadata: cohorts, dashboards, ...)
-  - PostHog-native tables (ClickHouse-backed product data: events, persons, ...)
+
+The HogQL system tables and PostHog-native ClickHouse tables are exposed
+directly through `system.tables` / `system.columns` / `system.relationships`
+via a UNION on the HogQL side (see `posthog/hogql/database/schema/system_union.py`).
+No per-team Postgres seeding is required for them.
 """
 
 import asyncio
@@ -17,9 +20,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from temporalio import activity
-
-from posthog.hogql.database.models import DatabaseField, Table
-from posthog.hogql.database.schema.system import SystemTables
 
 from products.catalog.backend.models import CatalogNode
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -127,145 +127,8 @@ def _enumerate_saved_queries_sync(team_id: int) -> list[CatalogNodeRef]:
     return refs
 
 
-# --- HogQL system tables ------------------------------------------------------
-
-
-@activity.defn
-async def enumerate_system_tables(team_id: int) -> list[CatalogNodeRef]:
-    """Return one ref per entry in posthog.hogql.database.schema.system.SystemTables.
-
-    Content is team-independent (the registry is global), but the activity takes
-    team_id for symmetry with the other enumerators — the upsert side scopes the
-    catalog rows per team.
-    """
-    return await asyncio.to_thread(_enumerate_system_tables_sync)
-
-
-def _enumerate_system_tables_sync() -> list[CatalogNodeRef]:
-    refs: list[CatalogNodeRef] = []
-    # SystemTables is a Pydantic model — `children` is a field default that
-    # only materializes on an instance, not on the class itself.
-    for name, child in SystemTables().children.items():
-        if not isinstance(child.table, Table):
-            continue
-        refs.append(
-            CatalogNodeRef(
-                kind=CatalogNode.Kind.SYSTEM_TABLE,
-                name=name,
-                columns=_fields_to_column_refs(child.table.fields or {}),
-            )
-        )
-    return refs
-
-
-def _fields_to_column_refs(fields: dict[str, Any]) -> list[CatalogColumnRef]:
-    """Turn a HogQL Table.fields dict into CatalogColumnRefs.
-
-    Skips non-`DatabaseField` entries (joins, lazy tables, expression aliases) —
-    those aren't columns the agent can `SELECT`.
-    """
-    refs: list[CatalogColumnRef] = []
-    for field_name, descriptor in fields.items():
-        if not isinstance(descriptor, DatabaseField):
-            continue
-        refs.append(
-            CatalogColumnRef(
-                name=field_name,
-                clickhouse_type=_normalize_hogql_type(descriptor),
-                nullable=descriptor.is_nullable(),
-            )
-        )
-    return refs
-
-
-def _normalize_hogql_type(field_descriptor: DatabaseField) -> str:
-    """Derive a short ClickHouse-flavoured type string from a HogQL DatabaseField."""
-    cls_name = type(field_descriptor).__name__
-    return _HOGQL_TYPE_MAP.get(cls_name, cls_name)
-
-
-_HOGQL_TYPE_MAP: dict[str, str] = {
-    "IntegerDatabaseField": "Int",
-    "FloatDatabaseField": "Float",
-    "DecimalDatabaseField": "Decimal",
-    "StringDatabaseField": "String",
-    "UnknownDatabaseField": "Unknown",
-    "StringJSONDatabaseField": "JSON",
-    "StructDatabaseField": "Struct",
-    "StringArrayDatabaseField": "Array(String)",
-    "FloatArrayDatabaseField": "Array(Float)",
-    "DateDatabaseField": "Date",
-    "DateTimeDatabaseField": "DateTime",
-    "BooleanDatabaseField": "Boolean",
-    "UUIDDatabaseField": "UUID",
-}
-
-
-# --- PostHog-native ClickHouse tables ----------------------------------------
-
-# Small curated set of the core product tables an analyst-style agent reaches
-# for. Not exhaustive — the goal is to give Phase 2 something to join against
-# (e.g. warehouse.users.email → persons.properties.$email). Expand as new
-# join patterns emerge.
-_POSTHOG_TABLE_REFS: list[CatalogNodeRef] = [
-    CatalogNodeRef(
-        kind=CatalogNode.Kind.POSTHOG_TABLE,
-        name="events",
-        columns=[
-            CatalogColumnRef("uuid", "UUID", False),
-            CatalogColumnRef("event", "String", False),
-            CatalogColumnRef("properties", "JSON", False),
-            CatalogColumnRef("timestamp", "DateTime", False),
-            CatalogColumnRef("team_id", "Int", False),
-            CatalogColumnRef("distinct_id", "String", False),
-            CatalogColumnRef("person_id", "UUID", True),
-            CatalogColumnRef("session_id", "String", True),
-        ],
-    ),
-    CatalogNodeRef(
-        kind=CatalogNode.Kind.POSTHOG_TABLE,
-        name="persons",
-        columns=[
-            CatalogColumnRef("id", "UUID", False),
-            CatalogColumnRef("team_id", "Int", False),
-            CatalogColumnRef("properties", "JSON", False),
-            CatalogColumnRef("created_at", "DateTime", False),
-            CatalogColumnRef("is_identified", "Boolean", False),
-        ],
-    ),
-    CatalogNodeRef(
-        kind=CatalogNode.Kind.POSTHOG_TABLE,
-        name="sessions",
-        columns=[
-            CatalogColumnRef("session_id", "String", False),
-            CatalogColumnRef("team_id", "Int", False),
-            CatalogColumnRef("distinct_id", "String", False),
-            CatalogColumnRef("$start_timestamp", "DateTime", True),
-            CatalogColumnRef("$end_timestamp", "DateTime", True),
-            CatalogColumnRef("$event_count", "Int", True),
-        ],
-    ),
-    CatalogNodeRef(
-        kind=CatalogNode.Kind.POSTHOG_TABLE,
-        name="groups",
-        columns=[
-            CatalogColumnRef("team_id", "Int", False),
-            CatalogColumnRef("group_type_index", "Int", False),
-            CatalogColumnRef("group_key", "String", False),
-            CatalogColumnRef("group_properties", "JSON", False),
-            CatalogColumnRef("created_at", "DateTime", False),
-        ],
-    ),
-]
-
-
-@activity.defn
-async def enumerate_posthog_tables(team_id: int) -> list[CatalogNodeRef]:
-    """Return the curated list of PostHog-native product tables.
-
-    Team-independent content — the activity takes team_id for symmetry, but
-    the registry is the same across teams. Per-team scoping happens at upsert
-    time on CatalogNode.team_id.
-    """
-    # Return a copy so callers can mutate without affecting the module-level list.
-    return [CatalogNodeRef(kind=r.kind, name=r.name, columns=list(r.columns), id=r.id) for r in _POSTHOG_TABLE_REFS]
+# HogQL system tables and PostHog-native ClickHouse tables used to be
+# enumerated here and seeded as `CatalogNode` rows per team. They are now
+# exposed directly through the `system.tables` / `system.columns` /
+# `system.relationships` UNION (see `posthog/hogql/database/schema/system_union.py`)
+# so no per-team Postgres seeding is required.

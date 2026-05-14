@@ -2,6 +2,8 @@ from typing import Optional
 
 from django.conf import settings
 
+from pydantic import BaseModel, ConfigDict
+
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
@@ -9,6 +11,22 @@ from posthog.hogql.escape_sql import escape_hogql_identifier
 
 from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.scopes import APIScopeObject
+
+
+class Relationship(BaseModel):
+    """A declarative edge from a column on this table to a column on another HogQL table.
+
+    Surfaced as a row in `system.relationships` at query time — no Postgres write needed.
+    `from_column` and `to_column` are HogQL field names (the keys in the `fields` dict),
+    not Postgres column names.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    from_column: str
+    to_table: str
+    to_column: str = "id"
+    kind: str = "foreign_key"
 
 
 def build_function_call(postgres_table_name: str, context: Optional[HogQLContext] = None):
@@ -66,6 +84,7 @@ class PostgresTable(FunctionCallTable):
     postgres_table_name: str
     access_scope: Optional[APIScopeObject] = None
     predicates: list[Expr] = []
+    relationships: list[Relationship] = []
 
     def get_predicates(self) -> list[Expr]:
         return self.predicates

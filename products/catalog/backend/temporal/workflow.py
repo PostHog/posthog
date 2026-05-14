@@ -24,16 +24,10 @@ from products.catalog.backend.temporal.activities.agent import (
 )
 from products.catalog.backend.temporal.activities.enumerate import (
     CatalogNodeRef,
-    enumerate_posthog_tables,
     enumerate_saved_queries,
-    enumerate_system_tables,
     enumerate_warehouse_tables,
 )
-from products.catalog.backend.temporal.activities.propose import (
-    propose_native_fks,
-    propose_saved_query_lineage,
-    propose_warehouse_joins,
-)
+from products.catalog.backend.temporal.activities.propose import propose_saved_query_lineage, propose_warehouse_joins
 from products.catalog.backend.temporal.activities.run import (
     CompleteRunArgs,
     CreateRunArgs,
@@ -87,10 +81,13 @@ class CatalogTraversalResult:
 class CatalogTraversalWorkflow(PostHogWorkflow):
     """One full pass over a team's catalog.
 
-    Current shape: open a run row, enumerate warehouse / saved query / system /
-    posthog tables, upsert their nodes and columns, close the run row. The
-    agentic phase appends to this `run` body in a later iteration — no second
-    workflow.
+    Current shape: open a run row, enumerate warehouse + saved-query tables,
+    upsert their nodes and columns, close the run row. HogQL system tables
+    and PostHog-native tables are exposed via the
+    `system.tables` / `system.columns` / `system.relationships` UNION (see
+    `posthog/hogql/database/schema/system_union.py`) and do not flow through
+    this workflow. The agentic phase appends to this `run` body in a later
+    iteration — no second workflow.
     """
 
     inputs_cls = CatalogTraversalInputs
@@ -119,8 +116,6 @@ class CatalogTraversalWorkflow(PostHogWorkflow):
             for enumerator in (
                 enumerate_warehouse_tables,
                 enumerate_saved_queries,
-                enumerate_system_tables,
-                enumerate_posthog_tables,
             ):
                 refs: list[CatalogNodeRef] = await workflow.execute_activity(
                     enumerator,
@@ -143,10 +138,13 @@ class CatalogTraversalWorkflow(PostHogWorkflow):
                     counts.columns += batch_result.columns
 
             # --- Deterministic relationship declaration ---
-            # All three activities use CatalogAPI.propose_relationship with
+            # Both activities use CatalogAPI.propose_relationship with
             # confidence=1.0, which the facade auto-accepts on first insert.
+            # System-table FK edges are declared inline on each PostgresTable
+            # (see `posthog/hogql/database/schema/system.py`) and exposed via
+            # the `system.relationships` UNION — they do not need a Postgres
+            # write.
             for propose_activity in (
-                propose_native_fks,
                 propose_warehouse_joins,
                 propose_saved_query_lineage,
             ):

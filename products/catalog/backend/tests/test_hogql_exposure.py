@@ -4,6 +4,11 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.database.schema.system_union import (
+    deterministic_column_id,
+    deterministic_relationship_id,
+    deterministic_table_id,
+)
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 
@@ -22,8 +27,58 @@ class TestCatalogHogQLExposure(BaseTest):
             sql, _ = prepare_and_print_ast(parse_select(f"SELECT * FROM system.{name}"), context, dialect="clickhouse")
             assert sql, f"system.{name} produced empty SQL"
             assert f"system__{name}" in sql, f"system.{name} should be aliased as system__{name}"
+            # The FROM-source is now a UNION of the Postgres-backed table and
+            # synthesized rows from `system.py`. Both legs must appear.
+            assert "postgresql(" in sql, f"system.{name} should still query Postgres via postgresql()"
+            assert "UNION ALL" in sql, f"system.{name} should UNION ALL with synthesized rows"
             if name in {"tables", "relationships"}:
                 assert f"equals(system__{name}.team_id, {self.team.pk})" in sql
+
+    def test_system_tables_synthesizes_registry_entries(self) -> None:
+        """Each entry in SystemTables surfaces in the `system.tables` UNION
+        as a synthesized row with kind='system_table' and a deterministic id —
+        no Postgres seeding required.
+        """
+        db = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        sql, _ = prepare_and_print_ast(parse_select("SELECT * FROM system.tables"), context, dialect="clickhouse")
+
+        names = [n for n, child in SystemTables().children.items() if isinstance(child.table, Table)]
+        # `name` literals appear inside the synthesized SELECTs (escaped via single quotes).
+        for name in names:
+            assert f"\\'{name}\\'" in sql or f"'{name}'" in sql, f"synthesized name {name!r} missing from printed SQL"
+        # Each entry gets a deterministic UUID so columns can join back to tables.
+        sample_id = str(deterministic_table_id(names[0]))
+        assert sample_id in sql, f"deterministic table id for {names[0]!r} missing from printed SQL"
+
+    def test_system_columns_use_matching_node_ids(self) -> None:
+        """Synthesized column rows use the same deterministic ids as the
+        synthesized table rows, so `system.columns.node_id = system.tables.id`
+        joins resolve.
+        """
+        db = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        sql, _ = prepare_and_print_ast(parse_select("SELECT * FROM system.columns"), context, dialect="clickhouse")
+        # Pick a known table+column pair from the registry.
+        node_id = str(deterministic_table_id("activity_logs"))
+        col_id = str(deterministic_column_id("activity_logs", "team_id"))
+        assert node_id in sql, "synthesized node_id should reference the parent table's deterministic id"
+        assert col_id in sql, "synthesized column_id should appear in the UNION"
+
+    def test_system_relationships_includes_declared_edges(self) -> None:
+        """`alerts.insight_id → insights.id` was declared inline in system.py;
+        it must show up in the synthesized `system.relationships` rows.
+        """
+        db = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        sql, _ = prepare_and_print_ast(
+            parse_select("SELECT * FROM system.relationships"), context, dialect="clickhouse"
+        )
+        rel_id = str(deterministic_relationship_id("alerts", "insight_id", "insights", "id", "foreign_key"))
+        assert rel_id in sql, "alerts.insight_id → insights.id edge missing from printed SQL"
+        # Universal team_id → teams.id edge for at least one table.
+        team_rel_id = str(deterministic_relationship_id("alerts", "team_id", "teams", "id", "foreign_key"))
+        assert team_rel_id in sql, "alerts.team_id → teams.id edge missing from printed SQL"
 
     def test_system_tables_describes_each_node(self) -> None:
         node = CatalogNode.objects.create(

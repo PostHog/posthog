@@ -14,7 +14,8 @@ from posthog.hogql.database.models import (
     TableNode,
     UUIDDatabaseField,
 )
-from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.postgres_table import PostgresTable, Relationship
+from posthog.hogql.database.schema.system_union import SystemRegistryUnionTable
 from posthog.hogql.parser import parse_expr
 
 
@@ -38,6 +39,10 @@ batch_export_backfills: PostgresTable = PostgresTable(
     name="batch_export_backfills",
     postgres_table_name="posthog_batchexportbackfill",
     access_scope="batch_export",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="batch_export_id", to_table="batch_exports"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -56,6 +61,7 @@ batch_exports: PostgresTable = PostgresTable(
     name="batch_exports",
     postgres_table_name="posthog_batchexport",
     access_scope="batch_export",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -81,6 +87,10 @@ alerts: PostgresTable = PostgresTable(
     name="alerts",
     postgres_table_name="posthog_alertconfiguration",
     access_scope="alert",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="insight_id", to_table="insights"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -104,6 +114,10 @@ alerts: PostgresTable = PostgresTable(
 cohort_calculation_history: PostgresTable = PostgresTable(
     name="cohort_calculation_history",
     postgres_table_name="posthog_cohortcalculationhistory",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="cohort_id", to_table="cohorts"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -118,6 +132,7 @@ cohort_calculation_history: PostgresTable = PostgresTable(
 cohorts: PostgresTable = PostgresTable(
     name="cohorts",
     postgres_table_name="posthog_cohort",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -143,6 +158,7 @@ dashboards: PostgresTable = PostgresTable(
     name="dashboards",
     postgres_table_name="posthog_dashboard",
     access_scope="dashboard",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -160,6 +176,7 @@ insights: PostgresTable = PostgresTable(
     name="insights",
     postgres_table_name="posthog_dashboarditem",
     access_scope="insight",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": IntegerDatabaseField(name="id"),
         "short_id": StringDatabaseField(name="short_id"),
@@ -189,6 +206,10 @@ experiments: PostgresTable = PostgresTable(
     name="experiments",
     postgres_table_name="posthog_experiment",
     access_scope="experiment",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="feature_flag_id", to_table="feature_flags"),
+    ],
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -212,6 +233,7 @@ data_warehouse_sources: PostgresTable = PostgresTable(
     name="data_warehouse_sources",
     postgres_table_name="posthog_externaldatasource",
     access_scope="external_data_source",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -228,6 +250,7 @@ data_warehouse_sources: PostgresTable = PostgresTable(
 data_modeling_views: PostgresTable = PostgresTable(
     name="data_modeling_views",
     postgres_table_name="posthog_datawarehousesavedquery",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -251,6 +274,10 @@ data_modeling_views: PostgresTable = PostgresTable(
 data_warehouse_tables: PostgresTable = PostgresTable(
     name="data_warehouse_tables",
     postgres_table_name="posthog_datawarehousetable",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="external_data_source_id", to_table="data_warehouse_sources"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -270,6 +297,11 @@ source_schemas: PostgresTable = PostgresTable(
     name="source_schemas",
     postgres_table_name="posthog_externaldataschema",
     access_scope="external_data_source",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="source_id", to_table="data_warehouse_sources"),
+        Relationship(from_column="table_id", to_table="data_warehouse_tables"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -293,6 +325,11 @@ source_sync_jobs: PostgresTable = PostgresTable(
     name="source_sync_jobs",
     postgres_table_name="posthog_externaldatajob",
     access_scope="external_data_source",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="pipeline_id", to_table="data_warehouse_sources"),
+        Relationship(from_column="schema_id", to_table="source_schemas"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -312,6 +349,10 @@ endpoint_versions: PostgresTable = PostgresTable(
     name="data_modeling_endpoint_versions",
     postgres_table_name="endpoints_endpointversion",
     access_scope="endpoint",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="endpoint_id", to_table="data_modeling_endpoints"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -334,6 +375,7 @@ endpoints: PostgresTable = PostgresTable(
     postgres_table_name="endpoints_endpoint",
     predicates=[parse_expr("deleted != true")],
     access_scope="endpoint",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -356,6 +398,7 @@ feature_flags: PostgresTable = PostgresTable(
     name="feature_flags",
     postgres_table_name="posthog_featureflag",
     access_scope="feature_flag",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -372,6 +415,7 @@ feature_flags: PostgresTable = PostgresTable(
 groups: PostgresTable = PostgresTable(
     name="groups",
     postgres_table_name="posthog_group",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -385,6 +429,7 @@ groups: PostgresTable = PostgresTable(
 group_type_mappings: PostgresTable = PostgresTable(
     name="group_type_mappings",
     postgres_table_name="posthog_grouptypemapping",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -398,6 +443,7 @@ integrations: PostgresTable = PostgresTable(
     name="integrations",
     postgres_table_name="posthog_integration",
     access_scope="integration",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -414,6 +460,10 @@ integration_repository_cache: PostgresTable = PostgresTable(
     name="integration_repository_cache",
     postgres_table_name="posthog_integrationrepositorycacheentry",
     access_scope="integration",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="integration_id", to_table="integrations"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -437,6 +487,7 @@ integration_repository_cache: PostgresTable = PostgresTable(
 insight_variables: PostgresTable = PostgresTable(
     name="insight_variables",
     postgres_table_name="posthog_insightvariable",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -452,6 +503,7 @@ session_recording_playlists: PostgresTable = PostgresTable(
     name="session_recording_playlists",
     postgres_table_name="posthog_sessionrecordingplaylist",
     access_scope="session_recording_playlist",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": IntegerDatabaseField(name="id"),
         "short_id": StringDatabaseField(name="short_id"),
@@ -476,6 +528,7 @@ session_recordings: PostgresTable = PostgresTable(
     name="session_recordings",
     postgres_table_name="posthog_sessionrecording",
     access_scope="session_recording",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "session_id": StringDatabaseField(name="session_id"),
@@ -505,6 +558,7 @@ surveys: PostgresTable = PostgresTable(
     name="surveys",
     postgres_table_name="posthog_survey",
     access_scope="survey",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -535,6 +589,7 @@ teams: PostgresTable = PostgresTable(
 exports: PostgresTable = PostgresTable(
     name="exports",
     postgres_table_name="posthog_exportedasset",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -548,6 +603,7 @@ activity_logs: PostgresTable = PostgresTable(
     name="activity_logs",
     postgres_table_name="posthog_activitylog",
     access_scope="activity_log",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -563,6 +619,7 @@ actions: PostgresTable = PostgresTable(
     name="actions",
     postgres_table_name="posthog_action",
     access_scope="action",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -580,6 +637,11 @@ annotations: PostgresTable = PostgresTable(
     name="annotations",
     postgres_table_name="posthog_annotation",
     access_scope="annotation",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="dashboard_id", to_table="dashboards"),
+        Relationship(from_column="dashboard_item_id", to_table="insights"),
+    ],
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -601,6 +663,7 @@ hog_flows: PostgresTable = PostgresTable(
     name="hog_flows",
     postgres_table_name="posthog_hogflow",
     access_scope="hog_flow",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -621,6 +684,7 @@ hog_functions: PostgresTable = PostgresTable(
     name="hog_functions",
     postgres_table_name="posthog_hogfunction",
     access_scope="hog_function",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -645,6 +709,7 @@ notebooks: PostgresTable = PostgresTable(
     name="notebooks",
     postgres_table_name="posthog_notebook",
     access_scope="notebook",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "short_id": StringDatabaseField(name="short_id"),
@@ -664,6 +729,10 @@ notebooks: PostgresTable = PostgresTable(
 data_modeling_jobs: PostgresTable = PostgresTable(
     name="data_modeling_jobs",
     postgres_table_name="posthog_datamodelingjob",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="data_modeling_view_id", to_table="data_modeling_views"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -683,6 +752,7 @@ error_tracking_issues: PostgresTable = PostgresTable(
     name="error_tracking_issues",
     postgres_table_name="posthog_errortrackingissue",
     access_scope="error_tracking",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -697,6 +767,10 @@ error_tracking_issue_assignments: PostgresTable = PostgresTable(
     name="error_tracking_issue_assignments",
     postgres_table_name="posthog_errortrackingissueassignment",
     access_scope="error_tracking",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="issue_id", to_table="error_tracking_issues"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -710,6 +784,10 @@ error_tracking_issue_fingerprints: PostgresTable = PostgresTable(
     name="error_tracking_issue_fingerprints",
     postgres_table_name="posthog_errortrackingissuefingerprintv2",
     access_scope="error_tracking",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="issue_id", to_table="error_tracking_issues"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -723,6 +801,7 @@ error_tracking_assignment_rules: PostgresTable = PostgresTable(
     name="error_tracking_assignment_rules",
     postgres_table_name="posthog_errortrackingassignmentrule",
     access_scope="error_tracking",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -741,6 +820,7 @@ error_tracking_suppression_rules: PostgresTable = PostgresTable(
     name="error_tracking_suppression_rules",
     postgres_table_name="posthog_errortrackingsuppressionrule",
     access_scope="error_tracking",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -758,6 +838,7 @@ error_tracking_releases: PostgresTable = PostgresTable(
     name="error_tracking_releases",
     postgres_table_name="posthog_errortrackingrelease",
     access_scope="error_tracking",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -773,6 +854,10 @@ error_tracking_symbol_sets: PostgresTable = PostgresTable(
     name="error_tracking_symbol_sets",
     postgres_table_name="posthog_errortrackingsymbolset",
     access_scope="error_tracking",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="release_id", to_table="error_tracking_releases"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -788,6 +873,7 @@ logs_views: PostgresTable = PostgresTable(
     name="logs_views",
     postgres_table_name="logs_logsview",
     access_scope="logs",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -805,6 +891,7 @@ logs_alerts: PostgresTable = PostgresTable(
     name="logs_alerts",
     postgres_table_name="logs_logsalertconfiguration",
     access_scope="logs",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -834,6 +921,7 @@ support_tickets: PostgresTable = PostgresTable(
     name="support_tickets",
     postgres_table_name="posthog_conversations_ticket",
     access_scope="ticket",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -869,6 +957,7 @@ review_queues: PostgresTable = PostgresTable(
     name="review_queues",
     postgres_table_name="llm_analytics_reviewqueue",
     access_scope="llm_analytics",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": UUIDDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -886,6 +975,10 @@ review_queue_items: PostgresTable = PostgresTable(
     name="review_queue_items",
     postgres_table_name="llm_analytics_reviewqueueitem",
     access_scope="llm_analytics",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="queue_id", to_table="review_queues"),
+    ],
     fields={
         "id": UUIDDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -904,6 +997,7 @@ trace_reviews: PostgresTable = PostgresTable(
     name="trace_reviews",
     postgres_table_name="llm_analytics_tracereview",
     access_scope="llm_analytics",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": UUIDDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -923,6 +1017,11 @@ trace_review_scores: PostgresTable = PostgresTable(
     name="trace_review_scores",
     postgres_table_name="llm_analytics_tracereviewscore",
     access_scope="llm_analytics",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="review_id", to_table="trace_reviews"),
+        Relationship(from_column="definition_id", to_table="score_definitions"),
+    ],
     fields={
         "id": UUIDDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -944,6 +1043,7 @@ score_definitions: PostgresTable = PostgresTable(
     name="score_definitions",
     postgres_table_name="llm_analytics_scoredefinition",
     access_scope="llm_analytics",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": UUIDDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -962,6 +1062,10 @@ early_access_features: PostgresTable = PostgresTable(
     name="early_access_features",
     postgres_table_name="posthog_earlyaccessfeature",
     access_scope="early_access_feature",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="feature_flag_id", to_table="feature_flags"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -978,6 +1082,7 @@ usage_metrics: PostgresTable = PostgresTable(
     name="usage_metrics",
     postgres_table_name="posthog_groupusagemetric",
     access_scope="usage_metric",
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -1000,6 +1105,10 @@ tasks: PostgresTable = PostgresTable(
     # Mirror the REST API's default filter: internal tasks (signals pipeline, etc.) are not
     # exposed to end users. They are excluded entirely from HogQL.
     predicates=[parse_expr("internal != true")],
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="github_integration_id", to_table="integrations"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -1032,6 +1141,10 @@ task_runs: PostgresTable = PostgresTable(
     name="task_runs",
     postgres_table_name="posthog_task_run",
     access_scope="task",
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="task_id", to_table="tasks"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -1057,6 +1170,7 @@ sandbox_environments: PostgresTable = PostgresTable(
     # - private envs are only visible to their creator (no per-user context here, so excluded entirely)
     # - internal envs (signals pipeline, etc.) are not exposed to end users
     predicates=[parse_expr("private != true"), parse_expr("internal != true")],
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -1082,10 +1196,29 @@ sandbox_environments: PostgresTable = PostgresTable(
 )
 
 
-tables: PostgresTable = PostgresTable(
+tables: SystemRegistryUnionTable = SystemRegistryUnionTable(
     name="tables",
     postgres_table_name="catalog_catalognode",
     access_scope="catalog",
+    synthesized_kind="tables",
+    # Column order here MUST match the synthesized SELECT in system_union.py — the
+    # UNION ALL on the ClickHouse side is positional, so a mismatch produces a
+    # type-confusion error at query time.
+    postgres_projection=[
+        "id",
+        "team_id",
+        "kind",
+        "name",
+        "synthetic_description",
+        "semantic_role",
+        "business_domain",
+        "tags",
+        "first_seen_at",
+        "last_seen_at",
+        "last_traversed_at",
+        "confidence",
+    ],
+    relationships=[Relationship(from_column="team_id", to_table="teams")],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -1102,10 +1235,30 @@ tables: PostgresTable = PostgresTable(
     },
 )
 
-columns: PostgresTable = PostgresTable(
+columns: SystemRegistryUnionTable = SystemRegistryUnionTable(
     name="columns",
     postgres_table_name="catalog_catalogcolumn",
     access_scope="catalog",
+    synthesized_kind="columns",
+    postgres_projection=[
+        "id",
+        "team_id",
+        "node_id",
+        "name",
+        "position",
+        "clickhouse_type",
+        "hogql_type",
+        "nullable",
+        "synthetic_description",
+        "semantic_type",
+        "pii_class",
+        "last_seen_at",
+        "confidence",
+    ],
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="node_id", to_table="tables"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -1123,10 +1276,33 @@ columns: PostgresTable = PostgresTable(
     },
 )
 
-relationships: PostgresTable = PostgresTable(
+relationships: SystemRegistryUnionTable = SystemRegistryUnionTable(
     name="relationships",
     postgres_table_name="catalog_catalogrelationship",
     access_scope="catalog",
+    synthesized_kind="relationships",
+    postgres_projection=[
+        "id",
+        "team_id",
+        "source_node_id",
+        "source_column_id",
+        "target_node_id",
+        "target_column_id",
+        "kind",
+        "confidence",
+        "reasoning",
+        "status",
+        "discovered_at",
+        "last_seen_at",
+        "discovered_in_run_id",
+    ],
+    relationships=[
+        Relationship(from_column="team_id", to_table="teams"),
+        Relationship(from_column="source_node_id", to_table="tables"),
+        Relationship(from_column="target_node_id", to_table="tables"),
+        Relationship(from_column="source_column_id", to_table="columns"),
+        Relationship(from_column="target_column_id", to_table="columns"),
+    ],
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
