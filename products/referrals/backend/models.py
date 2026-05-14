@@ -16,6 +16,14 @@ SIGNED_UP_AT_KEY = "signed_up_at"
 # User who completed signup for the invited org; nullable if cleared after user deletion.
 SIGNED_UP_USER_ID_KEY = "signed_up_user_id"
 
+# Optional Shopify promo payloads on a referee entry (historical rows may still carry these keys).
+REFEREE_ENTRY_SHOPIFY_DISCOUNT_CODES_KEY = "shopify_discount_codes"
+REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE = "code"
+REFEREE_ENTRY_SHOPIFY_CODE_RECORD_ISSUED_AT = "issued_at"
+REFEREE_ENTRY_SHOPIFY_CODE_RECORD_PRICE_RULE_ID = "price_rule_id"
+REFEREE_ENTRY_SHOPIFY_CODE_RECORD_DISCOUNT_ID = "shopify_discount_id"
+REFEREE_ENTRY_SHOPIFY_PROMO_LAST_ERROR_KEY = "shopify_promo_last_error"
+
 
 def new_referee_entry_at_signup(*, signed_up_at_iso: str, signed_up_user_id: int) -> dict[str, Any]:
     """Build a referee_state value when an org is first attributed from a referral signup."""
@@ -43,7 +51,7 @@ class SocialReferral(UUIDModel):
         blank=True,
         help_text='Per-invited-org map: `{ "<organization_uuid>": { "first_event_sent": boolean, '
         '"signed_up_at": "<ISO-8601>", "signed_up_user_id": <int or null>, '
-        '"shopify_discount_codes": [ { "code", "issued_at", "price_rule_id" }, ... ], ... } }`. '
+        '"shopify_discount_codes": [ { "code", "issued_at", "price_rule_id", "shopify_discount_id" }, ... ], ... } }`. '
         "Reserved top-level key: `errors` (ingestion sync failures).",
     )
     created_at = models.DateTimeField(auto_now_add=True)

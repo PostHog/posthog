@@ -8,7 +8,11 @@ Two unrelated concerns share this module:
    internal flow's email hook is still a placeholder.
 2. **Social referral referee status sync** (nightly) — scan ``SocialReferral.referee_state``
    for orgs that have started sending events, flip the per-org ``first_event_sent`` flag,
-   and record per-row failures separately so one bad row doesn't poison the sweep.
+   issue optional Shopify referrer codes when configured, enqueue a transactional email
+   to the referrer with the code. Temporal runs this as three activities per row (flip
+   ``first_event_sent``, issue Shopify codes, enqueue reward emails) so each step is
+   visible independently in history; the non-Temporal sweep helper chains the same steps
+   in-process. Failures are still isolated per ``SocialReferral`` row.
 
 The two concerns are kept side-by-side rather than split into two modules because they
 ship under the same product and the registration boilerplate already lives in one
@@ -32,14 +36,21 @@ import structlog
 import temporalio.activity
 from temporalio import activity
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
+from posthog.tasks.email import send_social_referral_shopify_reward_email
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 
 from products.referrals.backend.internal.research.prompts import InternalReferralCandidates
 from products.referrals.backend.internal.research.research import run_internal_research
 from products.referrals.backend.models import (
+    REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE,
+    REFEREE_ENTRY_SHOPIFY_CODE_RECORD_DISCOUNT_ID,
+    REFEREE_ENTRY_SHOPIFY_CODE_RECORD_ISSUED_AT,
+    REFEREE_ENTRY_SHOPIFY_CODE_RECORD_PRICE_RULE_ID,
+    REFEREE_ENTRY_SHOPIFY_DISCOUNT_CODES_KEY,
+    REFEREE_ENTRY_SHOPIFY_PROMO_LAST_ERROR_KEY,
     REFEREE_STATE_ERRORS_INGESTION_SYNC_KEY,
     REFEREE_STATE_ERRORS_KEY,
     SocialReferral,
@@ -51,8 +62,11 @@ from products.referrals.backend.shopify_referrer_promo import (
 )
 from products.referrals.backend.temporal.constants import TWITTER_DEFAULT_HOURS
 from products.referrals.backend.temporal.types import (
+    IssueShopifyCodesInput,
     ProcessSingleReferralIngestionInput,
     RecordIngestionCheckFailureInput,
+    SendShopifyRewardEmailsInput,
+    ShopifyRewardEmailItem,
 )
 from products.referrals.backend.twitter.research.prompts import TwitterReferralCandidates
 from products.referrals.backend.twitter.research.research import run_twitter_research
@@ -226,16 +240,8 @@ async def run_internal_referral_research_activity(
 FIRST_EVENT_SENT_KEY = "first_event_sent"
 INGESTION_CHECK_FAILURE_DETAIL_MAX_LEN = 4000
 
-# Per-referee-org Shopify promos: append-only list of `{code, issued_at, price_rule_id}`.
-REFEREE_ENTRY_SHOPIFY_DISCOUNT_CODES_KEY = "shopify_discount_codes"
-REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE = "code"
-REFEREE_ENTRY_SHOPIFY_CODE_RECORD_ISSUED_AT = "issued_at"
-REFEREE_ENTRY_SHOPIFY_CODE_RECORD_PRICE_RULE_ID = "price_rule_id"
-REFEREE_ENTRY_SHOPIFY_PROMO_LAST_ERROR_KEY = "shopify_promo_last_error"
-_SHOPIFY_PROMO_ERROR_MAX_LEN = 2000
 _LEGACY_SHOPIFY_SCALAR_KEYS = ("shopify_discount_code", "shopify_promo_issued_at", "shopify_price_rule_id")
-
-_LOGGER = structlog.get_logger(__name__)
+_SHOPIFY_PROMO_ERROR_MAX_LEN = 2000
 
 
 def referee_entry_pending_first_event(entry: object) -> bool:
@@ -261,33 +267,42 @@ def _normalized_discount_code_list(raw: object) -> list[dict[str, Any]]:
             continue
         issued = item.get(REFEREE_ENTRY_SHOPIFY_CODE_RECORD_ISSUED_AT)
         rule = item.get(REFEREE_ENTRY_SHOPIFY_CODE_RECORD_PRICE_RULE_ID)
+        disc_id_raw = item.get(REFEREE_ENTRY_SHOPIFY_CODE_RECORD_DISCOUNT_ID)
         rec: dict[str, Any] = {REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE: code}
         if isinstance(issued, str) and issued:
             rec[REFEREE_ENTRY_SHOPIFY_CODE_RECORD_ISSUED_AT] = issued
         if isinstance(rule, str) and rule:
             rec[REFEREE_ENTRY_SHOPIFY_CODE_RECORD_PRICE_RULE_ID] = rule
+        if disc_id_raw is not None and disc_id_raw != "":
+            rec[REFEREE_ENTRY_SHOPIFY_CODE_RECORD_DISCOUNT_ID] = str(disc_id_raw)
         out.append(rec)
     return out
 
 
-def _attach_shopify_promo_to_referee_entry(entry: dict[str, Any]) -> None:
-    """Mutate referee entry after `first_event_sent` flip: append a Shopify code when configured."""
-    code, err = create_referrer_discount_code()
-    if code is not None:
+def _attach_shopify_promo_to_referee_entry(entry: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Mutate referee entry after `first_event_sent` flip: append a Shopify code when configured.
+
+    Returns ``(discount_code, shopify_discount_id)`` when creation succeeds; ``(None, None)`` otherwise.
+    """
+    promo = create_referrer_discount_code()
+    if promo.code is not None:
         codes = _normalized_discount_code_list(entry.get(REFEREE_ENTRY_SHOPIFY_DISCOUNT_CODES_KEY))
-        codes.append(
-            {
-                REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE: code,
-                REFEREE_ENTRY_SHOPIFY_CODE_RECORD_ISSUED_AT: timezone.now().isoformat(),
-                REFEREE_ENTRY_SHOPIFY_CODE_RECORD_PRICE_RULE_ID: REFERRALS_SHOPIFY_PRICE_RULE_ID,
-            }
-        )
+        record: dict[str, Any] = {
+            REFEREE_ENTRY_SHOPIFY_CODE_RECORD_CODE: promo.code,
+            REFEREE_ENTRY_SHOPIFY_CODE_RECORD_ISSUED_AT: timezone.now().isoformat(),
+            REFEREE_ENTRY_SHOPIFY_CODE_RECORD_PRICE_RULE_ID: REFERRALS_SHOPIFY_PRICE_RULE_ID,
+        }
+        if promo.shopify_discount_id:
+            record[REFEREE_ENTRY_SHOPIFY_CODE_RECORD_DISCOUNT_ID] = promo.shopify_discount_id
+        codes.append(record)
         entry[REFEREE_ENTRY_SHOPIFY_DISCOUNT_CODES_KEY] = codes
         entry.pop(REFEREE_ENTRY_SHOPIFY_PROMO_LAST_ERROR_KEY, None)
         for legacy in _LEGACY_SHOPIFY_SCALAR_KEYS:
             entry.pop(legacy, None)
-    elif err is not None:
-        entry[REFEREE_ENTRY_SHOPIFY_PROMO_LAST_ERROR_KEY] = err[:_SHOPIFY_PROMO_ERROR_MAX_LEN]
+        return promo.code, promo.shopify_discount_id
+    if promo.error_detail is not None:
+        entry[REFEREE_ENTRY_SHOPIFY_PROMO_LAST_ERROR_KEY] = promo.error_detail[:_SHOPIFY_PROMO_ERROR_MAX_LEN]
+    return None, None
 
 
 def _clear_ingestion_sync_error_from_merged(merged: dict[str, Any]) -> bool:
@@ -384,13 +399,14 @@ def build_pending_ingestion_snapshot() -> dict[str, Any]:
     }
 
 
-def process_single_social_referral_ingestion_sync(referral_id: UUID) -> dict[str, int]:
-    """Apply ingestion checks for one SocialReferral; isolate failures to this row."""
+def _flip_ingestion_for_referral(referral_id: UUID) -> dict[str, Any]:
+    """Set ``first_event_sent`` for referee orgs that qualify; no Shopify or email."""
     orgs_flipped = 0
+    flipped_org_keys: list[str] = []
     with transaction.atomic():
         referral = SocialReferral.objects.select_for_update().filter(id=referral_id).first()
         if referral is None:
-            return {"orgs_flipped": 0}
+            return {"orgs_flipped": 0, "flipped_org_keys": []}
 
         merged = dict(referral.referee_state) if isinstance(referral.referee_state, dict) else {}
         changed = False
@@ -421,17 +437,87 @@ def process_single_social_referral_ingestion_sync(referral_id: UUID) -> dict[str
                 new_entry: dict[str, Any] = {**entry_raw, FIRST_EVENT_SENT_KEY: True}
             else:
                 new_entry = {FIRST_EVENT_SENT_KEY: True}
-            if social_referral_shopify_promo_configured():
-                _attach_shopify_promo_to_referee_entry(new_entry)
             merged[org_key] = new_entry
             orgs_flipped += 1
+            flipped_org_keys.append(org_key)
             changed = True
 
         if changed:
             referral.referee_state = merged
             referral.save(update_fields=["referee_state"])
 
-    return {"orgs_flipped": orgs_flipped}
+    return {"orgs_flipped": orgs_flipped, "flipped_org_keys": flipped_org_keys}
+
+
+def _issue_shopify_codes_for_referral_orgs(referral_id: UUID, org_keys: list[str]) -> list[ShopifyRewardEmailItem]:
+    """Create Shopify codes for flipped org keys (idempotent if codes already present)."""
+    if not org_keys or not social_referral_shopify_promo_configured():
+        return []
+
+    rewards: list[ShopifyRewardEmailItem] = []
+    with transaction.atomic():
+        referral = SocialReferral.objects.select_for_update().filter(id=referral_id).first()
+        if referral is None:
+            return []
+
+        merged = dict(referral.referee_state) if isinstance(referral.referee_state, dict) else {}
+        changed = False
+        referer_user_id = referral.user_id
+
+        for org_key in org_keys:
+            entry_raw = merged.get(org_key)
+            if not isinstance(entry_raw, dict):
+                continue
+            if entry_raw.get(FIRST_EVENT_SENT_KEY) is not True:
+                continue
+
+            new_code, shopify_discount_id = _attach_shopify_promo_to_referee_entry(entry_raw)
+            merged[org_key] = entry_raw
+            changed = True
+
+            if new_code is not None and referer_user_id is not None:
+                org_uuid = UUID(org_key)
+                referee_name = Organization.objects.filter(id=org_uuid).values_list("name", flat=True).first() or ""
+                rewards.append(
+                    ShopifyRewardEmailItem(
+                        user_id=referer_user_id,
+                        discount_code=new_code,
+                        shopify_discount_id=shopify_discount_id,
+                        referee_organization_name=str(referee_name),
+                    )
+                )
+
+        if changed:
+            referral.referee_state = merged
+            referral.save(update_fields=["referee_state"])
+
+    return rewards
+
+
+def _enqueue_shopify_reward_emails(rewards: list[ShopifyRewardEmailItem]) -> None:
+    """Deliver reward mail in-process (still runs the shared Celery task body for one code path).
+
+    Using ``.delay()`` queues ``_send_email`` on the email Celery queue; local Temporal workers typically do not run
+    that consumer, so nothing reaches Maildev. ``apply(..., enqueue_email_delivery=False)`` sends SMTP inline here.
+    """
+    for r in rewards:
+        send_social_referral_shopify_reward_email.apply(
+            kwargs={
+                "user_id": r.user_id,
+                "discount_code": r.discount_code,
+                "referee_organization_name": r.referee_organization_name,
+                "enqueue_email_delivery": False,
+            },
+            throw=True,
+        )
+
+
+def process_single_social_referral_ingestion_sync(referral_id: UUID) -> dict[str, int]:
+    """Apply ingestion + optional Shopify + emails for one SocialReferral (non-Temporal sweep helper)."""
+    flip = _flip_ingestion_for_referral(referral_id)
+    rewards = _issue_shopify_codes_for_referral_orgs(referral_id, flip["flipped_org_keys"])
+    _enqueue_shopify_reward_emails(rewards)
+    return {"orgs_flipped": flip["orgs_flipped"]}
 
 
 def execute_referral_ingestion_stage_sweep() -> dict[str, int]:
@@ -463,12 +549,26 @@ async def referral_status_list_pending_ingestion_activity() -> dict[str, Any]:
 
 
 @activity.defn(name="referral-status-process-single-ingestion")
-async def referral_status_process_single_ingestion_activity(inp: ProcessSingleReferralIngestionInput) -> dict[str, int]:
+async def referral_status_process_single_ingestion_activity(inp: ProcessSingleReferralIngestionInput) -> dict[str, Any]:
     @database_sync_to_async(thread_sensitive=True)
-    def django_sync() -> dict[str, int]:
-        return process_single_social_referral_ingestion_sync(UUID(inp.social_referral_id))
+    def django_sync() -> dict[str, Any]:
+        return _flip_ingestion_for_referral(UUID(inp.social_referral_id))
 
     return await django_sync()
+
+
+@activity.defn(name="referral-status-issue-shopify-codes")
+async def referral_status_issue_shopify_codes_activity(inp: IssueShopifyCodesInput) -> list[ShopifyRewardEmailItem]:
+    @database_sync_to_async(thread_sensitive=True)
+    def django_sync() -> list[ShopifyRewardEmailItem]:
+        return _issue_shopify_codes_for_referral_orgs(UUID(inp.social_referral_id), list(inp.flipped_org_keys))
+
+    return await django_sync()
+
+
+@activity.defn(name="referral-status-send-shopify-reward-emails")
+def referral_status_send_shopify_reward_emails_activity(inp: SendShopifyRewardEmailsInput) -> None:
+    _enqueue_shopify_reward_emails(list(inp.rewards))
 
 
 @activity.defn(name="referral-status-record-ingestion-check-failure")

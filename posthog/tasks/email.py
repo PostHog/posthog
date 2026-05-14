@@ -750,6 +750,48 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_social_referral_shopify_reward_email(
+    user_id: int,
+    discount_code: str,
+    referee_organization_name: str,
+    enqueue_email_delivery: bool = True,
+) -> None:
+    """Transactional email when a referrer earns a Shopify discount (referral sent first ingested events).
+
+    ``enqueue_email_delivery`` defaults True so standalone ``.delay()`` matches historical behavior (SMTP runs via
+    the ``_send_email`` Celery task). Referral ingestion / Temporal passes ``False`` so Mail sends inside the worker
+    without requiring a separate email-queue consumer (same process behavior as ``manage.py send_test_email``).
+    """
+    user: User = User.objects.get(pk=user_id)
+    referee_organization_display = sanitize_display_name(
+        referee_organization_name,
+        fallback="an organization you invited",
+        context={
+            "task": "send_social_referral_shopify_reward_email",
+            "user_id": user_id,
+        },
+    )
+    message = EmailMessage(
+        use_http=False,
+        campaign_key=f"social-referral-shopify-{user.uuid}-{discount_code}",
+        subject="Your referral reward — PostHog merch discount code",
+        template_name="social_referral_shopify_reward",
+        template_context={
+            "preheader": f"Use code {discount_code} on PostHog merch.",
+            "user_name": user.first_name or "there",
+            "discount_code": discount_code,
+            "referee_organization_name": referee_organization_display,
+            "cloud": is_cloud(),
+            "site_url": settings.SITE_URL or "",
+            "referrals_path": "/referrals",
+        },
+    )
+    message.add_user_recipient(user)
+    message.send(send_async=enqueue_email_delivery)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_canary_email(user_email: str) -> None:
     message = EmailMessage(
         campaign_key=f"canary_email_{uuid.uuid4()}",

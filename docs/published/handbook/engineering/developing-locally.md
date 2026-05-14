@@ -367,7 +367,7 @@ If you cannot access the Django admin <http://localhost:8000/admin/>, it could b
 
 ## Extra: Sending emails
 
-Emails are configured in `posthog/emails.py`.
+Emails are configured in `posthog/email.py`.
 
 To test email functionality during local development, we use Maildev, a lightweight SMTP server with a web interface to inspect sent emails.
 
@@ -383,7 +383,9 @@ EMAIL_USE_SSL=false
 EMAIL_ENABLED=true
 ```
 
-With the default `docker-compose.dev.yml` setup, you can view emails in your browser at [http://localhost:1080](http://localhost:1080).
+With the default `docker-compose.dev.yml` setup, start the **`maildev`** service (e.g. included when you run the dev docker stack / relevant **hogli** profiles) so ports **1025** (SMTP) and **1080** (web UI) are listening. Then you can view emails in your browser at [http://localhost:1080](http://localhost:1080).
+
+If **`CUSTOMER_IO_API_KEY`** is set in your environment, many code paths prefer Customer.io over SMTP; leave it **unset** for typical local testing so mail goes to Maildev.
 
 This allows you to easily confirm that emails are being sent and formatted correctly without actually sending anything externally.
 

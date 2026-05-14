@@ -1,0 +1,12 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block section %}
+<p>Hey {% if user_name %}{{ user_name }}{% else %}there{% endif %},</p>
+
+<p>An invited organization (<strong>{{ referee_organization_name }}</strong>) has sent its first events through your referral link. Here is your Shopify discount code for PostHog merch:</p>
+
+<p style="font-size: 18px; font-weight: bold; letter-spacing: 0.05em;">{{ discount_code }}</p>
+
+<p>You can always see referral progress in PostHog under <a href="{% absolute_uri referrals_path %}">referrals</a>.</p>
+
+<p>If you did not expect this email, reply and let us know.</p>
+{% endblock %}
