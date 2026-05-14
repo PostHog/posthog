@@ -243,15 +243,10 @@ async function main() {
 }
 
 async function executeGeneratedTool(argv: any, toolName: string, params: any) {
-    const spinner = ora(`Executing ${toolName}...`).start()
-
     try {
         const result = await executeToolCall(argv.mcpContext as Context, toolName, params)
-
-        spinner.succeed('Command completed')
         printResult(argv, toolName, result)
     } catch (error: any) {
-        spinner.fail('Command failed')
         console.error(chalk.red('Error:'), error.message)
         process.exit(1)
     }
