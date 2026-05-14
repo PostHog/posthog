@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Create a PostHog Tasks run on the hobby instance via hobbyctl and print the
+# JSON response on stdout. Progress logs are written to stderr so callers can
+# safely pipe stdout into jq.
+#
+# Usage: bin/qa/create-task <prompt> [<title>]
+# Env:   HOBBYCTL_URL  default http://ph.vojtabartos.com:8765
+#
+# Response shape (from PosthogTaskCreatedResponse):
+#   { "task_id": "...", "run_id": "...", "stream_url": "...", "raw": { ... } }
+
+set -euo pipefail
+
+
+prompt="gimme a joke"
+title="${2:-}"
+
+: "${HOBBYCTL_URL:=http://ph.vojtabartos.com:8765}"
+
+body=$(jq -nc --arg p "$prompt" --arg t "$title" '
+    {prompt: $p} + (if $t == "" then {} else {title: $t} end)
+')
+
+echo "POST $HOBBYCTL_URL/posthog/tasks" >&2
+echo "body: $body" >&2
+
+resp=$(curl -fsSL -X POST "$HOBBYCTL_URL/posthog/tasks" \
+    -H 'content-type: application/json' \
+    -d "$body")
+
+task_id=$(echo "$resp" | jq -r '.task_id')
+run_id=$(echo "$resp" | jq -r '.run_id')
+
+if [ -z "$task_id" ] || [ "$task_id" = "null" ] \
+    || [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
+    echo "create-task: missing task_id or run_id in response" >&2
+    echo "$resp" >&2
+    exit 1
+fi
+
+echo "$resp"

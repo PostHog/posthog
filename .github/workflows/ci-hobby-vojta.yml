@@ -135,32 +135,10 @@ jobs:
               id: create-task
               run: |
                   set -euo pipefail
-                  resp=$(curl -fsSL -X POST "$HOBBYCTL_URL/posthog/tasks" \
-                      -H 'content-type: application/json' \
-                      -d '{"prompt": "give me a joke"}')
-                  echo "Create response:"
-                  echo "$resp" | jq .
-                  task_id=$(echo "$resp" | jq -r '.task_id')
-                  run_id=$(echo "$resp" | jq -r '.run_id')
-                  if [ -z "$task_id" ] || [ "$task_id" = "null" ] \
-                     || [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
-                    echo "Missing task_id or run_id in response"
-                    exit 1
-                  fi
-                  echo "task_id=$task_id" >> "$GITHUB_OUTPUT"
-                  echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+                  resp=$(bin/qa/create-task "give me a joke")
+                  echo "task_id=$(echo "$resp" | jq -r '.task_id')" >> "$GITHUB_OUTPUT"
+                  echo "run_id=$(echo "$resp" | jq -r '.run_id')" >> "$GITHUB_OUTPUT"
 
             - name: Stream task run until it ends
-              env:
-                  TASK_ID: ${{ steps.create-task.outputs.task_id }}
-                  RUN_ID: ${{ steps.create-task.outputs.run_id }}
               timeout-minutes: 15
-              run: |
-                  set -euo pipefail
-                  url="$HOBBYCTL_URL/posthog/tasks/$TASK_ID/runs/$RUN_ID/stream?stop_on=end_turn"
-                  echo "Streaming $url"
-                  # -N disables buffering so SSE events surface immediately;
-                  # hobbyctl closes the stream itself once an event matches
-                  # stop_on (server emits `event: closed` with stop_pattern_matched).
-                  curl -fsSL -N -H 'accept: text/event-stream' "$url"
-                  echo "Stream closed"
+              run: bin/qa/wait-for-task "${{ steps.create-task.outputs.task_id }}" "${{ steps.create-task.outputs.run_id }}"

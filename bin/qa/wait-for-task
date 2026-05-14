@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Stream a PostHog Tasks run via hobbyctl until the server closes the stream.
+# hobbyctl closes the SSE connection when a data line matches one of the
+# comma-separated `stop_on` substrings (default: end_turn) and emits a final
+# `event: closed` with reason=stop_pattern_matched.
+#
+# Usage: bin/qa/wait-for-task <task_id> <run_id> [<stop_on>]
+# Env:   HOBBYCTL_URL  default http://ph.vojtabartos.com:8765
+
+set -euo pipefail
+
+if [ "$#" -lt 2 ]; then
+    echo "usage: $0 <task_id> <run_id> [<stop_on>]" >&2
+    exit 2
+fi
+
+task_id="$1"
+run_id="$2"
+stop_on="${3:-end_turn}"
+
+: "${HOBBYCTL_URL:=http://ph.vojtabartos.com:8765}"
+
+url="$HOBBYCTL_URL/posthog/tasks/$task_id/runs/$run_id/stream?stop_on=$stop_on"
+echo "streaming $url" >&2
+
+# -N disables curl's output buffering so SSE events surface immediately.
+curl -fsSL -N -H 'accept: text/event-stream' "$url"
+echo "stream closed" >&2
