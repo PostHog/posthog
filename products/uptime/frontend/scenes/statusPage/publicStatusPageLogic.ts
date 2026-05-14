@@ -1,4 +1,4 @@
-import { afterMount, kea, key, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -14,6 +14,8 @@ export interface PublicStatusPage {
     recent_incidents: Incident[]
 }
 
+export type PublicStatusPageTheme = 'light' | 'dark' | 'system'
+
 export interface PublicStatusPageLogicProps {
     slug: string
 }
@@ -22,6 +24,10 @@ export const publicStatusPageLogic = kea<publicStatusPageLogicType>([
     path(['products', 'uptime', 'frontend', 'scenes', 'statusPage', 'publicStatusPageLogic']),
     props({} as PublicStatusPageLogicProps),
     key((props) => props.slug),
+
+    actions({
+        setTheme: (theme: PublicStatusPageTheme) => ({ theme }),
+    }),
 
     loaders(({ props }) => ({
         page: [
@@ -40,6 +46,13 @@ export const publicStatusPageLogic = kea<publicStatusPageLogicType>([
             {
                 loadPageFailure: () => true,
                 loadPageSuccess: () => false,
+            },
+        ],
+        theme: [
+            'system' as PublicStatusPageTheme,
+            { persist: true },
+            {
+                setTheme: (_, { theme }) => theme,
             },
         ],
     }),

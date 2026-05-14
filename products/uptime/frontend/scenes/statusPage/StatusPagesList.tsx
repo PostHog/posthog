@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconCheck, IconCopy, IconExternal, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -19,7 +20,7 @@ export function StatusPagesList(): JSX.Element {
     }
 
     return (
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {statusPages.map((page) => (
                 <StatusPageCard key={page.id} page={page} onDelete={() => deleteStatusPage(page.id)} />
             ))}
@@ -31,49 +32,56 @@ function StatusPageCard({ page, onDelete }: { page: StatusPageListItem; onDelete
     const monitorCount = page.monitor_ids.length
     const publicUrl =
         typeof window !== 'undefined' ? `${window.location.origin}/status/${page.slug}` : `/status/${page.slug}`
+    const stop = (e: React.MouseEvent): void => e.stopPropagation()
     return (
-        <LemonCard className="flex flex-col gap-3 p-4">
+        <LemonCard
+            hoverEffect
+            onClick={() => router.actions.push(`/uptime/status-pages/${page.id}`)}
+            className="group flex flex-col gap-3 p-4 h-full"
+        >
             <div className="flex items-start justify-between gap-2 min-w-0">
-                <Link to={`/uptime/status-pages/${page.id}`} className="font-semibold truncate min-w-0">
-                    {page.title || 'Untitled status page'}
-                </Link>
-                {page.is_published ? (
-                    <LemonTag type="success" size="small">
-                        Live
-                    </LemonTag>
-                ) : (
-                    <LemonTag type="muted" size="small">
-                        Draft
-                    </LemonTag>
-                )}
+                <div className="font-semibold truncate min-w-0">{page.title || 'Untitled status page'}</div>
+                <div className="flex items-center gap-1 shrink-0">
+                    <div
+                        className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={stop}
+                    >
+                        {page.is_published && (
+                            <>
+                                <CopyButton text={publicUrl} />
+                                <LemonButton
+                                    size="xsmall"
+                                    icon={<IconExternal />}
+                                    to={publicUrl}
+                                    targetBlank
+                                    tooltip="Open public page"
+                                />
+                            </>
+                        )}
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconTrash />}
+                            onClick={onDelete}
+                            status="danger"
+                            tooltip="Delete"
+                        />
+                    </div>
+                    {page.is_published ? (
+                        <LemonTag type="success" size="small">
+                            Live
+                        </LemonTag>
+                    ) : (
+                        <LemonTag type="muted" size="small">
+                            Draft
+                        </LemonTag>
+                    )}
+                </div>
             </div>
-            <div className="flex items-center justify-between text-xs text-secondary">
+            <div className="mt-auto flex items-center justify-between text-xs text-secondary">
                 <span>
                     {monitorCount} monitor{monitorCount === 1 ? '' : 's'}
                 </span>
                 <span>Updated {dayjs(page.updated_at).fromNow()}</span>
-            </div>
-            <div className="flex items-center gap-1">
-                <LemonButton type="secondary" size="small" to={`/uptime/status-pages/${page.id}`}>
-                    Edit
-                </LemonButton>
-                {page.is_published && (
-                    <>
-                        <CopyButton text={publicUrl} />
-                        <Link to={publicUrl} target="_blank">
-                            <LemonButton size="small" icon={<IconExternal />} tooltip="Open public page" />
-                        </Link>
-                    </>
-                )}
-                <LemonButton
-                    size="small"
-                    type="tertiary"
-                    icon={<IconTrash />}
-                    onClick={onDelete}
-                    status="danger"
-                    tooltip="Delete"
-                    className="ml-auto"
-                />
             </div>
         </LemonCard>
     )
@@ -84,7 +92,7 @@ function CopyButton({ text }: { text: string }): JSX.Element {
     return (
         <Tooltip title={copied ? 'Copied' : 'Copy URL'}>
             <LemonButton
-                size="small"
+                size="xsmall"
                 icon={copied ? <IconCheck /> : <IconCopy />}
                 onClick={async () => {
                     const ok = await copyToClipboard(text, 'status page URL')
