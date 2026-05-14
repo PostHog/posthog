@@ -1,4 +1,4 @@
-import { ExecutorTurnOutput, SessionExecutor } from './executor'
+import { ExecutorTurnInput, ExecutorTurnOutput, SessionExecutor } from './executor'
 
 /**
  * Dev-mode executor: completes every turn immediately with an echo of the initial input.
@@ -8,7 +8,7 @@ import { ExecutorTurnOutput, SessionExecutor } from './executor'
  * it move from available → running → completed without needing Anthropic credentials.
  */
 export class EchoExecutor implements SessionExecutor {
-    runTurn(input: { state: { initialInput: unknown } }): Promise<ExecutorTurnOutput> {
+    runTurn(input: ExecutorTurnInput): Promise<ExecutorTurnOutput> {
         return Promise.resolve({
             kind: 'completed',
             message: {

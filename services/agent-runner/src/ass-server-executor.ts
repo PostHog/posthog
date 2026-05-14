@@ -1,0 +1,135 @@
+import { loadProject } from '@repo/ass-server/load-project'
+import { runSession } from '@repo/ass-server/session-runner'
+
+import {
+    ApplicationsRepository,
+    BundleStore,
+    ResolvedRevision,
+    SessionBus,
+    extractBundleToTempDir,
+    logger,
+} from '@posthog/agent-core'
+
+import { BusBridgingRegistry } from './ass-server-bridge'
+import { ExecutorTurnInput, ExecutorTurnOutput, SessionExecutor } from './executor'
+
+export interface AssServerExecutorOptions {
+    bundleStore: BundleStore
+    repository: ApplicationsRepository
+    bus: SessionBus
+}
+
+/**
+ * Real executor for PostHog's agent runner: downloads the revision's bundle from
+ * object storage, loads it with `@repo/ass-config`, and hands the result to
+ * `runSession()` (ass-server's whole-session loop powered by the Claude Agent SDK).
+ *
+ * Custom tools are intentionally skipped for v1 — server-side builtins still
+ * work because ass-server registers them as MCP tools internally, but anything
+ * declared as a *local* tool in the project's `tools/` folder is ignored until
+ * we land the parent-process dispatch sandbox.
+ *
+ * `runSession` runs the entire agent loop in-process and returns a handle whose
+ * `.done` resolves on completion, error, or abort. The per-turn `SessionExecutor`
+ * contract collapses to one "turn" that drives the whole session — fine for v1
+ * since we don't yet park sessions across runner restarts.
+ */
+export class AssServerExecutor implements SessionExecutor {
+    constructor(private readonly options: AssServerExecutorOptions) {}
+
+    async runTurn(input: ExecutorTurnInput): Promise<ExecutorTurnOutput> {
+        const { job } = input
+        if (!job.applicationId || !job.revisionId) {
+            return {
+                kind: 'failed',
+                error: 'job missing applicationId or revisionId — cannot resolve a bundle',
+            }
+        }
+
+        const revision = await this.options.repository.resolveByRevisionId(job.revisionId)
+        if (!revision) {
+            return { kind: 'failed', error: `revision ${job.revisionId} not found` }
+        }
+        if (revision.applicationId !== job.applicationId) {
+            return {
+                kind: 'failed',
+                error: `revision ${job.revisionId} belongs to a different application than the job`,
+            }
+        }
+        if (revision.revisionState !== 'ready') {
+            return {
+                kind: 'failed',
+                error: `revision ${job.revisionId} is not ready (state=${revision.revisionState})`,
+            }
+        }
+
+        let bundleBytes: Buffer
+        try {
+            bundleBytes = await this.options.bundleStore.downloadBundle(
+                revision.bundleS3Key,
+                revision.bundleSha256 || undefined
+            )
+        } catch (err) {
+            logger.error('runner bundle download failed', {
+                sessionId: job.sessionId,
+                key: revision.bundleS3Key,
+                error: String(err),
+            })
+            return { kind: 'failed', error: `bundle download failed: ${String(err)}` }
+        }
+
+        const extracted = await extractBundleToTempDir(bundleBytes)
+        try {
+            return await this.runWithBundle(input, revision, extracted.dir)
+        } finally {
+            await extracted.cleanup().catch((err) => {
+                logger.error('runner bundle cleanup failed', {
+                    sessionId: job.sessionId,
+                    error: String(err),
+                })
+            })
+        }
+    }
+
+    private async runWithBundle(
+        input: ExecutorTurnInput,
+        revision: ResolvedRevision,
+        bundleDir: string
+    ): Promise<ExecutorTurnOutput> {
+        const project = await loadProject(bundleDir)
+        if (project.agents.length === 0) {
+            return { kind: 'failed', error: 'project has no agents declared' }
+        }
+        // For now: the application maps 1:1 to its primary agent. When we expose
+        // multi-agent applications, the resolver will need to surface which agent
+        // slug to run (cron triggers naming a specific agent, slack routing, etc.).
+        const agent = project.agents[0]
+
+        const triggerPayload = input.state.initialInput ?? null
+        const bridge = new BusBridgingRegistry(this.options.bus, input.job.sessionId)
+
+        const handle = runSession({
+            project,
+            agent,
+            registry: bridge,
+            sessionId: input.job.sessionId,
+            triggerPayload,
+            env: input.job.secrets,
+            onLog: (line) => logger.debug('runSession', { sessionId: input.job.sessionId, line }),
+        })
+        await handle.done
+
+        if (bridge.lastError) {
+            return { kind: 'failed', error: bridge.lastError }
+        }
+        return {
+            kind: 'completed',
+            message: {
+                role: 'assistant',
+                content: bridge.lastResult?.text ?? '',
+                at: new Date().toISOString(),
+            },
+            output: bridge.lastResult ?? { ok: true },
+        }
+    }
+}

@@ -1,15 +1,17 @@
 import {
     ApplicationsRepository,
+    BundleStore,
     EncryptedFields,
     InMemorySessionBus,
     PosthogDbClient,
     RedisSessionBus,
     SessionBus,
+    bundleStoreConfigFromEnv,
     logger,
 } from '@posthog/agent-core'
 
+import { AssServerExecutor } from './ass-server-executor'
 import { loadConfig } from './config'
-import { NotImplementedExecutor } from './executor-stub'
 import { RunnerWorker } from './worker'
 
 async function main(): Promise<void> {
@@ -25,10 +27,16 @@ async function main(): Promise<void> {
         logger.warn('REDIS_URL not set; using in-memory bus (single-process only — not safe for production)')
     }
 
+    // Reads OBJECT_STORAGE_* env vars (defaults match Django's local MinIO config),
+    // so a dev stack with `bin/start` already has a usable bundle store.
+    const bundleStore = new BundleStore(bundleStoreConfigFromEnv())
+
+    const executor = new AssServerExecutor({ bundleStore, repository, bus })
+
     const worker = new RunnerWorker({
         pool: { dbUrl: config.queueDbUrl },
         queueName: config.queueName,
-        executor: new NotImplementedExecutor(),
+        executor,
         bus,
         loadSecrets: async (applicationId) => {
             if (!applicationId) {
@@ -48,6 +56,7 @@ async function main(): Promise<void> {
         await worker.stop()
         await bus.disconnect()
         await posthogDb.disconnect()
+        bundleStore.destroy()
         process.exit(0)
     }
 
