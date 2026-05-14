@@ -74,7 +74,7 @@ class MonitorSummaryDTO:
     url: str
     created_at: datetime
     status: MonitorOverallStatus
-    uptime_30d: float | None
+    uptime_90d: float | None
     avg_latency_24h_ms: int | None
     last_ping_at: datetime | None
     last_ping_outcome: PingOutcome | None

@@ -454,9 +454,9 @@ function MonitorTile({
             <div className="flex items-baseline justify-between gap-2">
                 <div className="flex flex-col">
                     <span className="text-2xl font-semibold">
-                        {monitor.uptime_30d !== null ? formatPercent(monitor.uptime_30d) : '—'}
+                        {monitor.uptime_90d !== null ? formatPercent(monitor.uptime_90d) : '—'}
                     </span>
-                    <span className="text-xs text-secondary">30d uptime</span>
+                    <span className="text-xs text-secondary">90d uptime</span>
                 </div>
                 <div className="flex flex-col items-end">
                     <span className="text-sm font-medium">

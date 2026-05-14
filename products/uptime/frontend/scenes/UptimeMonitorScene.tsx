@@ -125,8 +125,8 @@ export function UptimeMonitorScene(): JSX.Element {
                 </div>
                 <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 mt-2">
                     <Metric
-                        label="30d uptime"
-                        value={summary.uptime_30d !== null ? formatPercent(summary.uptime_30d) : '—'}
+                        label="90d uptime"
+                        value={summary.uptime_90d !== null ? formatPercent(summary.uptime_90d) : '—'}
                     />
                     <Metric
                         label="Avg latency (24h)"

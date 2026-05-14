@@ -32,7 +32,7 @@ logger = structlog.get_logger(__name__)
 
 DailyStatus = Literal["up", "degraded", "down", "no_data"]
 OverallStatus = Literal["up", "down", "no_data"]
-DAILY_BUCKETS = 30
+DAILY_BUCKETS = 90
 
 STATUS_UP = "up"
 STATUS_DOWN = "down"
@@ -298,9 +298,9 @@ def _maybe_emit_status_change(
 
 
 def list_monitor_summaries(*, team_id: int) -> list[dict]:
-    """One row per monitor with current status, uptime %, latency, last ping, and 30 daily buckets.
+    """One row per monitor with current status, uptime %, latency, last ping, and 90 daily buckets.
 
-    Pings are aggregated server-side in ClickHouse for the last 30 days. Monitors with no pings
+    Pings are aggregated server-side in ClickHouse for the last 90 days. Monitors with no pings
     show status='no_data' and uptime/latency=None — the UI renders them as "no data yet" tiles.
     """
     tag_queries(product=Product.UPTIME, team_id=team_id, feature=Feature.UPTIME_PINGS, name="list_monitor_summaries")
@@ -319,7 +319,7 @@ def list_monitor_summaries(*, team_id: int) -> list[dict]:
             avgIf(latency_ms, outcome = 'success') AS avg_latency
         FROM uptime_pings
         WHERE team_id = %(team_id)s
-          AND timestamp > now() - INTERVAL 30 DAY
+          AND timestamp > now() - INTERVAL 90 DAY
         GROUP BY monitor_id, day
         """,
         {"team_id": team_id},
@@ -385,7 +385,7 @@ def list_monitor_summaries(*, team_id: int) -> list[dict]:
                     }
                 )
 
-        uptime_30d = (total_pings - total_failed) / total_pings if total_pings else None
+        uptime_90d = (total_pings - total_failed) / total_pings if total_pings else None
 
         if latest and latest["last_outcome"]:
             overall_status: OverallStatus = "up" if latest["last_outcome"] == PingOutcome.SUCCESS.value else "down"
@@ -405,7 +405,7 @@ def list_monitor_summaries(*, team_id: int) -> list[dict]:
                 "url": monitor.url,
                 "created_at": monitor.created_at,
                 "status": overall_status,
-                "uptime_30d": uptime_30d,
+                "uptime_90d": uptime_90d,
                 "avg_latency_24h_ms": avg_latency_24h,
                 "last_ping_at": last_ping_at,
                 "last_ping_outcome": last_outcome,

@@ -96,7 +96,6 @@ function PublicStatusPageScene(): JSX.Element {
                 <Link to="https://posthog.com?utm_campaign=in-product&utm_tag=public-status-page-footer">
                     <img src={posthogLogo} alt="PostHog" className="h-4 opacity-70 hover:opacity-100 transition" />
                 </Link>
-                <span>Powered by PostHog Uptime</span>
             </footer>
         </div>
     )

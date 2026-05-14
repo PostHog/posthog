@@ -54,7 +54,7 @@ export interface MonitorSummary {
     url: string
     created_at: string
     status: MonitorStatus
-    uptime_30d: number | null
+    uptime_90d: number | null
     avg_latency_24h_ms: number | null
     last_ping_at: string | null
     last_ping_outcome: 'success' | 'failure' | null

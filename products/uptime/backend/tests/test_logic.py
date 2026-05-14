@@ -156,7 +156,7 @@ class TestListMonitorSummaries(UptimeTeamScopedTestMixin, ClickhouseTestMixin, B
         row = results[0]
         assert row["id"] == monitor.id
         assert row["status"] == "no_data"
-        assert row["uptime_30d"] is None
+        assert row["uptime_90d"] is None
         assert row["last_ping_at"] is None
         assert row["last_ping_outcome"] is None
         assert row["avg_latency_24h_ms"] is None
@@ -172,7 +172,7 @@ class TestListMonitorSummaries(UptimeTeamScopedTestMixin, ClickhouseTestMixin, B
 
         row = next(r for r in results if r["id"] == monitor.id)
         assert row["status"] == "up"
-        assert row["uptime_30d"] == 1.0
+        assert row["uptime_90d"] == 1.0
         assert row["avg_latency_24h_ms"] == 120
         assert row["last_ping_outcome"] == PingOutcome.SUCCESS
 
@@ -214,7 +214,7 @@ class TestListMonitorSummaries(UptimeTeamScopedTestMixin, ClickhouseTestMixin, B
         assert yesterday_bucket["status"] == "degraded"
         assert two_days_ago_bucket["status"] == "down"
 
-    def test_uptime_30d_is_pings_minus_failures(self) -> None:
+    def test_uptime_90d_is_pings_minus_failures(self) -> None:
         monitor = Monitor.objects.create(team_id=self.team.id, name="u", url="https://u.io")
         for _ in range(9):
             self._ping(monitor, outcome=PingOutcome.SUCCESS)
@@ -223,7 +223,7 @@ class TestListMonitorSummaries(UptimeTeamScopedTestMixin, ClickhouseTestMixin, B
         results = list_monitor_summaries(team_id=self.team.id)
 
         row = next(r for r in results if r["id"] == monitor.id)
-        assert row["uptime_30d"] == 0.9
+        assert row["uptime_90d"] == 0.9
 
     def test_handles_no_recent_successes_without_erroring(self) -> None:
         """ClickHouse's avgIf returns NaN when no rows match. Without NaN→None
@@ -238,7 +238,7 @@ class TestListMonitorSummaries(UptimeTeamScopedTestMixin, ClickhouseTestMixin, B
         row = next(r for r in results if r["id"] == monitor.id)
         assert row["status"] == "down"
         assert row["avg_latency_24h_ms"] is None
-        assert row["uptime_30d"] == 0.0
+        assert row["uptime_90d"] == 0.0
 
     def test_orders_by_display_order_then_recency(self) -> None:
         # Created oldest first; without reordering, "newest" (z) would come first.
@@ -268,7 +268,7 @@ class TestListMonitorSummaries(UptimeTeamScopedTestMixin, ClickhouseTestMixin, B
 
         row = next(r for r in results if r["id"] == monitor.id)
         assert row["status"] == "up"
-        assert row["uptime_30d"] == 1.0
+        assert row["uptime_90d"] == 1.0
 
 
 class TestBulkCreateMonitors(UptimeTeamScopedTestMixin, BaseTest):

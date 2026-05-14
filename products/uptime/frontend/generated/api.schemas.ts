@@ -150,7 +150,7 @@ export interface MonitorSummaryDTOApi {
     created_at: string
     status: MonitorSummaryDTOStatusEnumApi
     /** @nullable */
-    uptime_30d: number | null
+    uptime_90d: number | null
     /** @nullable */
     avg_latency_24h_ms: number | null
     /** @nullable */

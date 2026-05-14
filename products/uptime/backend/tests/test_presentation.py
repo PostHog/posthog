@@ -84,8 +84,8 @@ class TestSummaryEndpoint(UptimeTeamScopedTestMixin, ClickhouseTestMixin, APIBas
         assert {row["name"] for row in data} == {"a", "b"}
         for row in data:
             assert row["status"] == "no_data"
-            assert len(row["daily_buckets"]) == 30
-            assert row["uptime_30d"] is None
+            assert len(row["daily_buckets"]) == 90
+            assert row["uptime_90d"] is None
 
 
 class TestBulkCreateEndpoint(UptimeTeamScopedTestMixin, APIBaseTest):
