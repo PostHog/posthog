@@ -2222,6 +2222,28 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
     )
 
+/**
+ * CRUD for referral share links under an organization.
+ * @summary Update social referral
+ */
+export const SocialReferralsUpdateBody = /* @__PURE__ */ zod.object({
+    referee_state: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Map of invited organization UUID (string) to `{\"first_event_sent\": boolean}`.'),
+})
+
+/**
+ * CRUD for referral share links under an organization.
+ * @summary Partially update social referral
+ */
+export const SocialReferralsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    referee_state: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Map of invited organization UUID (string) to `{\"first_event_sent\": boolean}`.'),
+})
+
 export const dashboardTemplatesUpdateBodyTemplateNameMax = 400
 
 export const dashboardTemplatesUpdateBodyDashboardDescriptionMax = 400

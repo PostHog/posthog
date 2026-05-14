@@ -4,7 +4,9 @@ import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTable, LemonTableColumns, Spinner } from '@posthog/lemon-ui'
 
 import { WavingHog } from 'lib/components/hedgehogs'
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -12,7 +14,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { SocialReferralListItem, referralsSceneLogic } from './referralsSceneLogic'
+import { ReferralAttributedSignupRow, referralsSceneLogic } from './referralsSceneLogic'
 
 function ReferralsAttributedSignupsIntro({
     referralShareUrl,
@@ -60,38 +62,65 @@ function ReferralsAttributedSignupsIntro({
 }
 
 export function ReferralsScene(): JSX.Element {
-    const { referrals, referralsLoading, referralShareUrl } = useValues(referralsSceneLogic)
+    const { attributedSignupRows, referralsLoading, referralShareUrl } = useValues(referralsSceneLogic)
 
-    const columns: LemonTableColumns<SocialReferralListItem> = [
+    const columns: LemonTableColumns<ReferralAttributedSignupRow> = [
         {
-            title: 'ID',
-            dataIndex: 'id',
-            width: 280,
+            title: 'Organization',
+            key: 'invited_organization',
             render: (_, row) => (
-                <code className="text-xs whitespace-nowrap overflow-hidden text-ellipsis block max-w-[260px]">
-                    {row.id}
-                </code>
+                <span
+                    className="block truncate max-w-md font-medium text-default"
+                    title={`${row.invitedOrganizationName} (${row.invitedOrganizationId})`}
+                    data-attr="referral-attributed-org-name"
+                >
+                    {row.invitedOrganizationName}
+                </span>
             ),
+            sorter: (a, b) => a.invitedOrganizationName.localeCompare(b.invitedOrganizationName),
         },
         {
-            title: 'Created',
-            dataIndex: 'created_at',
-            render: (_, row) => (row.created_at ? dayjs(row.created_at).format('LLL') : '–'),
-            sorter: (a, b) => dayjs(a.created_at).unix() - dayjs(b.created_at).unix(),
+            title: 'Signup date',
+            key: 'signup_date',
+            render: (_, row) => (row.signedUpAt ? <TZLabel time={row.signedUpAt} /> : '–'),
+            sorter: (a, b) => {
+                const au = a.signedUpAt ? dayjs(a.signedUpAt).unix() : 0
+                const bu = b.signedUpAt ? dayjs(b.signedUpAt).unix() : 0
+                return au - bu
+            },
         },
         {
-            title: 'Tracked orgs',
-            key: 'tracked',
-            render: (_, row) => String(Object.keys(row.referee_state || {}).length),
+            title: 'Signed-up user',
+            key: 'signed_up_user',
+            render: (_, row) => {
+                if (row.signedUpUserDisplayName) {
+                    return (
+                        <span className="block truncate max-w-xs" data-attr="referral-attributed-user-name">
+                            {row.signedUpUserDisplayName}
+                        </span>
+                    )
+                }
+                return '–'
+            },
+            sorter: (a, b) => {
+                const an = a.signedUpUserDisplayName || ''
+                const bn = b.signedUpUserDisplayName || ''
+                const c = an.localeCompare(bn)
+                if (c !== 0) {
+                    return c
+                }
+                return (a.signedUpUserId ?? -1) - (b.signedUpUserId ?? -1)
+            },
         },
         {
-            title: 'State',
-            key: 'referee_state',
+            title: 'First event sent',
+            key: 'first_event_sent',
             render: (_, row) => (
-                <pre className="text-xs font-mono whitespace-pre-wrap break-all max-w-xl max-h-32 overflow-auto m-0 bg-surface-primary p-2 rounded">
-                    {JSON.stringify(row.referee_state ?? {}, null, 2)}
-                </pre>
+                <LemonTag type={row.firstEventSent ? 'success' : 'warning'} size="small">
+                    {row.firstEventSent ? 'Yes' : 'No'}
+                </LemonTag>
             ),
+            sorter: (a, b) => Number(a.firstEventSent) - Number(b.firstEventSent),
         },
     ]
 
@@ -168,8 +197,13 @@ export function ReferralsScene(): JSX.Element {
                 <h2 className="m-0 text-[15px] font-semibold text-default">Attributed signups</h2>
                 <p className="m-0 mt-1 text-secondary text-sm">Referrals tracked from your link appear in this list.</p>
             </header>
-            {referralsLoading || (referrals?.length ?? 0) > 0 ? (
-                <LemonTable columns={columns} dataSource={referrals ?? []} loading={!!referralsLoading} rowKey="id" />
+            {referralsLoading || (attributedSignupRows?.length ?? 0) > 0 ? (
+                <LemonTable
+                    columns={columns}
+                    dataSource={attributedSignupRows ?? []}
+                    loading={!!referralsLoading}
+                    rowKey={(row) => `${row.socialReferralId}:${row.invitedOrganizationId}`}
+                />
             ) : (
                 <LemonCard hoverEffect={false} className="shadow-sm border-primary">
                     <ReferralsAttributedSignupsIntro

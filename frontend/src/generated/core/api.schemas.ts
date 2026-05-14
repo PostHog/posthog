@@ -2150,6 +2150,47 @@ export interface PatchedProjectBackwardCompatApi {
 }
 
 /**
+ * Map of invited organization UUID (string) to `{"first_event_sent": boolean}`.
+ */
+export type SocialReferralApiRefereeState = { [key: string]: unknown }
+
+export interface SocialReferralRefereeInviteApi {
+    /** UUID of the organization that signed up via this referral link. */
+    organization_id: string
+    /** Current display name of the invited organization. */
+    organization_name: string
+    /** Whether this organization has sent its first ingested event. */
+    first_event_sent: boolean
+}
+
+export interface SocialReferralApi {
+    readonly id: string
+    readonly organization: string
+    readonly user: number
+    /** Map of invited organization UUID (string) to `{"first_event_sent": boolean}`. */
+    referee_state?: SocialReferralApiRefereeState
+    /** Invited organizations from referee_state with names resolved from the Organization table. */
+    readonly referee_invites: readonly SocialReferralRefereeInviteApi[]
+    readonly created_at: string
+}
+
+/**
+ * Map of invited organization UUID (string) to `{"first_event_sent": boolean}`.
+ */
+export type PatchedSocialReferralApiRefereeState = { [key: string]: unknown }
+
+export interface PatchedSocialReferralApi {
+    readonly id?: string
+    readonly organization?: string
+    readonly user?: number
+    /** Map of invited organization UUID (string) to `{"first_event_sent": boolean}`. */
+    referee_state?: PatchedSocialReferralApiRefereeState
+    /** Invited organizations from referee_state with names resolved from the Organization table. */
+    readonly referee_invites?: readonly SocialReferralRefereeInviteApi[]
+    readonly created_at?: string
+}
+
+/**
  * * `team` - Only team
  * `global` - Global
  * `feature_flag` - Feature Flag

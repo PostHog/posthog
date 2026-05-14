@@ -1,5 +1,8 @@
+from typing import Any
+
 from django.conf import settings
 from django.db import models, transaction
+from django.utils import timezone
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
@@ -7,7 +10,21 @@ from posthog.models.user import User
 from posthog.models.utils import UUIDModel
 
 USER_DISTINCT_ID_MAX_LEN = 200  # Must match `User.distinct_id` max_length
-DEFAULT_REFEREE_STATE_ENTRY = {"first_event_sent": False}
+
+# Per-invited-org entry in `referee_state` (keyed by organization UUID string).
+SIGNED_UP_AT_KEY = "signed_up_at"
+# User who completed signup for the invited org; nullable if cleared after user deletion.
+SIGNED_UP_USER_ID_KEY = "signed_up_user_id"
+
+
+def new_referee_entry_at_signup(*, signed_up_at_iso: str, signed_up_user_id: int) -> dict[str, Any]:
+    """Build a referee_state value when an org is first attributed from a referral signup."""
+    return {
+        "first_event_sent": False,
+        SIGNED_UP_AT_KEY: signed_up_at_iso,
+        SIGNED_UP_USER_ID_KEY: signed_up_user_id,
+    }
+
 
 # Top-level `referee_state["errors"]` — not an invited org. Nested keys may include `ingestion_sync`
 # (written when the Temporal ingestion activity fails for this row).
@@ -24,7 +41,8 @@ class SocialReferral(UUIDModel):
     referee_state = models.JSONField(
         default=dict,
         blank=True,
-        help_text='Per-invited-org map: `{ "<organization_uuid>": { "first_event_sent": boolean } }`. '
+        help_text='Per-invited-org map: `{ "<organization_uuid>": { "first_event_sent": boolean, '
+        '"signed_up_at": "<ISO-8601>", "signed_up_user_id": <int or null> } }`. '
         "Optional `errors` object may hold sync job messages (e.g. `ingestion_sync` after a failed row check).",
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -83,6 +101,7 @@ def record_signup_social_referral_attribution(
             return
 
         org_uuid_str = str(referee_organization.id)
+        signed_up_at_iso = timezone.now().isoformat()
 
         with transaction.atomic():
             row = (
@@ -96,13 +115,21 @@ def record_signup_social_referral_attribution(
                 SocialReferral.objects.create(
                     organization_id=referrer_org_id,
                     user_id=referrer.pk,
-                    referee_state={org_uuid_str: dict(DEFAULT_REFEREE_STATE_ENTRY)},
+                    referee_state={
+                        org_uuid_str: new_referee_entry_at_signup(
+                            signed_up_at_iso=signed_up_at_iso,
+                            signed_up_user_id=new_user.pk,
+                        ),
+                    },
                 )
                 return
 
             merged: dict[str, object] = dict(row.referee_state) if isinstance(row.referee_state, dict) else {}
             if org_uuid_str not in merged:
-                merged[org_uuid_str] = dict(DEFAULT_REFEREE_STATE_ENTRY)
+                merged[org_uuid_str] = new_referee_entry_at_signup(
+                    signed_up_at_iso=signed_up_at_iso,
+                    signed_up_user_id=new_user.pk,
+                )
                 row.referee_state = merged
                 row.save(update_fields=["referee_state"])
     except Exception as e:

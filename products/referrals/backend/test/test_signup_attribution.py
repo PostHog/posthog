@@ -57,7 +57,11 @@ class TestSignupSocialReferralAttribution(APIBaseTest):
         )
         self.assertIsNotNone(referral)
         referee_state = cast(dict[str, Any], referral.referee_state)
-        self.assertEqual(referee_state[str(bob_organization.id)], {"first_event_sent": False})
+        bob_entry = cast(dict[str, Any], referee_state[str(bob_organization.id)])
+        self.assertEqual(bob_entry["first_event_sent"], False)
+        self.assertIn("signed_up_at", bob_entry)
+        self.assertIsInstance(bob_entry["signed_up_at"], str)
+        self.assertEqual(bob_entry["signed_up_user_id"], bob.pk)
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthoganalytics.capture")
@@ -127,10 +131,10 @@ class TestSignupSocialReferralAttribution(APIBaseTest):
             referral.referee_state[prior_org_key],
             {"first_event_sent": True},
         )
-        self.assertEqual(
-            referral.referee_state[str(bob_organization.id)],
-            {"first_event_sent": False},
-        )
+        bob_entry_merge = cast(dict[str, Any], referral.referee_state[str(bob_organization.id)])
+        self.assertEqual(bob_entry_merge["first_event_sent"], False)
+        self.assertIn("signed_up_at", bob_entry_merge)
+        self.assertEqual(bob_entry_merge["signed_up_user_id"], bob_user.pk)
 
         resp_dana = self.client.post(
             "/api/signup/",
@@ -151,5 +155,11 @@ class TestSignupSocialReferralAttribution(APIBaseTest):
         referral.refresh_from_db()
         referee_state_final = cast(dict[str, Any], referral.referee_state)
         self.assertEqual(referee_state_final[prior_org_key], {"first_event_sent": True})
-        self.assertEqual(referee_state_final[str(bob_organization.id)], {"first_event_sent": False})
-        self.assertEqual(referee_state_final[str(dana_organization.id)], {"first_event_sent": False})
+        bob_final = cast(dict[str, Any], referee_state_final[str(bob_organization.id)])
+        dana_final = cast(dict[str, Any], referee_state_final[str(dana_organization.id)])
+        self.assertEqual(bob_final["first_event_sent"], False)
+        self.assertEqual(dana_final["first_event_sent"], False)
+        self.assertIn("signed_up_at", bob_final)
+        self.assertIn("signed_up_at", dana_final)
+        self.assertEqual(bob_final["signed_up_user_id"], bob_user.pk)
+        self.assertEqual(dana_final["signed_up_user_id"], dana_user.pk)

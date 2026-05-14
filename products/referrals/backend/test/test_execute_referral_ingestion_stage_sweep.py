@@ -34,8 +34,8 @@ class TestExecuteReferralIngestionStageSweep(PostHogTestCase):
 
         referral.refresh_from_db()
         self.assertEqual(
-            referral.referee_state[str(referee_org.id)],
-            {"first_event_sent": False},
+            referral.referee_state[str(referee_org.id)]["first_event_sent"],
+            False,
         )
         self.assertEqual(summary["referees_rows_updated"], 0)
 
@@ -53,8 +53,8 @@ class TestExecuteReferralIngestionStageSweep(PostHogTestCase):
 
         referral.refresh_from_db()
         self.assertEqual(
-            referral.referee_state[str(referee_org.id)],
-            {"first_event_sent": True},
+            referral.referee_state[str(referee_org.id)]["first_event_sent"],
+            True,
         )
         self.assertGreaterEqual(summary["referees_rows_updated"], 1)
 
@@ -78,8 +78,8 @@ class TestExecuteReferralIngestionStageSweep(PostHogTestCase):
         referral.refresh_from_db()
         state = referral.referee_state
         self.assertIsInstance(state, dict)
-        self.assertEqual(state[str(org_a.id)], {"first_event_sent": False})
-        self.assertEqual(state[str(org_b.id)], {"first_event_sent": True})
+        self.assertEqual(state[str(org_a.id)]["first_event_sent"], False)
+        self.assertEqual(state[str(org_b.id)]["first_event_sent"], True)
 
     def test_same_row_both_referee_orgs_flip_when_both_ingested(self) -> None:
         org_a = Organization.objects.create(name="Referee A both")
@@ -101,8 +101,8 @@ class TestExecuteReferralIngestionStageSweep(PostHogTestCase):
         referral.refresh_from_db()
         state = referral.referee_state
         self.assertIsInstance(state, dict)
-        self.assertEqual(state[str(org_a.id)], {"first_event_sent": True})
-        self.assertEqual(state[str(org_b.id)], {"first_event_sent": True})
+        self.assertEqual(state[str(org_a.id)]["first_event_sent"], True)
+        self.assertEqual(state[str(org_b.id)]["first_event_sent"], True)
         self.assertEqual(summary["referees_rows_updated"], 2)
 
     def test_same_referring_org_single_row_multiple_referee_orgs_all_pending_then_one_ingests(
@@ -132,7 +132,7 @@ class TestExecuteReferralIngestionStageSweep(PostHogTestCase):
         state0 = referral.referee_state
         self.assertIsInstance(state0, dict)
         for o in (org_a, org_b, org_c):
-            self.assertEqual(state0[str(o.id)], {"first_event_sent": False})
+            self.assertEqual(state0[str(o.id)]["first_event_sent"], False)
 
         tb.ingested_event = True
         tb.save(update_fields=["ingested_event"])
@@ -142,9 +142,9 @@ class TestExecuteReferralIngestionStageSweep(PostHogTestCase):
         referral.refresh_from_db()
         state1 = referral.referee_state
         self.assertIsInstance(state1, dict)
-        self.assertEqual(state1[str(org_a.id)], {"first_event_sent": False})
-        self.assertEqual(state1[str(org_b.id)], {"first_event_sent": True})
-        self.assertEqual(state1[str(org_c.id)], {"first_event_sent": False})
+        self.assertEqual(state1[str(org_a.id)]["first_event_sent"], False)
+        self.assertEqual(state1[str(org_b.id)]["first_event_sent"], True)
+        self.assertEqual(state1[str(org_c.id)]["first_event_sent"], False)
 
     def test_same_referring_org_multiple_social_referral_rows_independent_referee_orgs(
         self,
@@ -169,22 +169,22 @@ class TestExecuteReferralIngestionStageSweep(PostHogTestCase):
         execute_referral_ingestion_stage_sweep()
         row_alpha.refresh_from_db()
         row_beta.refresh_from_db()
-        self.assertEqual(row_alpha.referee_state[str(org_a.id)], {"first_event_sent": False})
-        self.assertEqual(row_beta.referee_state[str(org_b.id)], {"first_event_sent": False})
+        self.assertEqual(row_alpha.referee_state[str(org_a.id)]["first_event_sent"], False)
+        self.assertEqual(row_beta.referee_state[str(org_b.id)]["first_event_sent"], False)
 
         Team.objects.filter(organization=org_a).update(ingested_event=True)
 
         execute_referral_ingestion_stage_sweep()
         row_alpha.refresh_from_db()
         row_beta.refresh_from_db()
-        self.assertEqual(row_alpha.referee_state[str(org_a.id)], {"first_event_sent": True})
-        self.assertEqual(row_beta.referee_state[str(org_b.id)], {"first_event_sent": False})
+        self.assertEqual(row_alpha.referee_state[str(org_a.id)]["first_event_sent"], True)
+        self.assertEqual(row_beta.referee_state[str(org_b.id)]["first_event_sent"], False)
 
         Team.objects.filter(organization=org_b).update(ingested_event=True)
 
         execute_referral_ingestion_stage_sweep()
         row_beta.refresh_from_db()
-        self.assertEqual(row_beta.referee_state[str(org_b.id)], {"first_event_sent": True})
+        self.assertEqual(row_beta.referee_state[str(org_b.id)]["first_event_sent"], True)
 
     def test_failure_blob_recorded_and_cleared_on_successful_check(self) -> None:
         referee_org = Organization.objects.create(name="Referee meta clear")
