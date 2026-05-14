@@ -56,6 +56,7 @@ from posthog.temporal.llm_analytics.trace_summarization.schedule import (
     create_batch_trace_summarization_schedule,
 )
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
+from posthog.temporal.mcp_analytics.backfill_sessions.types import BackfillMCPSessionsInput
 from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
@@ -485,6 +486,39 @@ async def create_replay_count_metrics_schedule(client: Client):
         )
 
 
+async def create_mcp_sessions_backfill_schedule(client: Client):
+    """Create or update the schedule that backfills the MCPSession Postgres table.
+
+    Runs every 5 minutes; each run aggregates mcp_tool_call events seen in the last
+    24 hours and upserts one row per (team, session_id) into Postgres so the
+    sessions list endpoint can read from Postgres instead of ClickHouse.
+    """
+    mcp_sessions_backfill_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "backfill-mcp-sessions",
+            BackfillMCPSessionsInput(),
+            id="backfill-mcp-sessions-schedule",
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+            ),
+        ),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(minutes=5))],
+        ),
+    )
+
+    if await a_schedule_exists(client, "backfill-mcp-sessions-schedule"):
+        await a_update_schedule(client, "backfill-mcp-sessions-schedule", mcp_sessions_backfill_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "backfill-mcp-sessions-schedule",
+            mcp_sessions_backfill_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def cleanup_legacy_session_summarization_schedules(client: Client):
     """Delete legacy schedules. Any in-flight runs die on their own execution_timeout."""
     legacy_schedule_ids = [
@@ -581,6 +615,7 @@ schedules = [
     create_count_all_playlists_schedule,
     create_enforce_max_replay_retention_schedule,
     create_replay_count_metrics_schedule,
+    create_mcp_sessions_backfill_schedule,
     create_weekly_digest_schedule,
     create_batch_trace_summarization_schedule,
     create_batch_generation_summarization_schedule,
