@@ -119,6 +119,19 @@ function inferTenantColumnType(
     return types.size === 1 ? Array.from(types)[0] : null
 }
 
+function isTenantQueryEnabledTable(schema: ExternalDataSourceSchema, enabledTableNames: Set<string>): boolean {
+    const qualifiedName = schema.table?.name ?? schema.name
+    const { tableName } = splitDirectQuerySchemaName(qualifiedName)
+
+    return schema.should_sync || enabledTableNames.has(qualifiedName) || enabledTableNames.has(tableName)
+}
+
+function hasTenantQueryEnabledTables(schemas: ExternalDataSourceSchema[], enabledTables: string[]): boolean {
+    const enabledTableNames = new Set(enabledTables)
+
+    return schemas.some((schema) => isTenantQueryEnabledTable(schema, enabledTableNames))
+}
+
 function tenantQueryTableRows(
     schemas: ExternalDataSourceSchema[],
     selectedTenantColumn: string,
@@ -157,8 +170,7 @@ function tenantQueryTableRows(
               ? configuredTenantColumnName
               : null
         const enabledForTenantQuery =
-            tenantColumnOverride !== TENANT_QUERY_TABLE_DISABLED &&
-            (schema.should_sync || enabledTableNames.has(qualifiedName) || enabledTableNames.has(tableName))
+            tenantColumnOverride !== TENANT_QUERY_TABLE_DISABLED && isTenantQueryEnabledTable(schema, enabledTableNames)
         const notQueryableReason = !enabledForTenantQuery
             ? 'Table disabled'
             : !hasNoTenantField && !hasForeignKeyTenantPath && configuredTenantColumnName && hasTenantColumn === false
@@ -437,13 +449,14 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
         savedTenantColumn === selectedTenantColumn
             ? (savedTenantColumnType ?? inferredTenantColumnType)
             : (inferredTenantColumnType ?? savedTenantColumnType)
+    const enabledTables = tenantQueryConfig?.enabled_tables ?? []
     const tableRows = tenantQueryTableRows(
         source.schemas,
         selectedTenantColumn,
         tenantQueryConfigForm.tenant_column_names_by_table,
         tenantQueryConfig?.foreign_key_tenant_paths_by_table ?? {},
         selectedTenantColumnType,
-        tenantQueryConfig?.enabled_tables ?? []
+        enabledTables
     )
     const queryableTableRows = tableRows.filter((row) => row.isQueryable)
     const nonQueryableTableRows = tableRows.filter((row) => !row.isQueryable)
@@ -453,7 +466,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
             tenantQueryTableMatchesSearch(row, tenantQueryTableSearch)
     )
     const configuredTenantColumnTypeLabel = tenantColumnTypeLabel(tenantQueryConfig?.tenant_column_type)
-    const hasQueryableTables = queryableTableRows.length > 0
+    const hasEnabledTables = hasTenantQueryEnabledTables(source.schemas, enabledTables)
     const tenantColumnEditDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.ExternalDataSource,
         AccessControlLevel.Admin,
@@ -462,7 +475,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
 
     return (
         <div className="space-y-6 w-full">
-            {!hasQueryableTables && (
+            {!hasEnabledTables && (
                 <LemonBanner type="warning">
                     Enable at least one table in the Schemas tab before turning this on.
                 </LemonBanner>
@@ -500,9 +513,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                             checked={!!value}
                             onChange={onChange}
                             label="Enable multi-tenancy"
-                            disabledReason={
-                                !hasQueryableTables && !value ? 'Enable at least one table first' : undefined
-                            }
+                            disabledReason={!hasEnabledTables && !value ? 'Enable at least one table first' : undefined}
                         />
                     )}
                 </LemonField>
@@ -522,7 +533,7 @@ export function TenantQueryTab({ id, source }: TenantQueryTabProps): JSX.Element
                                 }
                             }}
                             placeholder="customer_id"
-                            disabledReason={!hasQueryableTables ? 'Enable at least one table first' : undefined}
+                            disabledReason={!hasEnabledTables ? 'Enable at least one table first' : undefined}
                         />
                     )}
                 </LemonField>
