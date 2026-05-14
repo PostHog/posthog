@@ -1,6 +1,8 @@
 import json
 from typing import Any
 
+from django.utils import timezone
+
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import viewsets
@@ -10,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.auth import InternalAPIAuthentication
 from posthog.models.integration import Integration, dot_get
+from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
@@ -40,7 +43,12 @@ def _cache_key(scope_id: str, kind: str, integration_id: str) -> str:
     return f"{_TOKEN_CACHE_PREFIX}:{scope_id}:{kind}:{integration_id}"
 
 
-def _get_cached_response(cache_key: str) -> dict | None:
+def _load_cached_tokens(cache_key: str) -> tuple[str, str, int] | None:
+    """Refetch the OAuth (access, refresh) pair pointed at by the cached IDs.
+
+    Returns None on cache miss, on missing rows, or when the cached pair is no
+    longer usable (access token expired, refresh token revoked) — in any of
+    those cases the caller should mint a fresh pair."""
     try:
         raw = get_client().get(cache_key)
     except Exception:
@@ -49,13 +57,30 @@ def _get_cached_response(cache_key: str) -> dict | None:
     if raw is None:
         return None
     try:
-        return json.loads(raw)
+        payload = json.loads(raw)
     except (TypeError, ValueError):
         logger.warning("internal_integration_lookup.cache_payload_invalid", cache_key=cache_key)
         return None
 
+    access_id = payload.get("access_token_id")
+    refresh_id = payload.get("refresh_token_id")
+    if not access_id or not refresh_id:
+        return None
+    try:
+        access = OAuthAccessToken.objects.get(pk=access_id)
+        refresh = OAuthRefreshToken.objects.get(pk=refresh_id)
+    except (OAuthAccessToken.DoesNotExist, OAuthRefreshToken.DoesNotExist):
+        return None
+    if access.is_expired() or refresh.revoked is not None:
+        return None
+    remaining = int((access.expires - timezone.now()).total_seconds())
+    if remaining <= 0:
+        return None
+    return access.token, refresh.token, remaining
 
-def _store_cached_response(cache_key: str, payload: dict) -> None:
+
+def _store_cached_token_ids(cache_key: str, access: OAuthAccessToken, refresh: OAuthRefreshToken) -> None:
+    payload = {"access_token_id": str(access.pk), "refresh_token_id": str(refresh.pk)}
     try:
         get_client().set(cache_key, json.dumps(payload), ex=_TOKEN_CACHE_TTL_SECONDS)
     except Exception:
@@ -85,9 +110,12 @@ def _pick_org_admin(organization_id: str) -> User | None:
     return membership.user if membership else None
 
 
-def _mint_task_tokens(user: User, team_id: int) -> tuple[str, str, int] | None:
+def _mint_task_tokens(user: User, team_id: int, cache_key: str) -> tuple[str, str, int] | None:
+    cached = _load_cached_tokens(cache_key)
+    if cached is not None:
+        return cached
     try:
-        return create_oauth_access_and_refresh_tokens_for_user(
+        access, refresh, expires_in = create_oauth_access_and_refresh_tokens_for_user(
             user,
             team_id,
             app=get_posthog_code_oauth_application(),
@@ -97,6 +125,8 @@ def _mint_task_tokens(user: User, team_id: int) -> tuple[str, str, int] | None:
     except Exception:
         logger.exception("internal_integration_lookup.mint_task_token_failed", user_id=user.id, team_id=team_id)
         return None
+    _store_cached_token_ids(cache_key, access, refresh)
+    return access.token, refresh.token, expires_in
 
 
 def _token_fields(tokens: tuple[str, str, int] | None) -> dict[str, Any]:
@@ -116,11 +146,11 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
     personal `UserIntegration` rows, preferring team matches.
 
     The caller passes a `scope_id` (their own session/conversation
-    identifier); the minted OAuth access + refresh token pair is cached in
-    Redis under that scope for up to 3 hours, so repeated lookups within the
-    same scope return the same credential rather than issuing fresh ones on
-    every request. The refresh token lets the caller renew via the regular
-    /oauth/token grant flow without re-running this endpoint.
+    identifier); the IDs of the minted OAuth access + refresh token pair are
+    cached in Redis under that scope for up to 3 hours, so repeated lookups
+    within the same scope refetch the same DB rows rather than issuing fresh
+    tokens on every request. The refresh token lets the caller renew via the
+    regular /oauth/token grant flow without re-running this endpoint.
     """
 
     authentication_classes = [InternalAPIAuthentication]
@@ -167,9 +197,6 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
             return Response({"error": "scope_id is required"}, status=400)
 
         cache_key = _cache_key(scope_id, kind, integration_id)
-        cached = _get_cached_response(cache_key)
-        if cached is not None:
-            return Response(cached)
 
         team_match = (
             Integration.objects.filter(kind=kind, integration_id=integration_id)
@@ -182,7 +209,7 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
             token_user = team_match.created_by if team_match.created_by and team_match.created_by.is_active else None
             if token_user is None:
                 token_user = _pick_org_admin(organization_id)
-            tokens = _mint_task_tokens(token_user, team_match.team_id) if token_user else None
+            tokens = _mint_task_tokens(token_user, team_match.team_id, cache_key) if token_user else None
             payload = {
                 "source": "team",
                 "team_id": team_match.team_id,
@@ -191,8 +218,6 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
                 "display_name": team_match.display_name,
                 **_token_fields(tokens),
             }
-            if tokens is not None:
-                _store_cached_response(cache_key, payload)
             return Response(payload)
 
         user_match = (
@@ -205,7 +230,7 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
             user = user_match.user
             if user.current_team_id is None or user.current_organization_id is None:
                 return Response({"error": "User has no current team"}, status=404)
-            tokens = _mint_task_tokens(user, user.current_team_id)
+            tokens = _mint_task_tokens(user, user.current_team_id, cache_key)
             payload = {
                 "source": "user",
                 "team_id": user.current_team_id,
@@ -215,8 +240,6 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
                 "user_id": user.id,
                 **_token_fields(tokens),
             }
-            if tokens is not None:
-                _store_cached_response(cache_key, payload)
             return Response(payload)
 
         return Response({"error": "Integration not found"}, status=404)

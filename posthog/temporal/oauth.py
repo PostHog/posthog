@@ -111,12 +111,13 @@ def create_oauth_access_and_refresh_tokens_for_user(
     app: OAuthApplication,
     scopes: PosthogMcpScopes = "read_only",
     include_internal_scopes: bool = True,
-) -> tuple[str, str, int]:
+) -> tuple[OAuthAccessToken, OAuthRefreshToken, int]:
     """Mint a linked OAuth (access, refresh) pair scoped to a specific team.
 
     The refresh token lets the caller renew the access token via the standard
-    /oauth/token grant flow without re-running the lookup. Returns
-    (access_token, refresh_token, expires_in_seconds).
+    /oauth/token grant flow without re-running the lookup. Returns the
+    persisted (access_token, refresh_token) instances and the access token's
+    lifetime in seconds.
     """
     resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
     access_value = generate_random_oauth_access_token(None)
@@ -131,7 +132,7 @@ def create_oauth_access_and_refresh_tokens_for_user(
         scope=" ".join(resolved),
         scoped_teams=[team_id],
     )
-    OAuthRefreshToken.objects.create(
+    refresh_token = OAuthRefreshToken.objects.create(
         user=user,
         application=app,
         token=refresh_value,
@@ -139,4 +140,4 @@ def create_oauth_access_and_refresh_tokens_for_user(
         scoped_teams=[team_id],
     )
 
-    return access_value, refresh_value, TOKEN_EXPIRATION_SECONDS
+    return access_token, refresh_token, TOKEN_EXPIRATION_SECONDS
