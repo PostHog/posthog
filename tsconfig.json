@@ -18,6 +18,9 @@
             "@posthog/replay-shared/*": ["./common/replay-shared/src/*"],
             // Needed to access the subpath since torph didn't set up types properly
             "torph/react": ["./frontend/node_modules/torph/dist/react/index"],
+            // use-debounce@9.0.3 only exposes types under `node`/`browser` conditions,
+            // which TS bundler resolution doesn't activate. Point at the .d.ts directly.
+            "use-debounce": ["./frontend/node_modules/use-debounce/dist/index"],
             "*": ["./frontend/*"]
         },
         // https://www.sitepoint.com/react-with-typescript-best-practices/

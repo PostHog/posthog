@@ -1,4 +1,3 @@
-import { type DeepPartial } from 'chart.js/dist/types/utils'
 import { useValues } from 'kea'
 
 import { Chart, ChartType, LegendOptions, defaults } from 'lib/Chart'
@@ -17,6 +16,8 @@ import { InsightEmptyState } from '../../insights/EmptyStates'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
+
+type DeepPartial<T> = T extends Function ? T : T extends object ? { [P in keyof T]?: DeepPartial<T[P]> } : T
 
 export function ActionsLineGraph({
     inSharedMode = false,
