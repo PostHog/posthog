@@ -830,6 +830,32 @@ def send_social_referral_shopify_reward_email(
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_internal_referral_invite_email(
+    recipient_email: str,
+    enqueue_email_delivery: bool = True,
+) -> None:
+    """Transactional invite email for the internal-referral research flow.
+
+    ``enqueue_email_delivery`` defaults True so standalone ``.delay()`` matches the historical
+    behavior (SMTP runs via the ``_send_email`` Celery task). Referrals Temporal calls pass
+    ``False`` so Mail sends inside the worker without requiring a separate email-queue consumer.
+    """
+    message = EmailMessage(
+        use_http=False,
+        campaign_key=f"internal-referral-invite-{recipient_email}-{uuid.uuid4()}",
+        subject="you've been flagged. positively.",
+        template_name="internal_referral_invite",
+        template_context={
+            "preheader": "we built something for people like you.",
+            "site_url": settings.SITE_URL or "",
+        },
+    )
+    message.add_recipient(email=recipient_email)
+    message.send(send_async=enqueue_email_delivery)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_canary_email(user_email: str) -> None:
     message = EmailMessage(
         campaign_key=f"canary_email_{uuid.uuid4()}",

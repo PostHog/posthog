@@ -192,14 +192,13 @@ async def run_twitter_referral_research_activity(
         test_text = (
             "you didn't ask for this DM. we didn't ask to be loved on twitter. here we are. posthog.com/pyramide"
         )
-        # TODO: Disabled temporary to avoid spamming
+        # TODO: Disabled temporary to avoid spamming. Uncomment to re-enable.
         # summary = await send_referral_dms([(test_handle, test_text)])
-        logger.info(
-            "twitter referral dm summary (single-recipient override): sent=%d failed_lookup=%d failed_send=%d",
-            summary.sent,
-            summary.failed_lookup,
-            summary.failed_send,
-        )
+        # logger.info(
+        #     "twitter referral dm summary (single-recipient override): sent=%d failed_lookup=%d failed_send=%d",
+        #     summary.sent, summary.failed_lookup, summary.failed_send,
+        # )
+        logger.info("twitter referral dm SKIPPED (would have sent to=@%s text=%r)", test_handle, test_text)
     return len(result.candidates)
 
 
@@ -227,7 +226,25 @@ async def run_internal_referral_research_activity(
             "internal_referral_research_activity: agent returned %d candidate(s)",
             len(result.candidates),
         )
-        _send_referral_emails_placeholder(result)
+        for candidate in result.candidates:
+            logger.info(
+                "internal referral email (queued): distinct_id=%s email=%s org=%s reason=%s",
+                candidate.distinct_id,
+                candidate.email,
+                candidate.org_name,
+                candidate.reason,
+            )
+        # TEMP(referrals): hackathon override — email only test@posthog.com once per run
+        # instead of iterating over every candidate the agent found. Original behavior is
+        # `_send_referral_emails_placeholder(result)`; promote to a per-candidate loop with
+        # idempotency before sending for real.
+        test_recipient = "test@posthog.com"
+        # TODO: Disabled temporary to avoid spamming. Uncomment to re-enable.
+        # send_internal_referral_invite_email.apply(
+        #     kwargs={"recipient_email": test_recipient, "enqueue_email_delivery": False},
+        #     throw=True,
+        # )
+        logger.info("internal referral email sent (single-recipient override): to=%s", test_recipient)
     return len(result.candidates)
 
 
