@@ -248,6 +248,7 @@ class TestCSPSignalThrottle(BaseTest):
 
         enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
         count = get_client().get(_daily_count_key(self.team.id))
+        assert count is not None
         assert int(count) == 1
 
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
@@ -289,6 +290,7 @@ class TestCSPSignalThrottle(BaseTest):
         assert len(kwargs["signals"]) == 2
         # Counter advanced from 8 to 10, not 13.
         count = get_client().get(_daily_count_key(self.team.id))
+        assert count is not None
         assert int(count) == 10
 
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
@@ -356,6 +358,29 @@ class TestCSPSignalTask(BaseTest):
                 signals=[{"source_id": "csp:a", "description": "d", "extra": {}}],
             )
         mock_emit_signal.assert_not_called()
+
+    @patch("products.signals.backend.api.emit_signal")
+    def test_task_raises_on_soft_time_limit(self, mock_emit_signal: MagicMock) -> None:
+        import pytest
+
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        async def time_limit_boom(*args: Any, **kwargs: Any) -> None:
+            raise SoftTimeLimitExceeded()
+
+        mock_emit_signal.side_effect = time_limit_boom
+
+        with pytest.raises(SoftTimeLimitExceeded):
+            emit_csp_violation_signals_task(
+                team_id=self.team.id,
+                signals=[
+                    {"source_id": "csp:a", "description": "d a", "extra": {}},
+                    {"source_id": "csp:b", "description": "d b", "extra": {}},
+                ],
+            )
+
+        # Loop must stop on the first signal; not retry / not continue silently.
+        assert mock_emit_signal.call_count == 1
 
     @patch("products.signals.backend.api.emit_signal")
     def test_task_continues_after_emit_failure_for_one_signal(self, mock_emit_signal: MagicMock) -> None:

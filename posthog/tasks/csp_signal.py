@@ -10,6 +10,7 @@ from django.core.cache import cache
 import structlog
 from asgiref.sync import async_to_sync
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import Counter
 
 from posthog.models.scoping import with_team_scope
@@ -299,6 +300,18 @@ def emit_csp_violation_signals_task(team_id: int, signals: list[dict]) -> None:
                 weight=CSP_SIGNAL_WEIGHT,
                 extra=signal.get("extra") or {},
             )
+        except SoftTimeLimitExceeded:
+            # Soft-time-limit is the graceful-stop signal from Celery. Let it propagate
+            # so the worker actually stops iterating instead of silently swallowing it
+            # via the broad-except below (SoftTimeLimitExceeded inherits from Exception).
+            CSP_SIGNAL_DROPPED_COUNTER.labels(reason="soft_time_limit").inc()
+            logger.warning(
+                "csp_signal_task_soft_time_limit",
+                team_id=team_id,
+                emitted_so_far=signals.index(signal),
+                remaining=len(signals) - signals.index(signal),
+            )
+            raise
         except Exception:
             CSP_SIGNAL_DROPPED_COUNTER.labels(reason="emit_signal_failed").inc()
             logger.exception("csp_signal_emit_failed", team_id=team_id, source_id=source_id)
