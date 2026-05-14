@@ -1,12 +1,15 @@
 import hmac
 import json
 import hashlib
+import datetime
 from typing import Any
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 from rest_framework import status
 
@@ -219,15 +222,12 @@ class TestInterviewStartCall(APIBaseTest):
         response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @freeze_time("2026-05-14 12:00:00")
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
     def test_rejects_expired_rotated_token(self):
         # Simulate the post-grace-period state of a rotated SharingConfiguration:
         # `expires_at` in the past, still `enabled=True`. The public viewer 404s on these,
         # and start_call must do the same — otherwise the rotated token is still valid here.
-        import datetime
-
-        from django.utils import timezone
-
         share = self._create_share()
         share.expires_at = timezone.now() - datetime.timedelta(minutes=1)
         share.save()

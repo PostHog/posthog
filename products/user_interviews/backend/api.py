@@ -378,9 +378,10 @@ def _materialize_links_for_topic(*, topic: UserInterviewTopic, team: Any, create
     results: list[dict[str, Any]] = []
     for identifier in identifiers:
         ic, _ = IntervieweeContext.objects.get_or_create(
+            team=team,
             topic=topic,
             interviewee_identifier=identifier,
-            defaults={"team": team, "agent_context": "", "created_by": created_by},
+            defaults={"agent_context": "", "created_by": created_by},
         )
 
         sharing_config = (
