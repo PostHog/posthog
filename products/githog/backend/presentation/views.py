@@ -40,7 +40,14 @@ from products.githog.backend.models import GitHogPullRequestLayout, GitHogPullRe
 
 from ..facade.api import compute_pr_impact
 from ..facade.contracts import PRImpactRequest
-from ..logic.cache import get_cached_impact, impact_cache_key, set_cached_impact
+from ..logic.cache import (
+    get_cached_impact,
+    get_cached_pr_response,
+    impact_cache_key,
+    pr_response_cache_key,
+    set_cached_impact,
+    set_cached_pr_response,
+)
 from .serializers import (
     GitHogDataFlowQuerySerializer,
     GitHogDataFlowResponseSerializer,
@@ -176,6 +183,13 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query.is_valid(raise_exception=True)
         repository: str = query.validated_data["repository"]
         pr_number: int = query.validated_data["number"]
+        refresh: bool = request.query_params.get("refresh", "").lower() in ("1", "true")
+
+        cache_key = pr_response_cache_key("basic", self.team_id, repository, pr_number)
+        if not refresh:
+            cached = get_cached_pr_response(cache_key)
+            if cached is not None:
+                return Response(cached)
 
         match = self._find_integration_for_repository(repository)
         if match is None:
@@ -186,6 +200,7 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not result.get("success"):
             raise ValidationError(result.get("error") or "Failed to fetch pull request")
         result.pop("success", None)
+        set_cached_pr_response(cache_key, result)
         return Response(result)
 
     @extend_schema(
@@ -197,11 +212,20 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         """Return PR metadata + changed files + unified diff.
 
         Used by the agent chat widget to pipe the diff into the LLM context.
+        Cached for an hour per (team, repo, PR) so revisiting an open PR is
+        instant rather than re-fetching from GitHub each time.
         """
         query = GitHogPullRequestDetailQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         repository: str = query.validated_data["repository"]
         number: int = query.validated_data["number"]
+        refresh: bool = request.query_params.get("refresh", "").lower() in ("1", "true")
+
+        cache_key = pr_response_cache_key("diff", self.team_id, repository, number)
+        if not refresh:
+            cached = get_cached_pr_response(cache_key)
+            if cached is not None:
+                return Response(cached)
 
         match = self._find_integration_for_repository(repository)
         if match is None:
@@ -213,14 +237,14 @@ class GitHogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not result.get("success"):
             raise ValidationError(result.get("error") or "Failed to fetch pull request")
 
-        return Response(
-            {
-                "repository": repository,
-                "pull_request": result["pull_request"],
-                "files": result.get("files", []),
-                "diff": result.get("diff"),
-            }
-        )
+        payload = {
+            "repository": repository,
+            "pull_request": result["pull_request"],
+            "files": result.get("files", []),
+            "diff": result.get("diff"),
+        }
+        set_cached_pr_response(cache_key, payload)
+        return Response(payload)
 
     @extend_schema(
         parameters=[GitHogDataFlowQuerySerializer],
