@@ -20,6 +20,7 @@ SELECT
     JSONExtractString(properties, '$session_id') AS session_id,
     toString(min(timestamp)) AS session_start,
     toString(max(timestamp)) AS session_end,
+    count() AS tool_call_count,
     groupUniqArrayIf(JSONExtractString(properties, '$mcp_tool_name'), JSONExtractString(properties, '$mcp_tool_name') != '') AS tools_used,
     argMax(distinct_id, timestamp) AS distinct_id,
     argMax(JSONExtractString(properties, '$mcp_client_name'), timestamp) AS mcp_client_name
@@ -52,6 +53,7 @@ def _upsert_session(row: dict[str, Any]) -> None:
             "session_start": session_start,
             "session_end": session_end,
             "duration_seconds": max(0, int((session_end - session_start).total_seconds())),
+            "tool_call_count": int(row.get("tool_call_count") or 0),
             "tools_used": [tool for tool in (row.get("tools_used") or []) if tool],
             "distinct_id": row.get("distinct_id") or "",
             "mcp_client_name": row.get("mcp_client_name") or "",

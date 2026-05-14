@@ -143,11 +143,13 @@ class MCPSessionSerializer(serializers.Serializer):
     session_id = serializers.CharField(
         read_only=True, help_text="PostHog $session_id grouping all mcp_tool_call events."
     )
-    event_count = serializers.IntegerField(read_only=True, help_text="Number of mcp_tool_call events in the session.")
-    first_seen = serializers.DateTimeField(
+    tool_calls = serializers.IntegerField(
+        read_only=True, help_text="Total number of mcp_tool_call events in the session."
+    )
+    session_start = serializers.DateTimeField(
         read_only=True, help_text="Timestamp of the first mcp_tool_call event in the session."
     )
-    last_seen = serializers.DateTimeField(
+    session_end = serializers.DateTimeField(
         read_only=True, help_text="Timestamp of the most recent mcp_tool_call event in the session."
     )
     distinct_id_count = serializers.IntegerField(
