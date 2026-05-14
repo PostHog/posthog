@@ -6,9 +6,9 @@
             groupArray(last_seen) AS last_seen_timestamps,
             groupArray(library) AS libraries
      FROM
-       (SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID')) AS issue_id,
+       (SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull((events.properties).`$exception_issue_id`, 'UUID')) AS issue_id,
                max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
-               argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS library
+               argMax(nullIf((events.properties).`$lib`, ''), toTimeZone(events.timestamp, 'UTC')) AS library
         FROM events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
@@ -16,9 +16,10 @@
            FROM error_tracking_issue_fingerprint_overrides
            WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
            GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
-           HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint)
-        WHERE and(equals(events.team_id, 99999), greater(events.timestamp, minus(now64(6, 'UTC'), toIntervalHour(6))), notEmpty(events.`$session_id`), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID'))), equals(events.event, '$exception'))
-        GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID'))))
+           HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                                                           enable_analyzer=1) AS events__exception_issue_override ON equals((events.properties).`$exception_fingerprint`, events__exception_issue_override.fingerprint)
+        WHERE and(equals(events.team_id, 99999), greater(events.timestamp, minus(now64(6, 'UTC'), toIntervalHour(6))), notEmpty(nullIf((events.properties).`$session_id`, '')), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull((events.properties).`$exception_issue_id`, 'UUID'))), equals(events.event, '$exception'))
+        GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull((events.properties).`$exception_issue_id`, 'UUID'))))
   SELECT event AS event,
   
     (SELECT issues.ids AS ids
@@ -41,12 +42,12 @@
             arrayMap(x -> if(and(isNotNull(x), isNull(earliest_success_event)), 1, 0), earliest_exceptions) AS exception_only,
             arrayMap(x -> if(and(isNull(x), isNull(earliest_success_event)), 1, 0), earliest_exceptions) AS neither
      FROM
-       (SELECT events.`$session_id` AS `$session_id`,
+       (SELECT nullIf((events.properties).`$session_id`, '') AS `$session_id`,
                ['$pageview'] AS events,
                minForEach(arrayMap(x -> if(ifNull(equals(events.event, x), isNull(events.event)
                                                   and isNull(x)), toNullable(toTimeZone(events.timestamp, 'UTC')), NULL), ['$pageview'])) AS earliest_success_events,
-               minForEach(arrayMap(x -> if(ifNull(equals(x, if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID'))), isNull(x)
-                                                  and isNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID')))), toNullable(toTimeZone(events.timestamp, 'UTC')), NULL),
+               minForEach(arrayMap(x -> if(ifNull(equals(x, if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull((events.properties).`$exception_issue_id`, 'UUID'))), isNull(x)
+                                                  and isNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull((events.properties).`$exception_issue_id`, 'UUID')))), toNullable(toTimeZone(events.timestamp, 'UTC')), NULL),
                                      (SELECT issues.ids AS ids
                                       FROM issues))) AS earliest_exceptions
         FROM events
@@ -56,9 +57,10 @@
            FROM error_tracking_issue_fingerprint_overrides
            WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
            GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
-           HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint)
-        WHERE and(equals(events.team_id, 99999), greater(events.timestamp, minus(now64(6, 'UTC'), toIntervalHour(6))), notEmpty(events.`$session_id`))
-        GROUP BY events.`$session_id`) ARRAY
+           HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                                                           enable_analyzer=1) AS events__exception_issue_override ON equals((events.properties).`$exception_fingerprint`, events__exception_issue_override.fingerprint)
+        WHERE and(equals(events.team_id, 99999), greater(events.timestamp, minus(now64(6, 'UTC'), toIntervalHour(6))), notEmpty(nullIf((events.properties).`$session_id`, '')))
+        GROUP BY nullIf((events.properties).`$session_id`, '')) ARRAY
      JOIN events AS event,
                     earliest_success_events AS earliest_success_event)
   GROUP BY event
@@ -69,6 +71,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
+                    enable_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
