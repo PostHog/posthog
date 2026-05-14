@@ -99,7 +99,7 @@ export function AgenticTestsScene(): JSX.Element {
                             onClick={openFormModal}
                             data-attr="agentic-tests-detect-flows"
                         >
-                            Auto-detect flows
+                            Auto-detect key flows
                         </LemonButton>
                         <LemonButton type="primary" size="small" to="/agentic_tests/new" data-attr="agentic-tests-new">
                             New test
@@ -133,7 +133,7 @@ export function AgenticTestsScene(): JSX.Element {
                 dataSource={filteredTests}
                 loading={testsLoading}
                 rowKey="id"
-                emptyState="No tests yet — auto-detect flows or create your own."
+                emptyState="No tests yet — auto-detect key flows or create your own."
                 columns={[
                     {
                         title: 'Name',
