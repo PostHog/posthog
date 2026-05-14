@@ -37,7 +37,7 @@ import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
-import { createExecTool, type ExecInnerCallTracker, parseExecCallInnerToolName } from '@/tools/exec'
+import { createExecInnerToolCallResolver, createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
 
@@ -793,21 +793,7 @@ export class MCP extends McpAgent<Env> {
             // every call. Resolve the inner tool the agent was actually invoking
             // from the command and surface its name + description as
             // `$mcp_exec_tool_call_name` / `$mcp_exec_tool_call_description`.
-            const resolveExecInnerToolCall = useSingleExec
-                ? (request: unknown): { name: string; description: string } | undefined => {
-                      const params = (request as { params?: { name?: unknown; arguments?: { command?: unknown } } })
-                          ?.params
-                      if (params?.name !== 'exec' || typeof params.arguments?.command !== 'string') {
-                          return
-                      }
-                      const innerName = parseExecCallInnerToolName(params.arguments.command)
-                      if (!innerName) {
-                          return
-                      }
-                      const tool = allTools.find((t) => t.name === innerName)
-                      return tool ? { name: tool.name, description: tool.description } : undefined
-                  }
-                : undefined
+            const resolveExecInnerToolCall = useSingleExec ? createExecInnerToolCallResolver(allTools) : undefined
 
             // In single-exec mode the SDK's $mcp_listed_tool_names collapses to
             // just `exec`, so we can't compute "advertised but never called"

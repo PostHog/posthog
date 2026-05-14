@@ -341,40 +341,24 @@ describe('exec tool', () => {
     })
 
     describe('parseExecCallInnerToolName', () => {
-        it('extracts the inner tool name from a basic call command', () => {
-            expect(parseExecCallInnerToolName('call my-tool {}')).toBe('my-tool')
-        })
-
-        it('extracts the inner tool name from a call command with no JSON body', () => {
-            expect(parseExecCallInnerToolName('call my-tool')).toBe('my-tool')
-        })
-
-        it('extracts the inner tool name when --json flag is present', () => {
-            expect(parseExecCallInnerToolName('call --json my-tool {}')).toBe('my-tool')
-        })
-
-        it('handles extra whitespace around the call command', () => {
-            expect(parseExecCallInnerToolName('  call   my-tool   {}  ')).toBe('my-tool')
-        })
-
-        it('returns undefined for non-call verbs that still target a tool', () => {
-            // info/schema/etc. don't actually invoke the inner tool — the resolver
-            // is intentionally scoped to `call` so it only fires for real invocations.
-            expect(parseExecCallInnerToolName('info my-tool')).toBeUndefined()
-            expect(parseExecCallInnerToolName('schema my-tool')).toBeUndefined()
-            expect(parseExecCallInnerToolName('search query-')).toBeUndefined()
-            expect(parseExecCallInnerToolName('tools')).toBeUndefined()
-        })
-
-        it('returns undefined for a bare call verb with no tool name', () => {
-            expect(parseExecCallInnerToolName('call')).toBeUndefined()
-            expect(parseExecCallInnerToolName('call ')).toBeUndefined()
-            expect(parseExecCallInnerToolName('call --json')).toBeUndefined()
-        })
-
-        it('returns undefined for empty or garbage input', () => {
-            expect(parseExecCallInnerToolName('')).toBeUndefined()
-            expect(parseExecCallInnerToolName('   ')).toBeUndefined()
+        // Non-call verbs (info/schema/search/tools) are intentionally undefined —
+        // the resolver only fires for real invocations, not for browsing/inspection.
+        it.each<[string, string | undefined]>([
+            ['call my-tool {}', 'my-tool'],
+            ['call my-tool', 'my-tool'],
+            ['call --json my-tool {}', 'my-tool'],
+            ['  call   my-tool   {}  ', 'my-tool'],
+            ['info my-tool', undefined],
+            ['schema my-tool', undefined],
+            ['search query-', undefined],
+            ['tools', undefined],
+            ['call', undefined],
+            ['call ', undefined],
+            ['call --json', undefined],
+            ['', undefined],
+            ['   ', undefined],
+        ])('parseExecCallInnerToolName(%j) → %j', (input, expected) => {
+            expect(parseExecCallInnerToolName(input)).toBe(expected)
         })
     })
 

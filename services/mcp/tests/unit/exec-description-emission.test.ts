@@ -14,7 +14,7 @@ import { track } from '@posthog/mcp-analytics'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { createExecTool, parseExecCallInnerToolName } from '@/tools/exec'
+import { createExecInnerToolCallResolver, createExecTool } from '@/tools/exec'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 type CapturedEvent = { event: string; properties: Record<string, unknown> }
@@ -55,25 +55,6 @@ function makeTool(overrides: Partial<Tool<ZodObjectAny>>): Tool<ZodObjectAny> {
 
 const mockContext = { getDistinctId: async () => 'distinct-1' } as unknown as Context
 
-// Mirrors the resolver wired in mcp.ts for single-exec mode. Kept inline so
-// the test exercises the same shape mcp.ts builds.
-function buildResolveExecInnerToolCall(
-    allTools: Tool<ZodObjectAny>[]
-): (request: unknown) => { name: string; description: string } | undefined {
-    return (request: unknown) => {
-        const params = (request as { params?: { name?: unknown; arguments?: { command?: unknown } } })?.params
-        if (params?.name !== 'exec' || typeof params.arguments?.command !== 'string') {
-            return
-        }
-        const innerName = parseExecCallInnerToolName(params.arguments.command)
-        if (!innerName) {
-            return
-        }
-        const tool = allTools.find((t) => t.name === innerName)
-        return tool ? { name: tool.name, description: tool.description } : undefined
-    }
-}
-
 type ExecHarness = {
     client: Client
     events: CapturedEvent[]
@@ -94,7 +75,7 @@ async function buildExecHarness(allTools: Tool<ZodObjectAny>[]): Promise<ExecHar
         }) as Parameters<typeof server.registerTool>[2]
     )
 
-    const resolveExecInnerToolCall = buildResolveExecInnerToolCall(allTools)
+    const resolveExecInnerToolCall = createExecInnerToolCallResolver(allTools)
 
     track(server, {
         apiKey: 'phc_test',

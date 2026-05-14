@@ -57,6 +57,28 @@ export function parseExecCallInnerToolName(command: string): string | undefined 
     return innerName || undefined
 }
 
+// Builds the resolver mcp.ts hands to initPostHogMcpAnalytics in single-exec
+// mode: given a request, return the inner tool's { name, description } when
+// the agent invoked it via `call <tool> ...`, or undefined otherwise. Lives
+// here (alongside parseExecCallInnerToolName) so tests can import the exact
+// same factory the production code uses — no copy-pasted resolver lambda.
+export function createExecInnerToolCallResolver(
+    allTools: ReadonlyArray<Tool<ZodObjectAny>>
+): (request: unknown) => { name: string; description: string } | undefined {
+    return (request: unknown) => {
+        const params = (request as { params?: { name?: unknown; arguments?: { command?: unknown } } })?.params
+        if (params?.name !== 'exec' || typeof params.arguments?.command !== 'string') {
+            return
+        }
+        const innerName = parseExecCallInnerToolName(params.arguments.command)
+        if (!innerName) {
+            return
+        }
+        const tool = allTools.find((t) => t.name === innerName)
+        return tool ? { name: tool.name, description: tool.description } : undefined
+    }
+}
+
 // Tools removed from v2 (single-exec) MCP. When the model attempts to call one,
 // surface a targeted redirect to the v2 replacement instead of dumping the full
 // tool catalog. Sourced from tools marked `new_mcp: false` in
