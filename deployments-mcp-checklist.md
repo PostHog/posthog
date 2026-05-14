@@ -1,8 +1,8 @@
 # Deployments MCP branch follow-up checklist
 
-- [ ] Rename confusing deployment project identifiers
-  - [ ] Rename any MCP-exposed `project` / `project_id` value that actually refers to a `DeploymentProject` to `deployment_project_id`.
-  - [ ] Update generated/types/UI usage accordingly.
+- [x] Rename confusing deployment project identifiers
+  - [x] Rename any MCP-exposed `project` / `project_id` value that actually refers to a `DeploymentProject` to `deployment_project_id`.
+  - [x] Update generated/types/UI usage accordingly.
 
 - [ ] Fix MCP UI list drill-down
   - [ ] Add `detail_args` for `deployment-list` so `deployments-get` receives both `id` and `deployment_project_id`.
