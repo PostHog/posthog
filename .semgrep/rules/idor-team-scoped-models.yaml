@@ -206,7 +206,6 @@ rules:
                               |Tagger
                               |Task
                               |TaskAutomation
-                              |TaskPrewarmedSandbox
                               |TaskRun
                               |EmailChannel
                               |EvaluationReport
@@ -424,7 +423,6 @@ rules:
                         |Tagger
                         |Task
                         |TaskAutomation
-                        |TaskPrewarmedSandbox
                         |TaskRun
                         |EmailChannel
                         |EvaluationReport
