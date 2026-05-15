@@ -483,6 +483,127 @@ describe('mapOtelAttributes', () => {
         })
     })
 
+    describe('gen_ai.system_instructions (Gemini OTel)', () => {
+        it('creates $ai_input with a leading system message when input is missing', () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.system_instructions': JSON.stringify([
+                    { type: 'text', content: 'You are a helpful assistant.' },
+                ]),
+            })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([{ role: 'system', content: 'You are a helpful assistant.' }])
+            expect(event.properties!['gen_ai.system_instructions']).toBeUndefined()
+        })
+
+        it('prepends a system message in front of existing user-only $ai_input', () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.system_instructions': JSON.stringify([{ type: 'text', content: 'Be concise.' }]),
+                'gen_ai.input.messages': JSON.stringify([{ role: 'user', content: 'Hi' }]),
+            })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([
+                { role: 'system', content: 'Be concise.' },
+                { role: 'user', content: 'Hi' },
+            ])
+        })
+
+        it('accepts a plain-string gen_ai.system_instructions', () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.system_instructions': 'Speak like a pirate.',
+            })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([{ role: 'system', content: 'Speak like a pirate.' }])
+        })
+
+        it('accepts an already-parsed parts array', () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.system_instructions': [
+                    { type: 'text', content: 'Part one.' },
+                    { type: 'text', content: 'Part two.' },
+                ],
+            })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([{ role: 'system', content: 'Part one.\n\nPart two.' }])
+        })
+
+        it('does not double-prepend when $ai_input already starts with a system message', () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.system_instructions': 'Ignored — already present.',
+                'gen_ai.input.messages': JSON.stringify([
+                    { role: 'system', content: 'Original system prompt.' },
+                    { role: 'user', content: 'Hi' },
+                ]),
+            })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([
+                { role: 'system', content: 'Original system prompt.' },
+                { role: 'user', content: 'Hi' },
+            ])
+            expect(event.properties!['gen_ai.system_instructions']).toBeUndefined()
+        })
+
+        it('no-ops when the attribute is absent', () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.input.messages': JSON.stringify([{ role: 'user', content: 'Hi' }]),
+            })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([{ role: 'user', content: 'Hi' }])
+        })
+
+        it('strips the raw attribute even when the text is empty', () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.system_instructions': JSON.stringify([{ type: 'text', content: '' }]),
+            })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toBeUndefined()
+            expect(event.properties!['gen_ai.system_instructions']).toBeUndefined()
+        })
+
+        it('keeps the original string when JSON parsing fails', () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.system_instructions': 'not [valid json',
+            })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([{ role: 'system', content: 'not [valid json' }])
+        })
+
+        it('stringifies an unexpected object shape into the system content', () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.system_instructions': { text: 'Speak softly.' },
+            })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([{ role: 'system', content: '{"text":"Speak softly."}' }])
+        })
+
+        it('tolerates null entries inside the parts array', () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.system_instructions': [null, { type: 'text', content: 'Only this survives.' }, undefined],
+            })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toEqual([{ role: 'system', content: 'Only this survives.' }])
+        })
+
+        it('skips parsing when the string exceeds the size guard and still strips the attribute', () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.system_instructions': 'x'.repeat(500_001),
+            })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_input).toBeUndefined()
+            expect(event.properties!['gen_ai.system_instructions']).toBeUndefined()
+        })
+    })
+
     describe('older-spec span events composed with pydantic-ai middleware', () => {
         it('reconstructs $ai_input/$ai_output_choices alongside pydantic-ai framework attributes', () => {
             // Realistic runtime path: pydantic-ai middleware runs, calls
