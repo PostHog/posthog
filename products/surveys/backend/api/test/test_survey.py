@@ -407,6 +407,37 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "base_language" in response.json() or "translation" in response.content.decode().lower()
 
+    def test_sdk_payload_strips_invalid_question_translation_keys(self) -> None:
+        """Question-level translation keys are stripped from the SDK payload, just like survey-level ones."""
+        from products.surveys.backend.api.survey import SurveyAPISerializer
+
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Q-level legacy",
+            type="popover",
+            base_language="en",
+            questions=[
+                {
+                    "id": "q1",
+                    "type": "open",
+                    "question": "How are you?",
+                    "translations": {
+                        "es": {"question": "¿Cómo estás?"},
+                        "default": {"question": "Should be dropped"},
+                        "english": {"question": "Should be dropped"},
+                        "EN-us": {"question": "Normalized to en-us"},
+                    },
+                }
+            ],
+        )
+
+        payload = SurveyAPISerializer(survey).data
+        q_translations = payload["questions"][0]["translations"]
+        assert "es" in q_translations
+        assert "en-us" in q_translations
+        assert "default" not in q_translations
+        assert "english" not in q_translations
+
     def test_sdk_payload_strips_invalid_translation_keys(self) -> None:
         """get_survey_api_translations drops keys the SDK matcher cannot resolve."""
         from products.surveys.backend.api.survey import get_survey_api_translations

@@ -3055,6 +3055,29 @@ class SurveyAPIActionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+def _strip_invalid_translation_keys(translations: Any, normalized_base: str) -> dict[str, Any] | None:
+    """Filter a translation map (survey-level or question-level) down to keys the SDK can match.
+
+    Drops sentinels ('default', 'original', 'base'), non-BCP-47 shapes, and keys whose normalized
+    form equals the survey's base language (since the SDK renders base text in that case).
+    """
+    if not isinstance(translations, dict):
+        return None
+    filtered: dict[str, Any] = {}
+    for language, translation in translations.items():
+        if not isinstance(language, str) or not isinstance(translation, dict):
+            continue
+        normalized = _normalize_language_code(language)
+        if (
+            normalized in REJECTED_TRANSLATION_KEYS
+            or not BCP47_LANGUAGE_CODE_RE.match(normalized)
+            or normalized == normalized_base
+        ):
+            continue
+        filtered[normalized] = translation
+    return filtered or None
+
+
 def get_survey_api_translations(
     translations: Any, base_language: str = DEFAULT_BASE_LANGUAGE
 ) -> dict[str, dict[str, str]] | None:
@@ -3098,6 +3121,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
     conditions = serializers.SerializerMethodField(method_name="get_conditions")
     enable_partial_responses = serializers.BooleanField(read_only=True)
     base_language = serializers.CharField(read_only=True)
+    questions = serializers.SerializerMethodField(method_name="get_questions")
     translations = serializers.SerializerMethodField(method_name="get_translations")
 
     class Meta:
@@ -3139,6 +3163,33 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         return get_survey_api_translations(
             survey.translations, getattr(survey, "base_language", DEFAULT_BASE_LANGUAGE) or DEFAULT_BASE_LANGUAGE
         )
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField(), allow_null=True))
+    def get_questions(self, survey: Survey) -> list[dict[str, Any]] | None:
+        """Return questions with question-level translation keys filtered to what the SDK can match."""
+        questions = survey.questions
+        if not isinstance(questions, list):
+            return questions
+        normalized_base = _normalize_language_code(
+            getattr(survey, "base_language", DEFAULT_BASE_LANGUAGE) or DEFAULT_BASE_LANGUAGE
+        )
+        cleaned: list[dict[str, Any]] = []
+        for question in questions:
+            if not isinstance(question, dict):
+                cleaned.append(question)
+                continue
+            inline_translations = question.get("translations")
+            if not isinstance(inline_translations, dict):
+                cleaned.append(question)
+                continue
+            filtered = _strip_invalid_translation_keys(inline_translations, normalized_base)
+            next_question = dict(question)
+            if filtered:
+                next_question["translations"] = filtered
+            else:
+                next_question.pop("translations", None)
+            cleaned.append(next_question)
+        return cleaned
 
     def to_representation(self, instance: Survey) -> dict[str, Any]:
         data = super().to_representation(instance)
