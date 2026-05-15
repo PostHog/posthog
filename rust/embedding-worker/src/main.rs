@@ -7,6 +7,7 @@ use axum::{
     Router,
 };
 use common_kafka::kafka_consumer::RecvErr;
+use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use common_metrics::{serve, setup_metrics_routes};
 use common_types::embedding::{EmbeddingRecord, EmbeddingRequest};
 use embedding_worker::{
@@ -122,17 +123,21 @@ async fn main() {
             .json_recv_batch(batch_size, batch_wait_time)
             .await;
 
-        // A kafka-level recv error (e.g. the topic doesn't exist yet) means we couldn't
-        // poll the topic at all. Log, back off, and retry — but do NOT report healthy,
-        // so the liveness deadline lapses and the pod is restarted in production if the
-        // topic never appears.
-        if let Some(kafka_err) = received.iter().find_map(|r| match r {
-            Err(RecvErr::Kafka(e)) => Some(e),
-            _ => None,
+        // If the topic doesn't exist yet, librdkafka surfaces UnknownTopicOrPartition.
+        // Back off and retry without reporting healthy, so the liveness deadline lapses
+        // and the pod is restarted in production if the topic never appears. Any other
+        // kafka error is still treated as fatal below.
+        if received.iter().any(|r| {
+            matches!(
+                r,
+                Err(RecvErr::Kafka(KafkaError::MessageConsumption(
+                    RDKafkaErrorCode::UnknownTopicOrPartition,
+                )))
+            )
         }) {
             error!(
-                "Kafka recv error (topic may be missing or unreachable): {}. Sleeping 10s before retry.",
-                kafka_err
+                "Kafka topic {} not found, sleeping 10s before retry",
+                context.config.consumer.kafka_consumer_topic,
             );
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
             continue;
@@ -151,10 +156,12 @@ async fn main() {
                     to_process.push(event);
                     offsets.push(offset);
                 }
+                Err(RecvErr::Kafka(e)) => {
+                    panic!("Kafka error: {e}")
+                }
                 Err(err) => {
                     // If we failed to parse the message, or it was empty, just log and continue, our
-                    // consumer has already stored the offset for us. Kafka-level errors are
-                    // handled above before we get here.
+                    // consumer has already stored the offset for us.
                     error!("Error receiving message: {:?}", err);
                     counter!(DROPPED_REQUESTS, &[("cause", "recv_err")]).increment(1);
                     continue;
