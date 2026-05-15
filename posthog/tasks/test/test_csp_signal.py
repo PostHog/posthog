@@ -10,15 +10,25 @@ from parameterized import parameterized
 from posthog.tasks.csp_signal import (
     CSP_SIGNAL_DEDUP_TTL_SECONDS,
     CSP_SIGNAL_FIELD_MAX_LENGTH,
-    _build_description,
-    _build_extra,
+    CspReport,
     _daily_count_key,
     _dedup_key,
     _enabled_cache_key,
-    _fingerprint,
     emit_csp_violation_signals_task,
     enqueue_csp_violation_signals,
 )
+
+
+def _build_description(properties: dict) -> str:
+    return CspReport.from_properties(properties).description()
+
+
+def _build_extra(properties: dict) -> dict:
+    return CspReport.from_properties(properties).extra()
+
+
+def _fingerprint(properties: dict) -> str:
+    return CspReport.from_properties(properties).fingerprint()
 
 
 def _csp_properties(**overrides: Any) -> dict:

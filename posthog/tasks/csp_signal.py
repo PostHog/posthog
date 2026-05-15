@@ -1,6 +1,7 @@
 import json
 import math
 import hashlib
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -64,7 +65,12 @@ def _record_dropped(team_id: int, n: int, reason: str) -> None:
     _record_outcome(team_id, n, "dropped")
 
 
-def _stringify(value: object) -> str:
+def _csp_property(properties: dict, key: str) -> Any:
+    return properties.get(f"$csp_{key}")
+
+
+def _truncate(value: object) -> str:
+    """Stringify and length-cap. Used for fields that flow into the signal payload."""
     if value is None:
         return ""
     s = str(value)
@@ -73,27 +79,152 @@ def _stringify(value: object) -> str:
     return s
 
 
-def _csp_property(properties: dict, key: str) -> Any:
-    return properties.get(f"$csp_{key}")
+def _to_finite_float(raw: object) -> float | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        result = float(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(result):
+        return None
+    return result
 
 
-def _fingerprint(properties: dict) -> str:
-    fingerprint_input = json.dumps(
-        [
-            _stringify(_csp_property(properties, key))
-            for key in ("violated_directive", "blocked_url", "document_url", "source_file")
-        ],
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(fingerprint_input.encode("utf-8")).hexdigest()
+@dataclass(frozen=True)
+class CspReport:
+    """
+    Normalized view of a single CSP violation, with all length-capping, stringification,
+    and report-shape logic encapsulated. Build with `CspReport.from_properties(...)` and use
+    the methods to derive the fingerprint, source_id, description, and extra payload.
+
+    Fields are stored as `str` (empty when missing) so callers don't have to repeat the
+    "did the browser send this" check; methods that surface values to humans or to the
+    signal `extra` dict convert `""` back to `None` where that distinction matters.
+    """
+
+    violated_directive: str
+    effective_directive: str
+    blocked_url: str
+    document_url: str
+    disposition: str
+    source_file: str
+    line_number: str
+    column_number: str
+    user_agent: str
+    original_policy: str
+    referrer: str
+
+    @classmethod
+    def from_properties(cls, properties: dict) -> "CspReport":
+        return cls(
+            violated_directive=_truncate(_csp_property(properties, "violated_directive")),
+            effective_directive=_truncate(_csp_property(properties, "effective_directive")),
+            blocked_url=_truncate(_csp_property(properties, "blocked_url")),
+            document_url=_truncate(_csp_property(properties, "document_url")),
+            disposition=_truncate(_csp_property(properties, "disposition")),
+            source_file=_truncate(_csp_property(properties, "source_file")),
+            line_number=_truncate(_csp_property(properties, "line_number")),
+            column_number=_truncate(_csp_property(properties, "column_number")),
+            user_agent=_truncate(_csp_property(properties, "user_agent")),
+            original_policy=_truncate(_csp_property(properties, "original_policy")),
+            referrer=_truncate(_csp_property(properties, "referrer")),
+        )
+
+    def fingerprint(self) -> str:
+        fingerprint_input = json.dumps(
+            [self.violated_directive, self.blocked_url, self.document_url, self.source_file],
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(fingerprint_input.encode("utf-8")).hexdigest()
+
+    def source_id(self) -> str:
+        return f"csp:{self.fingerprint()}"
+
+    def location(self) -> str:
+        if self.source_file and self.line_number:
+            loc = f"{self.source_file}:{self.line_number}"
+            if self.column_number:
+                loc = f"{loc}:{self.column_number}"
+            return loc
+        return self.source_file
+
+    def suggested_origin(self) -> str | None:
+        """Return scheme://host of the blocked URL for use in a suggested CSP directive snippet."""
+        if not self.blocked_url:
+            return None
+        try:
+            parsed = urlparse(self.blocked_url)
+        except ValueError:
+            return None
+        if not parsed.scheme or not parsed.netloc:
+            return None
+        return f"{parsed.scheme}://{parsed.netloc}"
+
+    def description(self) -> str:
+        """
+        Static, embedding-friendly description that mirrors the on-demand
+        `csp_reporting.explain` LLM prompt — cause, suggested fix, triage — without
+        calling an LLM, so it stays cheap and stable for vector grouping.
+        """
+        directive_display = self.violated_directive or "unknown directive"
+        blocked_display = self.blocked_url or "unknown resource"
+        page_display = self.document_url or "unknown page"
+        disposition_display = self.disposition or "unknown"
+
+        cause_lines = [
+            "## Cause",
+            f"The `{directive_display}` directive on `{page_display}` blocked the resource `{blocked_display}`.",
+            f"Disposition: {disposition_display}.",
+        ]
+        location = self.location()
+        if location:
+            cause_lines.append(f"Source location: `{location}`.")
+        if self.user_agent:
+            cause_lines.append(f"Browser: `{self.user_agent}`.")
+
+        fix_directive = self.effective_directive or self.violated_directive
+        fix_origin = self.suggested_origin()
+        fix_lines = ["## Suggested fix"]
+        if fix_origin and fix_directive:
+            fix_lines.append(
+                f"If `{fix_origin}` is a legitimate resource, allow it by adding it to the `{fix_directive}` directive:"
+            )
+            fix_lines.append(f"`{fix_directive} 'self' {fix_origin};`")
+        else:
+            fix_lines.append(
+                "Decide whether the blocked resource is legitimate. If yes, add its origin to the violated directive. "
+                "If no, investigate where the request to it came from."
+            )
+
+        triage_lines = [
+            "## Triage",
+            "Three things to rule out:",
+            "1. The blocked resource is legitimate and the CSP policy needs widening.",
+            "2. The blocked resource is an injected or compromised script — a security incident.",
+            "3. The blocked resource is a third-party script the team should remove.",
+        ]
+
+        return "\n".join([*cause_lines, "", *fix_lines, "", *triage_lines])
+
+    def extra(self) -> dict:
+        return {
+            "document_url": self.document_url or None,
+            "violated_directive": self.violated_directive or None,
+            "effective_directive": self.effective_directive or None,
+            "original_policy": self.original_policy or None,
+            "blocked_url": self.blocked_url or None,
+            "source_file": self.source_file or None,
+            "line_number": _to_finite_float(self.line_number),
+            "column_number": _to_finite_float(self.column_number),
+            "disposition": self.disposition or None,
+            "referrer": self.referrer or None,
+            "user_agent": self.user_agent or None,
+        }
 
 
 def _dedup_key(team_id: int, fingerprint: str) -> str:
     return f"{CSP_SIGNAL_DEDUP_KEY_PREFIX}:{team_id}:{fingerprint}"
-
-
-def _source_id(fingerprint: str) -> str:
-    return f"csp:{fingerprint}"
 
 
 def _enabled_cache_key(team_id: int) -> str:
@@ -118,117 +249,6 @@ def _is_csp_signal_enabled(team_id: int) -> bool:
     enabled = SignalSourceConfig.is_source_enabled(team_id, CSP_SIGNAL_SOURCE_PRODUCT, CSP_SIGNAL_SOURCE_TYPE)
     cache.set(cache_key, enabled, CSP_SIGNAL_ENABLED_CACHE_TTL_SECONDS)
     return enabled
-
-
-def _suggested_origin(blocked_url: str) -> str | None:
-    """Return scheme://host for use in a suggested CSP directive snippet, or None."""
-    if not blocked_url:
-        return None
-    try:
-        parsed = urlparse(blocked_url)
-    except ValueError:
-        return None
-    if not parsed.scheme or not parsed.netloc:
-        return None
-    return f"{parsed.scheme}://{parsed.netloc}"
-
-
-def _build_description(properties: dict) -> str:
-    """
-    Build a static, embedding-friendly description of a CSP violation. Mirrors the structure
-    of the on-demand `csp_reporting.explain` LLM prompt — cause, suggested fix, triage — but
-    without calling an LLM, so it stays cheap and stable for vector grouping.
-    """
-    violated_directive = _stringify(_csp_property(properties, "violated_directive"))
-    effective_directive = _stringify(_csp_property(properties, "effective_directive"))
-    blocked_url = _stringify(_csp_property(properties, "blocked_url"))
-    document_url = _stringify(_csp_property(properties, "document_url"))
-    disposition = _stringify(_csp_property(properties, "disposition")) or "unknown"
-    source_file = _stringify(_csp_property(properties, "source_file"))
-    line_number = _stringify(_csp_property(properties, "line_number"))
-    column_number = _stringify(_csp_property(properties, "column_number"))
-    user_agent = _stringify(_csp_property(properties, "user_agent"))
-
-    directive_display = violated_directive or "unknown directive"
-    blocked_display = blocked_url or "unknown resource"
-    page_display = document_url or "unknown page"
-
-    location = source_file
-    if location and line_number:
-        location = f"{source_file}:{line_number}"
-        if column_number:
-            location = f"{location}:{column_number}"
-
-    cause_lines = [
-        "## Cause",
-        f"The `{directive_display}` directive on `{page_display}` blocked the resource `{blocked_display}`.",
-        f"Disposition: {disposition}.",
-    ]
-    if location:
-        cause_lines.append(f"Source location: `{location}`.")
-    if user_agent:
-        cause_lines.append(f"Browser: `{user_agent}`.")
-
-    fix_directive = effective_directive or violated_directive
-    fix_origin = _suggested_origin(blocked_url)
-    fix_lines = ["## Suggested fix"]
-    if fix_origin and fix_directive:
-        fix_lines.append(
-            f"If `{fix_origin}` is a legitimate resource, allow it by adding it to the `{fix_directive}` directive:"
-        )
-        fix_lines.append(f"`{fix_directive} 'self' {fix_origin};`")
-    else:
-        fix_lines.append(
-            "Decide whether the blocked resource is legitimate. If yes, add its origin to the violated directive. "
-            "If no, investigate where the request to it came from."
-        )
-
-    triage_lines = [
-        "## Triage",
-        "Three things to rule out:",
-        "1. The blocked resource is legitimate and the CSP policy needs widening.",
-        "2. The blocked resource is an injected or compromised script — a security incident.",
-        "3. The blocked resource is a third-party script the team should remove.",
-    ]
-
-    return "\n".join([*cause_lines, "", *fix_lines, "", *triage_lines])
-
-
-def _build_extra(properties: dict) -> dict:
-    def get_str(key: str) -> str | None:
-        value = _csp_property(properties, key)
-        if value is None:
-            return None
-        s = str(value)
-        if len(s) > CSP_SIGNAL_FIELD_MAX_LENGTH:
-            return s[:CSP_SIGNAL_FIELD_MAX_LENGTH]
-        return s
-
-    def get_number(key: str) -> float | None:
-        value = _csp_property(properties, key)
-        if value is None or value == "":
-            return None
-        try:
-            result = float(value)
-        except (TypeError, ValueError):
-            return None
-        if not math.isfinite(result):
-            return None
-        return result
-
-    return {
-        "document_url": get_str("document_url"),
-        "violated_directive": get_str("violated_directive"),
-        "effective_directive": get_str("effective_directive"),
-        "original_policy": get_str("original_policy"),
-        "blocked_url": get_str("blocked_url"),
-        "source_file": get_str("source_file"),
-        "line_number": get_number("line_number"),
-        "column_number": get_number("column_number"),
-        "disposition": get_str("disposition"),
-        "referrer": get_str("referrer"),
-        "user_agent": get_str("user_agent"),
-    }
 
 
 def enqueue_csp_violation_signals(team_id: int, properties_list: list[dict]) -> int:
@@ -291,7 +311,8 @@ def enqueue_csp_violation_signals(team_id: int, properties_list: list[dict]) -> 
     signals_to_emit: list[dict] = []
     acquired_keys: list[str] = []
     for properties in properties_list[:reserved]:
-        fingerprint = _fingerprint(properties)
+        report = CspReport.from_properties(properties)
+        fingerprint = report.fingerprint()
         key = _dedup_key(team_id, fingerprint)
         try:
             acquired = client.set(key, "1", nx=True, ex=CSP_SIGNAL_DEDUP_TTL_SECONDS)
@@ -305,9 +326,9 @@ def enqueue_csp_violation_signals(team_id: int, properties_list: list[dict]) -> 
         acquired_keys.append(key)
         signals_to_emit.append(
             {
-                "source_id": _source_id(fingerprint),
-                "description": _build_description(properties),
-                "extra": _build_extra(properties),
+                "source_id": report.source_id(),
+                "description": report.description(),
+                "extra": report.extra(),
             }
         )
 
