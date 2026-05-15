@@ -207,7 +207,10 @@ class CspReport:
 
         return "\n".join([*cause_lines, "", *fix_lines, "", *triage_lines])
 
-    def extra(self) -> dict:
+    def signal_extra(self) -> dict:
+        # Method intentionally not named `extra` — semgrep `query-set-extra` matches that
+        # name on any object and flags it as a Django ORM `QuerySet.extra` SQL-injection
+        # risk, which doesn't apply here.
         return {
             "document_url": self.document_url or None,
             "violated_directive": self.violated_directive or None,
@@ -227,7 +230,7 @@ class CspReport:
         return {
             "source_id": self.source_id(),
             "description": self.description(),
-            "extra": self.extra(),
+            "extra": self.signal_extra(),
         }
 
 

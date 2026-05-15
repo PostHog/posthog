@@ -24,7 +24,7 @@ def _build_description(properties: dict) -> str:
 
 
 def _build_extra(properties: dict) -> dict:
-    return CspReport.from_properties(properties).extra()
+    return CspReport.from_properties(properties).signal_extra()
 
 
 def _fingerprint(properties: dict) -> str:
