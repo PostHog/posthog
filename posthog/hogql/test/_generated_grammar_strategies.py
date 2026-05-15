@@ -126,26 +126,27 @@ def select_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
 def selectStmtWithParens_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=3))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(selectStmt_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(withClause_strategy(_dec(depth))))
             parts.append("(")
             parts.append(draw(selectSetStmt_strategy(_dec(depth))))
             parts.append(")")
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append("(")
             parts.append(draw(selectSetStmt_strategy(_dec(depth))))
             parts.append(")")
             return " ".join(p for p in parts if p)
         if alt_idx == 3:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(placeholder_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         raise AssertionError("unreachable")
@@ -231,9 +232,10 @@ def selectSetStmt_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str
 def limitAndOffsetClauseOptional_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=2))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append("limit")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             if _include_optional(draw):
@@ -246,7 +248,7 @@ def limitAndOffsetClauseOptional_strategy(depth: int = _DEFAULT_DEPTH) -> st.Sea
                 parts.append("ties")
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append("limit")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             if _include_optional(draw):
@@ -258,7 +260,7 @@ def limitAndOffsetClauseOptional_strategy(depth: int = _DEFAULT_DEPTH) -> st.Sea
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append("offset")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
@@ -568,9 +570,10 @@ def limitByClause_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str
 def limitAndOffsetClause_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=1))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append("limit")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             if _include_optional(draw):
@@ -583,7 +586,7 @@ def limitAndOffsetClause_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrat
                 parts.append("ties")
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append("limit")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             if _include_optional(draw):
@@ -648,10 +651,11 @@ def joinExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
 
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         seed_idx = draw(st.integers(min_value=0, max_value=1))
         seed = ""
         if seed_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(tableExpr_strategy(_dec(depth))))
             if _include_optional(draw):
                 parts.append("final")
@@ -659,7 +663,7 @@ def joinExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                 parts.append(draw(sampleClause_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append("(")
             parts.append(draw(joinExpr_strategy(_dec(depth))))
             parts.append(")")
@@ -724,9 +728,10 @@ def joinExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
 def joinOp_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=2))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             group_idx = draw(st.integers(min_value=0, max_value=5))
             if group_idx == 0:
                 if _include_optional(draw):
@@ -769,7 +774,7 @@ def joinOp_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                     parts.append("semi")
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             group_idx = draw(st.integers(min_value=0, max_value=2))
             if group_idx == 0:
                 if _include_optional(draw):
@@ -827,7 +832,7 @@ def joinOp_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                     parts.append("outer")
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             group_idx = draw(st.integers(min_value=0, max_value=1))
             if group_idx == 0:
                 if _include_optional(draw):
@@ -863,14 +868,15 @@ def joinOp_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
 def joinOpCross_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=1))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append("cross")
             parts.append("join")
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(",")
             return " ".join(p for p in parts if p)
         raise AssertionError("unreachable")
@@ -882,21 +888,22 @@ def joinOpCross_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
 def joinConstraintClause_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=2))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append("on")
             parts.append(draw(columnExprList_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append("using")
             parts.append("(")
             parts.append(draw(columnExprList_strategy(_dec(depth))))
             parts.append(")")
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append("using")
             parts.append(draw(columnExprList_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
@@ -1028,13 +1035,14 @@ def interpolateExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[s
 def ratioExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=1))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(placeholder_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(numberLiteral_strategy(_dec(depth))))
             if _include_optional(draw):
                 parts.append("/")
@@ -1149,13 +1157,14 @@ def winFrameClause_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[st
 def winFrameExtend_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=1))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(winFrameBound_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append("between")
             parts.append(draw(winFrameBound_strategy(_dec(depth))))
             parts.append("and")
@@ -1210,10 +1219,11 @@ def columnTypeExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[st
 
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         seed_idx = draw(st.integers(min_value=0, max_value=4))
         seed = ""
         if seed_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             parts.append("(")
             parts.append(draw(identifier_strategy(_dec(depth))))
@@ -1227,7 +1237,7 @@ def columnTypeExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[st
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             parts.append("(")
             parts.append(draw(columnTypeExpr_strategy(_dec(depth))))
@@ -1239,7 +1249,7 @@ def columnTypeExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[st
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             parts.append("(")
             if _include_optional(draw):
@@ -1247,13 +1257,13 @@ def columnTypeExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[st
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 3:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             for _ in range(draw(st.integers(min_value=1, max_value=_MAX_REPEAT))):
                 parts.append(draw(identifier_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 4:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if depth <= 0 or not _has_suffixes:
@@ -1277,9 +1287,10 @@ def columnTypeExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[st
 def columnTypeCastExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=1))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(columnTypeCastIdentifier_strategy(_dec(depth))))
             parts.append("with")
             if _include_optional(draw):
@@ -1288,7 +1299,7 @@ def columnTypeCastExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrateg
             parts.append("zone")
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(columnTypeCastIdentifier_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         raise AssertionError("unreachable")
@@ -1300,24 +1311,25 @@ def columnTypeCastExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrateg
 def columnTypeCastIdentifier_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         if depth <= 0:
             alt_idx = draw(st.sampled_from([0, 1]))
         else:
             alt_idx = draw(st.sampled_from([0, 1, 2, 3]))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_token))
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(quoted_identifier_token))
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(interval_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         if alt_idx == 3:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(keywordForTypeCast_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         raise AssertionError("unreachable")
@@ -1329,21 +1341,22 @@ def columnTypeCastIdentifier_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchS
 def keywordForTypeCast_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=3))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append("date")
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append("time")
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append("timestamp")
             return " ".join(p for p in parts if p)
         if alt_idx == 3:
-            parts: list[str] = []
+            parts = []
             parts.append("interval")
             return " ".join(p for p in parts if p)
         raise AssertionError("unreachable")
@@ -1371,9 +1384,10 @@ def columnExprList_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[st
 def selectColumnExprListBeforeFrom_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=1))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(selectColumnExpr_strategy(_dec(depth))))
             for _ in range(draw(st.integers(min_value=0, max_value=_MAX_REPEAT))):
                 parts.append(",")
@@ -1381,7 +1395,7 @@ def selectColumnExprListBeforeFrom_strategy(depth: int = _DEFAULT_DEPTH) -> st.S
             parts.append(",")
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(selectColumnExprList_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         raise AssertionError("unreachable")
@@ -1409,19 +1423,20 @@ def selectColumnExprList_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrat
 def selectColumnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=2))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             parts.append(":")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             parts.append(draw(implicitAlias_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
@@ -1436,6 +1451,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
 
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         if depth <= 0:
             seed_idx = draw(st.sampled_from([5, 10, 15, 30, 33]))
         else:
@@ -1482,7 +1498,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             )
         seed = ""
         if seed_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append("case")
             if _include_optional(draw):
                 parts.append(draw(columnExpr_strategy(_dec(depth))))
@@ -1497,7 +1513,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append("end")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append("cast")
             parts.append("(")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
@@ -1506,7 +1522,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append("try_cast")
             parts.append("(")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
@@ -1515,13 +1531,13 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 3:
-            parts: list[str] = []
+            parts = []
             parts.append("interval")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             parts.append(draw(interval_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 4:
-            parts: list[str] = []
+            parts = []
             parts.append("trim")
             parts.append("(")
             group_idx = draw(st.integers(min_value=0, max_value=2))
@@ -1537,21 +1553,21 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 5:
-            parts: list[str] = []
+            parts = []
             parts.append("columns")
             parts.append("(")
             parts.append(draw(string_literal_token))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 6:
-            parts: list[str] = []
+            parts = []
             parts.append("columns")
             parts.append("(")
             parts.append(draw(columnExprList_strategy(_dec(depth))))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 7:
-            parts: list[str] = []
+            parts = []
             group_idx = draw(st.integers(min_value=0, max_value=1))
             if group_idx == 0:
                 parts.append("columns")
@@ -1580,7 +1596,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                 parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 8:
-            parts: list[str] = []
+            parts = []
             parts.append("columns")
             parts.append("(")
             parts.append("*")
@@ -1591,7 +1607,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 9:
-            parts: list[str] = []
+            parts = []
             group_idx = draw(st.integers(min_value=0, max_value=1))
             if group_idx == 0:
                 parts.append("columns")
@@ -1612,14 +1628,14 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                 parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 10:
-            parts: list[str] = []
+            parts = []
             parts.append("columns")
             parts.append("(")
             parts.append("*")
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 11:
-            parts: list[str] = []
+            parts = []
             parts.append("columns")
             parts.append("(")
             parts.append(draw(identifier_strategy(_dec(depth))))
@@ -1636,7 +1652,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 12:
-            parts: list[str] = []
+            parts = []
             parts.append("columns")
             parts.append("(")
             parts.append(draw(identifier_strategy(_dec(depth))))
@@ -1649,7 +1665,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 13:
-            parts: list[str] = []
+            parts = []
             parts.append("columns")
             parts.append("(")
             parts.append(draw(identifier_strategy(_dec(depth))))
@@ -1662,7 +1678,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 14:
-            parts: list[str] = []
+            parts = []
             parts.append("columns")
             parts.append("(")
             parts.append(draw(identifier_strategy(_dec(depth))))
@@ -1671,7 +1687,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 15:
-            parts: list[str] = []
+            parts = []
             parts.append("*")
             parts.append("columns")
             parts.append("(")
@@ -1679,7 +1695,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 16:
-            parts: list[str] = []
+            parts = []
             parts.append("*")
             parts.append("columns")
             parts.append("(")
@@ -1687,7 +1703,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 17:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             parts.append("(")
             if _include_optional(draw):
@@ -1696,7 +1712,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(draw(withinGroupClause_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 18:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             parts.append("(")
             if _include_optional(draw):
@@ -1721,7 +1737,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 19:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             parts.append("(")
             if _include_optional(draw):
@@ -1744,7 +1760,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(draw(identifier_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 20:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             if _include_optional(draw):
                 parts.append("(")
@@ -1769,21 +1785,21 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                 parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 21:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(literal_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 22:
-            parts: list[str] = []
+            parts = []
             parts.append("-")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 23:
-            parts: list[str] = []
+            parts = []
             parts.append("not")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 24:
-            parts: list[str] = []
+            parts = []
             if _include_optional(draw):
                 parts.append(draw(tableIdentifier_strategy(_dec(depth))))
                 parts.append(".")
@@ -1795,7 +1811,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                 parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 25:
-            parts: list[str] = []
+            parts = []
             parts.append("lambda")
             parts.append(draw(identifier_strategy(_dec(depth))))
             for _ in range(draw(st.integers(min_value=0, max_value=_MAX_REPEAT))):
@@ -1807,25 +1823,25 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 26:
-            parts: list[str] = []
+            parts = []
             parts.append("(")
             parts.append(draw(selectSetStmt_strategy(_dec(depth))))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 27:
-            parts: list[str] = []
+            parts = []
             parts.append("(")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 28:
-            parts: list[str] = []
+            parts = []
             parts.append("(")
             parts.append(draw(columnExprList_strategy(_dec(depth))))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 29:
-            parts: list[str] = []
+            parts = []
             if _include_optional(draw):
                 parts.append("array")
             parts.append("[")
@@ -1834,28 +1850,28 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append("]")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 30:
-            parts: list[str] = []
+            parts = []
             parts.append("{")
             parts.append("")
             parts.append("}")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 31:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(columnLambdaExpr_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 32:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             parts.append(":=")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 33:
-            parts: list[str] = []
+            parts = []
             parts.append("#")
             parts.append(draw(decimal_literal_token))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 34:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(columnIdentifier_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if depth <= 0 or not _has_suffixes:
@@ -2061,9 +2077,10 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
 def columnLambdaExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=1))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             group_idx = draw(st.integers(min_value=0, max_value=2))
             if group_idx == 0:
                 parts.append("(")
@@ -2088,7 +2105,7 @@ def columnLambdaExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append("lambda")
             parts.append(draw(identifier_strategy(_dec(depth))))
             for _ in range(draw(st.integers(min_value=0, max_value=_MAX_REPEAT))):
@@ -2151,9 +2168,10 @@ def withExprList_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]
 def withExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=1))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             if _include_optional(draw):
                 parts.append(draw(withExprColumnNameList_strategy(_dec(depth))))
@@ -2171,7 +2189,7 @@ def withExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(")")
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             parts.append("as")
             parts.append(draw(identifier_strategy(_dec(depth))))
@@ -2201,13 +2219,14 @@ def withExprColumnNameList_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStr
 def columnIdentifier_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=1))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(placeholder_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             if _include_optional(draw):
                 parts.append(draw(tableIdentifier_strategy(_dec(depth))))
                 parts.append(".")
@@ -2238,30 +2257,31 @@ def tableExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
 
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         seed_idx = draw(st.integers(min_value=0, max_value=4))
         seed = ""
         if seed_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(tableIdentifier_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(tableFunctionExpr_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append("(")
             parts.append(draw(selectSetStmt_strategy(_dec(depth))))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 3:
-            parts: list[str] = []
+            parts = []
             parts.append("(")
             parts.append(draw(valuesClause_strategy(_dec(depth))))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 4:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(placeholder_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if depth <= 0 or not _has_suffixes:
@@ -2378,15 +2398,16 @@ def unpivotColumn_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str
 def columnExprTupleOrSingle_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=1))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append("(")
             parts.append(draw(columnExprList_strategy(_dec(depth))))
             parts.append(")")
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         raise AssertionError("unreachable")
@@ -2470,13 +2491,14 @@ def databaseIdentifier_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrateg
 def floatingLiteral_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=2))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(floating_literal_token))
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(".")
             group_idx = draw(st.integers(min_value=0, max_value=1))
             if group_idx == 0:
@@ -2485,7 +2507,7 @@ def floatingLiteral_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[s
                 parts.append(draw(octal_literal_token))
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(decimal_literal_token))
             parts.append(".")
             if _include_optional(draw):
@@ -2533,20 +2555,21 @@ def numberLiteral_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str
 def literal_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         if depth <= 0:
             alt_idx = draw(st.sampled_from([1, 2]))
         else:
             alt_idx = draw(st.sampled_from([0, 1, 2]))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(numberLiteral_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(string_literal_token))
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append("null")
             return " ".join(p for p in parts if p)
         raise AssertionError("unreachable")
@@ -2558,37 +2581,38 @@ def literal_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
 def interval_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=7))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append("second")
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append("minute")
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append("hour")
             return " ".join(p for p in parts if p)
         if alt_idx == 3:
-            parts: list[str] = []
+            parts = []
             parts.append("day")
             return " ".join(p for p in parts if p)
         if alt_idx == 4:
-            parts: list[str] = []
+            parts = []
             parts.append("week")
             return " ".join(p for p in parts if p)
         if alt_idx == 5:
-            parts: list[str] = []
+            parts = []
             parts.append("month")
             return " ".join(p for p in parts if p)
         if alt_idx == 6:
-            parts: list[str] = []
+            parts = []
             parts.append("quarter")
             return " ".join(p for p in parts if p)
         if alt_idx == 7:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(st.sampled_from(["year", "yyyy"])))
             return " ".join(p for p in parts if p)
         raise AssertionError("unreachable")
@@ -2600,441 +2624,442 @@ def interval_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
 def keyword_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=108))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append("all")
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append("and")
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append("anti")
             return " ".join(p for p in parts if p)
         if alt_idx == 3:
-            parts: list[str] = []
+            parts = []
             parts.append("any")
             return " ".join(p for p in parts if p)
         if alt_idx == 4:
-            parts: list[str] = []
+            parts = []
             parts.append("array")
             return " ".join(p for p in parts if p)
         if alt_idx == 5:
-            parts: list[str] = []
+            parts = []
             parts.append("as")
             return " ".join(p for p in parts if p)
         if alt_idx == 6:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(st.sampled_from(["asc", "ascending"])))
             return " ".join(p for p in parts if p)
         if alt_idx == 7:
-            parts: list[str] = []
+            parts = []
             parts.append("asof")
             return " ".join(p for p in parts if p)
         if alt_idx == 8:
-            parts: list[str] = []
+            parts = []
             parts.append("between")
             return " ".join(p for p in parts if p)
         if alt_idx == 9:
-            parts: list[str] = []
+            parts = []
             parts.append("both")
             return " ".join(p for p in parts if p)
         if alt_idx == 10:
-            parts: list[str] = []
+            parts = []
             parts.append("by")
             return " ".join(p for p in parts if p)
         if alt_idx == 11:
-            parts: list[str] = []
+            parts = []
             parts.append("case")
             return " ".join(p for p in parts if p)
         if alt_idx == 12:
-            parts: list[str] = []
+            parts = []
             parts.append("cast")
             return " ".join(p for p in parts if p)
         if alt_idx == 13:
-            parts: list[str] = []
+            parts = []
             parts.append("cohort")
             return " ".join(p for p in parts if p)
         if alt_idx == 14:
-            parts: list[str] = []
+            parts = []
             parts.append("collate")
             return " ".join(p for p in parts if p)
         if alt_idx == 15:
-            parts: list[str] = []
+            parts = []
             parts.append("columns")
             return " ".join(p for p in parts if p)
         if alt_idx == 16:
-            parts: list[str] = []
+            parts = []
             parts.append("cross")
             return " ".join(p for p in parts if p)
         if alt_idx == 17:
-            parts: list[str] = []
+            parts = []
             parts.append("cube")
             return " ".join(p for p in parts if p)
         if alt_idx == 18:
-            parts: list[str] = []
+            parts = []
             parts.append("current")
             return " ".join(p for p in parts if p)
         if alt_idx == 19:
-            parts: list[str] = []
+            parts = []
             parts.append("date")
             return " ".join(p for p in parts if p)
         if alt_idx == 20:
-            parts: list[str] = []
+            parts = []
             parts.append("desc")
             return " ".join(p for p in parts if p)
         if alt_idx == 21:
-            parts: list[str] = []
+            parts = []
             parts.append("descending")
             return " ".join(p for p in parts if p)
         if alt_idx == 22:
-            parts: list[str] = []
+            parts = []
             parts.append("distinct")
             return " ".join(p for p in parts if p)
         if alt_idx == 23:
-            parts: list[str] = []
+            parts = []
             parts.append("else")
             return " ".join(p for p in parts if p)
         if alt_idx == 24:
-            parts: list[str] = []
+            parts = []
             parts.append("end")
             return " ".join(p for p in parts if p)
         if alt_idx == 25:
-            parts: list[str] = []
+            parts = []
             parts.append("exclude")
             return " ".join(p for p in parts if p)
         if alt_idx == 26:
-            parts: list[str] = []
+            parts = []
             parts.append("extract")
             return " ".join(p for p in parts if p)
         if alt_idx == 27:
-            parts: list[str] = []
+            parts = []
             parts.append("fill")
             return " ".join(p for p in parts if p)
         if alt_idx == 28:
-            parts: list[str] = []
+            parts = []
             parts.append("filter")
             return " ".join(p for p in parts if p)
         if alt_idx == 29:
-            parts: list[str] = []
+            parts = []
             parts.append("final")
             return " ".join(p for p in parts if p)
         if alt_idx == 30:
-            parts: list[str] = []
+            parts = []
             parts.append("first")
             return " ".join(p for p in parts if p)
         if alt_idx == 31:
-            parts: list[str] = []
+            parts = []
             parts.append("for")
             return " ".join(p for p in parts if p)
         if alt_idx == 32:
-            parts: list[str] = []
+            parts = []
             parts.append("following")
             return " ".join(p for p in parts if p)
         if alt_idx == 33:
-            parts: list[str] = []
+            parts = []
             parts.append("from")
             return " ".join(p for p in parts if p)
         if alt_idx == 34:
-            parts: list[str] = []
+            parts = []
             parts.append("full")
             return " ".join(p for p in parts if p)
         if alt_idx == 35:
-            parts: list[str] = []
+            parts = []
             parts.append("group")
             return " ".join(p for p in parts if p)
         if alt_idx == 36:
-            parts: list[str] = []
+            parts = []
             parts.append("having")
             return " ".join(p for p in parts if p)
         if alt_idx == 37:
-            parts: list[str] = []
+            parts = []
             parts.append("id")
             return " ".join(p for p in parts if p)
         if alt_idx == 38:
-            parts: list[str] = []
+            parts = []
             parts.append("interpolate")
             return " ".join(p for p in parts if p)
         if alt_idx == 39:
-            parts: list[str] = []
+            parts = []
             parts.append("is")
             return " ".join(p for p in parts if p)
         if alt_idx == 40:
-            parts: list[str] = []
+            parts = []
             parts.append("grouping")
             return " ".join(p for p in parts if p)
         if alt_idx == 41:
-            parts: list[str] = []
+            parts = []
             parts.append("if")
             return " ".join(p for p in parts if p)
         if alt_idx == 42:
-            parts: list[str] = []
+            parts = []
             parts.append("ignore")
             return " ".join(p for p in parts if p)
         if alt_idx == 43:
-            parts: list[str] = []
+            parts = []
             parts.append("ilike")
             return " ".join(p for p in parts if p)
         if alt_idx == 44:
-            parts: list[str] = []
+            parts = []
             parts.append("include")
             return " ".join(p for p in parts if p)
         if alt_idx == 45:
-            parts: list[str] = []
+            parts = []
             parts.append("in")
             return " ".join(p for p in parts if p)
         if alt_idx == 46:
-            parts: list[str] = []
+            parts = []
             parts.append("inner")
             return " ".join(p for p in parts if p)
         if alt_idx == 47:
-            parts: list[str] = []
+            parts = []
             parts.append("interval")
             return " ".join(p for p in parts if p)
         if alt_idx == 48:
-            parts: list[str] = []
+            parts = []
             parts.append("join")
             return " ".join(p for p in parts if p)
         if alt_idx == 49:
-            parts: list[str] = []
+            parts = []
             parts.append("key")
             return " ".join(p for p in parts if p)
         if alt_idx == 50:
-            parts: list[str] = []
+            parts = []
             parts.append("lambda")
             return " ".join(p for p in parts if p)
         if alt_idx == 51:
-            parts: list[str] = []
+            parts = []
             parts.append("last")
             return " ".join(p for p in parts if p)
         if alt_idx == 52:
-            parts: list[str] = []
+            parts = []
             parts.append("leading")
             return " ".join(p for p in parts if p)
         if alt_idx == 53:
-            parts: list[str] = []
+            parts = []
             parts.append("left")
             return " ".join(p for p in parts if p)
         if alt_idx == 54:
-            parts: list[str] = []
+            parts = []
             parts.append("like")
             return " ".join(p for p in parts if p)
         if alt_idx == 55:
-            parts: list[str] = []
+            parts = []
             parts.append("limit")
             return " ".join(p for p in parts if p)
         if alt_idx == 56:
-            parts: list[str] = []
+            parts = []
             parts.append("local")
             return " ".join(p for p in parts if p)
         if alt_idx == 57:
-            parts: list[str] = []
+            parts = []
             parts.append("name")
             return " ".join(p for p in parts if p)
         if alt_idx == 58:
-            parts: list[str] = []
+            parts = []
             parts.append("natural")
             return " ".join(p for p in parts if p)
         if alt_idx == 59:
-            parts: list[str] = []
+            parts = []
             parts.append("not")
             return " ".join(p for p in parts if p)
         if alt_idx == 60:
-            parts: list[str] = []
+            parts = []
             parts.append("nulls")
             return " ".join(p for p in parts if p)
         if alt_idx == 61:
-            parts: list[str] = []
+            parts = []
             parts.append("offset")
             return " ".join(p for p in parts if p)
         if alt_idx == 62:
-            parts: list[str] = []
+            parts = []
             parts.append("on")
             return " ".join(p for p in parts if p)
         if alt_idx == 63:
-            parts: list[str] = []
+            parts = []
             parts.append("or")
             return " ".join(p for p in parts if p)
         if alt_idx == 64:
-            parts: list[str] = []
+            parts = []
             parts.append("order")
             return " ".join(p for p in parts if p)
         if alt_idx == 65:
-            parts: list[str] = []
+            parts = []
             parts.append("outer")
             return " ".join(p for p in parts if p)
         if alt_idx == 66:
-            parts: list[str] = []
+            parts = []
             parts.append("over")
             return " ".join(p for p in parts if p)
         if alt_idx == 67:
-            parts: list[str] = []
+            parts = []
             parts.append("partition")
             return " ".join(p for p in parts if p)
         if alt_idx == 68:
-            parts: list[str] = []
+            parts = []
             parts.append("pivot")
             return " ".join(p for p in parts if p)
         if alt_idx == 69:
-            parts: list[str] = []
+            parts = []
             parts.append("positional")
             return " ".join(p for p in parts if p)
         if alt_idx == 70:
-            parts: list[str] = []
+            parts = []
             parts.append("preceding")
             return " ".join(p for p in parts if p)
         if alt_idx == 71:
-            parts: list[str] = []
+            parts = []
             parts.append("prewhere")
             return " ".join(p for p in parts if p)
         if alt_idx == 72:
-            parts: list[str] = []
+            parts = []
             parts.append("qualify")
             return " ".join(p for p in parts if p)
         if alt_idx == 73:
-            parts: list[str] = []
+            parts = []
             parts.append("range")
             return " ".join(p for p in parts if p)
         if alt_idx == 74:
-            parts: list[str] = []
+            parts = []
             parts.append("recursive")
             return " ".join(p for p in parts if p)
         if alt_idx == 75:
-            parts: list[str] = []
+            parts = []
             parts.append("replace")
             return " ".join(p for p in parts if p)
         if alt_idx == 76:
-            parts: list[str] = []
+            parts = []
             parts.append("return")
             return " ".join(p for p in parts if p)
         if alt_idx == 77:
-            parts: list[str] = []
+            parts = []
             parts.append("right")
             return " ".join(p for p in parts if p)
         if alt_idx == 78:
-            parts: list[str] = []
+            parts = []
             parts.append("rollup")
             return " ".join(p for p in parts if p)
         if alt_idx == 79:
-            parts: list[str] = []
+            parts = []
             parts.append("row")
             return " ".join(p for p in parts if p)
         if alt_idx == 80:
-            parts: list[str] = []
+            parts = []
             parts.append("rows")
             return " ".join(p for p in parts if p)
         if alt_idx == 81:
-            parts: list[str] = []
+            parts = []
             parts.append("sample")
             return " ".join(p for p in parts if p)
         if alt_idx == 82:
-            parts: list[str] = []
+            parts = []
             parts.append("select")
             return " ".join(p for p in parts if p)
         if alt_idx == 83:
-            parts: list[str] = []
+            parts = []
             parts.append("semi")
             return " ".join(p for p in parts if p)
         if alt_idx == 84:
-            parts: list[str] = []
+            parts = []
             parts.append("sets")
             return " ".join(p for p in parts if p)
         if alt_idx == 85:
-            parts: list[str] = []
+            parts = []
             parts.append("settings")
             return " ".join(p for p in parts if p)
         if alt_idx == 86:
-            parts: list[str] = []
+            parts = []
             parts.append("step")
             return " ".join(p for p in parts if p)
         if alt_idx == 87:
-            parts: list[str] = []
+            parts = []
             parts.append("substring")
             return " ".join(p for p in parts if p)
         if alt_idx == 88:
-            parts: list[str] = []
+            parts = []
             parts.append("then")
             return " ".join(p for p in parts if p)
         if alt_idx == 89:
-            parts: list[str] = []
+            parts = []
             parts.append("ties")
             return " ".join(p for p in parts if p)
         if alt_idx == 90:
-            parts: list[str] = []
+            parts = []
             parts.append("time")
             return " ".join(p for p in parts if p)
         if alt_idx == 91:
-            parts: list[str] = []
+            parts = []
             parts.append("timestamp")
             return " ".join(p for p in parts if p)
         if alt_idx == 92:
-            parts: list[str] = []
+            parts = []
             parts.append("totals")
             return " ".join(p for p in parts if p)
         if alt_idx == 93:
-            parts: list[str] = []
+            parts = []
             parts.append("trailing")
             return " ".join(p for p in parts if p)
         if alt_idx == 94:
-            parts: list[str] = []
+            parts = []
             parts.append("trim")
             return " ".join(p for p in parts if p)
         if alt_idx == 95:
-            parts: list[str] = []
+            parts = []
             parts.append("truncate")
             return " ".join(p for p in parts if p)
         if alt_idx == 96:
-            parts: list[str] = []
+            parts = []
             parts.append("try_cast")
             return " ".join(p for p in parts if p)
         if alt_idx == 97:
-            parts: list[str] = []
+            parts = []
             parts.append("to")
             return " ".join(p for p in parts if p)
         if alt_idx == 98:
-            parts: list[str] = []
+            parts = []
             parts.append("top")
             return " ".join(p for p in parts if p)
         if alt_idx == 99:
-            parts: list[str] = []
+            parts = []
             parts.append("unbounded")
             return " ".join(p for p in parts if p)
         if alt_idx == 100:
-            parts: list[str] = []
+            parts = []
             parts.append("union")
             return " ".join(p for p in parts if p)
         if alt_idx == 101:
-            parts: list[str] = []
+            parts = []
             parts.append("unpivot")
             return " ".join(p for p in parts if p)
         if alt_idx == 102:
-            parts: list[str] = []
+            parts = []
             parts.append("using")
             return " ".join(p for p in parts if p)
         if alt_idx == 103:
-            parts: list[str] = []
+            parts = []
             parts.append("values")
             return " ".join(p for p in parts if p)
         if alt_idx == 104:
-            parts: list[str] = []
+            parts = []
             parts.append("when")
             return " ".join(p for p in parts if p)
         if alt_idx == 105:
-            parts: list[str] = []
+            parts = []
             parts.append("where")
             return " ".join(p for p in parts if p)
         if alt_idx == 106:
-            parts: list[str] = []
+            parts = []
             parts.append("window")
             return " ".join(p for p in parts if p)
         if alt_idx == 107:
-            parts: list[str] = []
+            parts = []
             parts.append("with")
             return " ".join(p for p in parts if p)
         if alt_idx == 108:
-            parts: list[str] = []
+            parts = []
             parts.append("zone")
             return " ".join(p for p in parts if p)
         raise AssertionError("unreachable")
@@ -3046,21 +3071,22 @@ def keyword_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
 def keywordForAlias_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=3))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append("date")
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append("first")
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append("id")
             return " ".join(p for p in parts if p)
         if alt_idx == 3:
-            parts: list[str] = []
+            parts = []
             parts.append("key")
             return " ".join(p for p in parts if p)
         raise AssertionError("unreachable")
@@ -3072,41 +3098,42 @@ def keywordForAlias_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[s
 def keywordForImplicitAlias_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         alt_idx = draw(st.integers(min_value=0, max_value=8))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(st.sampled_from(["asc", "ascending"])))
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append("cohort")
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append("date")
             return " ".join(p for p in parts if p)
         if alt_idx == 3:
-            parts: list[str] = []
+            parts = []
             parts.append("descending")
             return " ".join(p for p in parts if p)
         if alt_idx == 4:
-            parts: list[str] = []
+            parts = []
             parts.append("final")
             return " ".join(p for p in parts if p)
         if alt_idx == 5:
-            parts: list[str] = []
+            parts = []
             parts.append("id")
             return " ".join(p for p in parts if p)
         if alt_idx == 6:
-            parts: list[str] = []
+            parts = []
             parts.append("return")
             return " ".join(p for p in parts if p)
         if alt_idx == 7:
-            parts: list[str] = []
+            parts = []
             parts.append("top")
             return " ".join(p for p in parts if p)
         if alt_idx == 8:
-            parts: list[str] = []
+            parts = []
             parts.append("totals")
             return " ".join(p for p in parts if p)
         raise AssertionError("unreachable")
@@ -3118,20 +3145,21 @@ def keywordForImplicitAlias_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchSt
 def alias_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         if depth <= 0:
             alt_idx = draw(st.sampled_from([0, 1]))
         else:
             alt_idx = draw(st.sampled_from([0, 1, 2]))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_token))
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(quoted_identifier_token))
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(keywordForAlias_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         raise AssertionError("unreachable")
@@ -3143,20 +3171,21 @@ def alias_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
 def implicitAlias_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         if depth <= 0:
             alt_idx = draw(st.sampled_from([0, 1]))
         else:
             alt_idx = draw(st.sampled_from([0, 1, 2]))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_token))
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(quoted_identifier_token))
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(keywordForImplicitAlias_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         raise AssertionError("unreachable")
@@ -3168,24 +3197,25 @@ def implicitAlias_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str
 def identifier_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
+        parts: list[str] = []
         if depth <= 0:
             alt_idx = draw(st.sampled_from([0, 1]))
         else:
             alt_idx = draw(st.sampled_from([0, 1, 2, 3]))
         if alt_idx == 0:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(identifier_token))
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(quoted_identifier_token))
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(interval_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         if alt_idx == 3:
-            parts: list[str] = []
+            parts = []
             parts.append(draw(keyword_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         raise AssertionError("unreachable")

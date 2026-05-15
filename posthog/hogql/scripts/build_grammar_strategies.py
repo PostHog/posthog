@@ -1026,10 +1026,15 @@ class _Emitter:
             lines.append('        return " ".join(p for p in parts if p)')
         else:
             common_indices, soft_indices, leaf_indices = _classify_alts(rule.alternatives)
+            # Hoist the typed declaration once at the function scope so the
+            # per-branch resets below are plain reassignments — mypy treats
+            # multiple ``parts: list[str] = []`` lines in the same scope as
+            # redefinitions and flags them with ``[no-redef]``.
+            lines.append("        parts: list[str] = []")
             self._emit_alt_selector(lines, common_indices, soft_indices, leaf_indices)
             for i, alt in enumerate(rule.alternatives):
                 lines.append(f"        if alt_idx == {i}:")
-                lines.append("            parts: list[str] = []")
+                lines.append("            parts = []")
                 self._emit_alt_body(lines, alt, indent="            ")
                 lines.append('            return " ".join(p for p in parts if p)')
             lines.append('        raise AssertionError("unreachable")')
@@ -1104,11 +1109,15 @@ class _Emitter:
             # ``seed_idx`` here for clarity.
             sel_lines: list[str] = []
             self._emit_alt_selector(sel_lines, common_indices, soft_indices, leaf_indices)
+            # Hoist the typed declaration once at the function scope so the
+            # per-branch resets below are plain reassignments — see the
+            # matching note in ``_emit_plain``.
+            lines.append("        parts: list[str] = []")
             lines.extend(line.replace("alt_idx", "seed_idx") for line in sel_lines)
             lines.append('        seed = ""')
             for i, alt in enumerate(lr.seed_alts):
                 lines.append(f"        if seed_idx == {i}:")
-                lines.append("            parts: list[str] = []")
+                lines.append("            parts = []")
                 self._emit_alt_body(lines, alt, indent="            ")
                 lines.append('            seed = " ".join(p for p in parts if p)')
         # Then chain 0..MAX_LR_CHAIN suffixes when depth allows

@@ -14,6 +14,8 @@ quoting (string literals, quoted identifiers), unquoted where it doesn't
 
 from __future__ import annotations
 
+from typing import Any
+
 from hypothesis import strategies as st
 
 # All HogQL reserved keywords (hand-mirrored from HogQLParser.g4's
@@ -205,7 +207,7 @@ hexadecimal_literal_token: st.SearchStrategy[str] = st.integers(min_value=0, max
 # Floating literal — ``DECIMAL_LITERAL DOT DEC_DIGIT* E (PLUS|DASH)? DEC_DIGIT+``
 # is one valid form. We keep things simple with ``<int>.<int>e<int>``.
 @st.composite
-def _floating_literal(draw) -> str:  # type: ignore[no-untyped-def]
+def _floating_literal(draw: Any) -> str:
     whole = draw(st.integers(min_value=0, max_value=9999))
     frac = draw(st.integers(min_value=0, max_value=9999))
     if draw(st.booleans()):

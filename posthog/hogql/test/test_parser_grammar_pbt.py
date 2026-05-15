@@ -244,9 +244,9 @@ def _assert_backends_agree(query: str, rule: str) -> None:
 
     if not a_ok and not b_ok:
         # Both rejected — uninteresting; the grammar generator can
-        # over-produce strings that neither visitor accepts.
+        # over-produce strings that neither visitor accepts. ``assume(False)``
+        # raises ``UnsatisfiedAssumption`` to skip the example.
         assume(False)
-        return
 
     if a_ok != b_ok:
         accepted, rejected = (_BACKEND_A, _BACKEND_B) if a_ok else (_BACKEND_B, _BACKEND_A)
