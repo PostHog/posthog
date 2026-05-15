@@ -906,7 +906,7 @@ def _emit_literal_list(literals: list[str]) -> str:
     return "draw(st.sampled_from([" + ", ".join(repr(s) for s in literals) + "]))"
 
 
-_EMITTED_FILE_HEADER = '''\
+_EMITTED_FILE_HEADER = f'''\
 """Auto-generated grammar strategies for the HogQL parser PBT.
 
 DO NOT EDIT. Regenerate via::
@@ -961,7 +961,10 @@ _OPT_INCLUSION_DEN = 8
 # Firing them at a low rate keeps parity coverage without tanking
 # acceptance. With ~10 columnExpr nodes per SELECT, a rate of 1/30
 # yields ~70% chance the SELECT contains no soft alt.
-_SOFT_FREQ_DENOM = 30
+# Interpolated from the generator's module-level constant so the
+# runtime value here and the literal embedded into alt-selector emit
+# (``_emit_alt_selector``) can't drift.
+_SOFT_FREQ_DENOM = {_SOFT_FREQ_DENOM}
 
 
 def _dec(depth: int) -> int:

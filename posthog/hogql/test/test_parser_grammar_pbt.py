@@ -135,12 +135,24 @@ def _case_jiggle(draw: Any, query: str) -> str:
 @st.composite
 def _whitespace_jiggle(draw: Any, query: str) -> str:
     """Replace single spaces with whitespace variants — spaces, tabs,
-    newlines, multi-space runs. Skipped inside string literals."""
+    newlines, multi-space runs. Skipped inside single-quoted string
+    literals and double-quoted identifiers, both of which can legally
+    contain a space character (``quoted_identifier_token`` draws from
+    an alphabet that includes spaces, so identifiers like
+    ``"abc def"`` exist; replacing the internal space would change
+    the identifier's value rather than its surrounding whitespace)."""
     out: list[str] = []
     in_string = False
+    quote: str | None = None
     for ch in query:
-        if ch == "'":
-            in_string = not in_string
+        if not in_string and ch in ("'", '"'):
+            in_string = True
+            quote = ch
+            out.append(ch)
+            continue
+        if in_string and ch == quote:
+            in_string = False
+            quote = None
             out.append(ch)
             continue
         if ch == " " and not in_string:
