@@ -222,6 +222,14 @@ class CspReport:
             "user_agent": self.user_agent or None,
         }
 
+    def to_signal_payload(self) -> dict:
+        """Shape of the dict that emit_csp_violation_signals_task expects per signal."""
+        return {
+            "source_id": self.source_id(),
+            "description": self.description(),
+            "extra": self.extra(),
+        }
+
 
 def _dedup_key(team_id: int, fingerprint: str) -> str:
     return f"{CSP_SIGNAL_DEDUP_KEY_PREFIX}:{team_id}:{fingerprint}"
@@ -324,13 +332,7 @@ def enqueue_csp_violation_signals(team_id: int, properties_list: list[dict]) -> 
             _record_dropped(team_id, 1, reason="duplicate")
             continue
         acquired_keys.append(key)
-        signals_to_emit.append(
-            {
-                "source_id": report.source_id(),
-                "description": report.description(),
-                "extra": report.extra(),
-            }
-        )
+        signals_to_emit.append(report.to_signal_payload())
 
     # Release reserved slots we didn't actually fill (dedup misses, redis errors).
     unused = reserved - len(signals_to_emit)
