@@ -4,17 +4,54 @@ on:
     pull_request:
     merge_group:
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
     contents: read
 
 jobs:
+    # Job to decide if we should run shellcheck
+    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    # we skip each step individually, so they are still reported as success
+    # because this check is required for CI to be green
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        name: Determine need to run shellcheck
+        outputs:
+            shellcheck: ${{ steps.filter.outputs.shellcheck || 'true' }}
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: filter
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  filters: |
+                      shellcheck:
+                        - bin/deploy-hobby
+                        - .github/workflows/shellcheck.yml
+
     shell_check:
+        needs: changes
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: shellcheck
         steps:
             - uses: actions/checkout@v6
+              if: needs.changes.outputs.shellcheck == 'true'
             - name: Install shellcheck
+              if: needs.changes.outputs.shellcheck == 'true'
               run: sudo apt update && sudo apt install -y shellcheck
             - name: Check secrets scripts
+              if: needs.changes.outputs.shellcheck == 'true'
               run: cd bin && shellcheck deploy-hobby
