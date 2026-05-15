@@ -5223,6 +5223,22 @@
             "readOnlyHint": false
         }
     },
+    "user-interview-topics-add-interviewee": {
+        "description": "Append a single interviewee identifier to a user interview topic. Email-shaped identifiers (including the `Display Name <email@host>` form) go to `interviewee_emails`; everything else goes to `interviewee_distinct_ids`. Idempotent — adding an identifier that is already present leaves the topic unchanged. Returns the updated topic.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Add an interviewee to a topic",
+        "title": "Add an interviewee to a topic",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
     "user-interview-topics-create": {
         "description": "Plan a user interview by recording who you want to target and what product or idea you want to ask them about. `topic` is the free-text description of the question or product area. Targets are specified as a combination of `interviewee_emails` (list of email addresses) and `interviewee_distinct_ids` (list of PostHog distinct IDs) — at least one of the two must be provided. To target a cohort, resolve cohort members to emails/distinct_ids in the calling agent first (see the planning-user-interviews skill) and pass them explicitly here — topics snapshot their audience at creation time. Pass `agent_context` (free text) to give the voice agent extra background or instructions, and `questions` (list of strings) for the ordered set of questions the agent should work through.",
         "category": "User interview topics",
@@ -5271,6 +5287,22 @@
         },
         "feature_flag": "user-interviews"
     },
+    "user-interview-topics-interviewees-destroy": {
+        "description": "Remove the extra context attached to a single interviewee on a user interview topic. Only deletes the `IntervieweeContext` row — does not change the topic's targeting (`interviewee_emails` / `interviewee_distinct_ids`). Use `user-interview-topics-remove-interviewee` if you want to drop the interviewee from targeting as well.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Delete a per-interviewee context row",
+        "title": "Delete a per-interviewee context row",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
     "user-interview-topics-interviewees-list": {
         "description": "List the per-interviewee context rows attached to a single user interview topic. Each row is (interviewee_identifier, agent_context). Use this to see who has extra context attached before adding more.",
         "category": "User interview topics",
@@ -5287,12 +5319,76 @@
         },
         "feature_flag": "user-interviews"
     },
+    "user-interview-topics-interviewees-partial-update": {
+        "description": "Update the `agent_context` field on a per-interviewee context row. Pass only the fields you want to change. Does not modify the topic's targeting; use `user-interview-topics-add-interviewee` / `user-interview-topics-remove-interviewee` for that.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Update a per-interviewee context row",
+        "title": "Update a per-interviewee context row",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
     "user-interview-topics-list": {
         "description": "List planned user interview topics in the current project, newest first. Each result includes the topic, targeting (interviewee_emails, interviewee_distinct_ids), and the voice agent setup (agent_context, questions). Supports `search` for substring match against the topic, and `limit`/`offset` for pagination.",
         "category": "User interview topics",
         "feature": "user_interviews",
         "summary": "List user interview topics",
         "title": "List user interview topics",
+        "required_scopes": ["user_interview:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interview-topics-partial-update": {
+        "description": "Update fields on a user interview topic. Pass only the fields you want to change. For incremental edits to targeting, prefer `user-interview-topics-add-interviewee` and `user-interview-topics-remove-interviewee` — sending `interviewee_emails` or `interviewee_distinct_ids` here replaces the entire array.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Update a user interview topic",
+        "title": "Update a user interview topic",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interview-topics-remove-interviewee": {
+        "description": "Remove an interviewee identifier from a topic's targeting. Drops the identifier from both `interviewee_emails` and `interviewee_distinct_ids`, and disables any active SharingConfiguration tied to that interviewee on this topic so the removed person can no longer open their interview link. Idempotent — removing an identifier that isn't present is a no-op. Returns the updated topic.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Remove an interviewee from a topic",
+        "title": "Remove an interviewee from a topic",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interview-topics-retrieve": {
+        "description": "Retrieve a single user interview topic by ID, including its full targeting (`interviewee_emails`, `interviewee_distinct_ids`), voice agent setup (`agent_context`, `questions`), and metadata. Use this to list the current interviewees on a topic before adding, editing, or removing them.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Get user interview topic",
+        "title": "Get user interview topic",
         "required_scopes": ["user_interview:read"],
         "new_mcp": true,
         "annotations": {
