@@ -115,13 +115,30 @@ async fn main() {
     let batch_size = config.max_events_per_batch;
 
     loop {
-        context.worker_liveness.report_healthy().await;
         // Just grab the event as a serde_json::Value and immediately drop it,
         // we can work out a real type for it later (once we're deployed etc)
         let received: Vec<Result<(EmbeddingRequest, _), _>> = context
             .kafka_consumer
             .json_recv_batch(batch_size, batch_wait_time)
             .await;
+
+        // A kafka-level recv error (e.g. the topic doesn't exist yet) means we couldn't
+        // poll the topic at all. Log, back off, and retry — but do NOT report healthy,
+        // so the liveness deadline lapses and the pod is restarted in production if the
+        // topic never appears.
+        if let Some(kafka_err) = received.iter().find_map(|r| match r {
+            Err(RecvErr::Kafka(e)) => Some(e),
+            _ => None,
+        }) {
+            error!(
+                "Kafka recv error (topic may be missing or unreachable): {}. Sleeping 10s before retry.",
+                kafka_err
+            );
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            continue;
+        }
+
+        context.worker_liveness.report_healthy().await;
 
         let mut transactional_producer = context.transactional_producer.lock().await;
 
@@ -134,12 +151,10 @@ async fn main() {
                     to_process.push(event);
                     offsets.push(offset);
                 }
-                Err(RecvErr::Kafka(e)) => {
-                    panic!("Kafka error: {e}")
-                }
                 Err(err) => {
                     // If we failed to parse the message, or it was empty, just log and continue, our
-                    // consumer has already stored the offset for us.
+                    // consumer has already stored the offset for us. Kafka-level errors are
+                    // handled above before we get here.
                     error!("Error receiving message: {:?}", err);
                     counter!(DROPPED_REQUESTS, &[("cause", "recv_err")]).increment(1);
                     continue;
