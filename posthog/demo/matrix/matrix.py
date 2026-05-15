@@ -1,3 +1,4 @@
+import functools
 import uuid
 import datetime as dt
 from abc import ABC, abstractmethod
@@ -18,6 +19,13 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.utils import UUIDT, uuid7
 
 from .models import Effect, SimPerson, SimServerClient
+
+
+@functools.cache
+def _get_tiktoken_encoding() -> tiktoken.Encoding:
+    # Loaded lazily and cached so we only download the encoding blob once per process,
+    # and a corrupt download doesn't crash module import.
+    return tiktoken.encoding_for_model("gpt-4o")
 
 
 class Cluster(ABC):
@@ -256,7 +264,7 @@ class Matrix(ABC):
         self.distinct_id_to_person = {}
         self.clusters = [self.CLUSTER_CLASS(index=i, matrix=self) for i in range(n_clusters)]
         self.server_client = SimServerClient(self)
-        self.gpt_4o_encoding = tiktoken.encoding_for_model("gpt-4o")
+        self.gpt_4o_encoding = _get_tiktoken_encoding()
         self.is_complete = None
 
     @property

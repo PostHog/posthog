@@ -1,3 +1,4 @@
+import functools
 from typing import TYPE_CHECKING
 
 from django.db import models
@@ -10,6 +11,13 @@ if TYPE_CHECKING:
     from posthog.kafka_client.client import ProduceResult
 
 EMBEDDING_MODEL_TOKEN_LIMIT = 8192
+
+
+@functools.cache
+def _get_tiktoken_encoding() -> tiktoken.Encoding:
+    # Loaded lazily and cached so we only download the encoding blob once per process,
+    # and a corrupt download doesn't crash module import.
+    return tiktoken.get_encoding("cl100k_base")
 
 
 class AgentMemory(UUIDModel):
@@ -36,7 +44,7 @@ class AgentMemory(UUIDModel):
         ]
 
     def embed(self, model_name: str) -> "ProduceResult":
-        enc = tiktoken.get_encoding("cl100k_base")
+        enc = _get_tiktoken_encoding()
         token_count = len(enc.encode(self.contents))
         if token_count > EMBEDDING_MODEL_TOKEN_LIMIT:
             raise ValueError(

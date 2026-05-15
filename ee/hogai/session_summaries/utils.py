@@ -1,3 +1,4 @@
+import functools
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -11,6 +12,13 @@ from tiktoken.model import MODEL_TO_ENCODING
 from ee.hogai.session_summaries.constants import MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH
 
 logger = structlog.get_logger(__name__)
+
+
+@functools.cache
+def _get_tiktoken_encoding_for_model(model: str) -> tiktoken.Encoding:
+    # Loaded lazily and cached per model so we only download each encoding blob once
+    # per process, and a corrupt download doesn't crash module import.
+    return tiktoken.encoding_for_model(model)
 
 
 def get_column_index(columns: list[str], column_name: str) -> int:
@@ -156,7 +164,7 @@ def estimate_tokens_from_strings(strings: list[str], model: str) -> int:
     if model not in MODEL_TO_ENCODING:
         # If the model aren't supported yet - default to o3 as it should be similar to other thinking models
         model = "o3"
-    encoding = tiktoken.encoding_for_model(model)
+    encoding = _get_tiktoken_encoding_for_model(model)
     total_tokens = 0
     for string in strings:
         if string:

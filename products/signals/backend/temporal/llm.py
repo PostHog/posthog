@@ -1,3 +1,4 @@
+import functools
 import os
 from collections.abc import Callable
 from typing import Optional, TypeVar
@@ -30,6 +31,13 @@ MAX_QUERY_TOKENS = 2048
 TIMEOUT = 100.0
 
 
+@functools.cache
+def _get_tiktoken_encoding() -> tiktoken.Encoding:
+    # Loaded lazily and cached so we only download the encoding blob once per process,
+    # and a corrupt download doesn't crash module import.
+    return tiktoken.get_encoding("cl100k_base")
+
+
 def get_async_anthropic_client() -> AsyncAnthropic:
     """Get configured AsyncAnthropic client with PostHog analytics."""
     posthog_client = posthoganalytics.default_client
@@ -50,7 +58,7 @@ def get_async_anthropic_client() -> AsyncAnthropic:
 def truncate_query_to_token_limit(query: str, max_tokens: int = MAX_QUERY_TOKENS) -> str:
     """Truncate a query string to fit within token limit for embedding."""
     try:
-        enc = tiktoken.get_encoding("cl100k_base")
+        enc = _get_tiktoken_encoding()
         tokens = enc.encode(query)
         if len(tokens) <= max_tokens:
             return query
