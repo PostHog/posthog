@@ -156,7 +156,7 @@ def _whitespace_jiggle(draw: Any, query: str) -> str:
             out.append(ch)
             continue
         if ch == " " and not in_string:
-            ws = draw(st.sampled_from([" ", "  ", "\t", "\n", " \n ", " "]))
+            ws = draw(st.sampled_from([" ", "  ", "\t", "\n", " \n ", "\t\n"]))
             out.append(ws)
         else:
             out.append(ch)
