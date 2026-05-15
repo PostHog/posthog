@@ -227,8 +227,10 @@ class MarketingSourceFactory:
         # Bing maps the same schema name to both `*_table` and `*_stats_table` (the
         # report embeds entity columns) — wire one table into both slots so the
         # adapter detects unified entity+stats mode.
-        adset_unified = hierarchy_names.get("adset_table") == hierarchy_names.get("adset_stats_table")
-        ad_unified = hierarchy_names.get("ad_table") == hierarchy_names.get("ad_stats_table")
+        adset_table_name = hierarchy_names.get("adset_table")
+        adset_unified = adset_table_name is not None and adset_table_name == hierarchy_names.get("adset_stats_table")
+        ad_table_name = hierarchy_names.get("ad_table")
+        ad_unified = ad_table_name is not None and ad_table_name == hierarchy_names.get("ad_stats_table")
 
         for table in tables:
             table_suffix = table.name.split(".")[-1].lower()
