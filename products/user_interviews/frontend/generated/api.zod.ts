@@ -206,3 +206,37 @@ export const UserInterviewsPartialUpdateBody = /* @__PURE__ */ zod.object({
     summary: zod.string().optional(),
     audio: zod.url().optional(),
 })
+
+/**
+ * Embed `query` with the same model used to index interview transcripts and summaries, then return the top matches by cosine distance. Each match is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and summary score above other interviews. Useful for surfacing relevant interview snippets in natural language, without exact keyword matches.
+ * @summary Search interview responses by semantic similarity
+ */
+export const userInterviewsSearchCreateBodyQueryMax = 2000
+
+export const userInterviewsSearchCreateBodyLimitMax = 50
+
+export const UserInterviewsSearchCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(userInterviewsSearchCreateBodyQueryMax)
+        .describe('Natural-language query to match semantically against interview transcripts and summaries.'),
+    document_types: zod
+        .array(zod.enum(['transcript', 'summary']).describe('\* `transcript` - transcript\n\* `summary` - summary'))
+        .min(1)
+        .optional()
+        .describe(
+            'Which document types to search across. Omit to default to both `transcript` and `summary`. Pass a non-empty subset to restrict the search.'
+        ),
+    topic_id: zod
+        .uuid()
+        .nullish()
+        .describe('Optional. Restrict results to interviews belonging to a specific UserInterviewTopic.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(userInterviewsSearchCreateBodyLimitMax)
+        .optional()
+        .describe(
+            'Maximum number of matches to return (1-50). Defaults to 10. Two matches per interview are possible — one for the transcript, one for the summary.'
+        ),
+})

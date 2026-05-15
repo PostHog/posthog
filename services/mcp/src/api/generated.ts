@@ -8039,10 +8039,10 @@ export namespace Schemas {
      * * `BAA` - BAA
     * `DPA` - DPA
      */
-    export type DocumentTypeEnum = typeof DocumentTypeEnum[keyof typeof DocumentTypeEnum];
+    export type CreateLegalDocumentDocumentTypeEnum = typeof CreateLegalDocumentDocumentTypeEnum[keyof typeof CreateLegalDocumentDocumentTypeEnum];
 
 
-    export const DocumentTypeEnum = {
+    export const CreateLegalDocumentDocumentTypeEnum = {
       Baa: 'BAA',
       Dpa: 'DPA',
     } as const;
@@ -8057,7 +8057,7 @@ export namespace Schemas {
 
       * `BAA` - BAA
       * `DPA` - DPA */
-      document_type: DocumentTypeEnum;
+      document_type: CreateLegalDocumentDocumentTypeEnum;
       /**
          * The customer legal entity entering the agreement (PandaDoc's Client.Company).
          * @maxLength 255
@@ -35595,6 +35595,65 @@ export namespace Schemas {
       install_url: string;
       /** OAuth or install flow used for this GitHub connection. */
       connect_flow: string;
+    }
+
+    /**
+     * * `transcript` - transcript
+    * `summary` - summary
+     */
+    export type UserInterviewSearchDocumentTypeEnum = typeof UserInterviewSearchDocumentTypeEnum[keyof typeof UserInterviewSearchDocumentTypeEnum];
+
+
+    export const UserInterviewSearchDocumentTypeEnum = {
+      Transcript: 'transcript',
+      Summary: 'summary',
+    } as const;
+
+    export interface UserInterviewSearchRequest {
+      /**
+         * Natural-language query to match semantically against interview transcripts and summaries.
+         * @maxLength 2000
+         */
+      query: string;
+      /**
+         * Which document types to search across. Omit to default to both `transcript` and `summary`. Pass a non-empty subset to restrict the search.
+         * @minItems 1
+         */
+      document_types?: UserInterviewSearchDocumentTypeEnum[];
+      /**
+         * Optional. Restrict results to interviews belonging to a specific UserInterviewTopic.
+         * @nullable
+         */
+      topic_id?: string | null;
+      /**
+         * Maximum number of matches to return (1-50). Defaults to 10. Two matches per interview are possible — one for the transcript, one for the summary.
+         * @minimum 1
+         * @maximum 50
+         */
+      limit?: number;
+    }
+
+    export interface UserInterviewSearchResult {
+      /** ID of the matched UserInterview. */
+      interview_id: string;
+      /** Which document type matched — `transcript` is the raw conversation, `summary` is the AI-generated abstract.
+
+      * `transcript` - transcript
+      * `summary` - summary */
+      document_type: UserInterviewSearchDocumentTypeEnum;
+      /** Cosine similarity in [0, 1]; higher is closer to the query. Computed as `1 - cosineDistance`. */
+      similarity: number;
+      /** Excerpt of the matched document (first 500 characters). */
+      content_snippet: string;
+      /** Email or PostHog distinct ID of the interviewee. */
+      interviewee_identifier: string;
+      /**
+         * ID of the UserInterviewTopic the interview was conducted for, or null if detached.
+         * @nullable
+         */
+      topic_id: string | null;
+      /** When the interview row was created. */
+      created_at: string;
     }
 
     export interface UserPushTokenItem {

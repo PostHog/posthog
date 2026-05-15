@@ -3000,6 +3000,10 @@ class MarketingIntegrationConfig1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    adStatsTableName: Literal["ad_stats"] = "ad_stats"
+    adTableName: Literal["ad"] = "ad"
+    adsetStatsTableName: Literal["ad_group_stats"] = "ad_group_stats"
+    adsetTableName: Literal["ad_group"] = "ad_group"
     campaignTableName: Literal["campaign"] = "campaign"
     defaultSources: list[str] = Field(..., max_length=10, min_length=10)
     idField: Literal["campaign_id"] = "campaign_id"
@@ -3015,6 +3019,10 @@ class MarketingIntegrationConfig2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    adStatsTableName: Literal["creative_stats"] = "creative_stats"
+    adTableName: Literal["creatives"] = "creatives"
+    adsetStatsTableName: Literal["campaign_stats"] = "campaign_stats"
+    adsetTableName: Literal["campaigns"] = "campaigns"
     campaignTableName: Literal["campaign_groups"] = "campaign_groups"
     defaultSources: list[str] = Field(..., max_length=2, min_length=2)
     idField: Literal["id"] = "id"
@@ -3039,6 +3047,10 @@ class MarketingIntegrationConfig3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    adStatsTableName: Literal["ad_stats"] = "ad_stats"
+    adTableName: Literal["ads"] = "ads"
+    adsetStatsTableName: Literal["adset_stats"] = "adset_stats"
+    adsetTableName: Literal["adsets"] = "adsets"
     campaignTableName: Literal["campaigns"] = "campaigns"
     conversionActionTypes: ConversionActionTypes
     defaultSources: list[str] = Field(..., max_length=9, min_length=9)
@@ -3055,6 +3067,10 @@ class MarketingIntegrationConfig4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    adStatsTableName: Literal["ad_report"] = "ad_report"
+    adTableName: Literal["ads"] = "ads"
+    adsetStatsTableName: Literal["ad_group_report"] = "ad_group_report"
+    adsetTableName: Literal["ad_groups"] = "ad_groups"
     campaignTableName: Literal["campaigns"] = "campaigns"
     defaultSources: list[str] = Field(..., max_length=1, min_length=1)
     idField: Literal["campaign_id"] = "campaign_id"
@@ -3070,6 +3086,10 @@ class MarketingIntegrationConfig5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    adStatsTableName: Literal["ad_report"] = "ad_report"
+    adTableName: Literal["ads"] = "ads"
+    adsetStatsTableName: Literal["ad_group_report"] = "ad_group_report"
+    adsetTableName: Literal["ad_groups"] = "ad_groups"
     campaignTableName: Literal["campaigns"] = "campaigns"
     defaultSources: list[str] = Field(..., max_length=1, min_length=1)
     idField: Literal["id"] = "id"
@@ -3085,6 +3105,10 @@ class MarketingIntegrationConfig6(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    adStatsTableName: Literal["ad_performance_report"] = "ad_performance_report"
+    adTableName: Literal["ad_performance_report"] = "ad_performance_report"
+    adsetStatsTableName: Literal["ad_group_performance_report"] = "ad_group_performance_report"
+    adsetTableName: Literal["ad_group_performance_report"] = "ad_group_performance_report"
     campaignTableName: Literal["campaigns"] = "campaigns"
     defaultSources: list[str] = Field(..., max_length=2, min_length=2)
     idField: Literal["id"] = "id"
@@ -3100,6 +3124,10 @@ class MarketingIntegrationConfig7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    adStatsTableName: Literal["ad_stats_daily"] = "ad_stats_daily"
+    adTableName: Literal["ads"] = "ads"
+    adsetStatsTableName: Literal["ad_squad_stats_daily"] = "ad_squad_stats_daily"
+    adsetTableName: Literal["ad_squads"] = "ad_squads"
     campaignTableName: Literal["campaigns"] = "campaigns"
     conversionFields: list[str] = Field(..., max_length=3, min_length=3)
     conversionValueFields: list[str] = Field(..., max_length=3, min_length=3)
@@ -3117,6 +3145,10 @@ class MarketingIntegrationConfig8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    adStatsTableName: Literal["ad_analytics"] = "ad_analytics"
+    adTableName: Literal["ads"] = "ads"
+    adsetStatsTableName: Literal["ad_group_analytics"] = "ad_group_analytics"
+    adsetTableName: Literal["ad_groups"] = "ad_groups"
     campaignTableName: Literal["campaigns"] = "campaigns"
     defaultSources: list[str] = Field(..., max_length=1, min_length=1)
     idField: Literal["id"] = "id"
