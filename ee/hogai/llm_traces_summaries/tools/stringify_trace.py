@@ -4,7 +4,7 @@ import structlog
 
 from posthog.schema import LLMTrace
 
-from posthog.helpers.tiktoken_encoding import get_tiktoken_encoding_for_model
+from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
@@ -13,7 +13,7 @@ logger = structlog.get_logger(__name__)
 class LLMTracesSummarizerStringifier:
     def __init__(self, team: Team):
         self._team = team
-        self._token_encoder = get_tiktoken_encoding_for_model("gpt-4o")
+        self._token_encoder = get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL)
         self._stringified_trace_max_tokens = 5000
 
     def stringify_traces(self, traces_chunk: list[LLMTrace]) -> dict[str, str]:
