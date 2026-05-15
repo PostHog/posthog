@@ -9,9 +9,12 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+import pydantic
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
+
+from posthog.schema import EventsNode, ExperimentMetric
 
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.models import FeatureFlag, Team
@@ -552,6 +555,266 @@ class TestExperimentService(APIBaseTest):
         message = str(ctx.exception)
         assert "...(truncated)" in message
         assert len(message) < 1_000, f"Error message length was {len(message)}, expected to be bounded"
+
+    # ------------------------------------------------------------------
+    # validate_experiment_metrics — preserves existing rejection contract
+    # ------------------------------------------------------------------
+
+    def test_validate_experiment_metrics_accepts_none(self) -> None:
+        ExperimentService.validate_experiment_metrics(None)
+
+    def test_validate_experiment_metrics_accepts_empty_list(self) -> None:
+        ExperimentService.validate_experiment_metrics([])
+
+    @parameterized.expand(
+        [
+            (
+                "valid_mean_with_event",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            ),
+            (
+                "valid_mean_with_action",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "ActionsNode", "id": 1},
+                },
+            ),
+            (
+                "valid_funnel_with_one_step",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            ),
+            (
+                "valid_ratio",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "ratio",
+                    "numerator": {"kind": "EventsNode", "event": "purchase"},
+                    "denominator": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            ),
+            (
+                "valid_retention",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "retention",
+                    "start_event": {"kind": "EventsNode", "event": "$pageview"},
+                    "completion_event": {"kind": "EventsNode", "event": "purchase"},
+                    "retention_window_start": 0,
+                    "retention_window_end": 7,
+                    "retention_window_unit": "day",
+                    "start_handling": "first_seen",
+                },
+            ),
+        ]
+    )
+    def test_validate_experiment_metrics_accepts_valid_payloads(self, _: str, metric: dict) -> None:
+        ExperimentService.validate_experiment_metrics([metric])
+
+    @parameterized.expand(
+        [
+            ("not_a_list", "not-a-list", "Metrics must be a list"),
+            ("metric_not_a_dict", ["not-a-dict"], "Invalid metric at index 0: must be a dict"),
+            (
+                "legacy_kind",
+                [{"kind": "ExperimentTrendsQuery"}],
+                "legacy metric kind 'ExperimentTrendsQuery' is no longer supported",
+            ),
+            (
+                "wrong_kind",
+                [{"kind": "FunnelsQuery"}],
+                "metric kind must be 'ExperimentMetric'",
+            ),
+            (
+                "funnel_with_no_series",
+                [{"kind": "ExperimentMetric", "metric_type": "funnel", "series": []}],
+                "funnel metrics require at least one step",
+            ),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_invalid_payloads(
+        self, _: str, metrics: object, expected_fragment: str
+    ) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(metrics)  # type: ignore[arg-type]
+        assert expected_fragment in str(ctx.exception), (
+            f"Expected fragment {expected_fragment!r} in error: {ctx.exception}"
+        )
+
+    # ------------------------------------------------------------------
+    # validate_experiment_metrics — improved pydantic error messages
+    # ------------------------------------------------------------------
+
+    _INVALID_METRIC_EVENTS_NODE_ID = {
+        "kind": "ExperimentMetric",
+        "metric_type": "mean",
+        "source": {"kind": "EventsNode", "event": "$pageview", "id": None},
+    }
+
+    def test_validate_experiment_metrics_does_not_leak_user_input_into_message(self) -> None:
+        """User-supplied data must not be echoed back into error messages reflected to the caller."""
+        sensitive_value = "secret-payload-12345-do-not-leak"
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {
+                "kind": "EventsNode",
+                "event": "$pageview",
+                "id": sensitive_value,
+            },
+        }
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([metric])
+        message = str(ctx.exception)
+        assert sensitive_value not in message, f"Sensitive user value leaked into error message: {message}"
+
+    def test_validate_experiment_metrics_strips_pydantic_url_field(self) -> None:
+        """Pydantic URLs like https://errors.pydantic.dev/... add noise — strip them."""
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
+        message = str(ctx.exception)
+        assert "errors.pydantic.dev" not in message
+        assert "'url':" not in message
+
+    def test_validate_experiment_metrics_preserves_loc_and_type_in_message(self) -> None:
+        """Field location and error type stay so callers can self-correct."""
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
+        message = str(ctx.exception)
+        assert "extra_forbidden" in message
+        assert "id" in message
+
+    def test_validate_experiment_metrics_preserves_index_prefix(self) -> None:
+        """The 'Invalid metric at index <i>:' prefix identifies which metric failed."""
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
+        assert "Invalid metric at index 0:" in str(ctx.exception)
+
+    def test_metric_type_to_class_mapping_matches_schema(self) -> None:
+        """Drift guard: every variant of the ExperimentMetric union must have an entry in
+        _METRIC_TYPE_TO_CLASS. If a new metric_type is added to the schema, this fails so
+        the mapping (used to filter pydantic errors to the matching variant) stays accurate."""
+        root_annotation = ExperimentMetric.model_fields["root"].annotation
+        assert root_annotation is not None, "ExperimentMetric.root has no annotation — schema is malformed"
+        union_variants = root_annotation.__args__
+        schema_pairs = {}
+        for variant in union_variants:
+            metric_type_annotation = variant.model_fields["metric_type"].annotation
+            assert metric_type_annotation is not None, (
+                f"{variant.__name__}.metric_type has no annotation — schema is malformed"
+            )
+            schema_pairs[metric_type_annotation.__args__[0]] = variant.__name__
+        assert ExperimentService._METRIC_TYPE_TO_CLASS == schema_pairs, (
+            "ExperimentMetric union changed — update ExperimentService._METRIC_TYPE_TO_CLASS. "
+            f"Expected {schema_pairs}, got {ExperimentService._METRIC_TYPE_TO_CLASS}"
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "matches_events_node_id",
+                {"type": "extra_forbidden", "loc": ("ExperimentMeanMetric", "source", "EventsNode", "id")},
+                True,
+            ),
+            (
+                "ignores_wrong_error_type",
+                {"type": "missing", "loc": ("ExperimentMeanMetric", "source", "EventsNode", "id")},
+                False,
+            ),
+            (
+                "ignores_extra_forbidden_on_other_field",
+                {"type": "extra_forbidden", "loc": ("ExperimentMeanMetric", "source", "EventsNode", "foo")},
+                False,
+            ),
+            (
+                "ignores_extra_forbidden_not_on_events_node",
+                {"type": "extra_forbidden", "loc": ("ExperimentMeanMetric", "source", "ActionsNode", "event")},
+                False,
+            ),
+            ("ignores_empty_loc", {"type": "extra_forbidden", "loc": ()}, False),
+            ("ignores_missing_loc", {"type": "extra_forbidden"}, False),
+        ]
+    )
+    def test_is_events_node_actions_node_confusion_predicate(self, _: str, err: dict, expected: bool) -> None:
+        assert ExperimentService._is_events_node_actions_node_confusion(err) is expected
+
+    def test_pydantic_extra_forbidden_error_code_is_still_in_use(self) -> None:
+        """Canary: the EventsNode.id hint matches on the pydantic error type slug
+        'extra_forbidden'. Pydantic publishes these slugs as stable public API, but they
+        live in an external dependency — fail loudly if a future pydantic upgrade renames
+        the slug so the hint stops silently matching."""
+        try:
+            EventsNode.model_validate({"event": "x", "totally_made_up_field_does_not_exist": 1})
+        except pydantic.ValidationError as e:
+            error_types = {err["type"] for err in e.errors()}
+            assert "extra_forbidden" in error_types, (
+                f"pydantic no longer emits 'extra_forbidden' for unknown fields — "
+                f"got {error_types}. Update ExperimentService._build_metric_validation_hint."
+            )
+        else:
+            raise AssertionError("pydantic did not reject an unknown field on EventsNode")
+
+    def test_validate_experiment_metrics_events_node_id_hint(self) -> None:
+        """Passing `id` on an EventsNode yields a hint mentioning both EventsNode and ActionsNode."""
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
+        message = str(ctx.exception)
+        assert "EventsNode" in message
+        assert "ActionsNode" in message
+
+    def test_validate_experiment_metrics_does_not_echo_large_user_values(self) -> None:
+        """A large user-supplied value (e.g. enormous event name) must not bloat the message."""
+        huge_value = "x" * 10_000
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "$pageview", "id": huge_value},
+        }
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([metric])
+        message = str(ctx.exception)
+        assert huge_value not in message
+        # The message size must scale with the metric schema (bounded), not with user input.
+        # Even with a 10KB user value, the message stays small relative to the input.
+        assert len(message) < len(huge_value), (
+            f"Error message length {len(message)} must not grow with user input ({len(huge_value)})"
+        )
+
+    def test_validate_experiment_metrics_caps_reported_errors_for_huge_payloads(self) -> None:
+        """A funnel with many bad steps must not produce an unbounded error list."""
+        # 100 invalid funnel steps — each one will trigger union-variant errors.
+        bad_step = {"kind": "EventsNode", "event": "$pageview", "id": None}
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "funnel",
+            "series": [bad_step] * 100,
+        }
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([metric])
+        message = str(ctx.exception)
+        # The truncation marker key from the implementation should appear when the cap is hit.
+        assert "truncated" in message
+        # And the message size remains bounded even with 100 bad steps.
+        assert len(message) < 10_000, f"Error message length {len(message)} exceeded bound"
+
+    def test_validate_experiment_metrics_reports_index_for_second_metric(self) -> None:
+        """Multi-metric payloads must report which index failed."""
+        valid = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([valid, self._INVALID_METRIC_EVENTS_NODE_ID])
+        assert "Invalid metric at index 1:" in str(ctx.exception)
 
     # ------------------------------------------------------------------
     # Service contract fields

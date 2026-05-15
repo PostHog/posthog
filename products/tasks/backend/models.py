@@ -56,6 +56,7 @@ class Task(DeletedMetaFields, models.Model):
         USER_CREATED = "user_created", "User Created"
         AUTOMATION = "automation", "Automation"
         SLACK = "slack", "Slack"
+        SENDBLUE = "sendblue", "Sendblue"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
         # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),
@@ -290,7 +291,7 @@ class Task(DeletedMetaFields, models.Model):
 
         created_by = User.objects.get(id=user_id)
 
-        from products.tasks.backend.services.sandbox import is_public_sandbox_repo
+        from products.tasks.backend.services.sandbox import can_clone_without_github_integration
         from products.tasks.backend.temporal.process_task.utils import (
             PrAuthorshipMode,
             RunSource,
@@ -334,7 +335,11 @@ class Task(DeletedMetaFields, models.Model):
                 github_user_integration = user_github_integration.integration
 
         if repository:
-            if not github_integration and github_user_integration is None and not is_public_sandbox_repo(repository):
+            if (
+                not github_integration
+                and github_user_integration is None
+                and not can_clone_without_github_integration(repository, origin_product)
+            ):
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
         sandbox_env = None
@@ -1010,6 +1015,54 @@ class TaskRun(models.Model):
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
+
+
+class TaskPrewarmedSandbox(models.Model):
+    class Status(models.TextChoices):
+        PROVISIONING = "provisioning", "Provisioning"
+        AVAILABLE = "available", "Available"
+        LEASED = "leased", "Leased"
+        TERMINATED = "terminated", "Terminated"
+        FAILED = "failed", "Failed"
+
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    pool_key = models.CharField(max_length=255, db_index=True)
+    origin_product = models.CharField(max_length=20, choices=Task.OriginProduct)
+    repository = models.CharField(max_length=255)
+    provider = models.CharField(max_length=32)
+    template = models.CharField(max_length=50)
+    sandbox_id = models.CharField(max_length=255, null=True, blank=True, unique=True)
+    status = models.CharField(max_length=20, choices=Status, default=Status.PROVISIONING, db_index=True)
+    leased_task_run = models.ForeignKey(
+        TaskRun,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="prewarmed_sandbox_leases",
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+    last_error = models.TextField(null=True, blank=True)
+    warmed_at = models.DateTimeField(null=True, blank=True)
+    leased_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_prewarmed_sandbox"
+        indexes = [
+            models.Index(fields=["team", "pool_key", "status"], name="task_prewarmed_team_pool_idx"),
+            models.Index(fields=["pool_key", "status"], name="task_prewarmed_pool_status_idx"),
+            models.Index(
+                fields=["team", "origin_product", "repository", "status"], name="task_prewarmed_team_origin_idx"
+            ),
+            models.Index(fields=["origin_product", "repository", "status"], name="task_prewarmed_origin_repo_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.pool_key} {self.status} {self.sandbox_id or self.id}"
 
 
 class SandboxSnapshot(UUIDModel):

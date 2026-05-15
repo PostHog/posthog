@@ -6,21 +6,28 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.core.files import File
+from django.db import models
 from django.db.models import QuerySet
+from django.utils import timezone
 
 import posthoganalytics
 import posthoganalytics.ai.openai
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from elevenlabs import ElevenLabs
 from posthoganalytics.ai.openai import OpenAI
-from rest_framework import filters, serializers, viewsets
+from rest_framework import filters, response, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.parsers import JSONParser, MultiPartParser
+from rest_framework.request import Request
 
 from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.email import EmailMessage, is_email_available
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.utils import absolute_uri
 
 from .models import EmailWithDisplayNameValidator, IntervieweeContext, UserInterview, UserInterviewTopic
 
@@ -38,11 +45,13 @@ class UserInterviewSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "interviewee_emails",
+            "interviewee_identifier",
+            "topic",
             "transcript",
             "summary",
             "audio",
         )
-        read_only_fields = ("id", "created_by", "created_at", "transcript")
+        read_only_fields = ("id", "created_by", "created_at", "interviewee_identifier", "topic", "transcript")
 
     def create(self, validated_data: dict) -> UserInterview:
         request = self.context["request"]
@@ -310,17 +319,278 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
         )
 
 
+def _parse_identifier(identifier: str) -> tuple[str, str | None]:
+    """Split an interviewee identifier into a display name and (optional) email.
+
+    Accepts the same display-name format the topic validator accepts —
+    ``"Display Name <email@host>"`` — falling back to a best-effort
+    title-cased local-part for raw emails and the identifier as-is for
+    distinct IDs.
+    """
+    display_match = re.match(EmailWithDisplayNameValidator.display_name_regex, identifier)
+    if display_match:
+        return display_match.group(1).strip(), display_match.group(2).strip()
+    if "@" in identifier:
+        local_part = identifier.split("@", 1)[0]
+        return local_part.replace(".", " ").replace("_", " ").strip().title() or identifier, identifier
+    return identifier, None
+
+
+def _merge_agent_context(topic_context: str, personal_context: str) -> str:
+    parts = [p.strip() for p in (topic_context, personal_context) if p and p.strip()]
+    return "\n\n".join(parts)
+
+
+class InterviewLinkSerializer(serializers.Serializer):
+    interviewee_identifier = serializers.CharField(
+        max_length=400,
+        help_text="The original identifier (email or distinct ID) from the topic targeting.",
+    )
+    user_name = serializers.CharField(
+        help_text="Best-effort display name derived from the identifier, used to greet the interviewee.",
+    )
+    interview_url = serializers.URLField(
+        help_text="Public, unauthenticated URL the interviewee opens to start the call. Backed by a SharingConfiguration access token.",
+    )
+    agent_context = serializers.CharField(
+        help_text="The merged topic + per-interviewee context the voice agent will see during the call.",
+    )
+
+
+def _materialize_links_for_topic(*, topic: UserInterviewTopic, team: Any, created_by: Any) -> list[dict[str, Any]]:
+    """Get-or-create an `IntervieweeContext` and enabled `SharingConfiguration` for every
+    targeted identifier on the topic. Returns one row per identifier with the resolved
+    objects attached so callers (link-listing, invite-sending) can fan out without re-querying.
+
+    Race-safe: concurrent calls for the same (topic, identifier) rely on the
+    `unique_interviewee_per_topic` constraint (Paul's migration 0003) to coalesce. The
+    `SharingConfiguration` lookup is best-effort and may transiently produce two configs
+    on a tight race — that's acceptable since both are valid and one wins the next call.
+    """
+    identifiers: list[str] = []
+    seen: set[str] = set()
+    for raw in [*(topic.interviewee_emails or []), *(topic.interviewee_distinct_ids or [])]:
+        if raw and raw not in seen:
+            identifiers.append(raw)
+            seen.add(raw)
+
+    if not identifiers:
+        return []
+
+    results: list[dict[str, Any]] = []
+    for identifier in identifiers:
+        ic, _ = IntervieweeContext.objects.get_or_create(
+            team=team,
+            topic=topic,
+            interviewee_identifier=identifier,
+            defaults={"agent_context": "", "created_by": created_by},
+        )
+
+        sharing_config = (
+            SharingConfiguration.objects.filter(team=team, interviewee_context=ic, enabled=True)
+            .filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
+            .order_by("-created_at")
+            .first()
+        )
+        if sharing_config is None:
+            sharing_config = SharingConfiguration.objects.create(
+                team=team,
+                interviewee_context=ic,
+                enabled=True,
+            )
+
+        user_name, email = _parse_identifier(identifier)
+        results.append(
+            {
+                "identifier": identifier,
+                "user_name": user_name,
+                "email": email,
+                "interview_url": absolute_uri(f"/interview/{sharing_config.access_token}"),
+                "agent_context": _merge_agent_context(topic.agent_context or "", ic.agent_context or ""),
+                "interviewee_context": ic,
+                "sharing_configuration": sharing_config,
+            }
+        )
+    return results
+
+
+class InterviewInviteResultSerializer(serializers.Serializer):
+    interviewee_identifier = serializers.CharField(
+        help_text="The original identifier (email or distinct ID) from the topic targeting.",
+    )
+    email = serializers.EmailField(
+        required=False,
+        allow_null=True,
+        help_text="Email used for delivery. Null when the identifier was not an email (e.g., a distinct ID).",
+    )
+    interview_url = serializers.URLField(
+        help_text="The personalized public interview URL embedded in the email body.",
+    )
+    sent = serializers.BooleanField(
+        help_text="True if an email was queued for delivery. False when the recipient was skipped — see `reason`.",
+    )
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Why the email was skipped (e.g., `not_an_email`, `already_sent`). Empty when sent=true.",
+    )
+
+
+class SendInvitesRequestSerializer(serializers.Serializer):
+    subject = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text="Override the default email subject line. Defaults to a friendly prompt referencing the topic.",
+    )
+    reply_to = serializers.EmailField(
+        required=False,
+        help_text="Email address replies should go to. Defaults to the topic creator's email if blank.",
+    )
+    send_async = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="If true (default), queue delivery via Celery. If false, send synchronously and surface errors immediately.",
+    )
+
+
 @extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Planned user interview topics: who we want to target (cohort) and what we want to ask about."""
 
     scope_object = "user_interview"
+    # Treat the custom @action endpoints as writes so personal API keys with
+    # `user_interview:write` can hit them. Without this override, APIScopePermission
+    # can't map a custom action name to a scope and rejects the request with
+    # "This action does not support personal API key access".
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "generate_links",
+        "send_invites",
+    ]
     queryset = UserInterviewTopic.objects.select_related("created_by").all()
     serializer_class = UserInterviewTopicSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ["topic"]
     posthog_feature_flag = "user-interviews"
     permission_classes = [PostHogFeatureFlagPermission]
+
+    @extend_schema(
+        request=None,
+        responses={200: OpenApiResponse(response=InterviewLinkSerializer(many=True))},
+        description=(
+            "Generate one public interview link per targeted interviewee. "
+            "Materializes an IntervieweeContext row for every identifier on the topic "
+            "(without overwriting existing per-person context), and an enabled "
+            "SharingConfiguration with a unique access token. The URL resolves to the "
+            "public interview viewer with no PostHog auth required."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="generate_links")
+    def generate_links(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        topic = self.get_object()
+        results = _materialize_links_for_topic(topic=topic, team=self.team, created_by=request.user)
+
+        if not results:
+            return response.Response(
+                {
+                    "error": (
+                        "Topic targets a cohort but has no resolved emails or distinct IDs. "
+                        "Add interviewee_emails or interviewee_distinct_ids before generating links."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payload = [
+            {
+                "interviewee_identifier": r["identifier"],
+                "user_name": r["user_name"],
+                "interview_url": r["interview_url"],
+                "agent_context": r["agent_context"],
+            }
+            for r in results
+        ]
+        return response.Response(InterviewLinkSerializer(payload, many=True).data)
+
+    @extend_schema(
+        request=SendInvitesRequestSerializer,
+        responses={200: OpenApiResponse(response=InterviewInviteResultSerializer(many=True))},
+        description=(
+            "Generate (if needed) and email a personalized public interview link to every "
+            "targeted interviewee on this topic whose identifier is an email address. "
+            "Distinct-ID-only interviewees are skipped and surfaced in the response. "
+            "Each invite is keyed on the underlying SharingConfiguration so re-runs after "
+            "token rotation produce a fresh send."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="send_invites")
+    def send_invites(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        if not is_email_available():
+            return response.Response(
+                {"error": "Email is not configured for this PostHog instance."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        params = SendInvitesRequestSerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+
+        topic = self.get_object()
+        links = _materialize_links_for_topic(topic=topic, team=self.team, created_by=request.user)
+        if not links:
+            return response.Response(
+                {
+                    "error": (
+                        "Topic targets a cohort but has no resolved emails or distinct IDs. "
+                        "Add interviewee_emails or interviewee_distinct_ids before sending invites."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        topic_label = topic.topic or "a quick research interview"
+        subject = params.validated_data.get("subject") or f"Got 5 minutes to talk about {topic_label}?"
+        reply_to = params.validated_data.get("reply_to")
+        if not reply_to and topic.created_by_id and topic.created_by and topic.created_by.email:
+            reply_to = topic.created_by.email
+        send_async = params.validated_data["send_async"]
+
+        results: list[dict[str, Any]] = []
+        for link in links:
+            base = {
+                "interviewee_identifier": link["identifier"],
+                "email": link["email"],
+                "interview_url": link["interview_url"],
+            }
+            if not link["email"]:
+                results.append({**base, "sent": False, "reason": "not_an_email"})
+                continue
+
+            campaign_key = f"interview_invite_{link['sharing_configuration'].id}"
+            try:
+                message = EmailMessage(
+                    campaign_key=campaign_key,
+                    template_name="interview_invite",
+                    subject=subject,
+                    template_context={
+                        "user_name": link["user_name"],
+                        "topic": topic_label,
+                        "interview_url": link["interview_url"],
+                        "site_url": settings.SITE_URL,
+                    },
+                    reply_to=reply_to,
+                )
+                message.add_recipient(email=link["email"], name=link["user_name"])
+                message.send(send_async=send_async)
+                results.append({**base, "sent": True, "reason": ""})
+            except Exception as e:  # noqa: BLE001 — surface per-recipient failures without aborting the batch
+                posthoganalytics.capture_exception(e)
+                results.append({**base, "sent": False, "reason": f"error:{type(e).__name__}"})
+
+        return response.Response(InterviewInviteResultSerializer(results, many=True).data)
 
 
 class IntervieweeContextSerializer(serializers.ModelSerializer):
@@ -352,11 +622,14 @@ class IntervieweeContextSerializer(serializers.ModelSerializer):
         if not UserInterviewTopic.objects.filter(id=topic_id, team_id=team.id).exists():
             raise serializers.ValidationError({"topic": "Topic not found in this project."})
 
-        if self.instance is None:
-            interviewee_identifier = attrs.get("interviewee_identifier")
-            if IntervieweeContext.objects.filter(
+        interviewee_identifier = attrs.get("interviewee_identifier")
+        if interviewee_identifier is not None:
+            conflicts = IntervieweeContext.objects.filter(
                 topic_id=topic_id, interviewee_identifier=interviewee_identifier
-            ).exists():
+            )
+            if self.instance is not None:
+                conflicts = conflicts.exclude(pk=self.instance.pk)
+            if conflicts.exists():
                 raise serializers.ValidationError(
                     {
                         "interviewee_identifier": "A context row for this interviewee already exists on this topic. Update the existing row instead of creating a new one."

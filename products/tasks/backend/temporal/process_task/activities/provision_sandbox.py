@@ -11,6 +11,7 @@ from posthog.temporal.common.utils import asyncify
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.agentsh import ENV_FILE
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+from products.tasks.backend.services.prewarmed_sandbox_pool import try_lease_sendblue_prewarmed_sandbox
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
@@ -72,6 +73,8 @@ class CreateSandboxForRepositoryOutput:
     sandbox_id: str
     sandbox_url: str
     connect_token: str | None
+    used_prewarmed_sandbox: bool = False
+    prewarmed_sandbox_pool_entry_id: str | None = None
 
 
 @dataclass
@@ -331,6 +334,33 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
         image_source=prepared.image_source,
         **ctx.to_log_context(),
     ):
+        leased = try_lease_sendblue_prewarmed_sandbox(
+            run_id=ctx.run_id,
+            team_id=ctx.team_id,
+            origin_product=ctx.origin_product,
+            repository=prepared.repository,
+            environment_variables=prepared.environment_variables,
+        )
+        if leased is not None:
+            sandbox_state = {
+                "sandbox_id": leased.sandbox_id,
+                "sandbox_url": leased.sandbox_url,
+                "prewarmed_sandbox": True,
+                "prewarmed_sandbox_pool_entry_id": leased.pool_entry_id,
+            }
+            if leased.connect_token:
+                sandbox_state["sandbox_connect_token"] = leased.connect_token
+            TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
+            emit_agent_log(ctx.run_id, "debug", f"Using prewarmed Sendblue sandbox: {leased.sandbox_id}")
+            activity.logger.info(f"Leased prewarmed sandbox {leased.sandbox_id}")
+            return CreateSandboxForRepositoryOutput(
+                sandbox_id=leased.sandbox_id,
+                sandbox_url=leased.sandbox_url,
+                connect_token=leased.connect_token,
+                used_prewarmed_sandbox=True,
+                prewarmed_sandbox_pool_entry_id=leased.pool_entry_id,
+            )
+
         _emit_image_source_log(ctx, prepared)
         emit_agent_log(
             ctx.run_id,

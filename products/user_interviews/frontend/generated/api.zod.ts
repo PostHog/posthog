@@ -115,6 +115,31 @@ export const UserInterviewTopicsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Generate (if needed) and email a personalized public interview link to every targeted interviewee on this topic whose identifier is an email address. Distinct-ID-only interviewees are skipped and surfaced in the response. Each invite is keyed on the underlying SharingConfiguration so re-runs after token rotation produce a fresh send.
+ */
+export const userInterviewTopicsSendInvitesCreateBodySubjectMax = 200
+
+export const userInterviewTopicsSendInvitesCreateBodySendAsyncDefault = true
+
+export const UserInterviewTopicsSendInvitesCreateBody = /* @__PURE__ */ zod.object({
+    subject: zod
+        .string()
+        .max(userInterviewTopicsSendInvitesCreateBodySubjectMax)
+        .optional()
+        .describe('Override the default email subject line. Defaults to a friendly prompt referencing the topic.'),
+    reply_to: zod
+        .email()
+        .optional()
+        .describe("Email address replies should go to. Defaults to the topic creator's email if blank."),
+    send_async: zod
+        .boolean()
+        .default(userInterviewTopicsSendInvitesCreateBodySendAsyncDefault)
+        .describe(
+            'If true (default), queue delivery via Celery. If false, send synchronously and surface errors immediately.'
+        ),
+})
+
+/**
  * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
  */
 export const userInterviewTopicsIntervieweesCreateBodyIntervieweeIdentifierMax = 400

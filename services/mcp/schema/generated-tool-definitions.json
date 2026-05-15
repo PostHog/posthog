@@ -4758,6 +4758,54 @@
         },
         "feature_flag": "user-interviews"
     },
+    "user-interview-topics-generate-links": {
+        "description": "Generate one public, unauthenticated interview link per targeted interviewee on a user interview topic. For each identifier in the topic's `interviewee_emails` and `interviewee_distinct_ids`, materializes (or reuses) an IntervieweeContext row and an enabled SharingConfiguration, and returns the merged voice-agent context alongside the URL the interviewee should open. The URL hosts the call publicly — no PostHog login required. Calling this multiple times is safe: existing share links are reused.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Generate public interview links for a topic",
+        "title": "Generate public interview links for a topic",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interview-topics-interviewees-create": {
+        "description": "Attach extra context for a single interviewee on a user interview topic. Use this to give the voice agent background it should know about this specific person — e.g. \"uses the replay product but has never used summarization\". `interviewee_identifier` is the email or PostHog distinct ID matching one of the entries in the parent topic's targeting fields. `agent_context` is free text. At most one row per (topic, interviewee_identifier) — calling create twice for the same pair will conflict.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Add per-interviewee context to a topic",
+        "title": "Add per-interviewee context to a topic",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interview-topics-interviewees-list": {
+        "description": "List the per-interviewee context rows attached to a single user interview topic. Each row is (interviewee_identifier, agent_context). Use this to see who has extra context attached before adding more.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "List per-interviewee contexts for a topic",
+        "title": "List per-interviewee contexts for a topic",
+        "required_scopes": ["user_interview:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "user-interviews"
+    },
     "user-interview-topics-list": {
         "description": "List planned user interview topics in the current project, newest first. Each result includes the topic, targeting (interviewee_cohort, interviewee_emails, interviewee_distinct_ids), and the voice agent setup (agent_context, questions). Supports `search` for substring match against the topic, and `limit`/`offset` for pagination.",
         "category": "User interview topics",
@@ -4771,6 +4819,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interview-topics-send-invites": {
+        "description": "Generate (if not yet created) and email a personalized public interview link to every targeted interviewee on a user interview topic whose identifier is an email address. The email includes a friendly greeting and a button linking to the public voice-interview page. Distinct-ID-only interviewees are skipped and surfaced in the response. Use this once a topic is finalized; safe to call repeatedly — invites are deduplicated per share via the messaging system's idempotency record, and a token rotation produces a fresh send key.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Email interview invites to every targeted interviewee",
+        "title": "Email interview invites to every targeted interviewee",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "user-interviews"
     },
