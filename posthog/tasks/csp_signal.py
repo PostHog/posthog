@@ -256,26 +256,41 @@ def enqueue_csp_violation_signals(team_id: int, properties_list: list[dict]) -> 
     client = get_client()
     daily_key = _daily_count_key(team_id)
     cap = settings.CSP_SIGNAL_DAILY_CAP_PER_TEAM
+
+    # Reserve `total` slots atomically up front, then roll back any unused slots
+    # (duplicates, cap overflow, broker failure). INCRBY is atomic across workers
+    # so concurrent callers can't both claim the last N slots.
     try:
-        current_raw = client.get(daily_key)
-        current_count = int(current_raw) if current_raw is not None else 0
+        new_count = client.incrby(daily_key, total)
+        # Idempotent TTL — covers cold key, eviction, or manual admin set.
+        client.expire(daily_key, CSP_SIGNAL_DAILY_COUNT_TTL_SECONDS)
     except Exception:
-        logger.exception("csp_signal_daily_count_read_failed", team_id=team_id)
+        logger.exception("csp_signal_daily_count_reserve_failed", team_id=team_id)
         _record_dropped(team_id, total, reason="redis_count_error")
         return 0
 
-    remaining_budget = max(0, cap - current_count)
-    if remaining_budget == 0:
-        _record_dropped(team_id, total, reason="daily_cap_reached")
-        return 0
+    def _release_slots(n: int) -> None:
+        if n <= 0:
+            return
+        try:
+            client.decrby(daily_key, n)
+        except Exception:
+            logger.exception("csp_signal_daily_count_release_failed", team_id=team_id, slots=n)
+
+    reserved = total
+    if new_count > cap:
+        over = new_count - cap
+        if over >= total:
+            _release_slots(total)
+            _record_dropped(team_id, total, reason="daily_cap_reached")
+            return 0
+        reserved = total - over
+        _release_slots(over)
+        _record_dropped(team_id, over, reason="daily_cap_reached")
 
     signals_to_emit: list[dict] = []
     acquired_keys: list[str] = []
-    over_cap = 0
-    for properties in properties_list:
-        if len(signals_to_emit) >= remaining_budget:
-            over_cap += 1
-            continue
+    for properties in properties_list[:reserved]:
         fingerprint = _fingerprint(properties)
         key = _dedup_key(team_id, fingerprint)
         try:
@@ -296,8 +311,9 @@ def enqueue_csp_violation_signals(team_id: int, properties_list: list[dict]) -> 
             }
         )
 
-    if over_cap:
-        _record_dropped(team_id, over_cap, reason="daily_cap_reached")
+    # Release reserved slots we didn't actually fill (dedup misses, redis errors).
+    unused = reserved - len(signals_to_emit)
+    _release_slots(unused)
 
     if not signals_to_emit:
         return 0
@@ -305,25 +321,16 @@ def enqueue_csp_violation_signals(team_id: int, properties_list: list[dict]) -> 
     try:
         emit_csp_violation_signals_task.delay(team_id=team_id, signals=signals_to_emit)
     except Exception:
-        # Releasing the dedup keys lets the next request retry instead of being silently
-        # throttled for 24h after a transient broker error.
+        # Release dedup keys and the reservation together so the next request can retry.
         for key in acquired_keys:
             try:
                 client.delete(key)
             except Exception:
                 pass
+        _release_slots(len(signals_to_emit))
         _record_dropped(team_id, len(signals_to_emit), reason="celery_enqueue_failed")
         logger.exception("csp_signal_celery_enqueue_failed", team_id=team_id, signal_count=len(signals_to_emit))
         return 0
-
-    try:
-        new_count = client.incrby(daily_key, len(signals_to_emit))
-        # First write today seeds the key; set a TTL so it expires shortly after UTC midnight.
-        if new_count == len(signals_to_emit):
-            client.expire(daily_key, CSP_SIGNAL_DAILY_COUNT_TTL_SECONDS)
-    except Exception:
-        # Counter failure shouldn't fail the emit — Celery has already accepted the work.
-        logger.exception("csp_signal_daily_count_increment_failed", team_id=team_id)
 
     _record_outcome(team_id, len(signals_to_emit), "embedded")
     return len(signals_to_emit)
@@ -346,7 +353,7 @@ def emit_csp_violation_signals_task(team_id: int, signals: list[dict]) -> None:
         logger.warning("csp_signal_emit_missing_team", team_id=team_id, signal_count=len(signals))
         return
 
-    for signal in signals:
+    for i, signal in enumerate(signals):
         source_id = signal.get("source_id", "")
         try:
             async_to_sync(emit_signal)(
@@ -366,8 +373,8 @@ def emit_csp_violation_signals_task(team_id: int, signals: list[dict]) -> None:
             logger.warning(
                 "csp_signal_task_soft_time_limit",
                 team_id=team_id,
-                emitted_so_far=signals.index(signal),
-                remaining=len(signals) - signals.index(signal),
+                emitted_so_far=i,
+                remaining=len(signals) - i,
             )
             raise
         except Exception:

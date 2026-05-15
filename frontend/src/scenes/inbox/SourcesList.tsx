@@ -96,7 +96,7 @@ function Source(props: SourceProps): JSX.Element {
                         </LemonButton>
                     )}
                 </div>
-                <p className="text-xs text-secondary mt-0.25 mb-0">{props.description}</p>
+                <p className="text-xs text-secondary mt-0.25 mb-0 max-w-[80%]">{props.description}</p>
                 {!isComingSoon && props.checked && props.config !== undefined && (
                     <>
                         <div className="mt-2 border rounded">

@@ -264,23 +264,47 @@ class TestCSPSignalThrottle(BaseTest):
     @patch("posthog.tasks.csp_signal.get_client")
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
     def test_redis_failure_skips_violation(self, mock_delay: MagicMock, mock_get_client: MagicMock) -> None:
+        # Redis outage hits the daily-count reservation first (atomic INCRBY)
+        # — and an outage would fail every subsequent call too.
         fake_client = mock_get_client.return_value
-        fake_client.set.side_effect = RuntimeError("redis down")
+        fake_client.incrby.side_effect = RuntimeError("redis down")
 
         result = enqueue_csp_violation_signals(self.team.id, [_csp_properties()])
         assert result == 0
         mock_delay.assert_not_called()
 
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay", side_effect=RuntimeError("broker down"))
-    def test_celery_dispatch_failure_releases_dedup_keys(self, _mock_delay: MagicMock) -> None:
+    def test_celery_dispatch_failure_releases_dedup_keys_and_reservation(self, _mock_delay: MagicMock) -> None:
         from posthog.redis import get_client
 
         properties = _csp_properties()
         result = enqueue_csp_violation_signals(self.team.id, [properties])
         assert result == 0
 
+        client = get_client()
+        # Dedup key DEL'd so the next request retries.
         key = _dedup_key(self.team.id, _fingerprint(properties))
-        assert get_client().get(key) is None
+        assert client.get(key) is None
+        # Reserved daily count slot also released.
+        count = client.get(_daily_count_key(self.team.id))
+        assert count is None or int(count) == 0
+
+    @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
+    def test_daily_count_releases_unused_slots_when_all_duplicates(self, mock_delay: MagicMock) -> None:
+        from posthog.redis import get_client
+
+        properties = _csp_properties()
+        # First call: count goes 0 → 1
+        enqueue_csp_violation_signals(self.team.id, [properties])
+        # Second call with the same fingerprint: reservation +1, but dedup misses,
+        # so the unused slot is released. Count must stay at 1, not 2.
+        enqueue_csp_violation_signals(self.team.id, [properties])
+
+        count = get_client().get(_daily_count_key(self.team.id))
+        assert count is not None
+        assert int(count) == 1
+        # Only the first call dispatched a task.
+        mock_delay.assert_called_once()
 
     @patch("posthog.tasks.csp_signal.emit_csp_violation_signals_task.delay")
     def test_daily_count_increments_after_dispatch(self, mock_delay: MagicMock) -> None:
