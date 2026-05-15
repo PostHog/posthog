@@ -110,6 +110,11 @@ CONSTANCE_CONFIG = {
         "Whether to use SSL protocol when connecting to the email host.",
         bool,
     ),
+    "EMAIL_TIMEOUT": (
+        get_from_env("EMAIL_TIMEOUT", 10, type_cast=int),
+        "Timeout in seconds for SMTP connections. Prevents indefinite hangs on misconfigured hosts.",
+        int,
+    ),
     "EMAIL_DEFAULT_FROM": (
         get_from_env("EMAIL_DEFAULT_FROM", get_from_env("DEFAULT_FROM_EMAIL", "root@localhost")),
         "Email address that will appear as the sender in emails (From header).",
@@ -302,6 +307,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_HOST_PASSWORD",
     "EMAIL_USE_TLS",
     "EMAIL_USE_SSL",
+    "EMAIL_TIMEOUT",
     "EMAIL_DEFAULT_FROM",
     "EMAIL_REPLY_TO",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",

@@ -5,8 +5,11 @@ import html
 import uuid
 import datetime
 import dataclasses
+import logging
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Optional
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -237,13 +240,28 @@ def _send_via_smtp(
         connection = None
         try:
             klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
+            port = get_instance_setting("EMAIL_PORT")
+            use_tls = get_instance_setting("EMAIL_USE_TLS")
+            use_ssl = get_instance_setting("EMAIL_USE_SSL")
+
+            # Port 465 uses implicit SSL (SMTPS). EMAIL_USE_TLS enables STARTTLS which is
+            # incompatible with port 465 and causes the connection to hang indefinitely.
+            # The correct setting for port 465 is EMAIL_USE_SSL=true, EMAIL_USE_TLS=false.
+            if port == 465 and use_tls and not use_ssl:
+                logger.warning(
+                    "SMTP misconfiguration: EMAIL_PORT=465 requires EMAIL_USE_SSL=true, not EMAIL_USE_TLS=true. "
+                    "Port 465 uses implicit SSL (SMTPS); STARTTLS (EMAIL_USE_TLS) is for port 587. "
+                    "Connections on port 465 with EMAIL_USE_TLS=true will hang indefinitely."
+                )
+
             connection = klass(
                 host=get_instance_setting("EMAIL_HOST"),
-                port=get_instance_setting("EMAIL_PORT"),
+                port=port,
                 username=get_instance_setting("EMAIL_HOST_USER"),
                 password=get_instance_setting("EMAIL_HOST_PASSWORD"),
-                use_tls=get_instance_setting("EMAIL_USE_TLS"),
-                use_ssl=get_instance_setting("EMAIL_USE_SSL"),
+                use_tls=use_tls,
+                use_ssl=use_ssl,
+                timeout=get_instance_setting("EMAIL_TIMEOUT"),
             )
             connection.open()
             connection.send_messages(messages)
