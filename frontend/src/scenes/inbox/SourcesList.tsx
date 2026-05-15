@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconArrowRight, IconBell, IconGithub, IconLinear, IconWarning } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { RecordingsUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -20,13 +20,13 @@ type SourceProps =
     | {
           icon: React.ReactNode
           title: string
-          description: string
+          description: React.ReactNode
           variant: 'coming-soon'
       }
     | {
           icon: React.ReactNode
           title: string
-          description: string
+          description: React.ReactNode
           variant: 'available'
           checked: boolean
           loading?: boolean
@@ -247,7 +247,14 @@ export function SourcesList(): JSX.Element {
                 <Source
                     icon={<IconWarning className="size-5" />}
                     title="CSP violations"
-                    description="Content Security Policy violation reports from real browsers → Signals"
+                    description={
+                        <>
+                            Content Security Policy violation reports from real browsers → Signals.{' '}
+                            <Link to="https://posthog.com/docs/error-tracking/csp-reporting" target="_blank">
+                                Read the docs
+                            </Link>
+                        </>
+                    }
                     variant="available"
                     checked={!!cspReportingConfig?.enabled}
                     loading={isCspReportingToggling}
