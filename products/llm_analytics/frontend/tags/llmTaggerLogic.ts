@@ -54,6 +54,8 @@ const DEFAULT_TAGGER_CONFIG: TaggerConfig = {
     tags: [{ name: '', description: '' }],
     min_tags: 0,
     max_tags: null,
+    dynamic_tags: false,
+    tags_url: null,
 }
 
 const DEFAULT_CONDITION: TaggerConditionSet = {
@@ -250,14 +252,18 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                               // tags with no error. Synthesize a single-entry error for the
                               // empty-tags case so the form stays invalid (the UI guardrail
                               // blocks reaching this state, but a programmatic removeTag could).
+                              // Skip tag-list validation entirely when dynamic_tags is on — the LLM
+                              // defines the categories itself, so the user shouldn't need to author any.
                               tags:
-                                  values.tagger_config.tags.length === 0
-                                      ? [{ name: 'At least one tag is required' }]
-                                      : values.tagger_config.tags.some((t) => !t.name.trim())
-                                        ? values.tagger_config.tags.map((t) =>
-                                              !t.name.trim() ? { name: 'All tags must have a name' } : {}
-                                          )
-                                        : undefined,
+                                  'dynamic_tags' in values.tagger_config && values.tagger_config.dynamic_tags
+                                      ? undefined
+                                      : values.tagger_config.tags.length === 0
+                                        ? [{ name: 'At least one tag is required' }]
+                                        : values.tagger_config.tags.some((t) => !t.name.trim())
+                                          ? values.tagger_config.tags.map((t) =>
+                                                !t.name.trim() ? { name: 'All tags must have a name' } : {}
+                                            )
+                                          : undefined,
                           },
             }),
             submit: async (values: TaggerForm) => {

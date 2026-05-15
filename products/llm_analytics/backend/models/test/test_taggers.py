@@ -79,6 +79,44 @@ class TestLLMTaggerConfig(BaseTest):
         )
         assert config.max_tags is None
 
+    def test_dynamic_tags_allows_empty_tag_list(self):
+        config = LLMTaggerConfig(
+            prompt="Tag support tickets by feature owner.",
+            tags=[],
+            dynamic_tags=True,
+            tags_url="https://posthog.com/handbook/engineering/feature-ownership",
+        )
+        assert config.dynamic_tags is True
+        assert config.tags == []
+        assert config.tags_url == "https://posthog.com/handbook/engineering/feature-ownership"
+
+    def test_dynamic_tags_skips_max_tags_upper_bound_check(self):
+        config = LLMTaggerConfig(
+            prompt="Test",
+            tags=[],
+            dynamic_tags=True,
+            max_tags=10,
+        )
+        assert config.max_tags == 10
+
+    def test_tags_url_requires_scheme(self):
+        with self.assertRaises(Exception):
+            LLMTaggerConfig(
+                prompt="Test",
+                tags=[],
+                dynamic_tags=True,
+                tags_url="example.com/no-scheme",
+            )
+
+    def test_tags_url_blank_string_normalised_to_none(self):
+        config = LLMTaggerConfig(
+            prompt="Test",
+            tags=[],
+            dynamic_tags=True,
+            tags_url="   ",
+        )
+        assert config.tags_url is None
+
 
 class TestTaggerModel(BaseTest):
     def _make_tagger_config(self, **overrides):

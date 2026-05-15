@@ -40,6 +40,13 @@ export interface LLMTaggerConfig {
     tags: TagDefinition[]
     min_tags: number
     max_tags: number | null
+    /**
+     * When true, the LLM defines the output tag categories itself based on the prompt and
+     * optional reference URL. The static `tags` list is ignored in this mode.
+     */
+    dynamic_tags?: boolean
+    /** Optional reference URL surfaced to the LLM alongside the prompt when dynamic_tags is true. */
+    tags_url?: string | null
 }
 
 export interface HogTaggerConfig {

@@ -36,9 +36,18 @@ class LLMTaggerConfig(BaseModel):
     """Configuration for LLM-based taggers."""
 
     prompt: str = Field(..., min_length=1, description="Prompt instructing the LLM how to tag generations")
-    tags: list[TagDefinition] = Field(..., min_length=1, description="Available tags")
+    tags: list[TagDefinition] = Field(default_factory=list, description="Available tags")
     min_tags: int = Field(default=0, ge=0, description="Minimum tags to apply")
     max_tags: int | None = Field(default=None, ge=1, description="Maximum tags to apply (null = no limit)")
+    dynamic_tags: bool = Field(
+        default=False,
+        description="When true, the LLM defines the output tag categories itself based on the prompt and optional reference URL — `tags` is ignored",
+    )
+    tags_url: str | None = Field(
+        default=None,
+        max_length=2000,
+        description="Optional reference URL that is surfaced to the LLM alongside the prompt when dynamic_tags is true",
+    )
 
     @field_validator("prompt")
     @classmethod
@@ -46,6 +55,18 @@ class LLMTaggerConfig(BaseModel):
         if not v or not v.strip():
             raise ValueError("Prompt cannot be empty")
         return v.strip()
+
+    @field_validator("tags_url")
+    @classmethod
+    def validate_tags_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        if not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError("tags_url must start with http:// or https://")
+        return v
 
     @field_validator("tags")
     @classmethod
@@ -57,10 +78,15 @@ class LLMTaggerConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_tag_count_bounds(self) -> "LLMTaggerConfig":
+        if not self.dynamic_tags and len(self.tags) == 0:
+            # When not in dynamic mode, the LLM picks from a fixed list, so we still require at least one tag.
+            raise ValueError("At least one tag is required when dynamic_tags is false")
         if self.max_tags is not None:
             if self.min_tags > self.max_tags:
                 raise ValueError("min_tags cannot be greater than max_tags")
-            if self.max_tags > len(self.tags):
+            # max_tags can't exceed the static tag list when not in dynamic mode; in dynamic mode the
+            # LLM is free to invent any number of categories so the upper-bound check doesn't apply.
+            if not self.dynamic_tags and self.max_tags > len(self.tags):
                 raise ValueError("max_tags cannot exceed the number of defined tags")
         return self
 

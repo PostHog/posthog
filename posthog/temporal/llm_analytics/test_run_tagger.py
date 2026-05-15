@@ -725,6 +725,40 @@ class TestBuildTagResultSchema:
         for needle in forbidden_substrings:
             assert needle not in description
 
+    def test_dynamic_tags_schema_omits_static_allowlist(self):
+        schema = build_tag_result_schema([], min_tags=0, max_tags=None, dynamic_tags=True)
+        description = schema.model_fields["tags"].description or ""
+        assert "Valid values:" not in description
+        assert "defined by you" in description
+
+
+class TestBuildTaggerSystemPromptDynamic:
+    def test_dynamic_prompt_omits_available_tags_section(self):
+        prompt = build_tagger_system_prompt(
+            "Route this to the right team.",
+            [],
+            0,
+            None,
+            dynamic_tags=True,
+            tags_url=None,
+        )
+        assert "Available tags:" not in prompt
+        assert "determine the appropriate tag categories yourself" in prompt
+        assert "Route this to the right team." in prompt
+
+    def test_dynamic_prompt_includes_reference_url(self):
+        prompt = build_tagger_system_prompt(
+            "Tag by owner.",
+            [],
+            1,
+            3,
+            dynamic_tags=True,
+            tags_url="https://posthog.com/handbook/engineering/feature-ownership",
+        )
+        assert "https://posthog.com/handbook/engineering/feature-ownership" in prompt
+        assert "at least 1" in prompt
+        assert "at most 3" in prompt
+
 
 class TestFetchTaggerActivityDisabled:
     @pytest.mark.asyncio

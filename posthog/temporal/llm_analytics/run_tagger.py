@@ -55,23 +55,43 @@ class TagResult(BaseModel):
     reasoning: str
 
 
-def build_tag_result_schema(tag_names: list[str], min_tags: int = 0, max_tags: int | None = None) -> type[TagResult]:
+def build_tag_result_schema(
+    tag_names: list[str],
+    min_tags: int = 0,
+    max_tags: int | None = None,
+    dynamic_tags: bool = False,
+) -> type[TagResult]:
     """Build a TagResult schema with valid tag names and constraints in the field description.
 
     This ensures the JSON schema sent to the LLM provider includes the allowed
     tag values and min/max constraints, improving structured output reliability.
+
+    When `dynamic_tags` is true, no static allowlist is encoded — the LLM defines
+    its own category names based on the prompt and optional reference URL.
     """
-    tag_list = ", ".join(f'"{name}"' for name in tag_names)
-
-    constraint_parts = [f"Valid values: [{tag_list}]"]
-    if min_tags > 0:
-        constraint_parts.append(f"Minimum {min_tags} tag(s)")
-    if max_tags is not None:
-        constraint_parts.append(f"Maximum {max_tags} tag(s)")
-    if min_tags == 0:
-        constraint_parts.append("Can be empty if no tags apply")
-
-    description = "Tags to apply. " + ". ".join(constraint_parts) + "."
+    if dynamic_tags:
+        constraint_parts = ["Use concise, lowercase, kebab-case identifiers"]
+        if min_tags > 0:
+            constraint_parts.append(f"Minimum {min_tags} tag(s)")
+        if max_tags is not None:
+            constraint_parts.append(f"Maximum {max_tags} tag(s)")
+        if min_tags == 0:
+            constraint_parts.append("Can be empty if no tags apply")
+        description = (
+            "Tags to apply. The categories are defined by you based on the prompt and any referenced context. "
+            + ". ".join(constraint_parts)
+            + "."
+        )
+    else:
+        tag_list = ", ".join(f'"{name}"' for name in tag_names)
+        constraint_parts = [f"Valid values: [{tag_list}]"]
+        if min_tags > 0:
+            constraint_parts.append(f"Minimum {min_tags} tag(s)")
+        if max_tags is not None:
+            constraint_parts.append(f"Maximum {max_tags} tag(s)")
+        if min_tags == 0:
+            constraint_parts.append("Can be empty if no tags apply")
+        description = "Tags to apply. " + ". ".join(constraint_parts) + "."
 
     class DynamicTagResult(TagResult):
         tags: list[str] = Field(description=description)
@@ -82,8 +102,41 @@ def build_tag_result_schema(tag_names: list[str], min_tags: int = 0, max_tags: i
     return DynamicTagResult
 
 
-def build_tagger_system_prompt(prompt: str, tags: list[dict[str, str]], min_tags: int, max_tags: int | None) -> str:
+def build_tagger_system_prompt(
+    prompt: str,
+    tags: list[dict[str, str]],
+    min_tags: int,
+    max_tags: int | None,
+    dynamic_tags: bool = False,
+    tags_url: str | None = None,
+) -> str:
     """Build the system prompt for the LLM tagger."""
+    constraint_parts = []
+    if min_tags > 0:
+        constraint_parts.append(f"at least {min_tags}")
+    if max_tags is not None:
+        constraint_parts.append(f"at most {max_tags}")
+
+    if dynamic_tags:
+        if constraint_parts:
+            constraint = f"Select {' and '.join(constraint_parts)} tags."
+        else:
+            constraint = "Select as many tags as apply."
+
+        url_section = (
+            f"\nReference URL (treat its contents as the source of truth for category names): {tags_url}\n"
+            if tags_url
+            else ""
+        )
+
+        return f"""You are a tagger. Given the following AI generation, define and apply the tags that best categorize it according to the instructions below.
+
+{prompt}
+{url_section}
+You must determine the appropriate tag categories yourself based on the instructions and (if provided) the reference URL. Use short, lowercase, kebab-case identifiers (e.g. "billing-question", "account-settings"). Reuse the same identifier across generations when the same category applies — do not invent a synonym for a category you have already named.
+
+{constraint} If no tags apply, return an empty list."""
+
     tag_lines = []
     for tag in tags:
         name = tag["name"]
@@ -94,12 +147,6 @@ def build_tagger_system_prompt(prompt: str, tags: list[dict[str, str]], min_tags
             tag_lines.append(f"- {name}")
 
     tag_list = "\n".join(tag_lines)
-
-    constraint_parts = []
-    if min_tags > 0:
-        constraint_parts.append(f"at least {min_tags}")
-    if max_tags is not None:
-        constraint_parts.append(f"at most {max_tags}")
 
     if constraint_parts:
         constraint = f"Select {' and '.join(constraint_parts)} tags."
@@ -203,7 +250,9 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
         raise ApplicationError("Missing prompt in tagger_config", non_retryable=True)
 
     tags = tagger_config.get("tags", [])
-    if not tags:
+    dynamic_tags = tagger_config.get("dynamic_tags", False)
+    tags_url = tagger_config.get("tags_url")
+    if not dynamic_tags and not tags:
         raise ApplicationError("No tags defined in tagger_config", non_retryable=True)
 
     min_tags = tagger_config.get("min_tags", 0)
@@ -278,9 +327,9 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
     input_data = extract_text_from_messages(input_raw)
     output_data = extract_text_from_messages(output_raw)
 
-    system_prompt = build_tagger_system_prompt(prompt, tags, min_tags, max_tags)
+    system_prompt = build_tagger_system_prompt(prompt, tags, min_tags, max_tags, dynamic_tags, tags_url)
     tag_names = [tag["name"] for tag in tags]
-    response_format = build_tag_result_schema(tag_names, min_tags, max_tags)
+    response_format = build_tag_result_schema(tag_names, min_tags, max_tags, dynamic_tags)
 
     user_prompt = f"""Input: {input_data}
 
@@ -356,9 +405,14 @@ Output: {output_data}"""
     if not isinstance(result, TagResult):
         raise TypeError(f"Expected TagResult, got {type(result).__name__} for tagger {tagger['id']}")
 
-    # Validate tags — strip any not in the configured set
-    valid_tag_names = {tag["name"] for tag in tags}
-    validated_tags = [t for t in result.tags if t in valid_tag_names]
+    if dynamic_tags:
+        # In dynamic mode the LLM defines its own category names — keep whatever non-empty
+        # strings it returned. Normalize whitespace so downstream aggregations are stable.
+        validated_tags = [t.strip() for t in result.tags if isinstance(t, str) and t.strip()]
+    else:
+        # Validate tags — strip any not in the configured set
+        valid_tag_names = {tag["name"] for tag in tags}
+        validated_tags = [t for t in result.tags if t in valid_tag_names]
 
     # Enforce min/max constraints
     if max_tags is not None:

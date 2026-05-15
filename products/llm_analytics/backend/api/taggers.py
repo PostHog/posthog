@@ -65,27 +65,50 @@ class TaggerConditionSerializer(serializers.Serializer):
 
 class LLMTaggerConfigSerializer(serializers.Serializer):
     prompt = serializers.CharField(min_length=1, help_text="Prompt instructing the LLM how to tag generations")
-    tags = TagDefinitionSerializer(many=True, help_text="Available tags the LLM can assign")
+    tags = TagDefinitionSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Available tags the LLM can assign. Ignored when dynamic_tags is true.",
+    )
     min_tags = serializers.IntegerField(default=0, min_value=0, help_text="Minimum number of tags to apply")
     max_tags = serializers.IntegerField(
         required=False, allow_null=True, min_value=1, help_text="Maximum number of tags to apply (null = no limit)"
     )
+    dynamic_tags = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, the LLM defines the output tag categories itself based on the prompt and optional reference URL. "
+            "The static `tags` list is ignored in this mode."
+        ),
+    )
+    tags_url = serializers.URLField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=2000,
+        help_text="Optional reference URL surfaced to the LLM alongside the prompt when dynamic_tags is true.",
+    )
 
     def validate_tags(self, value: list[dict]) -> list[dict]:
-        if not value:
-            raise serializers.ValidationError("At least one tag is required")
         names = [tag["name"] for tag in value]
         if len(names) != len(set(names)):
             raise serializers.ValidationError("Tag names must be unique")
         return value
 
     def validate(self, data: dict) -> dict:
+        dynamic_tags = data.get("dynamic_tags", False)
+        tags = data.get("tags", [])
+        if not dynamic_tags and not tags:
+            raise serializers.ValidationError({"tags": "At least one tag is required when dynamic_tags is false"})
         min_tags = data.get("min_tags", 0)
         max_tags = data.get("max_tags")
         if max_tags is not None and min_tags > max_tags:
             raise serializers.ValidationError({"min_tags": "min_tags cannot be greater than max_tags"})
-        tags = data.get("tags", [])
-        if max_tags is not None and max_tags > len(tags):
+        # When dynamic_tags is on, the LLM may invent any number of categories so we can't bound
+        # max_tags by the static list length.
+        if not dynamic_tags and max_tags is not None and max_tags > len(tags):
             raise serializers.ValidationError({"max_tags": "max_tags cannot exceed the number of defined tags"})
         return data
 

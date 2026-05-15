@@ -337,6 +337,59 @@ class TestTaggersApi(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_can_create_tagger_with_dynamic_tags(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/taggers/",
+            {
+                "name": "Support ticket router",
+                "enabled": True,
+                "tagger_config": {
+                    "prompt": "Tag the conversation with the responsible team.",
+                    "tags": [],
+                    "dynamic_tags": True,
+                    "tags_url": "https://posthog.com/handbook/engineering/feature-ownership",
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        tagger = Tagger.objects.first()
+        assert tagger is not None
+        assert tagger.tagger_config["dynamic_tags"] is True
+        assert tagger.tagger_config["tags_url"] == "https://posthog.com/handbook/engineering/feature-ownership"
+        assert tagger.tagger_config["tags"] == []
+
+    def test_dynamic_tags_allows_unbounded_max_tags(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/taggers/",
+            {
+                "name": "Dynamic tagger",
+                "tagger_config": {
+                    "prompt": "Tag this.",
+                    "tags": [],
+                    "dynamic_tags": True,
+                    "max_tags": 25,
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_non_dynamic_tagger_still_requires_tags(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/taggers/",
+            {
+                "name": "Static tagger",
+                "tagger_config": {
+                    "prompt": "Tag this.",
+                    "tags": [],
+                    "dynamic_tags": False,
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_patch_tagger_type_without_fresh_config_is_rejected(self):
         tagger = Tagger.objects.create(
             name="LLM tagger",

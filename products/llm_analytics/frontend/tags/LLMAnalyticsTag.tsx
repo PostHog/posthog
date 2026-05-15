@@ -513,54 +513,112 @@ function LLMAnalyticsTaggerForm({ id }: { id: string }): JSX.Element {
                             </div>
                         )}
 
-                        {taggerForm.tagger_type !== 'hog' && <TagDefinitionsEditor id={id} />}
-
                         {taggerForm.tagger_type !== 'hog' && (
-                            <div className="flex gap-4">
-                                <div>
-                                    <label className="font-semibold">Min tags</label>
-                                    <LemonInput
-                                        type="number"
-                                        min={0}
-                                        value={
-                                            'min_tags' in taggerForm.tagger_config
-                                                ? taggerForm.tagger_config.min_tags
-                                                : 0
+                            <div className="space-y-3">
+                                <div className="bg-bg-light border rounded p-3 space-y-2">
+                                    <LemonSwitch
+                                        checked={
+                                            'dynamic_tags' in taggerForm.tagger_config
+                                                ? !!taggerForm.tagger_config.dynamic_tags
+                                                : false
                                         }
-                                        onChange={(value) =>
+                                        onChange={(checked) =>
                                             setTaggerFormValues({
                                                 tagger_config: {
                                                     ...taggerForm.tagger_config,
-                                                    min_tags: value ?? 0,
+                                                    dynamic_tags: checked,
                                                 },
                                             })
                                         }
-                                        size="small"
-                                        className="w-24"
+                                        label="Let the LLM define tag categories"
                                     />
+                                    <p className="text-muted text-sm m-0">
+                                        Skip defining tags upfront — the LLM picks category names based on the prompt
+                                        and an optional reference URL. Useful when the set of categories is large or
+                                        evolves over time (e.g. routing support tickets to feature owners).
+                                    </p>
+                                    {'dynamic_tags' in taggerForm.tagger_config &&
+                                        taggerForm.tagger_config.dynamic_tags && (
+                                            <div className="pt-2 space-y-1">
+                                                <label className="font-semibold text-sm">
+                                                    Reference URL (optional)
+                                                </label>
+                                                <LemonInput
+                                                    placeholder="https://posthog.com/handbook/engineering/feature-ownership"
+                                                    value={
+                                                        ('tags_url' in taggerForm.tagger_config &&
+                                                            taggerForm.tagger_config.tags_url) ||
+                                                        ''
+                                                    }
+                                                    onChange={(value) =>
+                                                        setTaggerFormValues({
+                                                            tagger_config: {
+                                                                ...taggerForm.tagger_config,
+                                                                tags_url: value || null,
+                                                            },
+                                                        })
+                                                    }
+                                                    size="small"
+                                                />
+                                                <p className="text-muted text-xs m-0">
+                                                    Surfaced to the LLM alongside the prompt. Reference it from the
+                                                    prompt to anchor categories (e.g. "use the team names from this
+                                                    URL").
+                                                </p>
+                                            </div>
+                                        )}
                                 </div>
-                                <div>
-                                    <label className="font-semibold">Max tags</label>
-                                    <LemonInput
-                                        type="number"
-                                        min={1}
-                                        value={
-                                            'max_tags' in taggerForm.tagger_config
-                                                ? (taggerForm.tagger_config.max_tags ?? undefined)
-                                                : undefined
-                                        }
-                                        onChange={(value) =>
-                                            setTaggerFormValues({
-                                                tagger_config: {
-                                                    ...taggerForm.tagger_config,
-                                                    max_tags: value ?? null,
-                                                },
-                                            })
-                                        }
-                                        size="small"
-                                        className="w-24"
-                                        placeholder="No limit"
-                                    />
+
+                                {!(
+                                    'dynamic_tags' in taggerForm.tagger_config && taggerForm.tagger_config.dynamic_tags
+                                ) && <TagDefinitionsEditor id={id} />}
+
+                                <div className="flex gap-4">
+                                    <div>
+                                        <label className="font-semibold">Min tags</label>
+                                        <LemonInput
+                                            type="number"
+                                            min={0}
+                                            value={
+                                                'min_tags' in taggerForm.tagger_config
+                                                    ? taggerForm.tagger_config.min_tags
+                                                    : 0
+                                            }
+                                            onChange={(value) =>
+                                                setTaggerFormValues({
+                                                    tagger_config: {
+                                                        ...taggerForm.tagger_config,
+                                                        min_tags: value ?? 0,
+                                                    },
+                                                })
+                                            }
+                                            size="small"
+                                            className="w-24"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="font-semibold">Max tags</label>
+                                        <LemonInput
+                                            type="number"
+                                            min={1}
+                                            value={
+                                                'max_tags' in taggerForm.tagger_config
+                                                    ? (taggerForm.tagger_config.max_tags ?? undefined)
+                                                    : undefined
+                                            }
+                                            onChange={(value) =>
+                                                setTaggerFormValues({
+                                                    tagger_config: {
+                                                        ...taggerForm.tagger_config,
+                                                        max_tags: value ?? null,
+                                                    },
+                                                })
+                                            }
+                                            size="small"
+                                            className="w-24"
+                                            placeholder="No limit"
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         )}
