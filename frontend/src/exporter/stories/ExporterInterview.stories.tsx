@@ -5,7 +5,7 @@ import { ExportType, ExportedData, InterviewExportPayload } from '~/exporter/typ
 
 import { Exporter } from '../Exporter'
 
-const baseInterview: InterviewExportPayload = {
+const interview: InterviewExportPayload = {
     topic_id: 'topic-123',
     interviewee_identifier: 'interviewee-abc',
     user_name: 'Sam',
@@ -23,11 +23,12 @@ const meta: Meta<ExportedData> = {
         legend: false,
         detailed: false,
         accessToken: 'storybook-access-token',
-        interview: baseInterview,
+        interview,
     },
     parameters: {
         testOptions: {
             snapshotBrowsers: ['chromium'],
+            viewportWidths: ['narrow', 'medium', 'wide', 'superwide'],
         },
         mockDate: '2023-02-01',
         viewMode: 'story',
@@ -49,23 +50,3 @@ const meta: Meta<ExportedData> = {
 export default meta
 
 export const Default: Story = {}
-
-export const LongTopic: Story = {
-    args: {
-        interview: {
-            ...baseInterview,
-            user_name: 'Alexandra',
-            topic: 'the new onboarding flow we shipped last month and how it felt to set up your first dashboard',
-        },
-    },
-}
-
-export const ShortName: Story = {
-    args: {
-        interview: {
-            ...baseInterview,
-            user_name: 'Jo',
-            topic: 'session replay',
-        },
-    },
-}
