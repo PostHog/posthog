@@ -36,62 +36,46 @@ class AgenticTestRunSerializer(serializers.ModelSerializer):
 
     def get_investigation_conversation_id(self, run: AgenticTestRun) -> str | None:
         # Use the batch-computed lookup from context (set by the viewset's list method)
-        # to avoid N+1 queries. Falls back to a per-row query for detail endpoints.
+        # to avoid N+1 queries. Falls back to a single-ID batch call for detail endpoints.
         lookup: dict[str, str] | None = self.context.get("investigation_lookup")
         if lookup is not None:
             return lookup.get(str(run.id))
-        return self._lookup_investigation_for_run(run)
-
-    @staticmethod
-    def _lookup_investigation_for_run(run: AgenticTestRun) -> str | None:
-        from ee.models.assistant import Conversation
-
-        run_id = str(run.id)
-        for conv in (
-            Conversation.objects.filter(
-                team_id=run.agentic_test.team_id,
-                sandbox_task_id__isnull=False,
-                messages_json__isnull=False,
-            )
-            .only("id", "messages_json")
-            .order_by("-created_at")[:50]
-        ):
-            messages = conv.messages_json
-            if not messages or not isinstance(messages, list):
-                continue
-            first = messages[0]
-            if not isinstance(first, dict):
-                continue
-            if run_id in first.get("_meta", {}).get("signal_source_ids", []):
-                return str(conv.id)
-        return None
+        return self.build_investigation_lookup(run.agentic_test.team_id, [str(run.id)]).get(str(run.id))
 
     @staticmethod
     def build_investigation_lookup(team_id: int, run_ids: list[str]) -> dict[str, str]:
-        """Batch-compute run_id -> conversation_id mapping for a set of runs."""
+        """Batch-compute run_id -> conversation_id mapping for a set of runs.
+
+        Uses Postgres jsonb containment (`__contains`) to push the source_id match
+        into the DB in a single query, avoiding Python-side JSON scanning.
+        """
+        from django.db.models import Q
+
         from ee.models.assistant import Conversation
 
         if not run_ids:
             return {}
-        lookup: dict[str, str] = {}
-        remaining = set(run_ids)
-        for conv in (
+        # Build a single OR query: messages_json @> any of the run_id patterns
+        q = Q()
+        for run_id in run_ids:
+            q |= Q(messages_json__contains=[{"_meta": {"signal_source_ids": [run_id]}}])
+        conversations = (
             Conversation.objects.filter(
+                q,
                 team_id=team_id,
                 sandbox_task_id__isnull=False,
-                messages_json__isnull=False,
             )
             .only("id", "messages_json")
-            .order_by("-created_at")[:50]
-        ):
+            .order_by("-created_at")
+        )
+        # Map each conversation back to the run_ids it covers
+        lookup: dict[str, str] = {}
+        remaining = set(run_ids)
+        for conv in conversations:
             messages = conv.messages_json
-            if not messages or not isinstance(messages, list):
+            if not messages or not isinstance(messages, list) or not isinstance(messages[0], dict):
                 continue
-            first = messages[0]
-            if not isinstance(first, dict):
-                continue
-            source_ids = first.get("_meta", {}).get("signal_source_ids", [])
-            for sid in source_ids:
+            for sid in messages[0].get("_meta", {}).get("signal_source_ids", []):
                 if sid in remaining:
                     lookup[sid] = str(conv.id)
                     remaining.discard(sid)

@@ -532,7 +532,7 @@ Respond with a JSON object matching this schema:
 def _enforce_signal_id(finding: SignalFinding, expected_id: str) -> SignalFinding:
     """Correct the finding's signal_id if the model returned a wrong one."""
     if finding.signal_id != expected_id:
-        logger.exception(
+        logger.warning(
             "Signal ID mismatch: expected %s, got %s — correcting",
             expected_id,
             finding.signal_id,

@@ -238,15 +238,19 @@ class AgenticTestRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
             qs = qs.filter(agentic_test_id=test_id)
         return qs.order_by("-started_at")
 
-    def get_serializer_context(self) -> dict:
-        context = super().get_serializer_context()
-        # Batch-compute investigation conversation lookups once for the whole page
-        # instead of per-row (avoids N+1 queries on the list endpoint).
-        if self.action == "list":
-            runs = self.get_queryset()[:100]
-            run_ids = [str(r.id) for r in runs]
-            context["investigation_lookup"] = AgenticTestRunSerializer.build_investigation_lookup(self.team_id, run_ids)
-        return context
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        runs = page if page is not None else queryset
+        # Batch-compute investigation conversation lookups from the already-paginated
+        # page so we don't evaluate the queryset twice.
+        run_ids = [str(r.id) for r in runs]
+        context = self.get_serializer_context()
+        context["investigation_lookup"] = AgenticTestRunSerializer.build_investigation_lookup(self.team_id, run_ids)
+        serializer = self.get_serializer(runs, many=True, context=context)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
 
 _SSE_KEEPALIVE = b": keepalive\n\n"
