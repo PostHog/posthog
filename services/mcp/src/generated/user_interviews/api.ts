@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const UserInterviewTopicsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -26,7 +26,7 @@ export const UserInterviewTopicsListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const UserInterviewTopicsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -41,22 +41,14 @@ export const userInterviewTopicsCreateBodyIntervieweeEmailsItemMax = 254
 export const userInterviewTopicsCreateBodyIntervieweeDistinctIdsItemMax = 400
 
 export const UserInterviewTopicsCreateBody = /* @__PURE__ */ zod.object({
-    interviewee_cohort: zod
-        .number()
-        .nullish()
-        .describe('Optional cohort ID identifying who to target. Not enforced as a foreign key.'),
     interviewee_emails: zod
         .array(zod.string().max(userInterviewTopicsCreateBodyIntervieweeEmailsItemMax))
         .optional()
-        .describe(
-            'Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids.'
-        ),
+        .describe('Email addresses of people to interview. May be combined with interviewee_distinct_ids.'),
     interviewee_distinct_ids: zod
         .array(zod.string().max(userInterviewTopicsCreateBodyIntervieweeDistinctIdsItemMax))
         .optional()
-        .describe(
-            'PostHog distinct IDs of people to interview. May be combined with interviewee_cohort and interviewee_emails.'
-        ),
+        .describe('PostHog distinct IDs of people to interview. May be combined with interviewee_emails.'),
     topic: zod.string().describe('The product, feature, or idea you want to ask interviewees about.'),
     agent_context: zod
         .string()
