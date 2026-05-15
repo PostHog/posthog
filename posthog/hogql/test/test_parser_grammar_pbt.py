@@ -110,7 +110,11 @@ _KEYWORDS_FOR_CASE_VARIATION = (
 
 @st.composite
 def _case_jiggle(draw: Any, query: str) -> str:
-    """Randomise keyword case (preserves the rest of the string)."""
+    """Randomise keyword case (preserves the rest of the string).
+    Skipped inside single-quoted strings and double-quoted identifiers
+    — quoted identifiers are case-sensitive, so flipping a fragment
+    that happens to share text with a keyword (e.g. ``in`` inside
+    ``"abc in def"``) would change the identifier's value."""
 
     def _flip(word: str) -> str:
         choice = draw(st.sampled_from(["upper", "lower", "title", "as-is"]))
@@ -123,12 +127,19 @@ def _case_jiggle(draw: Any, query: str) -> str:
         return word
 
     out: list[str] = []
+    in_squote = False
+    in_dquote = False
     for token in query.split(" "):
+        in_string = in_squote or in_dquote
         stripped = token.strip(",()")
-        if stripped.upper() in _KEYWORDS_FOR_CASE_VARIATION:
+        if not in_string and stripped.upper() in _KEYWORDS_FOR_CASE_VARIATION:
             out.append(token.replace(stripped, _flip(stripped)))
         else:
             out.append(token)
+        if token.count("'") % 2 == 1:
+            in_squote = not in_squote
+        if token.count('"') % 2 == 1:
+            in_dquote = not in_dquote
     return " ".join(out)
 
 
