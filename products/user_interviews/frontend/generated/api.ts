@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     IntervieweeContextApi,
+    IntervieweeIdentifierRequestApi,
     PaginatedInterviewInviteResultListApi,
     PaginatedInterviewLinkListApi,
     PaginatedIntervieweeContextListApi,
@@ -173,6 +174,27 @@ export const userInterviewTopicsDestroy = async (
     })
 }
 
+export const getUserInterviewTopicsAddIntervieweeCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/add_interviewee/`
+}
+
+/**
+ * Add a single interviewee to this topic. Email-shaped identifiers (including the `Display Name <email@host>` form) are appended to `interviewee_emails`; everything else is appended to `interviewee_distinct_ids`. Idempotent — adding an identifier that's already present leaves the topic unchanged. Returns the updated topic.
+ */
+export const userInterviewTopicsAddIntervieweeCreate = async (
+    projectId: string,
+    id: string,
+    intervieweeIdentifierRequestApi: IntervieweeIdentifierRequestApi,
+    options?: RequestInit
+): Promise<UserInterviewTopicApi> => {
+    return apiMutator<UserInterviewTopicApi>(getUserInterviewTopicsAddIntervieweeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(intervieweeIdentifierRequestApi),
+    })
+}
+
 export const getUserInterviewTopicsGenerateLinksCreateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/user_interview_topics/${id}/generate_links/`
 }
@@ -188,6 +210,27 @@ export const userInterviewTopicsGenerateLinksCreate = async (
     return apiMutator<PaginatedInterviewLinkListApi>(getUserInterviewTopicsGenerateLinksCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getUserInterviewTopicsRemoveIntervieweeCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/remove_interviewee/`
+}
+
+/**
+ * Remove an interviewee from this topic. Drops the identifier from both `interviewee_emails` and `interviewee_distinct_ids`, and disables any active SharingConfiguration linked to an IntervieweeContext for that identifier on this topic so the removed person can no longer open their interview link. Idempotent — removing an identifier that isn't present is a no-op. Returns the updated topic.
+ */
+export const userInterviewTopicsRemoveIntervieweeCreate = async (
+    projectId: string,
+    id: string,
+    intervieweeIdentifierRequestApi: IntervieweeIdentifierRequestApi,
+    options?: RequestInit
+): Promise<UserInterviewTopicApi> => {
+    return apiMutator<UserInterviewTopicApi>(getUserInterviewTopicsRemoveIntervieweeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(intervieweeIdentifierRequestApi),
     })
 }
 
