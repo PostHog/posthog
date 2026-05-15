@@ -16,6 +16,7 @@ import {
     LemonTagType,
     LemonTextArea,
     Link,
+    Spinner,
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -425,8 +426,7 @@ function RunLogEntries({ entries, streaming }: { entries: any[]; streaming: bool
 
 function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
     const logic = agenticTestSceneLogic({ id })
-    const { runs, runsLoading, logsUrl, selectedRunId } = useValues(logic)
-    const { setSelectedRunId } = useActions(logic)
+    const { runs, runsLoading, logsUrl } = useValues(logic)
 
     return (
         <section>
@@ -444,15 +444,22 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
                 rowKey="id"
                 emptyState="No runs yet — hit Run now to execute the prompt."
                 expandable={{
-                    expandedRowRender: (run) => (
-                        <div className="p-2">
-                            <RunLogEntries
-                                entries={(run as any).log_entries ?? []}
-                                streaming={run.status === 'running'}
-                            />
-                        </div>
-                    ),
-                    rowExpandable: (run) => Boolean((run as any).log_entries?.length) || run.status === 'running',
+                    expandedRowRender: (run) => {
+                        const convId = (run as any).investigation_conversation_id as string | undefined
+                        return (
+                            <div className="p-2 flex flex-col gap-3">
+                                <RunLogEntries
+                                    entries={(run as any).log_entries ?? []}
+                                    streaming={run.status === 'running'}
+                                />
+                                {convId && <InvestigationThread conversationId={convId} />}
+                            </div>
+                        )
+                    },
+                    rowExpandable: (run) =>
+                        Boolean((run as any).log_entries?.length) ||
+                        run.status === 'running' ||
+                        Boolean((run as any).investigation_conversation_id),
                     noIndent: true,
                 }}
                 columns={[
@@ -469,7 +476,23 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
                                 type: 'muted' as LemonTagType,
                                 label: run.status,
                             }
-                            return <LemonTag type={s.type}>{s.label}</LemonTag>
+                            const convId = (run as any).investigation_conversation_id as string | undefined
+                            return (
+                                <div className="flex items-center gap-1.5">
+                                    <LemonTag type={s.type}>{s.label}</LemonTag>
+                                    {run.status === 'failed' && convId && (
+                                        <Link to={`/ai/${convId}`} className="text-xs font-medium">
+                                            Investigating
+                                        </Link>
+                                    )}
+                                    {run.status === 'failed' && !convId && run.finished_at && (
+                                        <span className="flex items-center gap-1 text-xs text-muted">
+                                            <Spinner className="size-3" />
+                                            Investigating…
+                                        </span>
+                                    )}
+                                </div>
+                            )
                         },
                     },
                     {
@@ -524,33 +547,8 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
                                 <span className="text-muted">—</span>
                             ),
                     },
-                    {
-                        title: '',
-                        key: 'investigation',
-                        render: (_, run) => {
-                            const convId = (run as any).investigation_conversation_id as string | undefined
-                            if (!convId) {
-                                return null
-                            }
-                            return (
-                                <LemonButton
-                                    size="xsmall"
-                                    type={selectedRunId === run.id ? 'primary' : 'tertiary'}
-                                    onClick={() => setSelectedRunId(selectedRunId === run.id ? null : run.id)}
-                                >
-                                    Investigation
-                                </LemonButton>
-                            )
-                        },
-                    },
                 ]}
             />
-            {selectedRunId &&
-                (() => {
-                    const selectedRun = runs.find((r) => r.id === selectedRunId)
-                    const convId = (selectedRun as any)?.investigation_conversation_id as string | undefined
-                    return convId ? <InvestigationThread conversationId={convId} /> : null
-                })()}
         </section>
     )
 }
@@ -686,14 +684,10 @@ export function AgenticTestScene({ id }: AgenticTestSceneProps): JSX.Element {
 
 function InvestigationThread({ conversationId }: { conversationId: string }): JSX.Element {
     return (
-        <div className="mt-4 border rounded p-4">
-            <h3 className="font-semibold mb-2">Investigation</h3>
-            <p className="text-sm text-muted mb-3">
-                PostHog AI is investigating this failure. View the full conversation in{' '}
-                <Link to={`/ai/${conversationId}`}>PostHog AI</Link>.
-            </p>
-            <LemonButton type="primary" size="small" to={`/ai/${conversationId}`}>
-                Open investigation thread
+        <div className="border-t pt-3 mt-2 flex items-center gap-3">
+            <span className="text-sm">The resolution agent is investigating this failure.</span>
+            <LemonButton type="secondary" size="xsmall" to={`/ai/${conversationId}`}>
+                Open thread
             </LemonButton>
         </div>
     )

@@ -95,7 +95,6 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
         addAssertion: (assertionType: AgenticTestAssertionType) => ({ assertionType }),
         updateAssertion: (index: number, patch: Partial<AgenticTestAssertion>) => ({ index, patch }),
         removeAssertion: (index: number) => ({ index }),
-        setSelectedRunId: (runId: string | null) => ({ runId }),
     }),
     reducers({
         liveEvents: [
@@ -111,12 +110,6 @@ export const agenticTestSceneLogic = kea<agenticTestSceneLogicType>([
             {
                 streamRun: () => true,
                 setStreaming: (_, { streaming }) => streaming,
-            },
-        ],
-        selectedRunId: [
-            null as string | null,
-            {
-                setSelectedRunId: (_, { runId }) => runId,
             },
         ],
     }),
