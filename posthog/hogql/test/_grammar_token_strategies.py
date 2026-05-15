@@ -1,10 +1,11 @@
 """Hand-written Hypothesis strategies for variable-content HogQL tokens.
 
-The grammar codegen (``_grammar_codegen.py``) can resolve keyword and
-punctuation tokens to literal text by reading the lexer .g4. Variable-
-content tokens (identifiers, numbers, strings) need real strategies; this
-file is their single source of truth. The codegen references these by
-name (see ``_ESCAPE_HATCH_NAMES`` in ``_grammar_codegen.py``).
+The grammar codegen (``posthog/hogql/scripts/build_grammar_strategies.py``)
+can resolve keyword and punctuation tokens to literal text by reading
+the lexer .g4. Variable-content tokens (identifiers, numbers, strings)
+need real strategies; this file is their single source of truth. The
+codegen references these by name (see ``_ESCAPE_HATCH_NAMES`` in
+``build_grammar_strategies.py``).
 
 Each strategy emits a *raw token string* — quoted where the lexer expects
 quoting (string literals, quoted identifiers), unquoted where it doesn't

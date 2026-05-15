@@ -210,31 +210,51 @@ _BACKEND_B = "cpp-json"
 
 
 def _try_parse(query: str, rule: str, backend: str) -> tuple[bool, ast.AST | None]:
-    """Return ``(accepted, ast_or_none)``. Errors of any kind count as
-    rejection — visitor-level "Unsupported rule" failures behave the
-    same as parse failures from the test's point of view."""
+    """Return ``(accepted, ast_or_none)``. Only ``BaseHogQLError`` counts
+    as rejection — that covers both grammar-level errors
+    (``SyntaxError``) and visitor-level "Unsupported rule" failures
+    (``NotImplementedError``), which are the legitimate "this backend
+    declined to handle the input" outcomes.
+
+    Any other exception type (``RecursionError``, ``TypeError``,
+    ``AssertionError``, ``MemoryError``, …) is a real bug in the
+    backend under test and is allowed to propagate so pytest records
+    the failure. The whole point of the differential PBT is to surface
+    asymmetric crashes; swallowing them here would defeat that.
+    """
     parser_fn = parse_expr if rule == "expr" else parse_select
     try:
         node = parser_fn(query, backend=backend)  # type: ignore[arg-type]
         return True, clear_locations(node)
     except BaseHogQLError:
         return False, None
-    except Exception:
-        return False, None
 
 
-# Substrings that exercise a documented cpp-json visitor bug — the
-# Python AST is correct, cpp's is not. The PBT discards examples that
-# would trip these so the grind isn't stuck on already-known cpp bugs.
-# When a fix lands cpp-side, drop the corresponding entry.
+# Substrings that exercise a documented visitor bug in at least one
+# backend. The PBT discards examples matching these so the grind isn't
+# stuck on already-known divergences. Each entry below was verified
+# against current master at the time it was added — re-audit when a
+# fix lands and drop the corresponding entry.
+#
+# To re-audit, run something like::
+#
+#     for q in cases:
+#         clear_locations(parse_expr(q, backend="python"))
+#         clear_locations(parse_expr(q, backend="cpp-json"))
+#
+# and compare the two ASTs.
 _CPP_KNOWN_BUG_PATTERNS = (
-    re.compile(r"\+\s*inf\b", re.IGNORECASE),  # `+inf` mis-mapped to NaN
-    # `infinity` lexes as Kw::Inf but the visitor's special-number
-    # branch only matches the exact text `inf`/`-inf`, so `infinity`,
-    # `+infinity`, and `-infinity` all fall through to NaN.
+    # `+inf` — cpp visitor mis-maps the literal to NaN; python returns
+    # +Infinity correctly.
+    re.compile(r"\+\s*inf\b", re.IGNORECASE),
+    # `infinity` / `+infinity` / `-infinity` — both backends are wrong
+    # but in different ways: python's `visitNumberLiteral` tries
+    # `int("infinity")` and raises ValueError; cpp returns NaN. The
+    # lexer accepts these as Kw::Inf but neither visitor handles them.
     re.compile(r"\binfinity\b", re.IGNORECASE),
-    re.compile(r"\b0x[0-9a-f]+\b", re.IGNORECASE),  # hex literal mis-parsed to 0
-    re.compile(r"\b0o[0-7]+\b", re.IGNORECASE),  # octal literal mis-parsed
+    # `0x…` hex literals — cpp visitor returns 0 for any hex value;
+    # python returns the correct int.
+    re.compile(r"\b0x[0-9a-f]+\b", re.IGNORECASE),
 )
 
 

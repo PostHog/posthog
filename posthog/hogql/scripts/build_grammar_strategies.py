@@ -920,8 +920,8 @@ Each rule is a depth-parameterised strategy factory:
 ``foo_strategy(depth=_DEFAULT_DEPTH)`` returns a ``SearchStrategy[str]``.
 Recursive sub-rule draws decrement depth; at depth 0 the strategy
 prefers leaf alternatives so generation bottoms out. Strategies are
-memoised per-depth via ``lru_cache`` so Hypothesis sees stable identity
-across draws (matters for shrinking).
+memoised per-depth via ``functools.cache`` so Hypothesis sees stable
+identity across draws (matters for shrinking).
 """
 
 from __future__ import annotations
@@ -1077,12 +1077,22 @@ class _Emitter:
         lines: list[str] = []
         lines.append("@functools.cache")
         lines.append(f"def {_sanitise(lr.name)}(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:")
-        lines.append("    @st.composite")
-        lines.append("    def gen(draw: Any) -> str:")
         if len(lr.seed_alts) == 0:
+            lines.append("    @st.composite")
+            lines.append("    def gen(draw: Any) -> str:")
             lines.append(f'        raise AssertionError("left-recursive rule {lr.name!r} has no seed alternatives")')
             lines.append("    return gen()")
             return "\n".join(lines)
+        # Bind ``_has_suffixes`` in the enclosing function scope BEFORE
+        # the inner ``gen`` closes over it. ``analyse_left_recursion``
+        # only returns a ``LeftRecursiveRule`` when at least one suffix
+        # exists, so this is always ``True`` today — the flag is left
+        # in place so the guard in ``gen`` is correct under any future
+        # codegen change that admits a zero-suffix LR rule.
+        lines.append(f"    _has_suffixes = {bool(lr.suffix_alts)}")
+        lines.append("")
+        lines.append("    @st.composite")
+        lines.append("    def gen(draw: Any) -> str:")
         # Pick a seed alternative
         if len(lr.seed_alts) == 1:
             lines.append("        parts: list[str] = []")
@@ -1120,7 +1130,6 @@ class _Emitter:
             lines.append('                seed = seed + " " + " ".join(p for p in parts if p)')
         lines.append("        return seed")
         lines.append("")
-        lines.append(f"    _has_suffixes = {bool(lr.suffix_alts)}")
         lines.append("    return gen()")
         return "\n".join(lines)
 

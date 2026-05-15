@@ -11,8 +11,8 @@ Each rule is a depth-parameterised strategy factory:
 ``foo_strategy(depth=_DEFAULT_DEPTH)`` returns a ``SearchStrategy[str]``.
 Recursive sub-rule draws decrement depth; at depth 0 the strategy
 prefers leaf alternatives so generation bottoms out. Strategies are
-memoised per-depth via ``lru_cache`` so Hypothesis sees stable identity
-across draws (matters for shrinking).
+memoised per-depth via ``functools.cache`` so Hypothesis sees stable
+identity across draws (matters for shrinking).
 """
 
 from __future__ import annotations
@@ -644,6 +644,8 @@ def valuesRow_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
 
 @functools.cache
 def joinExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    _has_suffixes = True
+
     @st.composite
     def gen(draw: Any) -> str:
         seed_idx = draw(st.integers(min_value=0, max_value=1))
@@ -715,7 +717,6 @@ def joinExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                 seed = seed + " " + " ".join(p for p in parts if p)
         return seed
 
-    _has_suffixes = True
     return gen()
 
 
@@ -1205,6 +1206,8 @@ def expr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
 
 @functools.cache
 def columnTypeExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    _has_suffixes = True
+
     @st.composite
     def gen(draw: Any) -> str:
         seed_idx = draw(st.integers(min_value=0, max_value=4))
@@ -1267,7 +1270,6 @@ def columnTypeExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[st
                 seed = seed + " " + " ".join(p for p in parts if p)
         return seed
 
-    _has_suffixes = True
     return gen()
 
 
@@ -1430,6 +1432,8 @@ def selectColumnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[
 
 @functools.cache
 def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    _has_suffixes = True
+
     @st.composite
     def gen(draw: Any) -> str:
         if depth <= 0:
@@ -2050,7 +2054,6 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                 seed = seed + " " + " ".join(p for p in parts if p)
         return seed
 
-    _has_suffixes = True
     return gen()
 
 
@@ -2231,6 +2234,8 @@ def nestedIdentifier_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[
 
 @functools.cache
 def tableExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    _has_suffixes = True
+
     @st.composite
     def gen(draw: Any) -> str:
         seed_idx = draw(st.integers(min_value=0, max_value=4))
@@ -2299,7 +2304,6 @@ def tableExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                 seed = seed + " " + " ".join(p for p in parts if p)
         return seed
 
-    _has_suffixes = True
     return gen()
 
 
