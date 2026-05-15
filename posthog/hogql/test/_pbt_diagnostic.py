@@ -2,11 +2,10 @@
 
 Reuses the strategies from `test_parser_grammar_pbt.py` (the
 auto-generated grammar PBT introduced in PR #58627) but runs as an
-ad-hoc CLI rather than a pytest collection. Backend-agnostic: in
-master this compares `cpp-json` vs `python` (the two backends master
-ships); in feature branches that add a third backend (e.g.
-`rust-json`, `rust-backtrack-json`) point `--candidate` at it to grind
-parity against the cpp source of truth.
+ad-hoc CLI rather than a pytest collection. Backend-agnostic:
+defaults to `cpp-json` vs `python` (the two backends shipped in
+master); point `--candidate` at any other backend in a feature
+branch that adds one.
 
 Distinct from the pytest PBT in five ways:
 
@@ -36,9 +35,9 @@ Typical usage:
     # Default: cpp-json vs python (works in master out of the box)
     PYTHONPATH=. python posthog/hogql/test/_pbt_diagnostic.py --n 5000
 
-    # Compare cpp against a hand-rolled rust port in a feature branch
+    # With auto-shrinking on every failure
     PYTHONPATH=. python posthog/hogql/test/_pbt_diagnostic.py \\
-        --candidate rust-backtrack-json --n 5000 --shrink-failures
+        --n 5000 --shrink-failures
 
     # Persist for later analysis / corpus extraction
     PYTHONPATH=. python posthog/hogql/test/_pbt_diagnostic.py \\
@@ -390,7 +389,7 @@ def main() -> int:
     parser.add_argument(
         "--candidate",
         default=os.environ.get("CANDIDATE_BACKEND", "python"),
-        help="Backend under test (default: python; set to rust-json / rust-backtrack-json / etc. in feature branches)",
+        help="Backend under test (default: python; override in feature branches that add a third backend)",
     )
     parser.add_argument(
         "--max-mismatch-samples",
