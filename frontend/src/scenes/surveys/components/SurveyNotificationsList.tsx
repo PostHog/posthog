@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonDropdown, LemonInput, LemonSkeleton, Lem
 
 import { MailHog } from 'lib/components/hedgehogs'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
+import { ConfirmDeleteButton } from 'scenes/surveys/components/ConfirmDeleteButton'
 import {
     getSurveyIdsFromNotificationFilters,
     surveyNotificationsListLogic,
@@ -128,7 +129,8 @@ function NewNotificationButton({
 export function SurveyNotificationsList(): JSX.Element {
     const { notifications, notificationsLoading, notificationsFailed, knownSurveysFailed } =
         useValues(surveyNotificationsListLogic)
-    const { toggleNotificationEnabled, loadNotifications, loadKnownSurveys } = useActions(surveyNotificationsListLogic)
+    const { toggleNotificationEnabled, deleteNotification, loadNotifications, loadKnownSurveys } =
+        useActions(surveyNotificationsListLogic)
     const { push } = useActions(router)
 
     if (notificationsLoading) {
@@ -235,7 +237,10 @@ export function SurveyNotificationsList(): JSX.Element {
                             <LemonSwitch
                                 checked={fn.enabled}
                                 onChange={() => toggleNotificationEnabled(fn.id, !fn.enabled)}
-                                size="small"
+                            />
+                            <ConfirmDeleteButton
+                                onDelete={() => deleteNotification(fn)}
+                                data-attr="survey-notification-list-delete"
                             />
                         </div>
                     )

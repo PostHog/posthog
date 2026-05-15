@@ -6,6 +6,7 @@ import { LemonButton, LemonMenu, LemonSkeleton, LemonSwitch } from '@posthog/lem
 import { MailHog } from 'lib/components/hedgehogs'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
+import { ConfirmDeleteButton } from 'scenes/surveys/components/ConfirmDeleteButton'
 import { NEW_SURVEY } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveyNotificationModalLogic } from 'scenes/surveys/surveyNotificationModalLogic'
@@ -53,7 +54,7 @@ export function SurveyNotifications({
         reusableSurveyNotifications,
         reusableSurveyNotificationsLoading,
     } = useValues(logic)
-    const { toggleSurveyNotificationEnabled } = useActions(logic)
+    const { toggleSurveyNotificationEnabled, deleteSurveyNotification } = useActions(logic)
     const { openDialog } = useActions(notificationModalLogic)
 
     const isUnsavedSurvey = survey.id === NEW_SURVEY.id
@@ -220,7 +221,10 @@ export function SurveyNotifications({
                             <LemonSwitch
                                 checked={fn.enabled}
                                 onChange={() => toggleSurveyNotificationEnabled(fn.id, !fn.enabled)}
-                                size="small"
+                            />
+                            <ConfirmDeleteButton
+                                onDelete={() => deleteSurveyNotification(fn)}
+                                data-attr="survey-notification-tab-delete"
                             />
                         </div>
                     )

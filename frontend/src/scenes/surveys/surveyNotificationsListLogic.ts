@@ -1,10 +1,12 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { CyclotronJobFiltersType, HogFunctionType, Survey, SurveyEventName, SurveyEventProperties } from '~/types'
 
@@ -42,8 +44,12 @@ export type KnownSurvey = Pick<Survey, 'id' | 'name' | 'archived' | 'created_at'
 
 export const surveyNotificationsListLogic = kea<surveyNotificationsListLogicType>([
     path(['scenes', 'surveys', 'surveyNotificationsListLogic']),
+    connect(() => ({
+        values: [projectLogic, ['currentProjectId']],
+    })),
     actions({
         toggleNotificationEnabled: (notificationId: string, enabled: boolean) => ({ notificationId, enabled }),
+        deleteNotification: (notification: HogFunctionType) => ({ notification }),
         setSurveyPickerSearch: (search: string) => ({ search }),
         setSurveyPickerVisible: (visible: boolean) => ({ visible }),
     }),
@@ -201,6 +207,28 @@ export const surveyNotificationsListLogic = kea<surveyNotificationsListLogicType
                     action: 'toggle-survey-notification-from-list',
                     notification: notificationId,
                 })
+            }
+        },
+        deleteNotification: async ({ notification }) => {
+            const previous = values.allNotifications
+            // Optimistically remove the row; restore on undo or on a swallowed API error.
+            actions.loadNotificationsSuccess(previous.filter((n) => n.id !== notification.id))
+
+            let callbackFired = false
+            await deleteWithUndo({
+                endpoint: `projects/${values.currentProjectId}/hog_functions`,
+                object: { id: notification.id, name: notification.name },
+                callback: (undo) => {
+                    callbackFired = true
+                    if (undo) {
+                        actions.loadNotifications()
+                    }
+                },
+            })
+
+            if (!callbackFired) {
+                // deleteWithUndo swallows API errors and only fires the callback on success.
+                actions.loadNotificationsSuccess(previous)
             }
         },
     })),
