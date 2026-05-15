@@ -1193,7 +1193,7 @@ class _Emitter:
                     value_expr = f"draw({strategy_name})"
                 self._emit_with_quantifier(lines, value_expr, el.quantifier, indent)
                 return
-            value_expr = _emit_literal_list(literals) if len(literals) > 1 else repr(literals[0])
+            value_expr = _emit_literal_list(literals)
             self._emit_with_quantifier(lines, value_expr, el.quantifier, indent)
             return
 

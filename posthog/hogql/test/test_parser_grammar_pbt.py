@@ -205,7 +205,14 @@ def _comment_jiggle(draw: Any, query: str) -> str:
 
 
 def _apply_jiggle(query: str) -> st.SearchStrategy[str]:
-    """Compose the three jiggles. Each is independently optional."""
+    """Compose the three jiggles. Each is independently optional.
+
+    Ordering matters: ``_case_jiggle`` and ``_comment_jiggle`` both
+    locate clause keywords via ``query.split(" ")``, which only splits
+    on literal space. ``_whitespace_jiggle`` rewrites single spaces to
+    tabs / newlines / runs, after which a later ``split(" ")`` lands
+    the whole query in one "token" and finds no keywords. So run the
+    keyword-aware jiggles first and whitespace last."""
 
     @st.composite
     def _inner(draw: Any) -> str:
@@ -213,9 +220,9 @@ def _apply_jiggle(query: str) -> st.SearchStrategy[str]:
         if draw(st.booleans()):
             result = draw(_case_jiggle(result))
         if draw(st.booleans()):
-            result = draw(_whitespace_jiggle(result))
-        if draw(st.booleans()):
             result = draw(_comment_jiggle(result))
+        if draw(st.booleans()):
+            result = draw(_whitespace_jiggle(result))
         return result
 
     return _inner()
