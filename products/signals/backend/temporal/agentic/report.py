@@ -277,7 +277,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             previous_research = await _load_previous_research(input.report_id)
             # 3. Resolve the team's autostart priority threshold
             team_config = await SignalTeamConfig.objects.filter(team_id=input.team_id).afirst()
-            autostart_threshold = Priority(team_config.default_autostart_priority) if team_config else None
+            autostart_threshold = Priority(team_config.default_autostart_priority) if team_config else Priority.P0
             # 4. Run the agentic research (and implementation if criteria are met) in the sandbox
             result = await run_multi_turn_research(
                 input.signals,
@@ -287,7 +287,47 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 signal_report_id=input.report_id,
                 autostart_priority_threshold=autostart_threshold,
             )
-            # 5. Persist artefacts, avoid partial data from failed runs
+            # 5. Create a Conversation linked to the investigation Task so the PostHog AI
+            # thread UI can display the research stream. The _meta.signal_source_ids list
+            # lets the agentic_tests serializer find this conversation from a run ID.
+            if user_id:
+                from products.signals.backend.models import SignalReportTask
+
+                from ee.models.assistant import Conversation
+
+                report_task_link = (
+                    await SignalReportTask.objects.filter(
+                        report_id=input.report_id,
+                        relationship__in=[
+                            SignalReportTask.Relationship.RESEARCH,
+                            SignalReportTask.Relationship.RESEARCH_AND_IMPLEMENTATION,
+                        ],
+                    )
+                    .order_by("-created_at")
+                    .select_related("task")
+                    .afirst()
+                )
+                if report_task_link:
+                    task_run = await report_task_link.task.runs.order_by("-created_at").afirst()
+                    source_ids = [s.source_id for s in input.signals if s.source_id]
+                    await Conversation.objects.acreate(
+                        user_id=user_id,
+                        team_id=input.team_id,
+                        type=Conversation.Type.ASSISTANT,
+                        title=f"Investigating: {input.signals[0].content[:70]}",
+                        sandbox_task_id=report_task_link.task_id,
+                        sandbox_run_id=task_run.id if task_run else None,
+                        messages_json=[
+                            {
+                                "_meta": {
+                                    "signal_source_ids": source_ids,
+                                    "signal_report_id": input.report_id,
+                                }
+                            }
+                        ],
+                    )
+
+            # 6. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(
                 input.team_id,
                 input.report_id,

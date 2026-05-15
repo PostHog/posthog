@@ -35,28 +35,69 @@ class AgenticTestRunSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_investigation_conversation_id(self, run: AgenticTestRun) -> str | None:
+        # Use the batch-computed lookup from context (set by the viewset's list method)
+        # to avoid N+1 queries. Falls back to a per-row query for detail endpoints.
+        lookup: dict[str, str] | None = self.context.get("investigation_lookup")
+        if lookup is not None:
+            return lookup.get(str(run.id))
+        return self._lookup_investigation_for_run(run)
+
+    @staticmethod
+    def _lookup_investigation_for_run(run: AgenticTestRun) -> str | None:
         from ee.models.assistant import Conversation
 
-        conversations = Conversation.objects.filter(
-            team_id=run.agentic_test.team_id,
-            sandbox_task_id__isnull=False,
-            messages_json__isnull=False,
-        ).order_by("-created_at")[:50]
-
         run_id = str(run.id)
-        for conv in conversations:
+        for conv in (
+            Conversation.objects.filter(
+                team_id=run.agentic_test.team_id,
+                sandbox_task_id__isnull=False,
+                messages_json__isnull=False,
+            )
+            .only("id", "messages_json")
+            .order_by("-created_at")[:50]
+        ):
             messages = conv.messages_json
             if not messages or not isinstance(messages, list):
                 continue
-            first = messages[0] if messages else None
+            first = messages[0]
             if not isinstance(first, dict):
                 continue
-            meta = first.get("_meta", {})
-            source_ids = meta.get("signal_source_ids", [])
-            if run_id in source_ids:
+            if run_id in first.get("_meta", {}).get("signal_source_ids", []):
                 return str(conv.id)
-
         return None
+
+    @staticmethod
+    def build_investigation_lookup(team_id: int, run_ids: list[str]) -> dict[str, str]:
+        """Batch-compute run_id -> conversation_id mapping for a set of runs."""
+        from ee.models.assistant import Conversation
+
+        if not run_ids:
+            return {}
+        lookup: dict[str, str] = {}
+        remaining = set(run_ids)
+        for conv in (
+            Conversation.objects.filter(
+                team_id=team_id,
+                sandbox_task_id__isnull=False,
+                messages_json__isnull=False,
+            )
+            .only("id", "messages_json")
+            .order_by("-created_at")[:50]
+        ):
+            messages = conv.messages_json
+            if not messages or not isinstance(messages, list):
+                continue
+            first = messages[0]
+            if not isinstance(first, dict):
+                continue
+            source_ids = first.get("_meta", {}).get("signal_source_ids", [])
+            for sid in source_ids:
+                if sid in remaining:
+                    lookup[sid] = str(conv.id)
+                    remaining.discard(sid)
+            if not remaining:
+                break
+        return lookup
 
 
 class AgenticTestSerializer(serializers.ModelSerializer):

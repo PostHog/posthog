@@ -433,7 +433,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             },
             toggleAgenticTests: () => {
                 const config = values.agenticTestsConfig
-                const desiredEnabled = config?.enabled ?? true
+                const desiredEnabled = !(config?.enabled ?? false)
                 actions.toggleSignalSource({
                     sourceProduct: SignalSourceProduct.AGENTIC_TESTS,
                     sourceType: AGENTIC_TESTS_SIGNAL_SOURCE_TYPE,

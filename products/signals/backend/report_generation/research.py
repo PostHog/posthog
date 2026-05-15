@@ -608,23 +608,6 @@ async def run_multi_turn_research(
             relationship=SignalReportTask.Relationship.RESEARCH,
         )
 
-    # Create a Conversation linked to the investigation Task so the PostHog AI
-    # thread UI can display the research stream (tool calls, thinking, agent text).
-    # Store signal source IDs in messages_json so the conversation can be looked up
-    # from the originating record (e.g., AgenticTestRun.id → source_id).
-    from ee.models.assistant import Conversation
-
-    source_ids = [s.source_id for s in signals if s.source_id]
-    await Conversation.objects.acreate(
-        user_id=context.user_id,
-        team_id=context.team_id,
-        type=Conversation.Type.ASSISTANT,
-        title=f"Investigating: {signals[0].description[:70]}",
-        sandbox_task_id=session.task.id,
-        sandbox_run_id=session.task_run.id,
-        messages_json=[{"_meta": {"signal_source_ids": source_ids, "signal_report_id": signal_report_id}}],
-    )
-
     first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)
     findings: list[SignalFinding] = [first_finding]
     if output_fn:
@@ -706,33 +689,38 @@ async def run_multi_turn_research(
         and _priority_rank(priority_result.priority) <= _priority_rank(autostart_priority_threshold)
     )
     if should_implement:
-        if output_fn:
-            output_fn("Implementing fix...")
-        implementation_prompt = build_implementation_prompt(
-            title=presentation_result.title,
-            summary=presentation_result.summary,
-        )
-        implementation_result = await session.send_followup(
-            implementation_prompt,
-            ImplementationResult,
-            label="implementation",
-        )
-        if implementation_result.implemented and implementation_result.pr_url:
-            pr_url = implementation_result.pr_url
+        try:
             if output_fn:
-                output_fn(f"PR created: {pr_url}")
+                output_fn("Implementing fix...")
+            implementation_prompt = build_implementation_prompt(
+                title=presentation_result.title,
+                summary=presentation_result.summary,
+            )
+            implementation_result = await session.send_followup(
+                implementation_prompt,
+                ImplementationResult,
+                label="implementation",
+            )
+            if implementation_result.implemented and implementation_result.pr_url:
+                pr_url = implementation_result.pr_url
+                if output_fn:
+                    output_fn(f"PR created: {pr_url}")
 
-            # Upgrade the relationship to research_and_implementation since this task
-            # now covers both research and the resulting fix PR.
-            if signal_report_id:
-                from products.signals.backend.models import SignalReportTask
+                # Upgrade the relationship to research_and_implementation since this task
+                # now covers both research and the resulting fix PR.
+                if signal_report_id:
+                    from products.signals.backend.models import SignalReportTask
 
-                await SignalReportTask.objects.filter(
-                    task_id=str(session.task.id),
-                    relationship=SignalReportTask.Relationship.RESEARCH,
-                ).aupdate(relationship=SignalReportTask.Relationship.RESEARCH_AND_IMPLEMENTATION)
-        elif output_fn:
-            output_fn(f"Implementation skipped: {implementation_result.changes_summary}")
+                    await SignalReportTask.objects.filter(
+                        task_id=str(session.task.id),
+                        relationship=SignalReportTask.Relationship.RESEARCH,
+                    ).aupdate(relationship=SignalReportTask.Relationship.RESEARCH_AND_IMPLEMENTATION)
+            elif output_fn:
+                output_fn(f"Implementation skipped: {implementation_result.changes_summary}")
+        except Exception:
+            logger.exception("Implementation step failed, preserving research results")
+            if output_fn:
+                output_fn("Implementation step failed — research results preserved")
 
     await session.end()
 

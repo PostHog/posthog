@@ -232,11 +232,21 @@ class AgenticTestRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
         return True
 
     def safely_get_queryset(self, queryset: QuerySet[AgenticTestRun]) -> QuerySet[AgenticTestRun]:
-        qs = queryset.filter(agentic_test__team_id=self.team_id)
+        qs = queryset.select_related("agentic_test").filter(agentic_test__team_id=self.team_id)
         test_id = self.request.query_params.get("agentic_test")
         if test_id:
             qs = qs.filter(agentic_test_id=test_id)
         return qs.order_by("-started_at")
+
+    def get_serializer_context(self) -> dict:
+        context = super().get_serializer_context()
+        # Batch-compute investigation conversation lookups once for the whole page
+        # instead of per-row (avoids N+1 queries on the list endpoint).
+        if self.action == "list":
+            runs = self.get_queryset()[:100]
+            run_ids = [str(r.id) for r in runs]
+            context["investigation_lookup"] = AgenticTestRunSerializer.build_investigation_lookup(self.team_id, run_ids)
+        return context
 
 
 _SSE_KEEPALIVE = b": keepalive\n\n"

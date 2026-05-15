@@ -449,7 +449,7 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
                         return (
                             <div className="p-2 flex flex-col gap-3">
                                 <RunLogEntries
-                                    entries={(run as any).log_entries ?? []}
+                                    entries={(run.log_entries as any[]) ?? []}
                                     streaming={run.status === 'running'}
                                 />
                                 {convId && <InvestigationThread conversationId={convId} />}
@@ -457,7 +457,7 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
                         )
                     },
                     rowExpandable: (run) =>
-                        Boolean((run as any).log_entries?.length) ||
+                        Boolean((run.log_entries as any[] | null)?.length) ||
                         run.status === 'running' ||
                         Boolean((run as any).investigation_conversation_id),
                     noIndent: true,
@@ -485,12 +485,15 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
                                             Investigating
                                         </Link>
                                     )}
-                                    {run.status === 'failed' && !convId && run.finished_at && (
-                                        <span className="flex items-center gap-1 text-xs text-muted">
-                                            <Spinner className="size-3" />
-                                            Investigating…
-                                        </span>
-                                    )}
+                                    {run.status === 'failed' &&
+                                        !convId &&
+                                        run.finished_at &&
+                                        Date.now() - new Date(run.finished_at).getTime() < 5 * 60 * 1000 && (
+                                            <span className="flex items-center gap-1 text-xs text-muted">
+                                                <Spinner className="size-3" />
+                                                Investigating…
+                                            </span>
+                                        )}
                                 </div>
                             )
                         },
@@ -504,9 +507,9 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
                         title: 'Source',
                         key: 'source',
                         render: (_, run) =>
-                            (run as any).source ? (
-                                <LemonTag type={(run as any).source === 'scheduled' ? 'primary' : 'muted'}>
-                                    {(run as any).source}
+                            run.source ? (
+                                <LemonTag type={run.source === 'scheduled' ? 'primary' : 'muted'}>
+                                    {run.source}
                                 </LemonTag>
                             ) : (
                                 <span className="text-muted">—</span>
@@ -516,8 +519,8 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
                         title: 'Region',
                         key: 'region',
                         render: (_, run) =>
-                            (run as any).region ? (
-                                <code className="text-xs">{(run as any).region}</code>
+                            run.region ? (
+                                <code className="text-xs">{run.region}</code>
                             ) : (
                                 <span className="text-muted">—</span>
                             ),
@@ -529,7 +532,7 @@ function RunsTab({ id }: { id: string | 'new' }): JSX.Element {
                             // Always render the "View replay →" link for demo purposes — if the
                             // session id isn't paired yet, the link points to an empty replay route
                             // and resolves once the pairing task completes.
-                            const sid = (run as any).posthog_session_id as string | undefined
+                            const sid = run.posthog_session_id || undefined
                             return (
                                 <Link to={sid ? `/replay/${sid}` : '/replay'} data-attr="run-replay-link">
                                     View replay →
