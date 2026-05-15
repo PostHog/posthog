@@ -26,6 +26,7 @@ const meta: Meta<ExportedData> = {
         interview,
     },
     parameters: {
+        layout: 'fullscreen',
         testOptions: {
             snapshotBrowsers: ['chromium'],
             viewportWidths: ['narrow', 'medium', 'wide', 'superwide'],
