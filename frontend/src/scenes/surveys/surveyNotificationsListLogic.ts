@@ -127,7 +127,6 @@ export const surveyNotificationsListLogic = kea<surveyNotificationsListLogicType
             (knownSurveys: KnownSurvey[]) =>
                 knownSurveys
                     .filter((survey) => !survey.archived)
-                    .slice()
                     .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? '')),
         ],
         filteredSelectableSurveys: [
