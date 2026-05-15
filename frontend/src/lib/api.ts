@@ -6590,6 +6590,16 @@ const api = {
         async suggestReply(ticketId: string): Promise<{ suggestion: string }> {
             return await new ApiRequest().conversationsTicket(ticketId).withAction('suggest_reply').create({ data: {} })
         },
+
+        async compose(data: {
+            message: string
+            recipient_email: string
+            email_config_id: string
+            email_subject?: string
+            rich_content?: Record<string, unknown> | null
+        }): Promise<{ id: string; ticket_number: number }> {
+            return await new ApiRequest().conversationsTickets().withAction('compose').create({ data })
+        },
     },
 
     llmPrompts: {

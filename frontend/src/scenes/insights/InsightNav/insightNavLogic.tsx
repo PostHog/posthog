@@ -523,14 +523,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                             ? identifierToHuman(query.kind.replace(/(Node|Query)$/g, ''), 'title')
                             : null
                     tabs.push({
-                        label: (
-                            <>
-                                {humanFriendlyQueryKind ?? 'Custom'}{' '}
-                                <LemonTag type="warning" className="uppercase ml-2">
-                                    Beta
-                                </LemonTag>
-                            </>
-                        ),
+                        label: humanFriendlyQueryKind ?? 'Custom',
                         type: InsightType.JSON,
                         dataAttr: 'insight-json-tab',
                     })

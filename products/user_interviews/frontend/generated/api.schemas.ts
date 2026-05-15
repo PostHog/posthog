@@ -62,11 +62,156 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface UserInterviewTopicApi {
+    readonly id: string
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** Email addresses of people to interview. May be combined with interviewee_distinct_ids. */
+    interviewee_emails?: string[]
+    /** PostHog distinct IDs of people to interview. May be combined with interviewee_emails. */
+    interviewee_distinct_ids?: string[]
+    /** The product, feature, or idea you want to ask interviewees about. */
+    topic: string
+    /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
+    agent_context?: string
+    /** Ordered list of questions the voice agent should work through during the interview. */
+    questions?: string[]
+}
+
+export interface PaginatedUserInterviewTopicListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: UserInterviewTopicApi[]
+}
+
+export interface PatchedUserInterviewTopicApi {
+    readonly id?: string
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /** Email addresses of people to interview. May be combined with interviewee_distinct_ids. */
+    interviewee_emails?: string[]
+    /** PostHog distinct IDs of people to interview. May be combined with interviewee_emails. */
+    interviewee_distinct_ids?: string[]
+    /** The product, feature, or idea you want to ask interviewees about. */
+    topic?: string
+    /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
+    agent_context?: string
+    /** Ordered list of questions the voice agent should work through during the interview. */
+    questions?: string[]
+}
+
+export interface InterviewLinkApi {
+    /**
+     * The original identifier (email or distinct ID) from the topic targeting.
+     * @maxLength 400
+     */
+    interviewee_identifier: string
+    /** Best-effort display name derived from the identifier, used to greet the interviewee. */
+    user_name: string
+    /** Public, unauthenticated URL the interviewee opens to start the call. Backed by a SharingConfiguration access token. */
+    interview_url: string
+    /** The merged topic + per-interviewee context the voice agent will see during the call. */
+    agent_context: string
+}
+
+export interface PaginatedInterviewLinkListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: InterviewLinkApi[]
+}
+
+export interface SendInvitesRequestApi {
+    /**
+     * Override the default email subject line. Defaults to a friendly prompt referencing the topic.
+     * @maxLength 200
+     */
+    subject?: string
+    /** Email address replies should go to. Defaults to the topic creator's email if blank. */
+    reply_to?: string
+    /** If true (default), queue delivery via Celery. If false, send synchronously and surface errors immediately. */
+    send_async?: boolean
+}
+
+export interface InterviewInviteResultApi {
+    /** The original identifier (email or distinct ID) from the topic targeting. */
+    interviewee_identifier: string
+    /**
+     * Email used for delivery. Null when the identifier was not an email (e.g., a distinct ID).
+     * @nullable
+     */
+    email?: string | null
+    /** The personalized public interview URL embedded in the email body. */
+    interview_url: string
+    /** True if an email was queued for delivery. False when the recipient was skipped — see `reason`. */
+    sent: boolean
+    /** Why the email was skipped (e.g., `not_an_email`, `already_sent`). Empty when sent=true. */
+    reason?: string
+}
+
+export interface PaginatedInterviewInviteResultListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: InterviewInviteResultApi[]
+}
+
+export interface IntervieweeContextApi {
+    readonly id: string
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /**
+     * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+     * @maxLength 400
+     */
+    interviewee_identifier: string
+    /**
+     * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+     * @maxLength 10000
+     */
+    agent_context: string
+}
+
+export interface PaginatedIntervieweeContextListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: IntervieweeContextApi[]
+}
+
+export interface PatchedIntervieweeContextApi {
+    readonly id?: string
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /**
+     * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+     * @maxLength 400
+     */
+    interviewee_identifier?: string
+    /**
+     * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+     * @maxLength 10000
+     */
+    agent_context?: string
+}
+
 export interface UserInterviewApi {
     readonly id: string
     readonly created_by: UserBasicApi
     readonly created_at: string
     interviewee_emails?: string[]
+    readonly interviewee_identifier: string
+    /** @nullable */
+    readonly topic: string | null
     readonly transcript: string
     summary?: string
     audio: string
@@ -86,9 +231,38 @@ export interface PatchedUserInterviewApi {
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     interviewee_emails?: string[]
+    readonly interviewee_identifier?: string
+    /** @nullable */
+    readonly topic?: string | null
     readonly transcript?: string
     summary?: string
     audio?: string
+}
+
+export type UserInterviewTopicsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type UserInterviewTopicsIntervieweesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type UserInterviewsListParams = {
@@ -100,4 +274,5 @@ export type UserInterviewsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    topic?: string
 }
