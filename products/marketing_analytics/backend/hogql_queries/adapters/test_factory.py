@@ -194,7 +194,9 @@ class TestMetaAdsConfigDiscovery(BaseTest):
         source.source_type = "MetaAds"
         return source
 
-    def _create_meta_config(self, factory: MarketingSourceFactory, tables: list[Mock]) -> MetaAdsConfig | None:
+    def _create_meta_config(
+        self, factory: MarketingSourceFactory, tables: list[DataWarehouseTable]
+    ) -> MetaAdsConfig | None:
         """Wrapper around the unified `_create_native_config` that pins the source-specific
         params (NativeMarketingSource + config class) so the test bodies stay focused on
         which warehouse tables are present."""
@@ -368,10 +370,10 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
         ),
     ]
 
-    def _make_table(self, prefix: str, schema_name: str) -> Mock:
+    def _make_table(self, prefix: str, schema_name: str) -> DataWarehouseTable:
         table = Mock()
         table.name = f"{prefix}_{schema_name}"
-        return table
+        return cast(DataWarehouseTable, table)
 
     def _make_factory(self) -> MarketingSourceFactory:
         date_range = QueryDateRange(

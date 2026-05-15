@@ -3,7 +3,7 @@
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Generic, Optional, TypeVar, cast
 
 import structlog
 
@@ -259,7 +259,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                 f"{self.__class__.__name__} must override _get_campaign_name_field() — "
                 "base default only works for hierarchical native ads configs."
             )
-        config = self.config  # type: ignore[assignment]
+        config = cast(HierarchicalNativeAdsConfig, self.config)
         level = self.context.drill_down_level
         if level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD):
             if self._uses_unified_entity_stats:
@@ -281,7 +281,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                 f"{self.__class__.__name__} must override _get_campaign_id_field() — "
                 "base default only works for hierarchical native ads configs."
             )
-        config = self.config  # type: ignore[assignment]
+        config = cast(HierarchicalNativeAdsConfig, self.config)
         level = self.context.drill_down_level
         if level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD):
             if self._uses_unified_entity_stats:
@@ -347,7 +347,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """
         if not self._has_hierarchical_config():
             return ast.Constant(value=None)
-        config = self.config  # type: ignore[assignment]
+        config = cast(HierarchicalNativeAdsConfig, self.config)
         level = self.context.drill_down_level
         if self._uses_unified_entity_stats and level == MarketingAnalyticsDrillDownLevel.AD:
             tables = self._level_tables()
@@ -370,7 +370,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """Same shape as `_get_ad_group_name_field` for the ID column."""
         if not self._has_hierarchical_config():
             return ast.Constant(value=None)
-        config = self.config  # type: ignore[assignment]
+        config = cast(HierarchicalNativeAdsConfig, self.config)
         level = self.context.drill_down_level
         if self._uses_unified_entity_stats and level == MarketingAnalyticsDrillDownLevel.AD:
             tables = self._level_tables()
@@ -389,7 +389,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """Ad name — only emitted at AD level (where ad table IS the FROM table)."""
         if not self._has_hierarchical_config():
             return ast.Constant(value=None)
-        config = self.config  # type: ignore[assignment]
+        config = cast(HierarchicalNativeAdsConfig, self.config)
         return self._string_field_when_level(
             (MarketingAnalyticsDrillDownLevel.AD,), config.ad_table, self._ad_name_column
         )
@@ -398,7 +398,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """Ad ID — only emitted at AD level."""
         if not self._has_hierarchical_config():
             return ast.Constant(value=None)
-        config = self.config  # type: ignore[assignment]
+        config = cast(HierarchicalNativeAdsConfig, self.config)
         return self._string_field_when_level(
             (MarketingAnalyticsDrillDownLevel.AD,), config.ad_table, self._ad_pk_column
         )
@@ -481,7 +481,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         campaign-level and below."""
         if not self._has_hierarchical_config():
             return level not in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD)
-        config = self.config  # type: ignore[assignment]
+        config = cast(HierarchicalNativeAdsConfig, self.config)
         if level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
             return config.adset_table is not None and config.adset_stats_table is not None
         if level == MarketingAnalyticsDrillDownLevel.AD:
@@ -499,7 +499,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                 f"{self.__class__.__name__} uses a non-hierarchical config; either override "
                 "_level_tables() or implement _get_from / _get_where_conditions / _get_group_by directly."
             )
-        config = self.config  # type: ignore[assignment]
+        config = cast(HierarchicalNativeAdsConfig, self.config)
         level = self.context.drill_down_level
         if level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
             if not (config.adset_table and config.adset_stats_table):
@@ -563,7 +563,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                 f"{self.__class__.__name__} must override _get_from() — base default only handles "
                 "hierarchical native ads configs."
             )
-        config = self.config  # type: ignore[assignment]
+        config = cast(HierarchicalNativeAdsConfig, self.config)
         tables = self._level_tables()
         entity_table_name = tables.entity_table.name
         stats_table_name = tables.stats_table.name
