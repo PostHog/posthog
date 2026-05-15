@@ -40,6 +40,12 @@ SANDBOX_PROVIDER: str | None = get_from_env(
 SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
+SANDBOX_MODAL_DOCKER_DEFAULT_APP_NAME: str = get_from_env(
+    "SANDBOX_MODAL_DOCKER_DEFAULT_APP_NAME", "posthog-sandbox-modal-docker-default"
+)
+SANDBOX_MODAL_DOCKER_NOTEBOOK_APP_NAME: str = get_from_env(
+    "SANDBOX_MODAL_DOCKER_NOTEBOOK_APP_NAME", "posthog-sandbox-modal-docker-notebook"
+)
 
 # When True, cloud-to-cloud resume boots from a Modal filesystem snapshot taken at
 # end-of-run. When False, no Modal snapshot is taken and resume relies on the
@@ -106,4 +112,5 @@ LLMA_SENTIMENT_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-sentiment-ta
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
+DEPLOYMENTS_TASK_QUEUE = _set_temporal_task_queue("deployments-task-queue")
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process

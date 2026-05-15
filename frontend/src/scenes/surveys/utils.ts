@@ -735,7 +735,8 @@ export function buildOpenEndedQuery(
     const query = `SELECT
             ${openColumns.join(',\n')},
             events.distinct_id,
-            events.timestamp
+            events.timestamp,
+            events.properties.$session_id
         FROM events
         WHERE event = '${SurveyEventName.SENT}'
             AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
@@ -944,6 +945,45 @@ export const isThumbQuestion = (question: SurveyQuestion): boolean => {
         question.display === 'emoji' &&
         question.scale === SURVEY_RATING_SCALE.THUMB_2_POINT
     )
+}
+
+/**
+ * A 2-point rating question always represents a binary thumbs up / thumbs down regardless of `display`,
+ * so we render the icon + label in response views to make the value readable at a glance.
+ */
+export const isScaleTwoRating = (question: SurveyQuestion): boolean => {
+    return question.type === SurveyQuestionType.Rating && question.scale === SURVEY_RATING_SCALE.THUMB_2_POINT
+}
+
+/**
+ * Splits text pasted into a choice input on newlines or tabs (spreadsheet rows).
+ * Returns the merged choices array, or `null` if there's nothing to split (the caller
+ * should let the paste fall through to the default input behavior).
+ *
+ * Always keeps the open-ended ("Other") entry as the last item when `hasOpenChoice`
+ * is true — including when the paste happens into the open-ended slot itself.
+ */
+export function splitChoicesOnPaste(
+    pasted: string,
+    choices: string[],
+    choiceIndex: number,
+    hasOpenChoice: boolean
+): string[] | null {
+    const segments = pasted
+        .split(/[\n\t]+/)
+        .map((segment) => segment.trim())
+        .filter((segment) => segment.length > 0)
+
+    if (segments.length <= 1) {
+        return null
+    }
+
+    const openTail = hasOpenChoice ? [choices[choices.length - 1]] : []
+    const head = choices.slice(0, choiceIndex)
+    const tailStart = choiceIndex + 1
+    const tailEnd = hasOpenChoice ? choices.length - 1 : choices.length
+    const tail = choices.slice(tailStart, tailEnd)
+    return [...head, ...segments, ...tail, ...openTail]
 }
 
 export type SurveyConditionType =
