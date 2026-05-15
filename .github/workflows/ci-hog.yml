@@ -97,17 +97,8 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
+            - name: Setup pnpm + Node.js
+              uses: ./.github/actions/setup-node-pnpm
 
             - name: Check if ANTLR definitions are up to date
               run: |
@@ -200,15 +191,9 @@ jobs:
             - name: Install Python dependencies
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-            - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Setup pnpm + Node.js
+              uses: ./.github/actions/setup-node-pnpm
               with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
                   registry-url: https://registry.npmjs.org
             - name: Install package.json dependencies
               run: pnpm --filter=@posthog/hogvm install --frozen-lockfile

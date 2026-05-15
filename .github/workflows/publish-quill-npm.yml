@@ -31,15 +31,10 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Setup pnpm + Node.js
+              uses: ./.github/actions/setup-node-pnpm
               with:
-                  node-version-file: .nvmrc
                   registry-url: https://registry.npmjs.org
-                  cache: 'pnpm'
 
             - name: Ensure modern npm (OIDC trusted publishing support)
               run: npm install -g npm@11.6.4

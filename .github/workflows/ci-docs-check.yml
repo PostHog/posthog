@@ -48,19 +48,11 @@ jobs:
               if: steps.source-check.outputs.changed == 'true'
               uses: actions/checkout@v6
 
-            - name: Setup pnpm
+            - name: Setup pnpm + Node.js
               if: steps.source-check.outputs.changed == 'true'
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Setup Node.js
-              if: steps.source-check.outputs.changed == 'true'
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              uses: ./.github/actions/setup-node-pnpm
               with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-docs-check.yml
+                  cache-dependency-path: .github/workflows/ci-docs-check.yml
 
             - name: Install dependencies
               if: steps.source-check.outputs.changed == 'true'

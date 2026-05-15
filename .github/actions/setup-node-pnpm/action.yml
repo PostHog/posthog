@@ -1,0 +1,34 @@
+name: Setup pnpm + Node.js
+description: |
+    Installs pnpm, applies the gyp_main.py executable bit fix, and sets up Node.js with pnpm caching enabled.
+    Action version pins live here so dependabot/renovate updates touch one file instead of every workflow.
+
+inputs:
+    cache-dependency-path:
+        description: Extra files to mix into the pnpm cache key (typically the calling workflow file). pnpm-lock.yaml is always included.
+        required: false
+        default: ''
+    registry-url:
+        description: Optional registry URL for setup-node (used when publishing to npm).
+        required: false
+        default: ''
+
+runs:
+    using: composite
+    steps:
+        - name: Install pnpm
+          uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+
+        - name: Fix node-gyp permissions
+          shell: bash
+          run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
+        - name: Set up Node.js
+          uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+          with:
+              node-version-file: .nvmrc
+              cache: pnpm
+              registry-url: ${{ inputs.registry-url }}
+              cache-dependency-path: |
+                  pnpm-lock.yaml
+                  ${{ inputs.cache-dependency-path }}

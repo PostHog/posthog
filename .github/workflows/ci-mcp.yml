@@ -106,17 +106,8 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
+            - name: Setup pnpm + Node.js
+              uses: ./.github/actions/setup-node-pnpm
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
@@ -161,17 +152,8 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v6
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
+            - name: Setup pnpm + Node.js
+              uses: ./.github/actions/setup-node-pnpm
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
@@ -323,17 +305,8 @@ jobs:
               run: |
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
+            - name: Setup pnpm + Node.js
+              uses: ./.github/actions/setup-node-pnpm
 
             - name: Install Python dependencies
               shell: bash

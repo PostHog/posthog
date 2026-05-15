@@ -110,20 +110,10 @@ jobs:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Setup pnpm + Node.js
+              uses: ./.github/actions/setup-node-pnpm
               with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-storybook.yml
+                  cache-dependency-path: .github/workflows/ci-storybook.yml
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
@@ -246,20 +236,10 @@ jobs:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Setup pnpm + Node.js
+              uses: ./.github/actions/setup-node-pnpm
               with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-storybook.yml
+                  cache-dependency-path: .github/workflows/ci-storybook.yml
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
@@ -374,20 +354,10 @@ jobs:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Setup pnpm + Node.js
+              uses: ./.github/actions/setup-node-pnpm
               with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-storybook.yml
+                  cache-dependency-path: .github/workflows/ci-storybook.yml
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
