@@ -97,6 +97,22 @@ DISPLAY_LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$")
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+
+# Translation language codes must be BCP-47-ish (lang[-subtag...]). This is the same shape
+# the JS SDK matches against navigator.language. Aliases like "english" or sentinel values
+# like "default" are rejected because they never match a real browser locale.
+BCP47_LANGUAGE_CODE_RE = re.compile(r"^[a-z]{2,3}(-[a-z0-9]{2,8}){0,3}$")
+DEFAULT_BASE_LANGUAGE = "en"
+# Sentinel keys we explicitly reject — these used to appear in customer data and never
+# resolved to anything in the SDK. Block them at the API so they don't keep accumulating.
+REJECTED_TRANSLATION_KEYS = frozenset({"default", "original", "base"})
+
+
+def _normalize_language_code(raw: str) -> str:
+    """Lowercase + underscore-to-hyphen. Matches what the SDK does before lookup."""
+    return raw.strip().lower().replace("_", "-")
+
+
 # Keep this in sync with SurveyAPISerializer's public runtime contract.
 # Root survey description is intentionally excluded because customers have used it for internal notes.
 SURVEY_API_TRANSLATION_FIELDS = frozenset(
@@ -134,7 +150,12 @@ SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS = (
 class GenerateSurveyTranslationsRequestSerializer(serializers.Serializer):
     target_language = serializers.CharField(help_text="Language code to generate translations for, for example pt-BR.")
     source_language = serializers.CharField(
-        required=False, default="en", help_text="Source language code for the existing survey copy."
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Optional override for the source language code. Defaults to the survey's `base_language` "
+            "(or 'en' if unset)."
+        ),
     )
     overwrite = serializers.BooleanField(
         required=False, default=False, help_text="Whether to overwrite existing translations for this language."
@@ -595,6 +616,15 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
     schedule = serializers.CharField(required=False, allow_null=True)
     enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
     enable_iframe_embedding = serializers.BooleanField(required=False, allow_null=True)
+    base_language = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=20,
+        help_text=(
+            "BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's "
+            "untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`."
+        ),
+    )
 
     @extend_schema_field(
         serializers.ListField(
@@ -650,6 +680,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "response_sampling_daily_limits",
             "enable_partial_responses",
             "enable_iframe_embedding",
+            "base_language",
             "translations",
             "user_access_level",
             "form_content",
@@ -720,6 +751,15 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     schedule = serializers.CharField(required=False, allow_null=True)
     enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
     enable_iframe_embedding = serializers.BooleanField(required=False, allow_null=True)
+    base_language = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=20,
+        help_text=(
+            "BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's "
+            "untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
@@ -759,6 +799,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_daily_limits",
             "enable_partial_responses",
             "enable_iframe_embedding",
+            "base_language",
             "translations",
             "_create_in_folder",
             "form_content",
@@ -820,22 +861,85 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         return value
 
+    def _resolve_base_language(self) -> str:
+        """Resolve the survey's base language from incoming data, falling back to the instance, then 'en'."""
+        initial_data = getattr(self, "initial_data", None)
+        if isinstance(initial_data, dict) and "base_language" in initial_data:
+            candidate = initial_data.get("base_language")
+            if isinstance(candidate, str) and candidate.strip():
+                return _normalize_language_code(candidate)
+        if self.instance is not None:
+            instance_lang = getattr(self.instance, "base_language", None)
+            if isinstance(instance_lang, str) and instance_lang.strip():
+                return _normalize_language_code(instance_lang)
+        return DEFAULT_BASE_LANGUAGE
+
+    def _validate_translation_language_key(self, raw_key: Any, base_language: str, context: str) -> str:
+        """Validate and normalize a single translation language key. Raises ValidationError on bad input."""
+        if not isinstance(raw_key, str) or not raw_key.strip():
+            raise serializers.ValidationError(f"{context}: translation language code cannot be empty.")
+        normalized = _normalize_language_code(raw_key)
+        if normalized in REJECTED_TRANSLATION_KEYS:
+            raise serializers.ValidationError(
+                f"{context}: '{raw_key}' is not a valid translation language. "
+                "The untranslated text is the original — set the survey's base language instead of adding it as a translation."
+            )
+        if not BCP47_LANGUAGE_CODE_RE.match(normalized):
+            raise serializers.ValidationError(
+                f"{context}: '{raw_key}' is not a valid language code. "
+                "Use BCP-47 codes like 'en', 'es', or 'es-MX' (not language names like 'english')."
+            )
+        if normalized == base_language:
+            raise serializers.ValidationError(
+                f"{context}: '{raw_key}' matches the survey's base language ('{base_language}'). "
+                "The original text already covers this language — translate to a different language."
+            )
+        return normalized
+
+    def validate_base_language(self, value: Any) -> str:
+        """Ensure base_language is a canonical BCP-47-ish code."""
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return DEFAULT_BASE_LANGUAGE
+        if not isinstance(value, str):
+            raise serializers.ValidationError("base_language must be a string.")
+        normalized = _normalize_language_code(value)
+        if normalized in REJECTED_TRANSLATION_KEYS:
+            raise serializers.ValidationError(
+                f"'{value}' is not a valid language code. Use a BCP-47 code like 'en' or 'es'."
+            )
+        if not BCP47_LANGUAGE_CODE_RE.match(normalized):
+            raise serializers.ValidationError(
+                f"'{value}' is not a valid language code. Use BCP-47 codes like 'en', 'es', or 'es-MX'."
+            )
+        return normalized
+
     def validate_translations(self, value: Any) -> Optional[dict[str, dict[str, str]]]:
-        """Validate survey-level translations."""
+        """Validate survey-level translations.
+
+        Write-strict, read-tolerant: pre-existing entries with unchanged content
+        are passed through even if their language code is no longer valid, so users
+        can keep saving surveys with legacy keys without losing data. The UI
+        surfaces those entries with a fix-or-remove prompt.
+        """
         if value is None:
             return value
 
         if not isinstance(value, dict):
             raise serializers.ValidationError("Translations must be an object")
 
-        cleaned_translations = {}
-        for lang_code, translation_data in value.items():
+        base_language = self._resolve_base_language()
+        existing_translations: dict[str, Any] = {}
+        if self.instance is not None:
+            instance_translations = getattr(self.instance, "translations", None)
+            if isinstance(instance_translations, dict):
+                existing_translations = instance_translations
+
+        cleaned_translations: dict[str, dict[str, str]] = {}
+        for raw_lang_code, translation_data in value.items():
             if not isinstance(translation_data, dict):
-                raise serializers.ValidationError(f"Translation for '{lang_code}' must be an object")
+                raise serializers.ValidationError(f"Translation for '{raw_lang_code}' must be an object")
 
-            cleaned_translation = {}
-
-            # Validate and sanitize all translatable fields to prevent XSS
+            cleaned_translation: dict[str, str] = {}
             for field in [
                 "name",
                 "description",
@@ -845,42 +949,72 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             ]:
                 if field in translation_data:
                     if not isinstance(translation_data[field], str):
-                        raise serializers.ValidationError(f"Translation for '{lang_code}': '{field}' must be a string")
+                        raise serializers.ValidationError(
+                            f"Translation for '{raw_lang_code}': '{field}' must be a string"
+                        )
                     if nh3.is_html(translation_data[field]):
                         cleaned_translation[field] = nh3_clean_with_allow_list(translation_data[field])
                     else:
                         cleaned_translation[field] = translation_data[field]
 
-            # Only store non-empty translations to avoid wasting storage
-            if cleaned_translation:
-                cleaned_translations[lang_code] = cleaned_translation
+            if not cleaned_translation:
+                continue
+
+            # Grandfather pre-existing keys: surveys saved before this validation keep saving, even when
+            # their content is edited. New bad keys are still rejected below. The dashboard surfaces
+            # these under "Legacy translation keys" so owners can clean up at their pace.
+            if raw_lang_code in existing_translations:
+                cleaned_translations[raw_lang_code] = cleaned_translation
+                continue
+
+            normalized_key = self._validate_translation_language_key(
+                raw_lang_code, base_language, context="Survey translation"
+            )
+            if normalized_key in cleaned_translations:
+                raise serializers.ValidationError(
+                    f"Survey translation: duplicate language '{normalized_key}' (after normalizing '{raw_lang_code}')."
+                )
+            cleaned_translations[normalized_key] = cleaned_translation
 
         return cleaned_translations
 
-    def _validate_question_translations(self, translations_dict: Any, question_index: int) -> dict[str, dict[str, Any]]:
-        """Validate and sanitize translations for a single question."""
+    def _validate_question_translations(
+        self,
+        translations_dict: Any,
+        question_index: int,
+        base_language: Optional[str] = None,
+        existing_question_translations: Optional[dict[str, Any]] = None,
+    ) -> dict[str, dict[str, Any]]:
+        """Validate and sanitize translations for a single question.
+
+        Write-strict, read-tolerant: pre-existing entries with unchanged content
+        are passed through even if their language code is no longer valid.
+        """
         # Use question_index + 1 for user-facing error messages
         question_num = question_index + 1
 
         if not isinstance(translations_dict, dict):
             raise serializers.ValidationError(f"Question {question_num}: translations must be an object")
 
-        cleaned_translations = {}
+        resolved_base_language = base_language or self._resolve_base_language()
+        existing = existing_question_translations if isinstance(existing_question_translations, dict) else {}
 
-        for lang_code, translation_data in translations_dict.items():
+        cleaned_translations: dict[str, dict[str, Any]] = {}
+
+        for raw_lang_code, translation_data in translations_dict.items():
             if not isinstance(translation_data, dict):
                 raise serializers.ValidationError(
-                    f"Question {question_num}: Translation for '{lang_code}' must be an object"
+                    f"Question {question_num}: Translation for '{raw_lang_code}' must be an object"
                 )
 
-            cleaned_translation = {}
+            cleaned_translation: dict[str, Any] = {}
 
             # Validate and sanitize all translatable fields
             for field in ["question", "description", "buttonText", "lowerBoundLabel", "upperBoundLabel"]:
                 if field in translation_data:
                     if not isinstance(translation_data[field], str):
                         raise serializers.ValidationError(
-                            f"Question {question_num}: Translation '{lang_code}' field '{field}' must be a string"
+                            f"Question {question_num}: Translation '{raw_lang_code}' field '{field}' must be a string"
                         )
                     if nh3.is_html(translation_data[field]):
                         cleaned_translation[field] = nh3_clean_with_allow_list(translation_data[field])
@@ -891,7 +1025,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if "link" in translation_data:
                 if not isinstance(translation_data["link"], str):
                     raise serializers.ValidationError(
-                        f"Question {question_num}: Translation '{lang_code}' field 'link' must be a string"
+                        f"Question {question_num}: Translation '{raw_lang_code}' field 'link' must be a string"
                     )
                 cleaned_translation["link"] = self._validate_and_sanitize_link(translation_data["link"])
 
@@ -899,13 +1033,27 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if "choices" in translation_data:
                 if not isinstance(translation_data["choices"], list):
                     raise serializers.ValidationError(
-                        f"Question {question_num}: Translation '{lang_code}' field 'choices' must be a list of strings"
+                        f"Question {question_num}: Translation '{raw_lang_code}' field 'choices' must be a list of strings"
                     )
                 cleaned_translation["choices"] = self._validate_and_sanitize_choices(translation_data["choices"])
 
-            # Only store non-empty translations to avoid wasting storage
-            if cleaned_translation:
-                cleaned_translations[lang_code] = cleaned_translation
+            if not cleaned_translation:
+                continue
+
+            # Grandfather pre-existing keys so edits to legacy translations still save (see validate_translations).
+            if raw_lang_code in existing:
+                cleaned_translations[raw_lang_code] = cleaned_translation
+                continue
+
+            normalized_key = self._validate_translation_language_key(
+                raw_lang_code, resolved_base_language, context=f"Question {question_num} translation"
+            )
+            if normalized_key in cleaned_translations:
+                raise serializers.ValidationError(
+                    f"Question {question_num} translation: duplicate language '{normalized_key}' "
+                    f"(after normalizing '{raw_lang_code}')."
+                )
+            cleaned_translations[normalized_key] = cleaned_translation
 
         return cleaned_translations
 
@@ -915,6 +1063,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         if not isinstance(value, list):
             raise serializers.ValidationError("Questions must be a list of objects")
+
+        base_language = self._resolve_base_language()
+        existing_questions: list[dict[str, Any]] = []
+        if self.instance is not None:
+            existing_value = getattr(self.instance, "questions", None)
+            if isinstance(existing_value, list):
+                existing_questions = [q for q in existing_value if isinstance(q, dict)]
 
         cleaned_questions = []
         for index, raw_question in enumerate(value):
@@ -974,7 +1129,17 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
             # Validate and sanitize inline translations
             if "translations" in raw_question:
-                cleaned_translations = self._validate_question_translations(raw_question["translations"], index)
+                existing_question_translations: dict[str, Any] = {}
+                if index < len(existing_questions):
+                    candidate = existing_questions[index].get("translations")
+                    if isinstance(candidate, dict):
+                        existing_question_translations = candidate
+                cleaned_translations = self._validate_question_translations(
+                    raw_question["translations"],
+                    index,
+                    base_language=base_language,
+                    existing_question_translations=existing_question_translations,
+                )
 
                 # Validate choices array length matches if present
                 original_choices = cleaned_question.get("choices")
@@ -2633,9 +2798,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         serializer = GenerateSurveyTranslationsRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        saved_survey = self.get_object()
         survey = data.get("survey")
         if survey is None:
-            saved_survey = self.get_object()
             survey = {
                 "name": saved_survey.name,
                 "description": saved_survey.description,
@@ -2646,10 +2811,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             }
         user = cast(User, request.user)
 
+        source_language = (
+            data.get("source_language")
+            or getattr(saved_survey, "base_language", DEFAULT_BASE_LANGUAGE)
+            or DEFAULT_BASE_LANGUAGE
+        )
+
         translations, questions, generated_field_paths, trace_id = generate_survey_translation(
             survey=survey,
             target_language=data["target_language"],
-            source_language=data["source_language"],
+            source_language=source_language,
             overwrite=data["overwrite"],
             distinct_id=str(user.distinct_id),
             team_id=self.team.pk,
@@ -2863,13 +3034,25 @@ class SurveyAPIActionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-def get_survey_api_translations(translations: Any) -> dict[str, dict[str, str]] | None:
+def get_survey_api_translations(
+    translations: Any, base_language: str = DEFAULT_BASE_LANGUAGE
+) -> dict[str, dict[str, str]] | None:
     if not isinstance(translations, dict):
         return None
 
+    normalized_base = _normalize_language_code(base_language) if isinstance(base_language, str) else ""
     safe_translations: dict[str, dict[str, str]] = {}
     for language, translation in translations.items():
         if not isinstance(language, str) or not isinstance(translation, dict):
+            continue
+
+        # Drop entries the SDK can't match: invalid codes, sentinels like "default", or the base language itself.
+        normalized = _normalize_language_code(language)
+        if (
+            normalized in REJECTED_TRANSLATION_KEYS
+            or not BCP47_LANGUAGE_CODE_RE.match(normalized)
+            or normalized == normalized_base
+        ):
             continue
 
         safe_translation = {
@@ -2878,7 +3061,7 @@ def get_survey_api_translations(translations: Any) -> dict[str, dict[str, str]] 
             if field in SURVEY_API_TRANSLATION_FIELDS and isinstance(value, str)
         }
         if safe_translation:
-            safe_translations[language] = safe_translation
+            safe_translations[normalized] = safe_translation
 
     return safe_translations or None
 
@@ -2893,6 +3076,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
     internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
     conditions = serializers.SerializerMethodField(method_name="get_conditions")
     enable_partial_responses = serializers.BooleanField(read_only=True)
+    base_language = serializers.CharField(read_only=True)
     translations = serializers.SerializerMethodField(method_name="get_translations")
 
     class Meta:
@@ -2918,6 +3102,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "current_iteration_start_date",
             "schedule",
             "enable_partial_responses",
+            "base_language",
             "translations",
         ]
         read_only_fields = fields
@@ -2930,7 +3115,9 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         serializers.DictField(child=serializers.DictField(child=serializers.CharField()), allow_null=True)
     )
     def get_translations(self, survey: Survey) -> dict[str, dict[str, str]] | None:
-        return get_survey_api_translations(survey.translations)
+        return get_survey_api_translations(
+            survey.translations, getattr(survey, "base_language", DEFAULT_BASE_LANGUAGE) or DEFAULT_BASE_LANGUAGE
+        )
 
     def to_representation(self, instance: Survey) -> dict[str, Any]:
         data = super().to_representation(instance)

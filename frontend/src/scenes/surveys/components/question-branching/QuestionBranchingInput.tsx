@@ -128,7 +128,7 @@ export function QuestionBranchingInput({
                     options={dropdownOptions}
                     disabled={!!editingLanguage}
                     disabledReason={
-                        editingLanguage ? 'Question branching can only be edited in the default language' : undefined
+                        editingLanguage ? 'Question branching can only be edited in the original language' : undefined
                     }
                 />
             </LemonField>

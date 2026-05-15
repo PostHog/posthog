@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
+import { useMemo, useState } from 'react'
 
-import { IconSparkles, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonInputSelect, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { IconPencil, IconSparkles, IconTrash, IconWarning } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonInput,
+    LemonInputSelect,
+    LemonTag,
+    LemonTextArea,
+    Popover,
+} from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -14,14 +23,73 @@ import {
 } from '~/types'
 
 import { defaultSurveyAppearance } from '../../constants'
+import {
+    COMMON_LANGUAGES,
+    REJECTED_TRANSLATION_KEYS,
+    describeInvalidLanguageCode,
+    getBaseLanguage,
+    getSurveyLanguageLabel,
+    getSurveyLanguageName,
+    isValidLanguageCode,
+    normalizeLanguageCode,
+} from '../../language'
 import { surveyLogic } from '../../surveyLogic'
-import { COMMON_LANGUAGES } from '../../SurveyTranslations'
 import { WizardPanel, WizardSection } from '../WizardLayout'
 
 type QuestionTranslation = NonNullable<SurveyQuestion['translations']>[string]
 
 function getLanguageLabel(language: string): string {
-    return COMMON_LANGUAGES.find((commonLanguage) => commonLanguage.value === language)?.label || language
+    return (
+        COMMON_LANGUAGES.find((commonLanguage) => commonLanguage.value === language)?.label ||
+        getSurveyLanguageLabel(language)
+    )
+}
+
+function BaseLanguagePicker({
+    baseLanguage,
+    onChange,
+}: {
+    baseLanguage: string
+    onChange: (next: string) => void
+}): JSX.Element {
+    const [open, setOpen] = useState(false)
+    return (
+        <Popover
+            visible={open}
+            onClickOutside={() => setOpen(false)}
+            overlay={
+                <div className="flex flex-col gap-2 p-2 w-72">
+                    <p className="text-sm text-muted">
+                        Pick the language the survey is written in. Translations to this language aren't allowed — the
+                        original already covers it.
+                    </p>
+                    <LemonInputSelect
+                        mode="single"
+                        options={COMMON_LANGUAGES.map((l) => ({ key: l.value, label: l.label }))}
+                        value={[baseLanguage]}
+                        onChange={(values) => {
+                            const lang = values[0]
+                            if (lang && isValidLanguageCode(lang)) {
+                                onChange(normalizeLanguageCode(lang))
+                                setOpen(false)
+                            }
+                        }}
+                        placeholder="Search languages"
+                    />
+                </div>
+            }
+        >
+            <LemonButton
+                type="tertiary"
+                size="xsmall"
+                icon={<IconPencil />}
+                onClick={() => setOpen((v) => !v)}
+                tooltip="Change the survey's original language"
+            >
+                Change
+            </LemonButton>
+        </Popover>
+    )
 }
 
 function isChoiceQuestion(question: SurveyQuestion): question is MultipleSurveyQuestion {
@@ -95,14 +163,48 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
     const { survey, generatingTranslationDrafts, dataProcessingAccepted, aiGeneratedTranslationFields } =
         useValues(surveyLogic)
     const { setSurveyValue, generateTranslationDrafts, clearAiGeneratedTranslationField } = useActions(surveyLogic)
+    const [pickerError, setPickerError] = useState<string | null>(null)
 
+    const baseLanguage = getBaseLanguage(survey)
     const translations = survey.translations ?? {}
     const addedLanguages = Object.keys(translations)
     const activeLanguage = editingLanguage && translations[editingLanguage] ? editingLanguage : null
     const appearance = { ...defaultSurveyAppearance, ...survey.appearance }
 
-    const addLanguage = (language: string): void => {
-        if (!language || translations[language]) {
+    const { invalidKeys, validKeys } = useMemo(() => {
+        const invalid: string[] = []
+        const valid: string[] = []
+        for (const key of addedLanguages) {
+            const normalized = normalizeLanguageCode(key)
+            if (
+                REJECTED_TRANSLATION_KEYS.has(normalized) ||
+                !isValidLanguageCode(normalized) ||
+                normalized === baseLanguage
+            ) {
+                invalid.push(key)
+            } else {
+                valid.push(key)
+            }
+        }
+        return { invalidKeys: invalid, validKeys: valid }
+    }, [addedLanguages, baseLanguage])
+
+    const setBaseLanguage = (next: string): void => {
+        setSurveyValue('base_language', next)
+        if (editingLanguage && normalizeLanguageCode(editingLanguage) === next) {
+            setEditingLanguage(null)
+        }
+    }
+
+    const addLanguage = (rawLanguage: string): void => {
+        const error = describeInvalidLanguageCode(rawLanguage, baseLanguage)
+        if (error) {
+            setPickerError(error)
+            return
+        }
+        const language = normalizeLanguageCode(rawLanguage)
+        setPickerError(null)
+        if (translations[language]) {
             return
         }
 
@@ -251,72 +353,109 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
         !!activeLanguage && aiGeneratedTranslationFields.some((path) => path.includes(`.${activeLanguage}.`))
 
     return (
-        <WizardSection
-            title="Translations"
-            description="Translate the respondent-facing copy. Targeting, scheduling, and branching stay shared across languages."
-            descriptionClassName="text-sm"
-        >
+        <WizardSection title="Translations">
             <WizardPanel className="space-y-4">
-                <div className="flex gap-2">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <h4 className="m-0 text-sm font-semibold uppercase tracking-wide text-muted">Original language</h4>
+                    <span className="text-sm">
+                        Survey is written in <strong>{getSurveyLanguageName(baseLanguage)}</strong>{' '}
+                        <span className="text-muted">({baseLanguage})</span>
+                    </span>
+                    <BaseLanguagePicker baseLanguage={baseLanguage} onChange={setBaseLanguage} />
+                </div>
+
+                <div className="flex flex-col gap-1">
                     <LemonInputSelect
                         mode="single"
-                        options={COMMON_LANGUAGES.filter((language) => !addedLanguages.includes(language.value)).map(
-                            (language) => ({
-                                key: language.value,
-                                label: language.label,
-                            })
-                        )}
+                        options={COMMON_LANGUAGES.filter(
+                            (language) => language.value !== baseLanguage && !addedLanguages.includes(language.value)
+                        ).map((language) => ({
+                            key: language.value,
+                            label: language.label,
+                        }))}
                         onChange={(values) => {
                             const language = values[0]
                             if (language) {
                                 addLanguage(language)
                             }
                         }}
-                        placeholder="Add a language"
+                        placeholder="Add a translation"
                         allowCustomValues
                         value={[]}
-                        className="grow"
                     />
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconSparkles />}
-                        loading={generatingTranslationDrafts}
-                        disabledReason={
-                            !activeLanguage
-                                ? 'Add or select a language before generating translations'
-                                : survey.id === 'new'
-                                  ? 'Save the survey before generating translations'
-                                  : !dataProcessingAccepted
-                                    ? 'AI data processing must be approved to generate translations'
-                                    : undefined
-                        }
-                        onClick={() => activeLanguage && generateTranslationDrafts(activeLanguage)}
-                    >
-                        Fill with AI
-                    </LemonButton>
+                    {pickerError && (
+                        <span role="alert" className="text-danger text-xs">
+                            {pickerError}
+                        </span>
+                    )}
                 </div>
 
-                {addedLanguages.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2">
+                    <LemonButton
+                        size="small"
+                        type={activeLanguage === null ? 'primary' : 'secondary'}
+                        onClick={() => setEditingLanguage(null)}
+                    >
+                        {getSurveyLanguageName(baseLanguage)} (original)
+                    </LemonButton>
+                    {validKeys.map((language) => (
                         <LemonButton
+                            key={language}
                             size="small"
-                            type={activeLanguage === null ? 'primary' : 'secondary'}
-                            onClick={() => setEditingLanguage(null)}
+                            type={activeLanguage === language ? 'primary' : 'secondary'}
+                            onClick={() => setEditingLanguage(language)}
                         >
-                            Original
+                            {getLanguageLabel(language)}
                         </LemonButton>
-                        {addedLanguages.map((language) => (
-                            <LemonButton
-                                key={language}
-                                size="small"
-                                type={activeLanguage === language ? 'primary' : 'secondary'}
-                                onClick={() => setEditingLanguage(language)}
-                            >
-                                {getLanguageLabel(language)}
-                            </LemonButton>
-                        ))}
+                    ))}
+                </div>
+
+                {invalidKeys.length > 0 && (
+                    <div className="flex flex-col gap-1 text-sm">
+                        <div className="flex items-center gap-2 text-warning font-semibold">
+                            <IconWarning />
+                            Legacy translation keys
+                        </div>
+                        <p className="m-0 text-xs text-muted">
+                            These codes the SDK can't match. Remove or re-add with a valid BCP-47 code (e.g. 'en',
+                            'es-MX').
+                        </p>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                            {invalidKeys.map((language) => (
+                                <div
+                                    key={language}
+                                    className="flex items-center gap-1 rounded border border-border px-2 py-0.5"
+                                >
+                                    <code className="text-xs">{language}</code>
+                                    <LemonButton
+                                        icon={<IconTrash />}
+                                        status="danger"
+                                        size="xsmall"
+                                        aria-label={`Remove legacy translation '${language}'`}
+                                        onClick={() =>
+                                            LemonDialog.open({
+                                                title: 'Remove legacy translation',
+                                                description: (
+                                                    <p className="py-2">
+                                                        Remove the translation stored under <code>{language}</code>? It
+                                                        currently has no effect at runtime — the SDK never matches this
+                                                        code.
+                                                    </p>
+                                                ),
+                                                primaryButton: {
+                                                    children: 'Remove',
+                                                    status: 'danger',
+                                                    onClick: () => removeLanguage(language),
+                                                },
+                                                secondaryButton: { children: 'Cancel' },
+                                            })
+                                        }
+                                    />
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                ) : null}
+                )}
 
                 {activeLanguage ? (
                     <div className="space-y-4 border-t border-border pt-4">
@@ -325,56 +464,73 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                                 <h3 className="m-0 text-sm font-semibold">{getLanguageLabel(activeLanguage)}</h3>
                                 <p className="m-0 text-xs text-secondary">The preview uses this language.</p>
                             </div>
-                            <LemonButton
-                                icon={<IconTrash />}
-                                type="tertiary"
-                                status="danger"
-                                size="small"
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: 'Delete translation',
-                                        description: (
-                                            <p className="py-2">
-                                                Delete the translation for{' '}
-                                                <strong>{getLanguageLabel(activeLanguage)}</strong>?
-                                            </p>
-                                        ),
-                                        primaryButton: {
-                                            children: 'Delete',
-                                            status: 'danger',
-                                            onClick: () => removeLanguage(activeLanguage),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                    })
-                                }}
-                            >
-                                Delete
-                            </LemonButton>
+                            <div className="flex items-center gap-2">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconSparkles />}
+                                    loading={generatingTranslationDrafts}
+                                    disabledReason={
+                                        survey.id === 'new'
+                                            ? 'Save the survey before generating translations'
+                                            : !dataProcessingAccepted
+                                              ? 'AI data processing must be approved to generate translations'
+                                              : undefined
+                                    }
+                                    onClick={() => generateTranslationDrafts(activeLanguage)}
+                                >
+                                    Translate with AI
+                                </LemonButton>
+                                <LemonButton
+                                    icon={<IconTrash />}
+                                    type="tertiary"
+                                    status="danger"
+                                    size="small"
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Delete translation',
+                                            description: (
+                                                <p className="py-2">
+                                                    Delete the translation for{' '}
+                                                    <strong>{getLanguageLabel(activeLanguage)}</strong>?
+                                                </p>
+                                            ),
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                status: 'danger',
+                                                onClick: () => removeLanguage(activeLanguage),
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                            },
+                                        })
+                                    }}
+                                >
+                                    Delete
+                                </LemonButton>
+                            </div>
                         </div>
 
                         {hasGeneratedFieldsForActiveLanguage ? (
-                            <div className="flex items-center gap-2 rounded border border-dashed border-accent bg-accent-highlight-secondary p-2 text-xs text-secondary">
-                                <LemonTag type="highlight">AI draft</LemonTag>
-                                <span>AI-generated fields are highlighted. Double-check them before saving.</span>
-                            </div>
+                            <p className="m-0 text-xs text-muted">
+                                <LemonTag type="highlight" size="small">
+                                    AI draft
+                                </LemonTag>{' '}
+                                Highlighted fields are AI-generated — double-check them.
+                            </p>
                         ) : null}
 
-                        <div className="space-y-3">
+                        <div className="space-y-6">
                             {survey.questions.map((question, questionIndex) => {
                                 const questionTranslation = question.translations?.[activeLanguage] ?? {}
                                 const ratingQuestion = isRatingQuestion(question) ? question : null
                                 const linkQuestion = isLinkQuestion(question) ? question : null
 
                                 return (
-                                    <div
-                                        key={questionIndex}
-                                        className="space-y-3 rounded-lg border border-border bg-bg-light p-3"
-                                    >
-                                        <div className="text-xs font-semibold text-secondary">
+                                    <section key={questionIndex} className="space-y-3">
+                                        <h4 className="m-0 text-xs font-semibold uppercase tracking-wide text-muted">
                                             Question {questionIndex + 1}
-                                        </div>
+                                        </h4>
                                         <GuidedTranslationInput
                                             label="Question"
                                             value={questionTranslation.question || ''}
@@ -460,48 +616,50 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                                                 onChange={(link) => updateQuestionTranslation(questionIndex, { link })}
                                             />
                                         ) : null}
-                                    </div>
+                                    </section>
                                 )
                             })}
-                        </div>
 
-                        {appearance.displayThankYouMessage ? (
-                            <div className="space-y-3 rounded-lg border border-border bg-bg-light p-3">
-                                <div className="text-xs font-semibold text-secondary">Confirmation screen</div>
-                                <GuidedTranslationInput
-                                    label="Header"
-                                    value={translations[activeLanguage]?.thankYouMessageHeader || ''}
-                                    source={appearance.thankYouMessageHeader}
-                                    aiGenerated={isGeneratedSurveyField('thankYouMessageHeader')}
-                                    onChange={(thankYouMessageHeader) =>
-                                        updateSurveyTranslation({ thankYouMessageHeader })
-                                    }
-                                />
-                                {appearance.thankYouMessageDescription ? (
+                            {appearance.displayThankYouMessage ? (
+                                <section className="space-y-3">
+                                    <h4 className="m-0 text-xs font-semibold uppercase tracking-wide text-muted">
+                                        Confirmation screen
+                                    </h4>
                                     <GuidedTranslationInput
-                                        label="Description"
-                                        value={translations[activeLanguage]?.thankYouMessageDescription || ''}
-                                        source={appearance.thankYouMessageDescription}
-                                        aiGenerated={isGeneratedSurveyField('thankYouMessageDescription')}
-                                        onChange={(thankYouMessageDescription) =>
-                                            updateSurveyTranslation({ thankYouMessageDescription })
-                                        }
-                                        multiline
-                                    />
-                                ) : null}
-                                {appearance.thankYouMessageCloseButtonText ? (
-                                    <GuidedTranslationInput
-                                        label="Close button"
-                                        value={translations[activeLanguage]?.thankYouMessageCloseButtonText || ''}
-                                        source={appearance.thankYouMessageCloseButtonText}
-                                        aiGenerated={isGeneratedSurveyField('thankYouMessageCloseButtonText')}
-                                        onChange={(thankYouMessageCloseButtonText) =>
-                                            updateSurveyTranslation({ thankYouMessageCloseButtonText })
+                                        label="Header"
+                                        value={translations[activeLanguage]?.thankYouMessageHeader || ''}
+                                        source={appearance.thankYouMessageHeader}
+                                        aiGenerated={isGeneratedSurveyField('thankYouMessageHeader')}
+                                        onChange={(thankYouMessageHeader) =>
+                                            updateSurveyTranslation({ thankYouMessageHeader })
                                         }
                                     />
-                                ) : null}
-                            </div>
-                        ) : null}
+                                    {appearance.thankYouMessageDescription ? (
+                                        <GuidedTranslationInput
+                                            label="Description"
+                                            value={translations[activeLanguage]?.thankYouMessageDescription || ''}
+                                            source={appearance.thankYouMessageDescription}
+                                            aiGenerated={isGeneratedSurveyField('thankYouMessageDescription')}
+                                            onChange={(thankYouMessageDescription) =>
+                                                updateSurveyTranslation({ thankYouMessageDescription })
+                                            }
+                                            multiline
+                                        />
+                                    ) : null}
+                                    {appearance.thankYouMessageCloseButtonText ? (
+                                        <GuidedTranslationInput
+                                            label="Close button"
+                                            value={translations[activeLanguage]?.thankYouMessageCloseButtonText || ''}
+                                            source={appearance.thankYouMessageCloseButtonText}
+                                            aiGenerated={isGeneratedSurveyField('thankYouMessageCloseButtonText')}
+                                            onChange={(thankYouMessageCloseButtonText) =>
+                                                updateSurveyTranslation({ thankYouMessageCloseButtonText })
+                                            }
+                                        />
+                                    ) : null}
+                                </section>
+                            ) : null}
+                        </div>
                     </div>
                 ) : null}
             </WizardPanel>
