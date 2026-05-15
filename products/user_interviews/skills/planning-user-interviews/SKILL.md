@@ -58,20 +58,22 @@ Topics snapshot their audience at create time. When the user picks a cohort, you
    SELECT count() FROM persons WHERE id IN COHORT <cohort_id>
    ```
 
-2. **If the cohort has 500 or fewer members**, fetch them and use the results:
+2. **If the cohort has 500 or fewer members**, fetch their emails:
 
    ```sql
-   SELECT properties.email AS email, id AS distinct_id
+   SELECT properties.email AS email
    FROM persons
-   WHERE id IN COHORT <cohort_id>
+   WHERE id IN COHORT <cohort_id> AND properties.email IS NOT NULL
    LIMIT 500
    ```
 
-   Put rows with a non-null email into `interviewee_emails`; for rows where email is null, fall back to `distinct_id` in `interviewee_distinct_ids`. Dedupe.
+   Put each row into `interviewee_emails`. Dedupe.
+
+   Cohort members without an email property aren't included by default — the `persons.id` column is the person UUID, not the SDK distinct_id, so it can't be used as an `interviewee_distinct_id` without a `pdi.distinct_id` join. If you specifically need to reach members who only exist as distinct IDs, ask the user first, then do the join explicitly.
 
 3. **If the cohort has more than 500 members**, stop and ask the user. Do not silently truncate, sample, or fall back to a different cohort — the user needs to choose. Surface:
    - The cohort name and count (e.g. "PostHog Team has 28,563 members — over the 500 cap.")
-   - Why the cap exists ("we snapshot the audience at create time, and 500 is a sensible upper bound for one interview campaign")
+   - Why the cap exists ("we snapshot the audience at create time, and 500 is an agent-side guardrail to keep one interview campaign manageable — the backend itself does not cap the array length")
    - Their options:
      - **Narrow the cohort** — describe the subset they actually want (e.g. "engineers only", "active in the last 30 days"). You can offer to write a more specific HogQL filter or create a new, smaller cohort via `cohorts-create`.
      - **Sample randomly** — confirm a count (e.g. 200) and use `ORDER BY rand() LIMIT <n>` on the cohort query. Make the randomness explicit so they know they're not getting the "top" members.

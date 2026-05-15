@@ -281,22 +281,19 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id", "created_by", "created_at")
 
+    MISSING_TARGETING_ERROR = "At least one of interviewee_emails or interviewee_distinct_ids must be provided."
+
     def validate(self, attrs: dict) -> dict:
-        emails = (
-            attrs.get("interviewee_emails")
-            if "interviewee_emails" in attrs
-            else getattr(self.instance, "interviewee_emails", [])
-        )
-        distinct_ids = (
-            attrs.get("interviewee_distinct_ids")
-            if "interviewee_distinct_ids" in attrs
-            else getattr(self.instance, "interviewee_distinct_ids", [])
-        )
-        if not emails and not distinct_ids:
-            raise serializers.ValidationError(
-                "At least one of interviewee_emails or interviewee_distinct_ids must be provided."
-            )
+        if not self._current(attrs, "interviewee_emails", []) and not self._current(
+            attrs, "interviewee_distinct_ids", []
+        ):
+            raise serializers.ValidationError(self.MISSING_TARGETING_ERROR)
         return attrs
+
+    def _current(self, attrs: dict, field: str, default: Any) -> Any:
+        if field in attrs:
+            return attrs[field]
+        return getattr(self.instance, field, default)
 
     def create(self, validated_data: dict) -> UserInterviewTopic:
         request = self.context["request"]

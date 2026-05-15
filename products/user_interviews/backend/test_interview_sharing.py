@@ -17,6 +17,7 @@ from rest_framework import status
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models.sharing_configuration import SharingConfiguration
 
+from products.user_interviews.backend.api import UserInterviewTopicSerializer
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
 from products.user_interviews.backend.webhooks import EMBEDDING_CONTENT_MAX_BYTES
 
@@ -115,8 +116,8 @@ class TestUserInterviewTopicCreate(_FeatureFlagEnabledMixin):
         response = self.client.post(self._url(), data=payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         body = response.json()
-        errors = body.get("non_field_errors") or [body.get("detail", "")]
-        assert any("interviewee_emails" in str(e) and "interviewee_distinct_ids" in str(e) for e in errors), body
+        candidates = body.get("non_field_errors") or [body.get("detail", "")]
+        assert UserInterviewTopicSerializer.MISSING_TARGETING_ERROR in candidates, body
 
     @parameterized.expand(
         [
