@@ -274,11 +274,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         setTileColumnSelection: (column: validColumnsForTiles) => ({ column }),
         setDrillDownLevel: (level: MarketingAnalyticsDrillDownLevel) => ({ level }),
         setInitialized: true,
-        /** Re-fetch sources so the AD_GROUP/AD banner reflects latest sync settings.
-         * `reloadTilesAfter` also re-queries tiles (visibility-change flow). */
-        refreshSourcesForBanner: ({ reloadTilesAfter = false }: { reloadTilesAfter?: boolean } = {}) => ({
-            reloadTilesAfter,
-        }),
     }),
     reducers({
         activeTab: [
@@ -906,7 +901,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     }),
     // Note: We don't use urlToAction here to avoid sync loops.
     // URL params are read once on mount in afterMount instead.
-    listeners(({ actions, values, cache }) => {
+    listeners(({ actions, values }) => {
         const trackDashboardInteraction = (): void => {
             // Only track after initialization to avoid tracking initial render/setup
             if (!values.initialized) {
@@ -928,18 +923,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             setTileColumnSelection: trackDashboardInteraction,
             setDrillDownLevel: trackDashboardInteraction,
             reloadAll: trackDashboardInteraction,
-            refreshSourcesForBanner: ({ reloadTilesAfter }) => {
-                // `loadSources` is shared with mount, source updates, schema toggles,
-                // etc. We queue pending banner refreshes (FIFO) so concurrent calls
-                // each claim their own success; the queue is decremented in both
-                // `loadSourcesSuccess` and `loadSourcesFailure` below.
-                //
-                // Assumes a banner refresh fires after any in-flight non-banner
-                // `loadSources` resolves — if they overlap, the FIFO claim can
-                // mis-attribute a response. Narrow window, but worth knowing.
-                cache.pendingBannerRefreshes = [...(cache.pendingBannerRefreshes ?? []), { reloadTilesAfter }]
-                actions.loadSources()
-            },
             applyConversionGoal: [
                 () => {
                     const goal = {
@@ -1002,34 +985,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     }
                 }
 
-                // Banner-only path: skip `loadDatabase` (the banner reads sources,
-                // not tables); `reloadTilesAfter` is the caller's opt-in to re-query
-                // tiles. Claim the FIFO queue head so concurrent refreshes don't collide.
-                const pendingBanner = cache.pendingBannerRefreshes ?? []
-                if (pendingBanner.length > 0) {
-                    const [claimed, ...rest] = pendingBanner
-                    cache.pendingBannerRefreshes = rest
-                    if (claimed.reloadTilesAfter) {
-                        actions.reloadAll()
-                    }
-                } else {
-                    // Default path: refresh warehouse tables to pick up new source
-                    // tables, then reload all queries.
-                    actions.loadDatabase()
-                    actions.reloadAll()
-                }
+                // Refresh warehouse tables to pick up new source tables, then reload queries.
+                actions.loadDatabase()
+                actions.reloadAll()
 
                 // Mark as initialized after initial data load to enable interaction tracking
                 if (!values.initialized) {
                     actions.setInitialized()
-                }
-            },
-            loadSourcesFailure: () => {
-                // Pop the queue head so a failed refresh doesn't leave it stuck and
-                // get wrongly claimed by the next non-banner `loadSourcesSuccess`.
-                const pendingBanner = cache.pendingBannerRefreshes ?? []
-                if (pendingBanner.length > 0) {
-                    cache.pendingBannerRefreshes = pendingBanner.slice(1)
                 }
             },
         }
