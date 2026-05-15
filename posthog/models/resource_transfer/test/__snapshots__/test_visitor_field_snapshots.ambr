@@ -270,6 +270,7 @@
   list([
     'appearance',
     'archived',
+    'base_language',
     'conditions',
     'created_at',
     'current_iteration',
