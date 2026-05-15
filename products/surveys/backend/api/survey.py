@@ -970,9 +970,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             normalized_key = self._validate_translation_language_key(
                 raw_lang_code, base_language, context="Survey translation"
             )
-            if normalized_key in cleaned_translations:
+            # Detect collisions across normalization (e.g., legacy "EN" + new "en" both targeting "en").
+            if any(_normalize_language_code(existing_key) == normalized_key for existing_key in cleaned_translations):
                 raise serializers.ValidationError(
-                    f"Survey translation: duplicate language '{normalized_key}' (after normalizing '{raw_lang_code}')."
+                    f"Survey translation: '{raw_lang_code}' collides with another translation for '{normalized_key}'."
                 )
             cleaned_translations[normalized_key] = cleaned_translation
 
@@ -1048,10 +1049,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             normalized_key = self._validate_translation_language_key(
                 raw_lang_code, resolved_base_language, context=f"Question {question_num} translation"
             )
-            if normalized_key in cleaned_translations:
+            # Detect collisions across normalization (e.g., legacy "EN" + new "en" both targeting "en").
+            if any(_normalize_language_code(existing_key) == normalized_key for existing_key in cleaned_translations):
                 raise serializers.ValidationError(
-                    f"Question {question_num} translation: duplicate language '{normalized_key}' "
-                    f"(after normalizing '{raw_lang_code}')."
+                    f"Question {question_num} translation: '{raw_lang_code}' collides with another translation "
+                    f"for '{normalized_key}'."
                 )
             cleaned_translations[normalized_key] = cleaned_translation
 
@@ -1372,6 +1374,25 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
             if errors:
                 raise serializers.ValidationError(errors)
+
+        # Cross-field: base_language must not collide with any existing translation key.
+        # validate_translations already covers the "translations in payload" case; this catches partial
+        # updates where only base_language is sent (otherwise get_survey_api_translations would silently
+        # drop the matching translation from the SDK payload, making it unreachable with no warning).
+        incoming_base_language = data.get("base_language")
+        if incoming_base_language and "translations" not in data and self.instance is not None:
+            normalized_base = _normalize_language_code(incoming_base_language)
+            instance_translations = getattr(self.instance, "translations", None) or {}
+            for existing_key in instance_translations:
+                if isinstance(existing_key, str) and _normalize_language_code(existing_key) == normalized_base:
+                    raise serializers.ValidationError(
+                        {
+                            "base_language": (
+                                f"'{incoming_base_language}' already exists as a translation key on this survey. "
+                                "Remove the translation first, or pick a different base language."
+                            )
+                        }
+                    )
 
         return data
 

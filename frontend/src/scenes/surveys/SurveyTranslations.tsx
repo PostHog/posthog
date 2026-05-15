@@ -1,20 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconPencil, IconSparkles, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInputSelect, LemonTag, Popover } from '@posthog/lemon-ui'
+import { IconSparkles, IconTrash, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonInputSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { MultipleSurveyQuestion, SurveyQuestion, SurveyQuestionType } from '~/types'
 
+import { BaseLanguagePicker } from './BaseLanguagePicker'
 import {
     COMMON_LANGUAGES,
     DEFAULT_SURVEY_BASE_LANGUAGE,
-    REJECTED_TRANSLATION_KEYS,
+    classifyTranslationKeys,
     describeInvalidLanguageCode,
     getBaseLanguage,
     getSurveyLanguageLabel,
     getSurveyLanguageName,
-    isValidLanguageCode,
     normalizeLanguageCode,
 } from './language'
 import { surveyLogic } from './surveyLogic'
@@ -24,53 +24,6 @@ export { COMMON_LANGUAGES, COMMON_SURVEY_LANGUAGE_CODES, getSurveyLanguageLabel 
 
 const isChoiceQuestion = (question: SurveyQuestion): question is MultipleSurveyQuestion =>
     question.type === SurveyQuestionType.SingleChoice || question.type === SurveyQuestionType.MultipleChoice
-
-function BaseLanguagePicker({
-    baseLanguage,
-    onChange,
-}: {
-    baseLanguage: string
-    onChange: (next: string) => void
-}): JSX.Element {
-    const [open, setOpen] = useState(false)
-    return (
-        <Popover
-            visible={open}
-            onClickOutside={() => setOpen(false)}
-            overlay={
-                <div className="flex flex-col gap-2 p-2 w-72">
-                    <p className="text-sm text-muted">
-                        Pick the language the survey is written in. Translations to this language aren't allowed — the
-                        original already covers it.
-                    </p>
-                    <LemonInputSelect
-                        mode="single"
-                        options={COMMON_LANGUAGES.map((l) => ({ key: l.value, label: l.label }))}
-                        value={[baseLanguage]}
-                        onChange={(values) => {
-                            const lang = values[0]
-                            if (lang && isValidLanguageCode(lang)) {
-                                onChange(normalizeLanguageCode(lang))
-                                setOpen(false)
-                            }
-                        }}
-                        placeholder="Search languages"
-                    />
-                </div>
-            }
-        >
-            <LemonButton
-                type="tertiary"
-                size="xsmall"
-                icon={<IconPencil />}
-                onClick={() => setOpen((v) => !v)}
-                tooltip="Change the survey's original language"
-            >
-                Change
-            </LemonButton>
-        </Popover>
-    )
-}
 
 export function SurveyTranslations(): JSX.Element {
     const {
@@ -87,23 +40,10 @@ export function SurveyTranslations(): JSX.Element {
     const addedLanguages = Object.keys(surveyTranslations)
     const [pickerError, setPickerError] = useState<string | null>(null)
 
-    const { invalidKeys, validKeys } = useMemo(() => {
-        const invalid: string[] = []
-        const valid: string[] = []
-        for (const key of addedLanguages) {
-            const normalized = normalizeLanguageCode(key)
-            if (
-                REJECTED_TRANSLATION_KEYS.has(normalized) ||
-                !isValidLanguageCode(normalized) ||
-                normalized === baseLanguage
-            ) {
-                invalid.push(key)
-            } else {
-                valid.push(key)
-            }
-        }
-        return { invalidKeys: invalid, validKeys: valid }
-    }, [addedLanguages, baseLanguage])
+    const { invalidKeys, validKeys } = useMemo(
+        () => classifyTranslationKeys(addedLanguages, baseLanguage),
+        [addedLanguages, baseLanguage]
+    )
 
     const getLanguageLabel = (lang: string): string =>
         COMMON_LANGUAGES.find((language) => language.value === lang)?.label || getSurveyLanguageLabel(lang)

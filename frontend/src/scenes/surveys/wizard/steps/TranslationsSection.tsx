@@ -1,16 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconPencil, IconSparkles, IconTrash, IconWarning } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDialog,
-    LemonInput,
-    LemonInputSelect,
-    LemonTag,
-    LemonTextArea,
-    Popover,
-} from '@posthog/lemon-ui'
+import { IconSparkles, IconTrash, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonInput, LemonInputSelect, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -22,15 +14,15 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { BaseLanguagePicker } from '../../BaseLanguagePicker'
 import { defaultSurveyAppearance } from '../../constants'
 import {
     COMMON_LANGUAGES,
-    REJECTED_TRANSLATION_KEYS,
+    classifyTranslationKeys,
     describeInvalidLanguageCode,
     getBaseLanguage,
     getSurveyLanguageLabel,
     getSurveyLanguageName,
-    isValidLanguageCode,
     normalizeLanguageCode,
 } from '../../language'
 import { surveyLogic } from '../../surveyLogic'
@@ -42,53 +34,6 @@ function getLanguageLabel(language: string): string {
     return (
         COMMON_LANGUAGES.find((commonLanguage) => commonLanguage.value === language)?.label ||
         getSurveyLanguageLabel(language)
-    )
-}
-
-function BaseLanguagePicker({
-    baseLanguage,
-    onChange,
-}: {
-    baseLanguage: string
-    onChange: (next: string) => void
-}): JSX.Element {
-    const [open, setOpen] = useState(false)
-    return (
-        <Popover
-            visible={open}
-            onClickOutside={() => setOpen(false)}
-            overlay={
-                <div className="flex flex-col gap-2 p-2 w-72">
-                    <p className="text-sm text-muted">
-                        Pick the language the survey is written in. Translations to this language aren't allowed — the
-                        original already covers it.
-                    </p>
-                    <LemonInputSelect
-                        mode="single"
-                        options={COMMON_LANGUAGES.map((l) => ({ key: l.value, label: l.label }))}
-                        value={[baseLanguage]}
-                        onChange={(values) => {
-                            const lang = values[0]
-                            if (lang && isValidLanguageCode(lang)) {
-                                onChange(normalizeLanguageCode(lang))
-                                setOpen(false)
-                            }
-                        }}
-                        placeholder="Search languages"
-                    />
-                </div>
-            }
-        >
-            <LemonButton
-                type="tertiary"
-                size="xsmall"
-                icon={<IconPencil />}
-                onClick={() => setOpen((v) => !v)}
-                tooltip="Change the survey's original language"
-            >
-                Change
-            </LemonButton>
-        </Popover>
     )
 }
 
@@ -171,23 +116,10 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
     const activeLanguage = editingLanguage && translations[editingLanguage] ? editingLanguage : null
     const appearance = { ...defaultSurveyAppearance, ...survey.appearance }
 
-    const { invalidKeys, validKeys } = useMemo(() => {
-        const invalid: string[] = []
-        const valid: string[] = []
-        for (const key of addedLanguages) {
-            const normalized = normalizeLanguageCode(key)
-            if (
-                REJECTED_TRANSLATION_KEYS.has(normalized) ||
-                !isValidLanguageCode(normalized) ||
-                normalized === baseLanguage
-            ) {
-                invalid.push(key)
-            } else {
-                valid.push(key)
-            }
-        }
-        return { invalidKeys: invalid, validKeys: valid }
-    }, [addedLanguages, baseLanguage])
+    const { invalidKeys, validKeys } = useMemo(
+        () => classifyTranslationKeys(addedLanguages, baseLanguage),
+        [addedLanguages, baseLanguage]
+    )
 
     const setBaseLanguage = (next: string): void => {
         setSurveyValue('base_language', next)

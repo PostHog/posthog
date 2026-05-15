@@ -362,6 +362,51 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "english" in response.json()["detail"].lower()
 
+    def test_new_translation_collides_with_legacy_case_variant(self) -> None:
+        """Adding a new 'en' translation alongside a legacy 'EN' key is rejected as a normalization collision."""
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Legacy survey",
+            type="popover",
+            base_language="es",
+            questions=[{"type": "open", "id": "q1", "question": "Question?"}],
+            translations={"EN": {"name": "Legacy uppercase"}},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "translations": {
+                    "EN": {"name": "Legacy uppercase"},
+                    "en": {"name": "New lowercase"},
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "collides" in response.json()["detail"].lower()
+
+    def test_base_language_change_rejects_collision_with_existing_translation(self) -> None:
+        """Changing base_language to a code already present in translations is rejected."""
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Multi-language survey",
+            type="popover",
+            base_language="en",
+            questions=[{"type": "open", "id": "q1", "question": "Question?"}],
+            translations={"fr": {"name": "French"}},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"base_language": "fr"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "base_language" in response.json() or "translation" in response.content.decode().lower()
+
     def test_sdk_payload_strips_invalid_translation_keys(self) -> None:
         """get_survey_api_translations drops keys the SDK matcher cannot resolve."""
         from products.surveys.backend.api.survey import get_survey_api_translations

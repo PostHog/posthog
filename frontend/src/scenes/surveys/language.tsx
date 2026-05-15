@@ -121,6 +121,28 @@ export const COMMON_LANGUAGES = COMMON_SURVEY_LANGUAGE_CODES.map((languageCode) 
     label: getSurveyLanguageLabel(languageCode),
 }))
 
+/**
+ * Split a list of translation keys into ones the SDK can resolve and "legacy" entries
+ * (non-canonical aliases, sentinels, or collisions with the survey's base language).
+ */
+export function classifyTranslationKeys(
+    keys: string[],
+    baseLanguage: string
+): { validKeys: string[]; invalidKeys: string[] } {
+    const validKeys: string[] = []
+    const invalidKeys: string[] = []
+    const normalizedBase = normalizeLanguageCode(baseLanguage)
+    for (const key of keys) {
+        const normalized = normalizeLanguageCode(key)
+        if (!isValidLanguageCode(key) || normalized === normalizedBase) {
+            invalidKeys.push(key)
+        } else {
+            validKeys.push(key)
+        }
+    }
+    return { validKeys, invalidKeys }
+}
+
 export function getBaseLanguage(survey: Pick<Survey, 'base_language'> | null | undefined): string {
     const raw = survey?.base_language
     if (typeof raw === 'string' && raw.trim()) {
@@ -137,7 +159,7 @@ export function describeInvalidLanguageCode(raw: string, baseLanguage: string): 
     if (REJECTED_TRANSLATION_KEYS.has(normalized)) {
         return `"${raw}" isn't a language — the original text is the default. Set the survey's original language instead.`
     }
-    if (!BCP47_LANGUAGE_CODE_RE.test(normalized)) {
+    if (!isValidLanguageCode(raw)) {
         return `"${raw}" isn't a valid language code. Use codes like "en", "es", or "es-MX".`
     }
     if (normalized === normalizeLanguageCode(baseLanguage)) {
