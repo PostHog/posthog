@@ -24,11 +24,7 @@ export const scene: SceneExport = {
 function targetingLabel(topic: UserInterviewTopicApi): string {
     const emailCount = topic.interviewee_emails?.length || 0
     const distinctIdCount = topic.interviewee_distinct_ids?.length || 0
-    const hasCohort = topic.interviewee_cohort != null
     const parts: string[] = []
-    if (hasCohort) {
-        parts.push(`Cohort #${topic.interviewee_cohort}`)
-    }
     if (emailCount > 0) {
         parts.push(`${emailCount} email${emailCount !== 1 ? 's' : ''}`)
     }
@@ -41,7 +37,7 @@ function targetingLabel(topic: UserInterviewTopicApi): string {
 const NEW_TOPIC_PROMPT = `!I want to set up a new user research topic. Help me through the process:
 
 1. First, let's figure out what I want to learn — what feature, behavior, or question I want to research.
-2. Then, help me identify the right users to interview — find or create a cohort, or I can provide emails.
+2. Then, help me identify the right users to interview — pick a cohort, find users by behavior, or provide emails directly.
 3. Draft interview questions based on the topic.
 4. Set up the outreach workflow to email each user with their unique interview link.
 5. Once I confirm, trigger the emails — I'll track responses in User research.
@@ -56,7 +52,7 @@ export function UserInterviews(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.UserInterviews].name}
-                description="Run AI-powered voice research campaigns. Target a cohort, set a topic, and let the AI handle the interviews."
+                description="Run AI-powered voice research campaigns. Target an audience, set a topic, and let the AI handle the interviews."
                 resourceType={{
                     type: sceneConfigurations[Scene.UserInterviews].iconType || 'default_icon_type',
                 }}
