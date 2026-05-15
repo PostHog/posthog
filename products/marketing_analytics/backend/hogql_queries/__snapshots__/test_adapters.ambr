@@ -130,7 +130,16 @@
   GROUP BY coalesce(toString(googleads_campaign.campaign_name), 'Unknown campaign'), coalesce(toString(googleads_campaign.campaign_id), 'unknown'), coalesce(toString(googleads_ad_group.ad_group_name), 'Unknown ad group'), coalesce(toString(googleads_ad_group.ad_group_id), 'unknown'), toString(googleads_ad.ad_group_ad_ad_name), toString(googleads_ad.ad_group_ad_ad_id)
   '''
 # ---
-# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_02_tiktok_ad_group
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_02_google_no_adset_ad
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(googleads_campaign.campaign_name), 'Unknown campaign') AS campaign, coalesce(toString(googleads_campaign.campaign_id), 'unknown') AS id, toString('google') AS source, 'No sync' AS ad_group_name, 'No sync' AS ad_group_id, toString(googleads_ad.ad_group_ad_ad_name) AS ad_name, toString(googleads_ad.ad_group_ad_ad_id) AS ad_id, toFloat(SUM(ifNull(toFloat(googleads_ad_stats.metrics_impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(googleads_ad_stats.metrics_clicks), 0))) AS clicks, toFloat(SUM(toFloat(divide(googleads_ad_stats.metrics_cost_micros, 1000000)))) AS cost, toFloat(SUM(ifNull(toFloat(googleads_ad_stats.metrics_conversions), 0))) AS reported_conversion, toFloat(SUM(ifNull(toFloat(googleads_ad_stats.metrics_conversions_value), 0))) AS reported_conversion_value 
+  FROM googleads_ad LEFT JOIN googleads_ad_stats ON equals(googleads_ad.ad_group_ad_ad_id, googleads_ad_stats.ad_group_ad_ad_id) LEFT JOIN googleads_campaign ON equals(googleads_ad.campaign_id, googleads_campaign.campaign_id) 
+  WHERE and(greaterOrEquals(toDateTime(googleads_ad_stats.segments_date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(googleads_ad_stats.segments_date), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(googleads_campaign.campaign_name), 'Unknown campaign'), coalesce(toString(googleads_campaign.campaign_id), 'unknown'), 'No sync', 'No sync', toString(googleads_ad.ad_group_ad_ad_name), toString(googleads_ad.ad_group_ad_ad_id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_03_tiktok_ad_group
   '''
   
   SELECT '' AS match_key, coalesce(toString(tiktokads_campaigns.campaign_name), 'Unknown campaign') AS campaign, coalesce(toString(tiktokads_campaigns.campaign_id), 'unknown') AS id, toString('tiktok') AS source, toString(tiktokads_ad_groups.adgroup_name) AS ad_group_name, toString(tiktokads_ad_groups.adgroup_id) AS ad_group_id, NULL AS ad_name, NULL AS ad_id, toFloat(SUM(ifNull(toFloat(tiktokads_ad_group_report.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(tiktokads_ad_group_report.clicks), 0))) AS clicks, SUM(ifNull(toFloat(tiktokads_ad_group_report.spend), 0)) AS cost, toFloat(SUM(ifNull(toFloat(tiktokads_ad_group_report.conversion), 0))) AS reported_conversion, 0 AS reported_conversion_value 
@@ -139,7 +148,7 @@
   GROUP BY coalesce(toString(tiktokads_campaigns.campaign_name), 'Unknown campaign'), coalesce(toString(tiktokads_campaigns.campaign_id), 'unknown'), toString(tiktokads_ad_groups.adgroup_name), toString(tiktokads_ad_groups.adgroup_id)
   '''
 # ---
-# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_03_tiktok_ad
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_04_tiktok_ad
   '''
   
   SELECT '' AS match_key, coalesce(toString(tiktokads_campaigns.campaign_name), 'Unknown campaign') AS campaign, coalesce(toString(tiktokads_campaigns.campaign_id), 'unknown') AS id, toString('tiktok') AS source, coalesce(toString(tiktokads_ad_groups.adgroup_name), 'Unknown ad group') AS ad_group_name, coalesce(toString(tiktokads_ad_groups.adgroup_id), 'unknown') AS ad_group_id, toString(tiktokads_ads.ad_name) AS ad_name, toString(tiktokads_ads.ad_id) AS ad_id, toFloat(SUM(ifNull(toFloat(tiktokads_ad_report.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(tiktokads_ad_report.clicks), 0))) AS clicks, SUM(ifNull(toFloat(tiktokads_ad_report.spend), 0)) AS cost, toFloat(SUM(ifNull(toFloat(tiktokads_ad_report.conversion), 0))) AS reported_conversion, 0 AS reported_conversion_value 
@@ -148,7 +157,7 @@
   GROUP BY coalesce(toString(tiktokads_campaigns.campaign_name), 'Unknown campaign'), coalesce(toString(tiktokads_campaigns.campaign_id), 'unknown'), coalesce(toString(tiktokads_ad_groups.adgroup_name), 'Unknown ad group'), coalesce(toString(tiktokads_ad_groups.adgroup_id), 'unknown'), toString(tiktokads_ads.ad_name), toString(tiktokads_ads.ad_id)
   '''
 # ---
-# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_04_reddit_ad_group
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_05_reddit_ad_group
   '''
   
   SELECT '' AS match_key, coalesce(toString(redditads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(redditads_campaigns.id), 'unknown') AS id, toString('reddit') AS source, toString(redditads_ad_groups.name) AS ad_group_name, toString(redditads_ad_groups.id) AS ad_group_id, NULL AS ad_name, NULL AS ad_id, toFloat(SUM(ifNull(toFloat(redditads_ad_group_report.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(redditads_ad_group_report.clicks), 0))) AS clicks, SUM(toFloat(divide(redditads_ad_group_report.spend, 1000000))) AS cost, toFloat(SUM(ifNull(toFloat(redditads_ad_group_report.key_conversion_total_count), 0))) AS reported_conversion, toFloat(plus(SUM(ifNull(divide(toFloat(redditads_ad_group_report.conversion_purchase_total_value), 100), 0)), SUM(ifNull(divide(toFloat(redditads_ad_group_report.conversion_signup_total_value), 100), 0)))) AS reported_conversion_value 
@@ -157,7 +166,7 @@
   GROUP BY coalesce(toString(redditads_campaigns.name), 'Unknown campaign'), coalesce(toString(redditads_campaigns.id), 'unknown'), toString(redditads_ad_groups.name), toString(redditads_ad_groups.id)
   '''
 # ---
-# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_05_reddit_ad
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_06_reddit_ad
   '''
   
   SELECT '' AS match_key, coalesce(toString(redditads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(redditads_campaigns.id), 'unknown') AS id, toString('reddit') AS source, coalesce(toString(redditads_ad_groups.name), 'Unknown ad group') AS ad_group_name, coalesce(toString(redditads_ad_groups.id), 'unknown') AS ad_group_id, toString(redditads_ads.name) AS ad_name, toString(redditads_ads.id) AS ad_id, toFloat(SUM(ifNull(toFloat(redditads_ad_report.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(redditads_ad_report.clicks), 0))) AS clicks, SUM(toFloat(divide(redditads_ad_report.spend, 1000000))) AS cost, toFloat(SUM(ifNull(toFloat(redditads_ad_report.key_conversion_total_count), 0))) AS reported_conversion, toFloat(plus(SUM(ifNull(divide(toFloat(redditads_ad_report.conversion_purchase_total_value), 100), 0)), SUM(ifNull(divide(toFloat(redditads_ad_report.conversion_signup_total_value), 100), 0)))) AS reported_conversion_value 
@@ -166,7 +175,7 @@
   GROUP BY coalesce(toString(redditads_campaigns.name), 'Unknown campaign'), coalesce(toString(redditads_campaigns.id), 'unknown'), coalesce(toString(redditads_ad_groups.name), 'Unknown ad group'), coalesce(toString(redditads_ad_groups.id), 'unknown'), toString(redditads_ads.name), toString(redditads_ads.id)
   '''
 # ---
-# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_06_pinterest_ad_group
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_07_pinterest_ad_group
   '''
   
   SELECT '' AS match_key, coalesce(toString(pinterestads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(pinterestads_campaigns.id), 'unknown') AS id, toString('pinterest') AS source, toString(pinterestads_ad_groups.name) AS ad_group_name, toString(pinterestads_ad_groups.id) AS ad_group_id, NULL AS ad_name, NULL AS ad_id, toFloat(0) AS impressions, toFloat(0) AS clicks, toFloat(0) AS cost, toFloat(0) AS reported_conversion, toFloat(0) AS reported_conversion_value 
@@ -175,7 +184,7 @@
   GROUP BY coalesce(toString(pinterestads_campaigns.name), 'Unknown campaign'), coalesce(toString(pinterestads_campaigns.id), 'unknown'), toString(pinterestads_ad_groups.name), toString(pinterestads_ad_groups.id)
   '''
 # ---
-# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_07_pinterest_ad
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_08_pinterest_ad
   '''
   
   SELECT '' AS match_key, coalesce(toString(pinterestads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(pinterestads_campaigns.id), 'unknown') AS id, toString('pinterest') AS source, coalesce(toString(pinterestads_ad_groups.name), 'Unknown ad group') AS ad_group_name, coalesce(toString(pinterestads_ad_groups.id), 'unknown') AS ad_group_id, toString(pinterestads_ads.name) AS ad_name, toString(pinterestads_ads.id) AS ad_id, toFloat(0) AS impressions, toFloat(0) AS clicks, toFloat(0) AS cost, toFloat(0) AS reported_conversion, toFloat(0) AS reported_conversion_value 
@@ -184,7 +193,7 @@
   GROUP BY coalesce(toString(pinterestads_campaigns.name), 'Unknown campaign'), coalesce(toString(pinterestads_campaigns.id), 'unknown'), coalesce(toString(pinterestads_ad_groups.name), 'Unknown ad group'), coalesce(toString(pinterestads_ad_groups.id), 'unknown'), toString(pinterestads_ads.name), toString(pinterestads_ads.id)
   '''
 # ---
-# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_08_snapchat_ad_group
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_09_snapchat_ad_group
   '''
   
   SELECT '' AS match_key, coalesce(toString(snapchatads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(snapchatads_campaigns.id), 'unknown') AS id, toString('snapchat') AS source, toString(snapchatads_ad_squads.name) AS ad_group_name, toString(snapchatads_ad_squads.id) AS ad_group_id, NULL AS ad_name, NULL AS ad_id, toFloat(SUM(ifNull(toFloat(snapchatads_ad_squad_stats_daily.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(snapchatads_ad_squad_stats_daily.swipes), 0))) AS clicks, SUM(ifNull(divide(toFloat(snapchatads_ad_squad_stats_daily.spend), 1000000), 0)) AS cost, 0 AS reported_conversion, 0 AS reported_conversion_value 
@@ -193,7 +202,7 @@
   GROUP BY coalesce(toString(snapchatads_campaigns.name), 'Unknown campaign'), coalesce(toString(snapchatads_campaigns.id), 'unknown'), toString(snapchatads_ad_squads.name), toString(snapchatads_ad_squads.id)
   '''
 # ---
-# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_09_snapchat_ad
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_10_snapchat_ad
   '''
   
   SELECT '' AS match_key, coalesce(toString(snapchatads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(snapchatads_campaigns.id), 'unknown') AS id, toString('snapchat') AS source, coalesce(toString(snapchatads_ad_squads.name), 'Unknown ad group') AS ad_group_name, coalesce(toString(snapchatads_ad_squads.id), 'unknown') AS ad_group_id, toString(snapchatads_ads.name) AS ad_name, toString(snapchatads_ads.id) AS ad_id, toFloat(SUM(ifNull(toFloat(snapchatads_ad_stats_daily.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(snapchatads_ad_stats_daily.swipes), 0))) AS clicks, SUM(ifNull(divide(toFloat(snapchatads_ad_stats_daily.spend), 1000000), 0)) AS cost, 0 AS reported_conversion, 0 AS reported_conversion_value 
@@ -202,7 +211,7 @@
   GROUP BY coalesce(toString(snapchatads_campaigns.name), 'Unknown campaign'), coalesce(toString(snapchatads_campaigns.id), 'unknown'), coalesce(toString(snapchatads_ad_squads.name), 'Unknown ad group'), coalesce(toString(snapchatads_ad_squads.id), 'unknown'), toString(snapchatads_ads.name), toString(snapchatads_ads.id)
   '''
 # ---
-# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_10_linkedin_ad_group
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_11_linkedin_ad_group
   '''
   
   SELECT '' AS match_key, coalesce(toString(linkedinads_campaign_groups.name), 'Unknown campaign') AS campaign, coalesce(toString(linkedinads_campaign_groups.id), 'unknown') AS id, toString('linkedin') AS source, toString(linkedinads_campaigns.name) AS ad_group_name, toString(linkedinads_campaigns.id) AS ad_group_id, NULL AS ad_name, NULL AS ad_id, toFloat(SUM(ifNull(toFloat(linkedinads_campaign_stats.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(linkedinads_campaign_stats.clicks), 0))) AS clicks, toFloat(SUM(ifNull(toFloat(linkedinads_campaign_stats.cost_in_usd), 0))) AS cost, toFloat(SUM(ifNull(toFloat(linkedinads_campaign_stats.external_website_conversions), 0))) AS reported_conversion, 0 AS reported_conversion_value 
@@ -211,7 +220,7 @@
   GROUP BY coalesce(toString(linkedinads_campaign_groups.name), 'Unknown campaign'), coalesce(toString(linkedinads_campaign_groups.id), 'unknown'), toString(linkedinads_campaigns.name), toString(linkedinads_campaigns.id)
   '''
 # ---
-# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_11_linkedin_ad
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_12_linkedin_ad
   '''
   
   SELECT '' AS match_key, coalesce(toString(linkedinads_campaign_groups.name), 'Unknown campaign') AS campaign, coalesce(toString(linkedinads_campaign_groups.id), 'unknown') AS id, toString('linkedin') AS source, coalesce(toString(linkedinads_campaigns.name), 'Unknown ad group') AS ad_group_name, coalesce(toString(linkedinads_campaigns.id), 'unknown') AS ad_group_id, toString(linkedinads_creatives.name) AS ad_name, toString(linkedinads_creatives.id) AS ad_id, toFloat(SUM(ifNull(toFloat(linkedinads_creative_stats.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(linkedinads_creative_stats.clicks), 0))) AS clicks, toFloat(SUM(ifNull(toFloat(linkedinads_creative_stats.cost_in_usd), 0))) AS cost, toFloat(SUM(ifNull(toFloat(linkedinads_creative_stats.external_website_conversions), 0))) AS reported_conversion, 0 AS reported_conversion_value 
@@ -220,7 +229,7 @@
   GROUP BY coalesce(toString(linkedinads_campaign_groups.name), 'Unknown campaign'), coalesce(toString(linkedinads_campaign_groups.id), 'unknown'), coalesce(toString(linkedinads_campaigns.name), 'Unknown ad group'), coalesce(toString(linkedinads_campaigns.id), 'unknown'), toString(linkedinads_creatives.name), toString(linkedinads_creatives.id)
   '''
 # ---
-# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_12_bing_ad_group
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_13_bing_ad_group
   '''
   
   SELECT '' AS match_key, toString(bingads_ad_group_performance_report.campaign_name) AS campaign, toString(bingads_ad_group_performance_report.campaign_id) AS id, toString('bing') AS source, toString(bingads_ad_group_performance_report.ad_group_name) AS ad_group_name, toString(bingads_ad_group_performance_report.ad_group_id) AS ad_group_id, NULL AS ad_name, NULL AS ad_id, toFloat(SUM(ifNull(toFloat(bingads_ad_group_performance_report.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(bingads_ad_group_performance_report.clicks), 0))) AS clicks, SUM(ifNull(toFloat(bingads_ad_group_performance_report.spend), 0)) AS cost, toFloat(SUM(ifNull(toFloat(bingads_ad_group_performance_report.conversions), 0))) AS reported_conversion, toFloat(SUM(ifNull(toFloat(bingads_ad_group_performance_report.revenue), 0))) AS reported_conversion_value 
@@ -229,7 +238,7 @@
   GROUP BY toString(bingads_ad_group_performance_report.campaign_name), toString(bingads_ad_group_performance_report.campaign_id), toString(bingads_ad_group_performance_report.ad_group_name), toString(bingads_ad_group_performance_report.ad_group_id)
   '''
 # ---
-# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_13_bing_ad
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_14_bing_ad
   '''
   
   SELECT '' AS match_key, toString(bingads_ad_performance_report.campaign_name) AS campaign, toString(bingads_ad_performance_report.campaign_id) AS id, toString('bing') AS source, toString(bingads_ad_performance_report.ad_group_name) AS ad_group_name, toString(bingads_ad_performance_report.ad_group_id) AS ad_group_id, toString(bingads_ad_performance_report.ad_title) AS ad_name, toString(bingads_ad_performance_report.ad_id) AS ad_id, toFloat(SUM(ifNull(toFloat(bingads_ad_performance_report.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(bingads_ad_performance_report.clicks), 0))) AS clicks, SUM(ifNull(toFloat(bingads_ad_performance_report.spend), 0)) AS cost, toFloat(SUM(ifNull(toFloat(bingads_ad_performance_report.conversions), 0))) AS reported_conversion, toFloat(SUM(ifNull(toFloat(bingads_ad_performance_report.revenue), 0))) AS reported_conversion_value 
