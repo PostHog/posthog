@@ -18,6 +18,7 @@ import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { NavExperimentTab, PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -261,19 +262,21 @@ export function Nav(): JSX.Element {
                                 keepMounted
                                 tabIndex={-1}
                             >
-                                <Suspense
-                                    fallback={
-                                        <div className="flex flex-col gap-px px-1 pt-2">
-                                            {Array.from({ length: 15 }).map((_, index) => (
-                                                <WrappingLoadingSkeleton fullWidth key={index}>
-                                                    <ButtonPrimitive aria-hidden inert menuItem />
-                                                </WrappingLoadingSkeleton>
-                                            ))}
-                                        </div>
-                                    }
-                                >
-                                    <NavTabChat />
-                                </Suspense>
+                                <ChunkLoadErrorBoundary>
+                                    <Suspense
+                                        fallback={
+                                            <div className="flex flex-col gap-px px-1 pt-2">
+                                                {Array.from({ length: 15 }).map((_, index) => (
+                                                    <WrappingLoadingSkeleton fullWidth key={index}>
+                                                        <ButtonPrimitive aria-hidden inert menuItem />
+                                                    </WrappingLoadingSkeleton>
+                                                ))}
+                                            </div>
+                                        }
+                                    >
+                                        <NavTabChat />
+                                    </Suspense>
+                                </ChunkLoadErrorBoundary>
                             </Tabs.Panel>
                         )}
                     </div>
@@ -322,25 +325,27 @@ export function Nav(): JSX.Element {
             {activePanelIdentifier === 'Notifications' && <NotificationsPanel />}
             {activePanelIdentifier === 'Chat' && (
                 <div className="flex flex-col h-full min-h-screen max-h-screen bg-surface-tertiary border-r overflow-hidden w-[var(--project-panel-width)]">
-                    <Suspense
-                        fallback={
-                            <div className="flex flex-col gap-px px-1 pt-2">
-                                {Array.from({ length: 15 }).map((_, index) => (
-                                    <WrappingLoadingSkeleton fullWidth key={index}>
-                                        <ButtonPrimitive aria-hidden inert menuItem />
-                                    </WrappingLoadingSkeleton>
-                                ))}
-                            </div>
-                        }
-                    >
-                        <NavTabChat
-                            inPanel
-                            onItemClick={() => {
-                                clearActivePanelIdentifier()
-                                showLayoutPanel(false)
-                            }}
-                        />
-                    </Suspense>
+                    <ChunkLoadErrorBoundary>
+                        <Suspense
+                            fallback={
+                                <div className="flex flex-col gap-px px-1 pt-2">
+                                    {Array.from({ length: 15 }).map((_, index) => (
+                                        <WrappingLoadingSkeleton fullWidth key={index}>
+                                            <ButtonPrimitive aria-hidden inert menuItem />
+                                        </WrappingLoadingSkeleton>
+                                    ))}
+                                </div>
+                            }
+                        >
+                            <NavTabChat
+                                inPanel
+                                onItemClick={() => {
+                                    clearActivePanelIdentifier()
+                                    showLayoutPanel(false)
+                                }}
+                            />
+                        </Suspense>
+                    </ChunkLoadErrorBoundary>
                 </div>
             )}
         </div>
