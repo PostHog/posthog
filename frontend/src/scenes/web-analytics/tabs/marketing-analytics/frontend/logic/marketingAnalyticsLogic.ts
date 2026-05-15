@@ -589,45 +589,30 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     const isSyncing = (schemaName: string): boolean =>
                         findSchemaByFieldName(source.schemas, schemaName, source.source_type)?.should_sync ?? false
 
-                    const hasAdsetMetadata = !!(hierarchy.adset && hierarchy.adsetStats)
-                    const hasAdMetadata = !!(hierarchy.ad && hierarchy.adStats)
-
-                    const adsetReady =
-                        hasAdsetMetadata && isSyncing(hierarchy.adset!) && isSyncing(hierarchy.adsetStats!)
-                    const adReady = hasAdMetadata && isSyncing(hierarchy.ad!) && isSyncing(hierarchy.adStats!)
-
-                    // Dedupe: unified-report sources (Bing) name entity + stats the
-                    // same, so only one schema is listed as missing.
-                    const missingForAdGroup: string[] = []
-                    if (hasAdsetMetadata) {
-                        const seen = new Set<string>()
-                        for (const schema of [hierarchy.adset!, hierarchy.adsetStats!]) {
-                            if (!seen.has(schema) && !isSyncing(schema)) {
-                                seen.add(schema)
-                                missingForAdGroup.push(schema)
-                            }
+                    // `new Set` dedupes the unified-report case (Bing names entity + stats the same).
+                    const levelStatus = (
+                        entity?: string,
+                        stats?: string
+                    ): { supported: boolean; missing: string[]; unsupported: boolean } => {
+                        if (!entity || !stats) {
+                            return { supported: false, missing: [], unsupported: true }
                         }
+                        const missing = [...new Set([entity, stats])].filter((schema) => !isSyncing(schema))
+                        return { supported: missing.length === 0, missing, unsupported: false }
                     }
-                    const missingForAd: string[] = []
-                    if (hasAdMetadata) {
-                        const seen = new Set<string>()
-                        for (const schema of [hierarchy.ad!, hierarchy.adStats!]) {
-                            if (!seen.has(schema) && !isSyncing(schema)) {
-                                seen.add(schema)
-                                missingForAd.push(schema)
-                            }
-                        }
-                    }
+
+                    const adGroup = levelStatus(hierarchy.adset, hierarchy.adsetStats)
+                    const ad = levelStatus(hierarchy.ad, hierarchy.adStats)
 
                     return {
                         sourceId: source.id,
                         sourceType,
-                        supportsAdGroup: adsetReady,
-                        supportsAd: adReady,
-                        missingForAdGroup,
-                        missingForAd,
-                        adGroupUnsupported: !hasAdsetMetadata,
-                        adUnsupported: !hasAdMetadata,
+                        supportsAdGroup: adGroup.supported,
+                        supportsAd: ad.supported,
+                        missingForAdGroup: adGroup.missing,
+                        missingForAd: ad.missing,
+                        adGroupUnsupported: adGroup.unsupported,
+                        adUnsupported: ad.unsupported,
                     }
                 }),
         ],
