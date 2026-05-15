@@ -20,6 +20,7 @@ interface BreakdownLiveCardProps<T extends BreakdownItem> {
     statLabel: string
     totalCount?: number
     isLoading?: boolean
+    onItemClick?: (item: T) => void
 }
 
 const BreakdownLiveCardInner = <T extends BreakdownItem>({
@@ -32,6 +33,7 @@ const BreakdownLiveCardInner = <T extends BreakdownItem>({
     statLabel,
     totalCount,
     isLoading,
+    onItemClick,
 }: BreakdownLiveCardProps<T>): JSX.Element => {
     const colors = useMemo(() => getSeriesColorPalette(), [])
 
@@ -89,38 +91,56 @@ const BreakdownLiveCardInner = <T extends BreakdownItem>({
                             const isTop = index === 0
                             const key = getKey(item)
                             const label = getLabel(item)
+                            const tooltip = onItemClick
+                                ? `Click to see visitors · ${item.count.toLocaleString()} ${statLabel}`
+                                : `${item.count.toLocaleString()} ${statLabel} · ${label}`
+
+                            const rowContent = (
+                                <>
+                                    {renderIcon && renderIcon(item)}
+                                    <div
+                                        className={clsx(
+                                            'text-xs truncate',
+                                            renderIcon ? 'w-14' : 'w-16',
+                                            isTop ? 'text-default font-medium' : 'text-muted'
+                                        )}
+                                    >
+                                        {label}
+                                    </div>
+                                    <div className="flex-1 h-2 bg-border-light rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full rounded-full transition-all duration-300 ease-out"
+                                            style={{
+                                                width: `${item.percentage}%`,
+                                                backgroundColor: color,
+                                            }}
+                                        />
+                                    </div>
+                                    <div
+                                        className={clsx(
+                                            'w-10 text-xs text-right tabular-nums',
+                                            isTop ? 'text-default font-medium' : 'text-muted'
+                                        )}
+                                    >
+                                        {item.percentage.toFixed(0)}%
+                                    </div>
+                                </>
+                            )
 
                             return (
-                                <Tooltip key={key} title={`${item.count.toLocaleString()} ${statLabel} · ${label}`}>
-                                    <div className="flex items-center gap-2 cursor-default">
-                                        {renderIcon && renderIcon(item)}
-                                        <div
-                                            className={clsx(
-                                                'text-xs truncate',
-                                                renderIcon ? 'w-14' : 'w-16',
-                                                isTop ? 'text-default font-medium' : 'text-muted'
-                                            )}
+                                <Tooltip key={key} title={tooltip}>
+                                    {onItemClick ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => onItemClick(item)}
+                                            className="w-full flex items-center gap-2 cursor-pointer hover:bg-bg-3000 rounded -mx-1 px-1 py-0.5 text-left"
+                                            data-attr="breakdown-live-card-row"
                                         >
-                                            {label}
-                                        </div>
-                                        <div className="flex-1 h-2 bg-border-light rounded-full overflow-hidden">
-                                            <div
-                                                className="h-full rounded-full transition-all duration-300 ease-out"
-                                                style={{
-                                                    width: `${item.percentage}%`,
-                                                    backgroundColor: color,
-                                                }}
-                                            />
-                                        </div>
-                                        <div
-                                            className={clsx(
-                                                'w-10 text-xs text-right tabular-nums',
-                                                isTop ? 'text-default font-medium' : 'text-muted'
-                                            )}
-                                        >
-                                            {item.percentage.toFixed(0)}%
-                                        </div>
-                                    </div>
+                                            {rowContent}
+                                        </button>
+                                    ) : (
+                                        <div className="flex items-center gap-2 cursor-default">{rowContent}</div>
+                                    )}
                                 </Tooltip>
                             )
                         })}
