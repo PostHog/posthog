@@ -39897,6 +39897,7 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    topic?: string;
     };
 
     export type VisionLensesListParams = {

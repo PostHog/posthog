@@ -274,4 +274,5 @@ export type UserInterviewsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    topic?: string
 }
