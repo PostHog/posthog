@@ -2047,8 +2047,8 @@ export interface LLMTaggerConfigApi {
      * @minLength 1
      */
     prompt: string
-    /** Available tags the LLM can assign */
-    tags: TagDefinitionApi[]
+    /** Available tags the LLM can assign. Ignored when dynamic_tags is true. */
+    tags?: TagDefinitionApi[]
     /**
      * Minimum number of tags to apply
      * @minimum 0
@@ -2060,6 +2060,14 @@ export interface LLMTaggerConfigApi {
      * @nullable
      */
     max_tags?: number | null
+    /** When true, the LLM defines the output tag categories itself based on the prompt and optional reference URL. The static `tags` list is ignored in this mode. */
+    dynamic_tags?: boolean
+    /**
+     * Optional reference URL surfaced to the LLM alongside the prompt when dynamic_tags is true.
+     * @maxLength 2000
+     * @nullable
+     */
+    tags_url?: string | null
 }
 
 export interface HogTaggerConfigApi {

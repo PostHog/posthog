@@ -1819,6 +1819,9 @@ export const taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionMax = 500
 export const taggersCreateBodyTaggerConfigOneOneMinTagsDefault = 0
 export const taggersCreateBodyTaggerConfigOneOneMinTagsMin = 0
 
+export const taggersCreateBodyTaggerConfigOneOneDynamicTagsDefault = false
+export const taggersCreateBodyTaggerConfigOneOneTagsUrlMax = 2000
+
 export const taggersCreateBodyTaggerConfigOneTwoTagsItemNameMax = 100
 
 export const taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionDefault = ``
@@ -1858,13 +1861,27 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
                                 .describe('Description to help the LLM classify'),
                         })
                     )
-                    .describe('Available tags the LLM can assign'),
+                    .optional()
+                    .describe('Available tags the LLM can assign. Ignored when dynamic_tags is true.'),
                 min_tags: zod
                     .number()
                     .min(taggersCreateBodyTaggerConfigOneOneMinTagsMin)
                     .default(taggersCreateBodyTaggerConfigOneOneMinTagsDefault)
                     .describe('Minimum number of tags to apply'),
                 max_tags: zod.number().min(1).nullish().describe('Maximum number of tags to apply (null = no limit)'),
+                dynamic_tags: zod
+                    .boolean()
+                    .default(taggersCreateBodyTaggerConfigOneOneDynamicTagsDefault)
+                    .describe(
+                        'When true, the LLM defines the output tag categories itself based on the prompt and optional reference URL. The static `tags` list is ignored in this mode.'
+                    ),
+                tags_url: zod
+                    .url()
+                    .max(taggersCreateBodyTaggerConfigOneOneTagsUrlMax)
+                    .nullish()
+                    .describe(
+                        'Optional reference URL surfaced to the LLM alongside the prompt when dynamic_tags is true.'
+                    ),
             }),
             zod.object({
                 source: zod.string().min(1).describe('Hog source code to classify a generation into tags.'),
