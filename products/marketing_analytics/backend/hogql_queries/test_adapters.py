@@ -1436,6 +1436,23 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None
         assert pretty_print_in_tests(query.to_hogql(), self.team.pk) == self.snapshot
 
+    def test_partial_hierarchy_supports_ad_but_not_ad_group(self):
+        adapter = self._build_hierarchical_adapter_at_level(
+            GoogleAdsAdapter,
+            GoogleAdsConfig,
+            "GoogleAds",
+            {
+                "campaign": "googleads_campaign",
+                "stats": "googleads_campaign_stats",
+                "ad": "googleads_ad",
+                "ad_stats": "googleads_ad_stats",
+            },
+            MarketingAnalyticsDrillDownLevel.AD,
+        )
+        assert adapter.supports_level(MarketingAnalyticsDrillDownLevel.CAMPAIGN)
+        assert adapter.supports_level(MarketingAnalyticsDrillDownLevel.AD)
+        assert not adapter.supports_level(MarketingAnalyticsDrillDownLevel.AD_GROUP)
+
     def test_tiktok_ads_adapter_validation_consistency(self):
         campaign_table = self._create_mock_table("tiktokads_campaigns", "TikTokAds")
         stats_table = self._create_mock_table("tiktokads_campaign_report", "TikTokAds")

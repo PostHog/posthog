@@ -368,6 +368,20 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
                 "ad_stats": "ad_performance_report",
             },
         ),
+        (
+            "MetaAds",
+            NativeMarketingSource.META_ADS,
+            MetaAdsConfig,
+            "metaads",
+            {
+                "campaign": "campaigns",
+                "stats": "campaign_stats",
+                "adset": "adsets",
+                "adset_stats": "adset_stats",
+                "ad": "ads",
+                "ad_stats": "ad_stats",
+            },
+        ),
     ]
 
     def _make_table(self, prefix: str, schema_name: str) -> DataWarehouseTable:
