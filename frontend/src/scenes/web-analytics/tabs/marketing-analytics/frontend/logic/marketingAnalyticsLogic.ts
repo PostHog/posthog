@@ -962,6 +962,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 // success and the queue doesn't get sticky on failure. The queue
                 // is decremented in both `loadSourcesSuccess` and
                 // `loadSourcesFailure` below.
+                //
+                // Assumes a banner refresh fires after any in-flight non-banner
+                // `loadSources` has resolved — if they overlap, the FIFO claim can
+                // mis-attribute a response. Narrow window (visibility event before
+                // mount's `loadSources` completes), but worth knowing.
                 cache.pendingBannerRefreshes = [...(cache.pendingBannerRefreshes ?? []), { reloadTilesAfter }]
                 actions.loadSources()
             },

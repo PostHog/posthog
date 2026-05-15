@@ -15,6 +15,7 @@ from posthog.models.team.team import DEFAULT_CURRENCY
 
 from products.data_warehouse.backend.models import DataWarehouseTable
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
+    BingAdsConfig,
     GoogleAdsConfig,
     HierarchicalNativeAdsConfig,
     MetaAdsConfig,
@@ -348,6 +349,23 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
                 "ad_stats": "ad_stats_daily",
             },
         ),
+        # Bing uses the unified entity+stats mode: performance reports embed entity
+        # columns so adset/adset_stats and ad/ad_stats resolve to the same schema
+        # (and the factory wires the same DataWarehouseTable into both slots).
+        (
+            "BingAds",
+            NativeMarketingSource.BING_ADS,
+            BingAdsConfig,
+            "bingads",
+            {
+                "campaign": "campaigns",
+                "stats": "campaign_performance_report",
+                "adset": "ad_group_performance_report",
+                "adset_stats": "ad_group_performance_report",
+                "ad": "ad_performance_report",
+                "ad_stats": "ad_performance_report",
+            },
+        ),
     ]
 
     def _make_table(self, prefix: str, schema_name: str) -> Mock:
@@ -383,12 +401,20 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
     ):
         """When the user has every schema synced (campaign + stats + adset + adset_stats +
         ad + ad_stats), the factory must populate all six slots so the adapter's
-        `supports_level` returns True at AD_GROUP and AD."""
+        `supports_level` returns True at AD_GROUP and AD.
+
+        For unified entity+stats sources (Bing), one DataWarehouseTable backs both the
+        entity slot and the stats slot — the assertion below checks slot identity, not
+        just non-None, so a regression that broke the `if adset_unified: ...` wiring
+        would surface here.
+        """
         factory = self._make_factory()
-        tables = [
-            self._make_table(prefix, schemas[k])
-            for k in ("campaign", "stats", "adset", "adset_stats", "ad", "ad_stats")
-        ]
+        # Deduplicate by schema: in production each schema is one DataWarehouseTable,
+        # and unified-mode sources reuse the same table for both entity and stats slots.
+        unique_schemas = list(
+            dict.fromkeys(schemas[k] for k in ("campaign", "stats", "adset", "adset_stats", "ad", "ad_stats"))
+        )
+        tables = [self._make_table(prefix, schema) for schema in unique_schemas]
 
         config = factory._create_native_config(self._make_source(source_type), tables, native_source, config_class)
 
@@ -397,6 +423,14 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
         assert config.adset_stats_table is not None, f"{source_type}: adset_stats_table not detected"
         assert config.ad_table is not None, f"{source_type}: ad_table not detected"
         assert config.ad_stats_table is not None, f"{source_type}: ad_stats_table not detected"
+        if schemas["adset"] == schemas["adset_stats"]:
+            assert config.adset_table is config.adset_stats_table, (
+                f"{source_type}: unified mode should wire the same DataWarehouseTable into both adset slots"
+            )
+        if schemas["ad"] == schemas["ad_stats"]:
+            assert config.ad_table is config.ad_stats_table, (
+                f"{source_type}: unified mode should wire the same DataWarehouseTable into both ad slots"
+            )
 
     @parameterized.expand([(spec[0], *spec) for spec in _FIXTURES])
     def test_only_adset_tables_supports_ad_group_but_not_ad(
@@ -409,7 +443,8 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
         schemas: dict[str, str],
     ):
         factory = self._make_factory()
-        tables = [self._make_table(prefix, schemas[k]) for k in ("campaign", "stats", "adset", "adset_stats")]
+        unique_schemas = list(dict.fromkeys(schemas[k] for k in ("campaign", "stats", "adset", "adset_stats")))
+        tables = [self._make_table(prefix, schema) for schema in unique_schemas]
 
         config = factory._create_native_config(self._make_source(source_type), tables, native_source, config_class)
 
@@ -418,3 +453,7 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
         assert config.adset_stats_table is not None
         assert config.ad_table is None
         assert config.ad_stats_table is None
+        if schemas["adset"] == schemas["adset_stats"]:
+            assert config.adset_table is config.adset_stats_table, (
+                f"{source_type}: unified mode should wire the same DataWarehouseTable into both adset slots"
+            )
