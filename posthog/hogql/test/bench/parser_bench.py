@@ -3,26 +3,27 @@
 # are deferred until after `django.setup()` so the order is intentional.
 """Side-by-side parser performance benchmark — backend-agnostic.
 
-Defaults to comparing `cpp-json` vs `python` (the two backends master
-ships). Pass `--candidate <backend>` (or set `CANDIDATE_BACKEND=<...>`)
-to swap in a feature-branch backend like `rust-json` /
-`rust-backtrack-json`. The query corpus is the same one the diagnostic
-PBT runner uses, so bench timings line up with the parity numbers.
+`--oracle` defaults to `cpp-json`. `--candidate` is REQUIRED (no
+default) — the Python backend is several orders of magnitude slower
+than cpp on most queries and would take tens of minutes per row, so
+we refuse to default to a useless target. Pass any other backend
+explicitly when one is available in a feature branch.
+
+The query corpus mirrors what the diagnostic PBT runner uses, so
+bench timings line up with parity numbers from the same workload.
 
 Run from repo root:
-    # Default: cpp-json vs python (works in master out of the box)
-    PYTHONPATH=. flox activate -- python posthog/hogql/test/bench/parser_bench.py
 
-    # Compare cpp against a hand-rolled rust port in a feature branch
-    CANDIDATE_BACKEND=rust-backtrack-json PYTHONPATH=. python posthog/hogql/test/bench/parser_bench.py
+    CANDIDATE_BACKEND=<some-fast-backend> \\
+        PYTHONPATH=. python posthog/hogql/test/bench/parser_bench.py
 
 Queries the candidate can't parse are flagged and the row is skipped.
 For comparable queries the script reports per-call microseconds and a
 `oracle/candidate` ratio.
 
-This script is intentionally dependency-free beyond what's already in
-the backend environment so it's safe to keep around as a quick perf
-sanity check while the parser port grows.
+The script is intentionally dependency-free beyond what's already in
+the backend environment so it can stay around as a quick perf sanity
+check as parser implementations evolve.
 """
 
 import argparse
@@ -44,7 +45,7 @@ N_SELECT = 1_000
 # Per-query iteration overrides for queries cpp parses too slowly for
 # the default N. Total wall-clock per row should stay well under a
 # minute; cpp can be ~250ms+ on `pathological_deep` so 1000 iterations
-# would burn 4+ minutes before rust's row even starts.
+# would burn 4+ minutes before the candidate row even starts.
 N_PER_QUERY: dict[str, int] = {
     "pathological_deep": 100,
 }
@@ -70,59 +71,79 @@ EXPR_QUERIES: dict[str, str] = {
     "tuple_access": "t.1",
     "typical_where": "event = '$pageview' AND timestamp > now() AND properties.foo = 'bar'",
     "and_chain_10": "a = 1 AND b = 2 AND c = 3 AND d = 4 AND e = 5 AND f = 6 AND g = 7 AND h = 8 AND i = 9 AND j = 10",
-    # Worst-case backtracking probe — five BETWEENs in an array literal,
-    # each body forces parse_between_body's slowest alt (greedy parse +
-    # source-scan + bounded re-parse) by absorbing the separator AND
+    # Worst-case backtracking probe — twelve BETWEENs in an array
+    # literal, with each body chosen to absorb the separator `AND`
     # into a non-AND-rooted subtree (lambda body, AS-alias, named-arg,
-    # ternary else, lambda body again). For a hand-rolled
-    # backtracking parser this is the kind of construct that should
-    # stress the speculation path the most; for ANTLR ALL(*) it's just
-    # five linear-lookahead disambiguations. If this row's
-    # oracle/candidate ratio is significantly worse than `between`,
-    # speculation overhead is showing up.
-    "nasty_backtrack": (
-        "["
-        "x1 BETWEEN lambda a : a AND b1, "
-        "x2 BETWEEN col AS y2 AND c2, "
-        "x3 BETWEEN p := 1 AND b3, "
-        "x4 BETWEEN c1 ? c2 : c3 AND b4, "
-        "x5 BETWEEN lambda e : e AND b5"
-        "]"
-    ),
-    "mixed_and_or": (
-        "(event = '$pageview' OR event = '$autocapture' OR event = '$identify') "
-        "AND timestamp > now() AND properties.foo IN ('Chrome', 'Firefox', 'Safari') "
-        "AND (properties.url LIKE '%admin%' OR properties.url LIKE '%dashboard%') "
-        "AND NOT (properties.os = 'Linux' AND properties.device = 'Desktop')"
-    ),
+    # ternary else). For a hand-rolled parser that resolves BETWEEN
+    # by speculating across the body's `low AND high` split this
+    # forces the slowest recovery path on every BETWEEN, and the last
+    # four rows nest an inner BETWEEN inside the outer's body via
+    # parens — so the inner is re-parsed once per outer speculation
+    # alternative, doubling speculation work.
+    #
+    # For ANTLR ALL(*) (cpp) this is just twelve linear-lookahead
+    # disambiguations — the ratio against `between` (a single trivial
+    # BETWEEN) is the speculation-overhead signal: if `nasty_backtrack`
+    # is significantly slower per BETWEEN than `between` on the
+    # candidate, speculation cost is showing up.
+    "nasty_backtrack": """[
+        x1 BETWEEN lambda a : a AND b1,
+        x2 BETWEEN col AS y2 AND c2,
+        x3 BETWEEN p := 1 AND b3,
+        x4 BETWEEN c1 ? c2 : c3 AND b4,
+        x5 BETWEEN lambda e : e AND b5,
+        x6 BETWEEN q := 2 AND b6,
+        x7 BETWEEN d AS y7 AND b7,
+        x8 BETWEEN f1 ? f2 : f3 AND b8,
+        x9  BETWEEN lambda g : (h BETWEEN col AS i AND j) AND b9,
+        x10 BETWEEN lambda k : (l BETWEEN p2 := 3 AND m) AND b10,
+        x11 BETWEEN col AS y11 AND (n BETWEEN f4 ? f5 : f6 AND o),
+        x12 BETWEEN q2 := 4 AND (r BETWEEN lambda s : s AND t)
+    ]""",
+    "mixed_and_or": """
+        (event = '$pageview' OR event = '$autocapture' OR event = '$identify')
+        AND timestamp > now()
+        AND properties.foo IN ('Chrome', 'Firefox', 'Safari')
+        AND (properties.url LIKE '%admin%' OR properties.url LIKE '%dashboard%')
+        AND NOT (properties.os = 'Linux' AND properties.device = 'Desktop')
+    """,
 }
 
 SELECT_QUERIES: dict[str, str] = {
     "tiny": "SELECT 1",
     "events_simple": "SELECT count() FROM events WHERE event = '$exception'",
     "events_in_clause": "SELECT count() FROM events WHERE event IN ('$ai_generation', '$ai_span', '$ai_trace')",
-    "join_persons": (
-        "SELECT e.event, e.timestamp, p.id FROM events AS e "
-        "JOIN persons AS p ON p.id = e.person_id WHERE e.event = '$ai_generation'"
-    ),
-    "subquery_with_filters": (
-        "SELECT day_start, sum(c) FROM ("
-        "  SELECT count() AS c, toStartOfDay(timestamp) AS day_start, properties.foo AS f"
-        "  FROM events WHERE event = '$pageview' AND timestamp > now() - INTERVAL 30 DAY"
-        "  GROUP BY day_start, f HAVING c > 10"
-        ") GROUP BY day_start ORDER BY day_start LIMIT 50"
-    ),
-    "trends_like_breakdown": (
-        "SELECT groupArray(day_start)[1], arrayMap(x -> sum(x), counts), breakdown_value FROM ("
-        "  SELECT day_start, sum(count) OVER (PARTITION BY breakdown_value ORDER BY day_start) AS counts,"
-        "         breakdown_value FROM ("
-        "    SELECT count(DISTINCT person_id) AS count, toStartOfDay(timestamp) AS day_start,"
-        "           properties.$some_property AS breakdown_value FROM events"
-        "    WHERE event = 'sign up' AND timestamp > now() - INTERVAL 7 DAY"
-        "    GROUP BY day_start, breakdown_value"
-        "  ) GROUP BY day_start, breakdown_value, counts ORDER BY day_start"
-        ") GROUP BY breakdown_value LIMIT 50"
-    ),
+    "join_persons": """
+        SELECT e.event, e.timestamp, p.id FROM events AS e
+        JOIN persons AS p ON p.id = e.person_id
+        WHERE e.event = '$ai_generation'
+    """,
+    "subquery_with_filters": """
+        SELECT day_start, sum(c) FROM (
+            SELECT count() AS c, toStartOfDay(timestamp) AS day_start, properties.foo AS f
+            FROM events
+            WHERE event = '$pageview' AND timestamp > now() - INTERVAL 30 DAY
+            GROUP BY day_start, f
+            HAVING c > 10
+        )
+        GROUP BY day_start ORDER BY day_start LIMIT 50
+    """,
+    "trends_like_breakdown": """
+        SELECT groupArray(day_start)[1], arrayMap(x -> sum(x), counts), breakdown_value FROM (
+            SELECT day_start,
+                   sum(count) OVER (PARTITION BY breakdown_value ORDER BY day_start) AS counts,
+                   breakdown_value
+            FROM (
+                SELECT count(DISTINCT person_id) AS count, toStartOfDay(timestamp) AS day_start,
+                       properties.$some_property AS breakdown_value FROM events
+                WHERE event = 'sign up' AND timestamp > now() - INTERVAL 7 DAY
+                GROUP BY day_start, breakdown_value
+            )
+            GROUP BY day_start, breakdown_value, counts
+            ORDER BY day_start
+        )
+        GROUP BY breakdown_value LIMIT 50
+    """,
     "pathological_deep": """
         WITH active_users AS (
             SELECT distinct_id, min(timestamp) AS first_seen, max(timestamp) AS last_seen, count() AS event_count,
@@ -249,18 +270,18 @@ def main() -> int:
         help=(
             "Backend under test (no default). The Python backend is an "
             "ANTLR-generated visitor and is several orders of magnitude "
-            "slower than cpp/rust on most queries (the bench would take "
-            "tens of minutes per row), so this script intentionally has "
-            "no default. Set CANDIDATE_BACKEND or pass --candidate to a "
-            "fast backend like `rust-json` / `rust-backtrack-json`."
+            "slower than cpp on most queries — the bench would take tens "
+            "of minutes per row — so this script intentionally has no "
+            "default. Set CANDIDATE_BACKEND or pass --candidate to any "
+            "other backend available in your environment."
         ),
     )
     args = parser.parse_args()
     if not args.candidate:
         print(
             "ERROR: --candidate is required (no default). The Python "
-            "backend is too slow to be a useful bench target — pass a "
-            "fast backend like `rust-json` or `rust-backtrack-json`."
+            "backend is too slow to be a useful bench target; pass any "
+            "other backend available in your environment."
         )
         return 2
     bench("parse_expr", parse_expr, EXPR_QUERIES, N_EXPR, args.oracle, args.candidate)

@@ -23,8 +23,7 @@ Typical workflow:
 
     # 1. Grind the PBT, persist divergences, shrink them.
     python posthog/hogql/test/_pbt_diagnostic.py --n 5000 \\
-        --candidate rust-backtrack-json --shrink-failures \\
-        --write-divergences /tmp/divergences.jsonl
+        --shrink-failures --write-divergences /tmp/divergences.jsonl
 
     # 2. Extract a deduplicated regression corpus.
     python posthog/hogql/test/_pbt_corpus.py extract \\
