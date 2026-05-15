@@ -10,29 +10,21 @@
 import * as zod from 'zod'
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsCreateBodyIntervieweeEmailsItemMax = 254
 
 export const userInterviewTopicsCreateBodyIntervieweeDistinctIdsItemMax = 400
 
 export const UserInterviewTopicsCreateBody = /* @__PURE__ */ zod.object({
-    interviewee_cohort: zod
-        .number()
-        .nullish()
-        .describe('Optional cohort ID identifying who to target. Not enforced as a foreign key.'),
     interviewee_emails: zod
         .array(zod.string().max(userInterviewTopicsCreateBodyIntervieweeEmailsItemMax))
         .optional()
-        .describe(
-            'Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids.'
-        ),
+        .describe('Email addresses of people to interview. May be combined with interviewee_distinct_ids.'),
     interviewee_distinct_ids: zod
         .array(zod.string().max(userInterviewTopicsCreateBodyIntervieweeDistinctIdsItemMax))
         .optional()
-        .describe(
-            'PostHog distinct IDs of people to interview. May be combined with interviewee_cohort and interviewee_emails.'
-        ),
+        .describe('PostHog distinct IDs of people to interview. May be combined with interviewee_emails.'),
     topic: zod.string().describe('The product, feature, or idea you want to ask interviewees about.'),
     agent_context: zod
         .string()
@@ -45,29 +37,21 @@ export const UserInterviewTopicsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsUpdateBodyIntervieweeEmailsItemMax = 254
 
 export const userInterviewTopicsUpdateBodyIntervieweeDistinctIdsItemMax = 400
 
 export const UserInterviewTopicsUpdateBody = /* @__PURE__ */ zod.object({
-    interviewee_cohort: zod
-        .number()
-        .nullish()
-        .describe('Optional cohort ID identifying who to target. Not enforced as a foreign key.'),
     interviewee_emails: zod
         .array(zod.string().max(userInterviewTopicsUpdateBodyIntervieweeEmailsItemMax))
         .optional()
-        .describe(
-            'Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids.'
-        ),
+        .describe('Email addresses of people to interview. May be combined with interviewee_distinct_ids.'),
     interviewee_distinct_ids: zod
         .array(zod.string().max(userInterviewTopicsUpdateBodyIntervieweeDistinctIdsItemMax))
         .optional()
-        .describe(
-            'PostHog distinct IDs of people to interview. May be combined with interviewee_cohort and interviewee_emails.'
-        ),
+        .describe('PostHog distinct IDs of people to interview. May be combined with interviewee_emails.'),
     topic: zod.string().describe('The product, feature, or idea you want to ask interviewees about.'),
     agent_context: zod
         .string()
@@ -80,29 +64,21 @@ export const UserInterviewTopicsUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsPartialUpdateBodyIntervieweeEmailsItemMax = 254
 
 export const userInterviewTopicsPartialUpdateBodyIntervieweeDistinctIdsItemMax = 400
 
 export const UserInterviewTopicsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    interviewee_cohort: zod
-        .number()
-        .nullish()
-        .describe('Optional cohort ID identifying who to target. Not enforced as a foreign key.'),
     interviewee_emails: zod
         .array(zod.string().max(userInterviewTopicsPartialUpdateBodyIntervieweeEmailsItemMax))
         .optional()
-        .describe(
-            'Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids.'
-        ),
+        .describe('Email addresses of people to interview. May be combined with interviewee_distinct_ids.'),
     interviewee_distinct_ids: zod
         .array(zod.string().max(userInterviewTopicsPartialUpdateBodyIntervieweeDistinctIdsItemMax))
         .optional()
-        .describe(
-            'PostHog distinct IDs of people to interview. May be combined with interviewee_cohort and interviewee_emails.'
-        ),
+        .describe('PostHog distinct IDs of people to interview. May be combined with interviewee_emails.'),
     topic: zod.string().optional().describe('The product, feature, or idea you want to ask interviewees about.'),
     agent_context: zod
         .string()
@@ -229,4 +205,38 @@ export const UserInterviewsPartialUpdateBody = /* @__PURE__ */ zod.object({
     interviewee_emails: zod.array(zod.string().max(userInterviewsPartialUpdateBodyIntervieweeEmailsItemMax)).optional(),
     summary: zod.string().optional(),
     audio: zod.url().optional(),
+})
+
+/**
+ * Embed `query` with the same model used to index interview transcripts and summaries, then return the top matches by cosine distance. Each match is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and summary score above other interviews. Useful for surfacing relevant interview snippets in natural language, without exact keyword matches.
+ * @summary Search interview responses by semantic similarity
+ */
+export const userInterviewsSearchCreateBodyQueryMax = 2000
+
+export const userInterviewsSearchCreateBodyLimitMax = 50
+
+export const UserInterviewsSearchCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(userInterviewsSearchCreateBodyQueryMax)
+        .describe('Natural-language query to match semantically against interview transcripts and summaries.'),
+    document_types: zod
+        .array(zod.enum(['transcript', 'summary']).describe('\* `transcript` - transcript\n\* `summary` - summary'))
+        .min(1)
+        .optional()
+        .describe(
+            'Which document types to search across. Omit to default to both `transcript` and `summary`. Pass a non-empty subset to restrict the search.'
+        ),
+    topic_id: zod
+        .uuid()
+        .nullish()
+        .describe('Optional. Restrict results to interviews belonging to a specific UserInterviewTopic.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(userInterviewsSearchCreateBodyLimitMax)
+        .optional()
+        .describe(
+            'Maximum number of matches to return (1-50). Defaults to 10. Two matches per interview are possible — one for the transcript, one for the summary.'
+        ),
 })

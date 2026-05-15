@@ -10,8 +10,10 @@ from django.db import models
 from django.db.models import QuerySet
 from django.utils import timezone
 
+import structlog
 import posthoganalytics
 import posthoganalytics.ai.openai
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from elevenlabs import ElevenLabs
 from posthoganalytics.ai.openai import OpenAI
@@ -20,16 +22,24 @@ from rest_framework.decorators import action
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.request import Request
 
-from posthog.schema import ProductKey
+from posthog.schema import EmbeddingModelName, ProductKey
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.api.embedding_worker import generate_embedding
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.email import EmailMessage, is_email_available
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import absolute_uri
 
 from .models import EmailWithDisplayNameValidator, IntervieweeContext, UserInterview, UserInterviewTopic
+
+logger = structlog.get_logger(__name__)
 
 elevenlabs_client = ElevenLabs()
 
@@ -231,6 +241,71 @@ Record the agreed-upon next steps, including any additional actions that need to
         return str(uuid4())
 
 
+SEARCH_DOCUMENT_TYPES = ("transcript", "summary")
+SEARCH_EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072.value
+SEARCH_CONTENT_SNIPPET_LIMIT = 500
+SEARCH_MAX_LIMIT = 50
+SEARCH_DEFAULT_LIMIT = 10
+# Pathological-size guard for topic_id-scoped searches — a topic with more than this many
+# interviews ships a giant IN list to ClickHouse. Realistic topics are tiny (<100); the
+# cap exists to keep the worst case bounded.
+SEARCH_TOPIC_INTERVIEW_CAP = 1000
+
+
+class UserInterviewSearchRequestSerializer(serializers.Serializer):
+    query = serializers.CharField(
+        max_length=2000,
+        help_text="Natural-language query to match semantically against interview transcripts and summaries.",
+    )
+    document_types = serializers.ListField(
+        child=serializers.ChoiceField(choices=list(SEARCH_DOCUMENT_TYPES)),
+        required=False,
+        allow_empty=False,
+        min_length=1,
+        help_text=(
+            "Which document types to search across. Omit to default to both "
+            "`transcript` and `summary`. Pass a non-empty subset to restrict the search."
+        ),
+    )
+    topic_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Optional. Restrict results to interviews belonging to a specific UserInterviewTopic.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=SEARCH_MAX_LIMIT,
+        help_text=(
+            f"Maximum number of matches to return (1-{SEARCH_MAX_LIMIT}). "
+            f"Defaults to {SEARCH_DEFAULT_LIMIT}. Two matches per interview are possible — "
+            "one for the transcript, one for the summary."
+        ),
+    )
+
+
+class UserInterviewSearchResultSerializer(serializers.Serializer):
+    interview_id = serializers.UUIDField(help_text="ID of the matched UserInterview.")
+    document_type = serializers.ChoiceField(
+        choices=list(SEARCH_DOCUMENT_TYPES),
+        help_text="Which document type matched — `transcript` is the raw conversation, `summary` is the AI-generated abstract.",
+    )
+    similarity = serializers.FloatField(
+        help_text="Cosine similarity in [0, 1]; higher is closer to the query. Computed as `1 - cosineDistance`.",
+    )
+    content_snippet = serializers.CharField(
+        help_text=f"Excerpt of the matched document (first {SEARCH_CONTENT_SNIPPET_LIMIT} characters).",
+    )
+    interviewee_identifier = serializers.CharField(
+        help_text="Email or PostHog distinct ID of the interviewee.",
+    )
+    topic_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="ID of the UserInterviewTopic the interview was conducted for, or null if detached.",
+    )
+    created_at = serializers.DateTimeField(help_text="When the interview row was created.")
+
+
 @extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "user_interview"
@@ -239,24 +314,159 @@ class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     parser_classes = [MultiPartParser, JSONParser]
     posthog_feature_flag = "user-interviews"
     permission_classes = [PostHogFeatureFlagPermission]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["topic"]
+
+    @validated_request(
+        request_serializer=UserInterviewSearchRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=UserInterviewSearchResultSerializer(many=True),
+                description="Matches ranked by cosine similarity (descending).",
+            ),
+        },
+        summary="Search interview responses by semantic similarity",
+        description=(
+            "Embed `query` with the same model used to index interview transcripts and summaries, "
+            "then return the top matches by cosine distance. Each match is a single (interview, "
+            "document_type) pair — an interview can appear up to twice if both its transcript and "
+            "summary score above other interviews. Useful for surfacing relevant interview snippets "
+            "in natural language, without exact keyword matches."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="search",
+        pagination_class=None,
+        parser_classes=[JSONParser],
+        required_scopes=["user_interview:read"],
+    )
+    def search(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> response.Response:
+        body = request.validated_data
+        query_str: str = body["query"]
+        document_types: list[str] = body.get("document_types") or list(SEARCH_DOCUMENT_TYPES)
+        topic_id = body.get("topic_id")
+        limit: int = body.get("limit") or SEARCH_DEFAULT_LIMIT
+
+        # When a topic_id filter is requested, resolve it via the current Postgres linkage
+        # rather than the embedding-time `metadata.topic_id` — UserInterview.topic is
+        # nullable with on_delete=SET_NULL, so historical metadata can name a topic the
+        # row no longer belongs to.
+        scoped_document_ids: list[str] | None = None
+        if topic_id is not None:
+            scoped_ids_qs = (
+                UserInterview.objects.filter(team_id=self.team_id, topic_id=topic_id)
+                .order_by("id")
+                .values_list("id", flat=True)[: SEARCH_TOPIC_INTERVIEW_CAP + 1]
+            )
+            scoped_document_ids = [str(pk) for pk in scoped_ids_qs]
+            if not scoped_document_ids:
+                return response.Response(UserInterviewSearchResultSerializer([], many=True).data)
+            if len(scoped_document_ids) > SEARCH_TOPIC_INTERVIEW_CAP:
+                logger.warning(
+                    "user_interviews_search_topic_scope_capped",
+                    team_id=self.team_id,
+                    topic_id=str(topic_id),
+                    cap=SEARCH_TOPIC_INTERVIEW_CAP,
+                )
+                scoped_document_ids = scoped_document_ids[:SEARCH_TOPIC_INTERVIEW_CAP]
+
+        try:
+            embedding_response = generate_embedding(self.team, query_str, model=SEARCH_EMBEDDING_MODEL)
+        except Exception:
+            logger.exception(
+                "user_interviews_search_embedding_failed",
+                team_id=self.team_id,
+                query_length=len(query_str),
+            )
+            return response.Response(
+                {"detail": "Embedding service is currently unavailable. Please retry shortly."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        query_vector = embedding_response.embedding
+
+        where_clauses = [
+            "model_name = {model_name}",
+            "product = {product}",
+            "team_id = {team_id}",
+            "document_type IN {document_types}",
+        ]
+        placeholders: dict[str, ast.Expr] = {
+            "embedding": ast.Constant(value=query_vector),
+            "model_name": ast.Constant(value=SEARCH_EMBEDDING_MODEL),
+            "product": ast.Constant(value=Product.USER_INTERVIEWS.value),
+            "team_id": ast.Constant(value=self.team_id),
+            "document_types": ast.Constant(value=document_types),
+            "limit": ast.Constant(value=limit),
+        }
+        if scoped_document_ids is not None:
+            where_clauses.append("document_id IN {scoped_document_ids}")
+            placeholders["scoped_document_ids"] = ast.Constant(value=scoped_document_ids)
+
+        # The embedding row is used only for ranking and routing. The snippet itself is
+        # built from the current Postgres UserInterview field so edits/deletions to the
+        # source content are reflected immediately — otherwise an embedding written before
+        # an edit would leak the previous text via the search endpoint.
+        hogql_query = f"""
+            SELECT
+                document_id,
+                document_type,
+                cosineDistance(embedding, {{embedding}}) AS distance
+            FROM document_embeddings
+            WHERE {" AND ".join(where_clauses)}
+            ORDER BY distance ASC
+            LIMIT {{limit}}
+        """
+
+        tag_queries(product=Product.USER_INTERVIEWS, feature=Feature.SEMANTIC_SEARCH)
+        query_result = execute_hogql_query(
+            query=hogql_query,
+            team=self.team,
+            placeholders=placeholders,
+        )
+
+        rows = query_result.results or []
+        document_ids = {row[0] for row in rows}
+        interviews_by_id = {
+            str(i.id): i
+            for i in UserInterview.objects.filter(team_id=self.team_id, id__in=document_ids).only(
+                "id", "interviewee_identifier", "topic_id", "created_at", "transcript", "summary"
+            )
+        }
+
+        results: list[dict[str, Any]] = []
+        for document_id, document_type, distance in rows:
+            interview = interviews_by_id.get(document_id)
+            if interview is None:
+                continue
+            live_content = interview.transcript if document_type == "transcript" else interview.summary
+            results.append(
+                {
+                    "interview_id": interview.id,
+                    "document_type": document_type,
+                    "similarity": min(1.0, max(0.0, 1.0 - float(distance))),
+                    "content_snippet": (live_content or "")[:SEARCH_CONTENT_SNIPPET_LIMIT],
+                    "interviewee_identifier": interview.interviewee_identifier,
+                    "topic_id": interview.topic_id,
+                    "created_at": interview.created_at,
+                }
+            )
+
+        return response.Response(UserInterviewSearchResultSerializer(results, many=True).data)
 
 
 class UserInterviewTopicSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    interviewee_cohort = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text="Optional cohort ID identifying who to target. Not enforced as a foreign key.",
-    )
     interviewee_emails = serializers.ListField(
         child=serializers.CharField(max_length=254, validators=[EmailWithDisplayNameValidator()]),
         required=False,
-        help_text="Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids.",
+        help_text="Email addresses of people to interview. May be combined with interviewee_distinct_ids.",
     )
     interviewee_distinct_ids = serializers.ListField(
         child=serializers.CharField(max_length=400),
         required=False,
-        help_text="PostHog distinct IDs of people to interview. May be combined with interviewee_cohort and interviewee_emails.",
+        help_text="PostHog distinct IDs of people to interview. May be combined with interviewee_emails.",
     )
     topic = serializers.CharField(
         help_text="The product, feature, or idea you want to ask interviewees about.",
@@ -278,7 +488,6 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
             "id",
             "created_by",
             "created_at",
-            "interviewee_cohort",
             "interviewee_emails",
             "interviewee_distinct_ids",
             "topic",
@@ -287,27 +496,19 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id", "created_by", "created_at")
 
+    MISSING_TARGETING_ERROR = "At least one of interviewee_emails or interviewee_distinct_ids must be provided."
+
     def validate(self, attrs: dict) -> dict:
-        cohort = (
-            attrs.get("interviewee_cohort")
-            if "interviewee_cohort" in attrs
-            else getattr(self.instance, "interviewee_cohort", None)
-        )
-        emails = (
-            attrs.get("interviewee_emails")
-            if "interviewee_emails" in attrs
-            else getattr(self.instance, "interviewee_emails", [])
-        )
-        distinct_ids = (
-            attrs.get("interviewee_distinct_ids")
-            if "interviewee_distinct_ids" in attrs
-            else getattr(self.instance, "interviewee_distinct_ids", [])
-        )
-        if cohort is None and not emails and not distinct_ids:
-            raise serializers.ValidationError(
-                "At least one of interviewee_cohort, interviewee_emails, or interviewee_distinct_ids must be provided."
-            )
+        if not self._current(attrs, "interviewee_emails", []) and not self._current(
+            attrs, "interviewee_distinct_ids", []
+        ):
+            raise serializers.ValidationError(self.MISSING_TARGETING_ERROR)
         return attrs
+
+    def _current(self, attrs: dict, field: str, default: Any) -> Any:
+        if field in attrs:
+            return attrs[field]
+        return getattr(self.instance, field, default)
 
     def create(self, validated_data: dict) -> UserInterviewTopic:
         request = self.context["request"]
@@ -455,7 +656,7 @@ class SendInvitesRequestSerializer(serializers.Serializer):
 
 @extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """Planned user interview topics: who we want to target (cohort) and what we want to ask about."""
+    """Planned user interview topics: who we want to target and what we want to ask about."""
 
     scope_object = "user_interview"
     # Treat the custom @action endpoints as writes so personal API keys with
@@ -498,8 +699,8 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(
                 {
                     "error": (
-                        "Topic targets a cohort but has no resolved emails or distinct IDs. "
-                        "Add interviewee_emails or interviewee_distinct_ids before generating links."
+                        "Topic has no interviewee_emails or interviewee_distinct_ids set. "
+                        "Add them before generating links."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -544,8 +745,8 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(
                 {
                     "error": (
-                        "Topic targets a cohort but has no resolved emails or distinct IDs. "
-                        "Add interviewee_emails or interviewee_distinct_ids before sending invites."
+                        "Topic has no interviewee_emails or interviewee_distinct_ids set. "
+                        "Add them before sending invites."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,

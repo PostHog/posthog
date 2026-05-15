@@ -20,6 +20,8 @@ import type {
     PatchedUserInterviewTopicApi,
     SendInvitesRequestApi,
     UserInterviewApi,
+    UserInterviewSearchRequestApi,
+    UserInterviewSearchResultApi,
     UserInterviewTopicApi,
     UserInterviewTopicsIntervieweesListParams,
     UserInterviewTopicsListParams,
@@ -60,7 +62,7 @@ export const getUserInterviewTopicsListUrl = (projectId: string, params?: UserIn
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsList = async (
     projectId: string,
@@ -78,7 +80,7 @@ export const getUserInterviewTopicsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsCreate = async (
     projectId: string,
@@ -98,7 +100,7 @@ export const getUserInterviewTopicsRetrieveUrl = (projectId: string, id: string)
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsRetrieve = async (
     projectId: string,
@@ -116,7 +118,7 @@ export const getUserInterviewTopicsUpdateUrl = (projectId: string, id: string) =
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsUpdate = async (
     projectId: string,
@@ -137,7 +139,7 @@ export const getUserInterviewTopicsPartialUpdateUrl = (projectId: string, id: st
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsPartialUpdate = async (
     projectId: string,
@@ -158,7 +160,7 @@ export const getUserInterviewTopicsDestroyUrl = (projectId: string, id: string) 
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsDestroy = async (
     projectId: string,
@@ -486,5 +488,26 @@ export const userInterviewsDestroy = async (projectId: string, id: string, optio
     return apiMutator<void>(getUserInterviewsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getUserInterviewsSearchCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/user_interviews/search/`
+}
+
+/**
+ * Embed `query` with the same model used to index interview transcripts and summaries, then return the top matches by cosine distance. Each match is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and summary score above other interviews. Useful for surfacing relevant interview snippets in natural language, without exact keyword matches.
+ * @summary Search interview responses by semantic similarity
+ */
+export const userInterviewsSearchCreate = async (
+    projectId: string,
+    userInterviewSearchRequestApi: UserInterviewSearchRequestApi,
+    options?: RequestInit
+): Promise<UserInterviewSearchResultApi[]> => {
+    return apiMutator<UserInterviewSearchResultApi[]>(getUserInterviewsSearchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userInterviewSearchRequestApi),
     })
 }

@@ -109,15 +109,7 @@ function Surveys(): JSX.Element {
                 sceneInset={true}
             />
             {tab === SurveysTabs.Settings && <SurveySettings />}
-            {tab === SurveysTabs.Notifications && (
-                <div className="flex flex-col gap-3">
-                    <p className="m-0 text-sm text-muted">
-                        Get notified whenever a survey result is submitted. Open a survey to add or edit its
-                        notifications.
-                    </p>
-                    <SurveyNotificationsList />
-                </div>
-            )}
+            {tab === SurveysTabs.Notifications && <SurveyNotificationsList />}
 
             {tab === SurveysTabs.History && <ActivityLog scope={ActivityScope.SURVEY} />}
 

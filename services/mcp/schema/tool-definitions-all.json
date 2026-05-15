@@ -5224,7 +5224,7 @@
         }
     },
     "user-interview-topics-create": {
-        "description": "Plan a user interview by recording who you want to target and what product or idea you want to ask them about. `topic` is the free-text description of the question or product area. Targets can be specified as any combination of `interviewee_cohort` (optional cohort identifier), `interviewee_emails` (list of email addresses), and `interviewee_distinct_ids` (list of PostHog distinct IDs) — at least one target must be provided. Pass `agent_context` (free text) to give the voice agent extra background or instructions, and `questions` (list of strings) for the ordered set of questions the agent should work through.",
+        "description": "Plan a user interview by recording who you want to target and what product or idea you want to ask them about. `topic` is the free-text description of the question or product area. Targets are specified as a combination of `interviewee_emails` (list of email addresses) and `interviewee_distinct_ids` (list of PostHog distinct IDs) — at least one of the two must be provided. To target a cohort, resolve cohort members to emails/distinct_ids in the calling agent first (see the planning-user-interviews skill) and pass them explicitly here — topics snapshot their audience at creation time. Pass `agent_context` (free text) to give the voice agent extra background or instructions, and `questions` (list of strings) for the ordered set of questions the agent should work through.",
         "category": "User interview topics",
         "feature": "user_interviews",
         "summary": "Create user interview topic",
@@ -5288,7 +5288,7 @@
         "feature_flag": "user-interviews"
     },
     "user-interview-topics-list": {
-        "description": "List planned user interview topics in the current project, newest first. Each result includes the topic, targeting (interviewee_cohort, interviewee_emails, interviewee_distinct_ids), and the voice agent setup (agent_context, questions). Supports `search` for substring match against the topic, and `limit`/`offset` for pagination.",
+        "description": "List planned user interview topics in the current project, newest first. Each result includes the topic, targeting (interviewee_emails, interviewee_distinct_ids), and the voice agent setup (agent_context, questions). Supports `search` for substring match against the topic, and `limit`/`offset` for pagination.",
         "category": "User interview topics",
         "feature": "user_interviews",
         "summary": "List user interview topics",
@@ -5316,6 +5316,54 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interviews-list": {
+        "description": "List completed user interview responses in the current project, newest first. Each row includes the interviewee email(s) and identifier, the linked `topic` UUID (set when the interview came in via a topic's shared link), and the AI-generated `transcript` and `summary` fields. Pass `topic` with a topic UUID to scope to a single research topic — use this to answer questions like \"do I have any responses on my X topic yet?\". Use `limit`/`offset` for pagination. `transcript` and `summary` can be long; when listing, prefer skimming the response shapes and then call `user-interviews-retrieve` for the full text of a specific interview.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "List user interview responses",
+        "title": "List user interview responses",
+        "required_scopes": ["user_interview:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interviews-retrieve": {
+        "description": "Fetch a single completed user interview response by id, including the full AI-generated `transcript` and `summary`. Use after `user-interviews-list` has narrowed down to a specific interview — for example, to read what a particular interviewee said about a research topic.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Retrieve a user interview response",
+        "title": "Retrieve a user interview response",
+        "required_scopes": ["user_interview:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interviews-search": {
+        "description": "Search recorded user interviews by meaning, not keywords. Embeds the natural-language `query` with the same model used to index transcripts and summaries, then returns the top matches by cosine similarity. Each match is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and summary score above other interviews. Use `document_types` to restrict to just `transcript` or just `summary`. Filter by `topic_id` to scope the search to a single interview topic. `limit` caps the number of returned matches (1-50, default 10). Useful for surfacing relevant excerpts when the caller has a research question rather than a known string to grep for.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Semantic search across interview responses",
+        "title": "Semantic search across interview responses",
+        "required_scopes": ["user_interview:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         },
         "feature_flag": "user-interviews"
     },

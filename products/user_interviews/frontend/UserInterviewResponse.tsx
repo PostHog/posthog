@@ -185,9 +185,6 @@ export function UserInterviewResponse({ topicId, responseId }: UserInterviewResp
                         <div className="p-4 space-y-2">
                             <DetailRow label="Topic" value={topic.topic} />
                             <DetailRow label="Created" value={topic.created_at.split('T')[0]} />
-                            {topic.interviewee_cohort != null && (
-                                <DetailRow label="Cohort" value={`#${topic.interviewee_cohort}`} />
-                            )}
                         </div>
                     </LemonWidget>
                 </div>
