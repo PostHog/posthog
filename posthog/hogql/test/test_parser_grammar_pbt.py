@@ -181,17 +181,20 @@ def _comment_jiggle(draw: Any, query: str) -> str:
             and tok.upper() in _KEYWORDS_FOR_CASE_VARIATION
             and draw(st.integers(min_value=0, max_value=4)) == 0
         ):
-            # ``-- ...\n`` is a separate lexical path from ``/* ... */``
+            # ``--...\n`` is a separate lexical path from ``/* ... */``
             # — line comments must extend to end-of-line, so they
             # exercise ``\n``-terminated lookaheads that the block-comment
-            # form doesn't reach.
+            # form doesn't reach. No space between ``--`` and the body
+            # so the whole token is hostile to ``_whitespace_jiggle``
+            # substitution (which would otherwise turn the space into a
+            # ``\n`` and terminate the comment prematurely).
             comment = draw(
                 st.sampled_from(
                     [
                         "/* note */",
                         "/**/",
                         "/* multi\nline */",
-                        "-- note\n",
+                        "--note\n",
                     ]
                 )
             )
