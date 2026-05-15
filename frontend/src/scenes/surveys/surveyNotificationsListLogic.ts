@@ -38,7 +38,7 @@ export function getSurveyIdsFromNotificationFilters(filters?: CyclotronJobFilter
     return Array.from(surveyIds)
 }
 
-type KnownSurvey = Pick<Survey, 'id' | 'name' | 'archived' | 'created_at'>
+export type KnownSurvey = Pick<Survey, 'id' | 'name' | 'archived' | 'created_at'>
 
 export const surveyNotificationsListLogic = kea<surveyNotificationsListLogicType>([
     path(['scenes', 'surveys', 'surveyNotificationsListLogic']),

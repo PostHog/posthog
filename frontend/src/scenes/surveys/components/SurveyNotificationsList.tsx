@@ -52,14 +52,20 @@ function NewNotificationButton({
         selectableSurveys,
         filteredSelectableSurveys,
         knownSurveysLoading,
+        knownSurveysFailed,
         surveyPickerSearch,
         surveyPickerVisible,
     } = useValues(surveyNotificationsListLogic)
     const { setSurveyPickerSearch, setSurveyPickerVisible } = useActions(surveyNotificationsListLogic)
 
     const hasSurveys = selectableSurveys.length > 0
-    const disabledReason =
-        !knownSurveysLoading && !hasSurveys ? 'Create a survey first before adding notifications.' : undefined
+    const disabledReason = knownSurveysLoading
+        ? undefined
+        : knownSurveysFailed
+          ? "We couldn't load your surveys — retry from the warning above."
+          : !hasSurveys
+            ? 'Create a survey first before adding notifications.'
+            : undefined
 
     const handlePick = (surveyId: string): void => {
         push(surveyNotificationsUrl(surveyId, { notification: 'add' }))
@@ -156,16 +162,27 @@ export function SurveyNotificationsList(): JSX.Element {
 
     if (notifications.length === 0) {
         return (
-            <section className="flex flex-col items-center gap-5 px-6 py-12 text-center">
-                <MailHog className="h-32 w-auto" />
-                <div className="flex flex-col gap-1.5 max-w-md">
-                    <h3 className="m-0 text-base font-semibold">Get notified when responses land</h3>
-                    <p className="m-0 text-sm text-muted">
-                        Pipe survey responses straight into Slack, Discord, Microsoft Teams, or any webhook.
-                    </p>
-                </div>
-                <NewNotificationButton type="primary" size="medium" />
-            </section>
+            <div className="flex flex-col gap-3">
+                {knownSurveysFailed ? (
+                    <LemonBanner
+                        type="warning"
+                        action={{ children: 'Retry', onClick: () => loadKnownSurveys() }}
+                        data-attr="survey-notifications-known-surveys-error"
+                    >
+                        We couldn't load your surveys, so picking one to notify on isn't available right now.
+                    </LemonBanner>
+                ) : null}
+                <section className="flex flex-col items-center gap-5 px-6 py-12 text-center">
+                    <MailHog className="h-32 w-auto" />
+                    <div className="flex flex-col gap-1.5 max-w-md">
+                        <h3 className="m-0 text-base font-semibold">Get notified when responses land</h3>
+                        <p className="m-0 text-sm text-muted">
+                            Pipe survey responses straight into Slack, Discord, Microsoft Teams, or any webhook.
+                        </p>
+                    </div>
+                    <NewNotificationButton type="primary" size="medium" />
+                </section>
+            </div>
         )
     }
 
