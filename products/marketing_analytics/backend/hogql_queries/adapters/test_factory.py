@@ -18,6 +18,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     BingAdsConfig,
     GoogleAdsConfig,
     HierarchicalNativeAdsConfig,
+    LinkedinAdsConfig,
     MetaAdsConfig,
     PinterestAdsConfig,
     QueryContext,
@@ -380,6 +381,20 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
                 "adset_stats": "adset_stats",
                 "ad": "ads",
                 "ad_stats": "ad_stats",
+            },
+        ),
+        (
+            "LinkedinAds",
+            NativeMarketingSource.LINKEDIN_ADS,
+            LinkedinAdsConfig,
+            "linkedinads",
+            {
+                "campaign": "campaign_groups",
+                "stats": "campaign_group_stats",
+                "adset": "campaigns",
+                "adset_stats": "campaign_stats",
+                "ad": "creatives",
+                "ad_stats": "creative_stats",
             },
         ),
     ]
