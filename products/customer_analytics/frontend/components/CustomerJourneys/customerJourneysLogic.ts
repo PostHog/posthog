@@ -35,6 +35,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         setActiveJourneyId: (journeyId: string | null) => ({ journeyId }),
         selectFirstJourneyIfNeeded: (journeys: CustomerJourneyApi[]) => ({ journeys }),
         setQueryOverride: (query: InsightVizNode<FunnelsQuery>) => ({ query }),
+        clearQueryOverride: true,
     }),
     lazyLoaders(({ values }) => ({
         journeys: {
@@ -96,6 +97,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
             null as InsightVizNode<FunnelsQuery> | null,
             {
                 setQueryOverride: (_, { query }) => query,
+                clearQueryOverride: () => null,
                 setActiveJourneyId: () => null,
                 loadActiveInsightSuccess: () => null,
             },
@@ -195,6 +197,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 } as InsightVizNode<FunnelsQuery>
             },
         ],
+        hasQueryOverride: [(s) => [s.queryOverride], (queryOverride): boolean => !!queryOverride],
         isProfileMode: [
             () => [(_, p) => p.personId, (_, p) => p.groupKey],
             (personId: string | undefined, groupKey: string | undefined): boolean => !!personId || !!groupKey,

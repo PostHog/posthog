@@ -1,6 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { IconArrowLeft } from '@posthog/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
@@ -13,9 +14,9 @@ import { customerJourneysLogic } from './customerJourneysLogic'
 export function CustomerJourneys(): JSX.Element {
     const mountedSceneLogic = useMountedLogic(customerAnalyticsSceneLogic)
     const mountedCustomerJourneysLogic = customerJourneysLogic()
-    const { journeyOptions, journeysLoading, activeInsightLoading, activeJourneyFullQuery } =
+    const { journeyOptions, journeysLoading, activeInsightLoading, activeJourneyFullQuery, hasQueryOverride } =
         useValues(mountedCustomerJourneysLogic)
-    const { setQueryOverride } = useActions(mountedCustomerJourneysLogic)
+    const { setQueryOverride, clearQueryOverride } = useActions(mountedCustomerJourneysLogic)
     useAttachedLogic(mountedCustomerJourneysLogic, mountedSceneLogic)
 
     if (journeysLoading) {
@@ -41,7 +42,20 @@ export function CustomerJourneys(): JSX.Element {
                     <Spinner />
                 </div>
             ) : activeJourneyFullQuery ? (
-                <Query query={activeJourneyFullQuery} setQuery={setQueryOverride} readOnly />
+                <>
+                    {hasQueryOverride && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconArrowLeft />}
+                            onClick={clearQueryOverride}
+                            data-attr="customer-journey-back-to-journey"
+                        >
+                            Back to journey
+                        </LemonButton>
+                    )}
+                    <Query query={activeJourneyFullQuery} setQuery={setQueryOverride} readOnly />
+                </>
             ) : (
                 <div className="text-muted text-center p-8">Insight not found</div>
             )}
