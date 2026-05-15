@@ -92,6 +92,11 @@
             "anyOf": [
                 {
                     "properties": {
+                        "dynamic_tags": {
+                            "default": false,
+                            "description": "When true, the LLM defines the output tag categories itself based on the prompt and optional reference URL. The static `tags` list is ignored in this mode.",
+                            "type": "boolean"
+                        },
                         "max_tags": {
                             "anyOf": [
                                 {
@@ -116,7 +121,7 @@
                             "type": "string"
                         },
                         "tags": {
-                            "description": "Available tags the LLM can assign",
+                            "description": "Available tags the LLM can assign. Ignored when dynamic_tags is true.",
                             "items": {
                                 "properties": {
                                     "description": {
@@ -135,9 +140,22 @@
                                 "type": "object"
                             },
                             "type": "array"
+                        },
+                        "tags_url": {
+                            "anyOf": [
+                                {
+                                    "format": "uri",
+                                    "maxLength": 2000,
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Optional reference URL surfaced to the LLM alongside the prompt when dynamic_tags is true."
                         }
                     },
-                    "required": ["prompt", "tags"],
+                    "required": ["prompt"],
                     "type": "object"
                 },
                 {
