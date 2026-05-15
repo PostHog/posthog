@@ -166,10 +166,16 @@ def _whitespace_jiggle(draw: Any, query: str) -> str:
 @st.composite
 def _comment_jiggle(draw: Any, query: str) -> str:
     """Insert block / line comments before clause-keyword tokens.
-    Skipped inside string literals."""
+    Skipped inside single-quoted strings and double-quoted identifiers
+    — both alphabets include space, so a literal like ``"abc in def"``
+    splits to ``["abc, in, def"]`` and the inner ``in`` would otherwise
+    match the ``IN`` keyword and receive a comment, producing a
+    lexically broken identifier."""
     out: list[str] = []
-    in_string = False
+    in_squote = False
+    in_dquote = False
     for tok in query.split(" "):
+        in_string = in_squote or in_dquote
         if (
             not in_string
             and tok.upper() in _KEYWORDS_FOR_CASE_VARIATION
@@ -191,7 +197,9 @@ def _comment_jiggle(draw: Any, query: str) -> str:
             )
             out.append(comment)
         if tok.count("'") % 2 == 1:
-            in_string = not in_string
+            in_squote = not in_squote
+        if tok.count('"') % 2 == 1:
+            in_dquote = not in_dquote
         out.append(tok)
     return " ".join(out)
 
