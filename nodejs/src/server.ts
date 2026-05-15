@@ -240,6 +240,14 @@ export class PluginServer implements NodeServer {
             return Promise.resolve(serverCommands.service)
         })
 
+        if (capabilities.cdpBatchHogFlow) {
+            serviceLoaders.push(async () => {
+                const consumer = new CdpBatchHogFlowRequestsConsumer(this.config, cdpDeps!)
+                await consumer.start()
+                return consumer.service
+            })
+        }
+
         if (capabilities.cdpPrecalculatedFilters) {
             serviceLoaders.push(async () => {
                 const worker = new CdpPrecalculatedFiltersConsumer(this.config, cdpDeps!)

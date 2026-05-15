@@ -27,7 +27,7 @@ export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
     rowSpanClassName?: `md:row-span-${number}`
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    orderWhenLargeClassName?: `xxl:order-${number}`
+    orderWhenLargeClassName?: `2xl:order-${number}`
     className?: string
 }
 

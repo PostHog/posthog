@@ -1,10 +1,13 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { convertToHogFunctionInvocationGlobals } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { DESTINATION_OPTIONS, DestinationKey } from 'scenes/hog-functions/list/newNotificationDialogLogic'
 import {
     HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES,
@@ -17,12 +20,22 @@ import {
     getSurveyNotificationFilters,
     getSurveyIdBasedResponseKey,
 } from 'scenes/surveys/utils'
+import { urls } from 'scenes/urls'
 
+import { performQuery } from '~/queries/query'
+import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
+    CyclotronJobInvocationGlobals,
+    CyclotronJobTestInvocationResult,
+    EventType,
     HogFunctionTemplateType,
     HogFunctionType,
     IntegrationType,
+    PersonType,
+    PropertyFilterType,
+    PropertyOperator,
     Survey,
+    SurveyEventName,
     SurveyEventProperties,
     SurveyQuestionType,
 } from '~/types'
@@ -64,6 +77,7 @@ export interface SurveyNotificationModalLogicProps {
 
 type SurveyMessageField = 'slackMessage' | 'discordMessage' | 'teamsMessage'
 type HogFunctionInputValue = HogFunctionType['inputs'] extends Record<string, infer T> | null | undefined ? T : never
+export type SurveyNotificationTestSource = 'sample' | 'last_response'
 export type SurveyNotificationModalIntent = 'add' | 'edit' | 'copy'
 export type OpenSurveyNotificationDialogPayload = {
     notification?: HogFunctionType | null
@@ -220,12 +234,136 @@ function buildSurveyNotificationForm(survey: SurveyNotificationContext): SurveyN
     }
 }
 
-function buildTemplateGlobals(survey: SurveyNotificationContext): Record<string, unknown> {
+function buildTemplateGlobals(survey: SurveyNotificationContext): CyclotronJobInvocationGlobals {
     return buildSurveyExampleInvocationGlobals({
         survey,
         projectId: 1,
         projectName: 'Project',
         projectUrl: 'https://app.posthog.com/project/1',
+    })
+}
+
+export function buildLastSurveyResponseQuery(surveyId: string): EventsQuery | null {
+    if (!surveyId || surveyId === NEW_SURVEY.id) {
+        return null
+    }
+    return {
+        kind: NodeKind.EventsQuery,
+        select: ['*', 'person'],
+        fixedProperties: [
+            {
+                key: SurveyEventProperties.SURVEY_ID,
+                type: PropertyFilterType.Event,
+                value: surveyId,
+                operator: PropertyOperator.Exact,
+            },
+            {
+                type: PropertyFilterType.HogQL,
+                key: `event IN ('${SurveyEventName.SENT}', '${SurveyEventName.DISMISSED}')`,
+            },
+        ],
+        after: '-90d',
+        orderBy: ['timestamp DESC'],
+        limit: 1,
+        modifiers: {
+            personsOnEventsMode: 'person_id_no_override_properties_on_events',
+        },
+    }
+}
+
+type LastSurveyResponseResult =
+    | { status: 'ok'; globals: CyclotronJobInvocationGlobals }
+    | { status: 'empty' }
+    | { status: 'failed' }
+
+/**
+ * Aligns sample globals with the saved notification's first event filter so the test
+ * passes the compiled filter bytecode. Without this, a tiny mismatch (e.g. a survey id
+ * that drifted from `values.survey.id` due to copying or migration) skips the test.
+ */
+function alignGlobalsWithNotificationFilter(
+    globals: CyclotronJobInvocationGlobals,
+    notification: HogFunctionType | null
+): CyclotronJobInvocationGlobals {
+    const effectiveFilter = notification?.mappings?.[0]?.filters ?? notification?.filters ?? null
+    const firstEvent = effectiveFilter?.events?.[0]
+    if (!firstEvent) {
+        return globals
+    }
+    const mergedProperties = { ...globals.event.properties }
+    for (const prop of firstEvent.properties ?? []) {
+        if ('key' in prop && prop.key && 'value' in prop && prop.value !== undefined) {
+            mergedProperties[prop.key] = prop.value
+        }
+    }
+    return {
+        ...globals,
+        event: {
+            ...globals.event,
+            event: typeof firstEvent.id === 'string' ? firstEvent.id : globals.event.event,
+            properties: mergedProperties,
+        },
+    }
+}
+
+async function fetchLastSurveyResponseGlobals(query: EventsQuery | null): Promise<LastSurveyResponseResult> {
+    if (!query) {
+        return { status: 'empty' }
+    }
+    try {
+        const response = await performQuery(query)
+        const row = response?.results?.[0]
+        const event = row?.[0] as EventType | undefined
+        const person = row?.[1] as PersonType | undefined
+        if (!event || !person) {
+            return { status: 'empty' }
+        }
+        return { status: 'ok', globals: convertToHogFunctionInvocationGlobals(event, person) }
+    } catch {
+        return { status: 'failed' }
+    }
+}
+
+async function buildSurveyNotificationPayload({
+    form,
+    survey,
+    editingNotification,
+    copiedNotification,
+}: {
+    form: SurveyNotificationForm
+    survey: SurveyNotificationContext
+    editingNotification: HogFunctionType | null
+    copiedNotification: HogFunctionType | null
+}): Promise<Partial<HogFunctionType>> {
+    const templateId = DESTINATION_OPTIONS.find((option) => option.value === form.destination)?.templateId
+    const template = await api.hogFunctions.getTemplate(templateId || 'template-slack')
+
+    if (editingNotification) {
+        return updateSurveyNotificationPayload({
+            notification: editingNotification,
+            template,
+            destination: form.destination,
+            surveyId: survey.id,
+            form,
+        })
+    }
+
+    if (copiedNotification) {
+        return createCopiedSurveyNotificationPayload({
+            notification: copiedNotification,
+            template,
+            destination: form.destination,
+            survey,
+            form,
+        })
+    }
+
+    return createSurveyNotificationPayload({
+        template,
+        destination: form.destination,
+        surveyName: survey.name,
+        surveyId: survey.id,
+        form,
     })
 }
 
@@ -657,8 +795,16 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
     props({} as SurveyNotificationModalLogicProps),
     key((props) => props.surveyId),
     connect((props: SurveyNotificationModalLogicProps) => ({
-        values: [integrationsLogic, ['integrations'], surveyLogic({ id: props.surveyId }), ['survey']],
-        actions: [surveyLogic({ id: props.surveyId }), ['loadSurveyNotifications']],
+        values: [
+            integrationsLogic,
+            ['integrations'],
+            surveyLogic({ id: props.surveyId }),
+            ['survey', 'surveyLoading', 'surveyNotifications', 'surveyNotificationsLoading'],
+        ],
+        actions: [
+            surveyLogic({ id: props.surveyId }),
+            ['loadSurveyNotifications', 'loadSurveyNotificationsSuccess', 'loadSurveySuccess'],
+        ],
     })),
 
     actions({
@@ -668,6 +814,10 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
         }),
         closeDialog: true,
         setNotificationSubmissionError: (error: string | null) => ({ error }),
+        setPendingDeepLink: (target: string | null) => ({ target }),
+        consumePendingDeepLink: true,
+        clearTestResult: true,
+        sendTestNotification: (payload: { source: SurveyNotificationTestSource }) => ({ source: payload.source }),
     }),
 
     reducers({
@@ -700,7 +850,73 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                 closeDialog: () => null,
             },
         ],
+        pendingDeepLink: [
+            null as string | null,
+            {
+                setPendingDeepLink: (_, { target }) => target,
+                openDialog: () => null,
+            },
+        ],
+        testResultError: [
+            null as string | null,
+            {
+                sendTestNotification: () => null,
+                sendTestNotificationSuccess: () => null,
+                sendTestNotificationFailure: (_, { error }) => error || 'Failed to send test notification.',
+                openDialog: () => null,
+                closeDialog: () => null,
+                clearTestResult: () => null,
+            },
+        ],
     }),
+
+    loaders(({ values }) => ({
+        testResult: [
+            null as CyclotronJobTestInvocationResult | null,
+            {
+                clearTestResult: () => null,
+                sendTestNotification: async ({ source }) => {
+                    const configuration = await buildSurveyNotificationPayload({
+                        form: values.notificationForm,
+                        survey: values.survey,
+                        editingNotification: values.editingNotification,
+                        copiedNotification: values.copiedNotification,
+                    })
+
+                    let globals: CyclotronJobInvocationGlobals = values.templateGlobals
+                    let usingSample = source === 'sample'
+                    if (source === 'last_response') {
+                        const lookup = await fetchLastSurveyResponseGlobals(values.lastResponseEventQuery)
+                        if (lookup.status === 'ok') {
+                            globals = lookup.globals
+                        } else if (lookup.status === 'failed') {
+                            usingSample = true
+                            lemonToast.warning(
+                                'Could not fetch the last response — sent the test with sample data instead.'
+                            )
+                        } else {
+                            usingSample = true
+                            lemonToast.info('No survey responses yet — sent the test with sample data instead.')
+                        }
+                    }
+
+                    // Align sample globals with the saved filter's expected values so the test
+                    // isn't skipped by a $survey_id or completion-flag mismatch. Applies to an
+                    // explicit sample-data test and to a last-response test that fell back to it.
+                    if (usingSample) {
+                        globals = alignGlobalsWithNotificationFilter(globals, values.editingNotification)
+                    }
+
+                    const id = values.editingNotification?.id ?? 'new'
+                    return await api.hogFunctions.createTestInvocation(id, {
+                        configuration: configuration as Record<string, any>,
+                        mock_async_functions: false,
+                        globals,
+                    })
+                },
+            },
+        ],
+    })),
 
     forms(({ values }) => ({
         notificationForm: {
@@ -713,32 +929,12 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                         false) as boolean
                 ),
             submit: async (form: SurveyNotificationForm) => {
-                const templateId = DESTINATION_OPTIONS.find((option) => option.value === form.destination)?.templateId
-                const template = await api.hogFunctions.getTemplate(templateId || 'template-slack')
-
-                const payload = values.editingNotification
-                    ? updateSurveyNotificationPayload({
-                          notification: values.editingNotification,
-                          template,
-                          destination: form.destination,
-                          surveyId: values.survey.id,
-                          form,
-                      })
-                    : values.copiedNotification
-                      ? createCopiedSurveyNotificationPayload({
-                            notification: values.copiedNotification,
-                            template,
-                            destination: form.destination,
-                            survey: values.survey,
-                            form,
-                        })
-                      : createSurveyNotificationPayload({
-                            template,
-                            destination: form.destination,
-                            surveyName: values.survey.name,
-                            surveyId: values.survey.id,
-                            form,
-                        })
+                const payload = await buildSurveyNotificationPayload({
+                    form,
+                    survey: values.survey,
+                    editingNotification: values.editingNotification,
+                    copiedNotification: values.copiedNotification,
+                })
 
                 if (values.editingNotification) {
                     await api.hogFunctions.update(values.editingNotification.id, payload)
@@ -762,6 +958,10 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                 null,
         ],
         templateGlobals: [(s) => [s.survey], (survey: SurveyNotificationContext) => buildTemplateGlobals(survey)],
+        lastResponseEventQuery: [
+            (s) => [s.survey],
+            (survey: SurveyNotificationContext): EventsQuery | null => buildLastSurveyResponseQuery(survey.id),
+        ],
         submitDisabledReason: [
             (s) => [
                 s.survey,
@@ -795,14 +995,73 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
     listeners(({ actions, values }) => ({
         openDialog: ({ notification, intent }) => {
             actions.resetNotificationForm()
+            actions.clearTestResult()
             actions.setNotificationFormValues(
                 notification
                     ? buildSurveyNotificationFormFromNotification(notification, values.survey, intent === 'copy')
                     : buildSurveyNotificationForm(values.survey)
             )
         },
+        sendTestNotificationSuccess: ({ testResult }) => {
+            if (testResult?.status === 'success') {
+                lemonToast.success('Test notification sent.')
+            } else if (testResult?.status === 'error') {
+                lemonToast.error('Test notification failed — see logs below.')
+            }
+        },
+        sendTestNotificationFailure: ({ error }) => {
+            lemonToast.error(error || 'Failed to send test notification.')
+        },
+        setPendingDeepLink: ({ target }) => {
+            if (!target) {
+                return
+            }
+            actions.consumePendingDeepLink()
+        },
+        loadSurveySuccess: () => {
+            if (values.pendingDeepLink) {
+                actions.consumePendingDeepLink()
+            }
+        },
+        loadSurveyNotificationsSuccess: () => {
+            if (values.pendingDeepLink) {
+                actions.consumePendingDeepLink()
+            }
+        },
+        consumePendingDeepLink: () => {
+            const target = values.pendingDeepLink
+            if (!target || values.isOpen) {
+                return
+            }
+            if (values.surveyLoading || values.survey.id === NEW_SURVEY.id) {
+                return
+            }
+            if (target === 'add') {
+                actions.openDialog()
+                return
+            }
+            if (values.surveyNotificationsLoading) {
+                return
+            }
+            const notification = values.surveyNotifications.find((fn) => fn.id === target)
+            if (notification) {
+                actions.openDialog({ notification, intent: 'edit' })
+                return
+            }
+            // The notification ID didn't resolve (deleted, wrong project, stale link). Clear the
+            // pending target so unrelated reloads of surveyNotifications don't keep re-triggering
+            // this listener with the same dead ID, and let the user know the link didn't work.
+            actions.setPendingDeepLink(null)
+            lemonToast.error("We couldn't find that notification — it may have been removed.")
+        },
         closeDialog: () => {
             actions.resetNotificationForm()
+            actions.clearTestResult()
+            // If a deep link arrived while another dialog was already open it stayed pending —
+            // try to consume it now that we're no longer blocked by `isOpen`.
+            if (values.pendingDeepLink) {
+                actions.consumePendingDeepLink()
+            }
         },
         submitNotificationFormSuccess: async () => {
             const updatedNotification = values.editingNotification
@@ -822,6 +1081,25 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
             actions.setNotificationSubmissionError(
                 error instanceof Error ? error.message : `Failed to ${action} notification. Please try again.`
             )
+        },
+    })),
+
+    urlToAction(({ actions, props }) => ({
+        [urls.survey(props.surveyId)]: (_, searchParams) => {
+            const target = searchParams.notification
+            if (typeof target === 'string' && target.length > 0) {
+                actions.setPendingDeepLink(target)
+            }
+        },
+    })),
+
+    actionToUrl(() => ({
+        setPendingDeepLink: () => {
+            if (!('notification' in router.values.searchParams)) {
+                return
+            }
+            const { notification: _consumed, ...rest } = router.values.searchParams
+            return [router.values.location.pathname, rest, router.values.hashParams, { replace: true }]
         },
     })),
 ])

@@ -988,6 +988,16 @@ class EmailSendTestThrottle(UserRateThrottle):
     rate = "6/minute"
 
 
+class ComposeTicketBurstThrottle(UserRateThrottle):
+    scope = "compose_ticket_burst"
+    rate = "10/minute"
+
+
+class ComposeTicketSustainedThrottle(UserRateThrottle):
+    scope = "compose_ticket_sustained"
+    rate = "60/hour"
+
+
 class TeamsAdminGraphThrottle(UserRateThrottle):
     """
     Protect the bot's per-tenant Graph API quota. The TeamsTeamsView /

@@ -11,6 +11,7 @@ from posthog.api import (
     my_notifications,
     project,
     user_integration,
+    user_push_token,
 )
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
@@ -114,7 +115,11 @@ from products.product_tours.backend.api import ProductTourViewSet
 from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
-from products.user_interviews.backend.api import UserInterviewTopicViewSet, UserInterviewViewSet
+from products.user_interviews.backend.api import (
+    IntervieweeContextViewSet,
+    UserInterviewTopicViewSet,
+    UserInterviewViewSet,
+)
 from products.visual_review.backend.presentation.views import (
     RepoRunsViewSet as VisualReviewRepoRunsViewSet,
     RepoViewSet as VisualReviewRepoViewSet,
@@ -314,11 +319,20 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["project_id"],
 )
-projects_router.register(
+# Deployments: DeploymentProject is the top-level entity; Deployment nests under it.
+# Mirrors `project_tasks_router` → `runs` pattern above for the parent/child URL shape:
+# /api/projects/{team_id}/deployment_projects/{deployment_project_id}/deployments/...
+project_deployment_projects_router = projects_router.register(
+    r"deployment_projects",
+    deployments.DeploymentProjectViewSet,
+    "project_deployment_projects",
+    ["project_id"],
+)
+project_deployment_projects_router.register(
     r"deployments",
     deployments.DeploymentViewSet,
-    "project_deployments",
-    ["project_id"],
+    "project_deployment_projects_deployments",
+    ["project_id", "deployment_project_id"],
 )
 
 # Tasks endpoints
@@ -754,6 +768,12 @@ users_router.register(
     r"integrations",
     user_integration.UserIntegrationViewSet,
     "user_integration",
+    ["uuid"],
+)
+users_router.register(
+    r"push_tokens",
+    user_push_token.UserPushTokenViewSet,
+    "user_push_token",
     ["uuid"],
 )
 router.register(
@@ -1325,11 +1345,17 @@ environments_router.register(
     ["team_id"],
 )
 
-environments_router.register(
+user_interview_topics_router = environments_router.register(
     r"user_interview_topics",
     UserInterviewTopicViewSet,
     "environment_user_interview_topics",
     ["team_id"],
+)
+user_interview_topics_router.register(
+    r"interviewees",
+    IntervieweeContextViewSet,
+    "environment_user_interview_topic_interviewees",
+    ["team_id", "topic_id"],
 )
 
 visual_review_repos_router = projects_router.register(
