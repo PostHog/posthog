@@ -1,5 +1,5 @@
-import functools
 import os
+import functools
 from collections.abc import Callable
 from typing import Optional, TypeVar
 
