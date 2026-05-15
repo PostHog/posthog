@@ -32,7 +32,6 @@ audit runs rather than every CI build.
 from __future__ import annotations
 
 import os
-import re
 from typing import Any
 
 import pytest
@@ -230,46 +229,16 @@ def _try_parse(query: str, rule: str, backend: str) -> tuple[bool, ast.AST | Non
         return False, None
 
 
-# Substrings that exercise a documented visitor bug in at least one
-# backend. The PBT discards examples matching these so the grind isn't
-# stuck on already-known divergences. Each entry below was verified
-# against current master at the time it was added — re-audit when a
-# fix lands and drop the corresponding entry.
-#
-# To re-audit, run something like::
-#
-#     for q in cases:
-#         clear_locations(parse_expr(q, backend="python"))
-#         clear_locations(parse_expr(q, backend="cpp-json"))
-#
-# and compare the two ASTs.
-_CPP_KNOWN_BUG_PATTERNS = (
-    # `+inf` — cpp visitor mis-maps the literal to NaN; python returns
-    # +Infinity correctly.
-    re.compile(r"\+\s*inf\b", re.IGNORECASE),
-    # `infinity` / `+infinity` / `-infinity` — both backends are wrong
-    # but in different ways: python's `visitNumberLiteral` tries
-    # `int("infinity")` and raises ValueError; cpp returns NaN. The
-    # lexer accepts these as Kw::Inf but neither visitor handles them.
-    re.compile(r"\binfinity\b", re.IGNORECASE),
-    # `0x…` hex literals — cpp visitor returns 0 for any hex value;
-    # python returns the correct int.
-    re.compile(r"\b0x[0-9a-f]+\b", re.IGNORECASE),
-)
-
-
 def _assert_backends_agree(query: str, rule: str) -> None:
     """Bidirectional contract: both backends must accept the same
     grammar surface, and on accepted inputs the ASTs must match
     (post-`clear_locations`).
 
-    Documented cpp-bug-trigger patterns are discarded so the PBT can
-    keep grinding past already-known visitor divergences.
+    There is intentionally no known-bug discard list — every
+    divergence the grind surfaces is a real bug in one of the two
+    visitors. Drop the failing example into a regression test, fix
+    the bug, and let the grind continue.
     """
-    if any(p.search(query) for p in _CPP_KNOWN_BUG_PATTERNS):
-        assume(False)
-        return
-
     a_ok, a_ast = _try_parse(query, rule, _BACKEND_A)
     b_ok, b_ast = _try_parse(query, rule, _BACKEND_B)
 
