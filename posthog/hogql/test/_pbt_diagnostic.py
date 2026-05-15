@@ -83,21 +83,14 @@ def _node_type(node: Any) -> str:
 
 
 def _node_fields(node: Any) -> list[tuple[str, Any]]:
-    """Return (field_name, value) pairs for an AST node. The HogQL AST
-    nodes are dataclasses with `__slots__`; `dataclasses.fields()` gives
-    the declared field set in declaration order. Falls back through
-    Pydantic `model_fields` and plain `__dict__` for non-dataclass
-    objects."""
-    if dataclasses.is_dataclass(node):
-        return [(f.name, getattr(node, f.name, None)) for f in dataclasses.fields(node)]
-    cls = type(node)
-    model_fields = getattr(cls, "model_fields", None)
-    if model_fields is not None:
-        return [(name, getattr(node, name, None)) for name in model_fields]
-    d = getattr(node, "__dict__", None)
-    if d is not None:
-        return list(d.items())
-    return []
+    """Return (field_name, value) pairs for an AST node in declaration
+    order. HogQL AST nodes are dataclasses (with `__slots__`), so
+    `dataclasses.fields()` is the canonical accessor. Non-dataclass
+    leaves return `[]` and fall through to the value-terminal branch
+    in `_diff_path`."""
+    if not dataclasses.is_dataclass(node):
+        return []
+    return [(f.name, getattr(node, f.name, None)) for f in dataclasses.fields(node)]
 
 
 def _diff_path(oracle: Any, candidate: Any, path: list | None = None, depth: int = 0) -> list:
@@ -200,24 +193,22 @@ class DivergenceShape:
     reject_signature: str | None = None
 
 
-def _terminal_of(steps: list) -> tuple[str, str, str] | None:
-    """Return the last (label, oracle_repr, candidate_repr) terminal in
-    `steps`. Accepts both tuple-form (in-memory) and list-form (after
-    a JSON round-trip)."""
+def _ast_mismatch_shape(root_pair: tuple[str, str], steps: list) -> DivergenceShape:
+    """Build a structural DivergenceShape for an ast_mismatch given the
+    root-type pair and the diff-path output. Accepts both tuple-form
+    steps (in-memory) and list-form (after JSON round-trip). Leaf
+    VALUES of `<value>`, `<keys>`, `<len>` are intentionally dropped —
+    two divergences are "the same shape" if they reach the same kind
+    of leaf at the same root, regardless of which specific value
+    differed."""
+    terminal: tuple[str, str, str] | None = None
     for s in reversed(steps):
-        if isinstance(s, tuple):
-            return s
+        if isinstance(s, tuple) and len(s) == 3:
+            terminal = s
+            break
         if isinstance(s, list) and len(s) == 3 and all(isinstance(x, str) for x in s):
-            return (s[0], s[1], s[2])
-    return None
-
-
-def _shape_from_terminal(root_pair: tuple[str, str], terminal: tuple[str, str, str] | None) -> DivergenceShape:
-    """Build a structural DivergenceShape for an ast_mismatch given its
-    root types and the diff terminal. The leaf VALUES of `<value>`,
-    `<keys>`, `<len>`, etc. are intentionally dropped — two divergences
-    are "the same shape" if they reach the same kind of leaf at the
-    same root, regardless of which specific value differed."""
+            terminal = (s[0], s[1], s[2])
+            break
     if terminal is None:
         return DivergenceShape(kind="ast_mismatch", root_pair=root_pair)
     kind_tag = terminal[0]
@@ -274,8 +265,7 @@ def _shape_for(
         )
     if o_ast == c_ast:
         return None
-    steps = _diff_path(o_ast, c_ast)
-    return _shape_from_terminal((_node_type(o_ast), _node_type(c_ast)), _terminal_of(steps))
+    return _ast_mismatch_shape((_node_type(o_ast), _node_type(c_ast)), _diff_path(o_ast, c_ast))
 
 
 # ---------------------------------------------------------------------------
@@ -347,6 +337,40 @@ def _shrink_query(
 
 
 # ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
+
+
+def _print_failure_sample(
+    query: str,
+    rule: str,
+    oracle: str,
+    candidate: str,
+    target_shape: DivergenceShape,
+    *,
+    shrink: bool,
+    diff_steps: list | None = None,
+) -> None:
+    """Print one sample failure for either ast_mismatch (with diff path)
+    or candidate_reject (no diff path). If `shrink` is set, reduce the
+    query and print the shrunk form with a length hint. For
+    ast_mismatch samples, pass `diff_steps` so the diff path renders
+    against the original — or, when shrunk, against a freshly-parsed
+    pair from the reduced query for fidelity."""
+    shrunk = _shrink_query(query, rule, oracle, candidate, target_shape) if shrink else query
+    if shrink and shrunk != query:
+        print(f"  query (shrunk {len(query)} -> {len(shrunk)}): {shrunk!r}")
+        if diff_steps is not None:
+            _, o_s = _try_parse(shrunk, rule, oracle)
+            _, c_s = _try_parse(shrunk, rule, candidate)
+            print(_format_diff_path(_diff_path(o_s, c_s)))
+    else:
+        print(f"  query: {query!r}")
+        if diff_steps is not None:
+            print(_format_diff_path(diff_steps))
+
+
+# ---------------------------------------------------------------------------
 # Main runner
 # ---------------------------------------------------------------------------
 
@@ -404,10 +428,25 @@ def main() -> int:
     counts: Counter[str] = Counter()
     mismatch_buckets: dict[tuple[str, str], list[tuple[str, list]]] = {}
     reject_buckets: dict[str, list[str]] = {}
-    divergence_records: list[dict] = []
 
     base_strategy = expr_strategy() if args.rule == "expr" else select_strategy()
     strategy = base_strategy.flatmap(_apply_jiggle) if args.jiggle else base_strategy
+
+    # Stream JSONL during the run rather than collecting everything in
+    # memory. `jsonl_file` is None when --write-divergences isn't set.
+    jsonl_file = open(args.write_divergences, "w") if args.write_divergences else None
+    jsonl_count = 0
+
+    def write_record(rec: dict, shape_for_shrink: DivergenceShape | None) -> None:
+        nonlocal jsonl_count
+        if jsonl_file is None:
+            return
+        if args.shrink_failures and shape_for_shrink is not None:
+            rec["query_shrunk"] = _shrink_query(rec["query"], args.rule, oracle, candidate, shape_for_shrink)
+        if "diff_path" in rec:
+            rec["diff_path"] = [list(s) if isinstance(s, tuple) else s for s in rec["diff_path"]]
+        jsonl_file.write(json.dumps(rec) + "\n")
+        jsonl_count += 1
 
     # Reuse the pytest PBT's shared settings (deadline=None, slow /
     # filter-too-much suppression) and only override `max_examples`
@@ -428,17 +467,17 @@ def main() -> int:
             counts["candidate_reject"] += 1
             sig = _reject_error(query, args.rule, candidate)
             reject_buckets.setdefault(sig, []).append(query)
-            if args.write_divergences:
-                divergence_records.append(
-                    {
-                        "kind": "candidate_reject",
-                        "rule": args.rule,
-                        "oracle": oracle,
-                        "candidate": candidate,
-                        "query": query,
-                        "reject_signature": sig,
-                    }
-                )
+            write_record(
+                {
+                    "kind": "candidate_reject",
+                    "rule": args.rule,
+                    "oracle": oracle,
+                    "candidate": candidate,
+                    "query": query,
+                    "reject_signature": sig,
+                },
+                DivergenceShape(kind="candidate_reject", reject_signature=sig),
+            )
             return
 
         if o_ast == c_ast:
@@ -449,27 +488,27 @@ def main() -> int:
         bucket = (_node_type(o_ast), _node_type(c_ast))
         steps = _diff_path(o_ast, c_ast)
         mismatch_buckets.setdefault(bucket, []).append((query, steps))
-        if args.write_divergences:
-            divergence_records.append(
-                {
-                    "kind": "ast_mismatch",
-                    "rule": args.rule,
-                    "oracle": oracle,
-                    "candidate": candidate,
-                    "query": query,
-                    "oracle_root": bucket[0],
-                    "candidate_root": bucket[1],
-                    # Keep `steps` as native tuples so the in-memory
-                    # shrinker can use them. Convert to lists only at
-                    # JSON write time.
-                    "diff_path": steps,
-                }
-            )
+        write_record(
+            {
+                "kind": "ast_mismatch",
+                "rule": args.rule,
+                "oracle": oracle,
+                "candidate": candidate,
+                "query": query,
+                "oracle_root": bucket[0],
+                "candidate_root": bucket[1],
+                "diff_path": steps,
+            },
+            _ast_mismatch_shape(bucket, steps),
+        )
 
     try:
         run()
     except Exception:
         traceback.print_exc()
+    finally:
+        if jsonl_file is not None:
+            jsonl_file.close()
 
     # ---- Summary ----------------------------------------------------------
     print()
@@ -493,19 +532,15 @@ def main() -> int:
         for (o_t, c_t), examples in sorted_mismatch_buckets:
             print(f"\n--- {o_t} vs {c_t} ({len(examples)} total) ---")
             for query, steps in examples[: args.max_mismatch_samples]:
-                shrunk = query
-                if args.shrink_failures:
-                    shape = _shape_from_terminal((o_t, c_t), _terminal_of(steps))
-                    shrunk = _shrink_query(query, args.rule, oracle, candidate, shape)
-                if args.shrink_failures and shrunk != query:
-                    print(f"  query (shrunk {len(query)} -> {len(shrunk)}): {shrunk!r}")
-                    # Re-derive diff path on the shrunken query for fidelity.
-                    _, o_s = _try_parse(shrunk, args.rule, oracle)
-                    _, c_s = _try_parse(shrunk, args.rule, candidate)
-                    print(_format_diff_path(_diff_path(o_s, c_s)))
-                else:
-                    print(f"  query: {query!r}")
-                    print(_format_diff_path(steps))
+                _print_failure_sample(
+                    query,
+                    args.rule,
+                    oracle,
+                    candidate,
+                    _ast_mismatch_shape((o_t, c_t), steps),
+                    shrink=args.shrink_failures,
+                    diff_steps=steps,
+                )
 
     # ---- candidate_reject categorization + samples ------------------------
     if reject_buckets and (args.print_rejects or args.shrink_failures):
@@ -520,44 +555,13 @@ def main() -> int:
             print(f"=== Sample candidate_rejects (up to {args.max_mismatch_samples} per category) ===")
             for sig, queries in sorted_reject_buckets:
                 print(f"\n--- {sig} ({len(queries)} total) ---")
+                shape = DivergenceShape(kind="candidate_reject", reject_signature=sig)
                 for query in queries[: args.max_mismatch_samples]:
-                    shrunk = query
-                    if args.shrink_failures:
-                        shape = DivergenceShape(kind="candidate_reject", reject_signature=sig)
-                        shrunk = _shrink_query(query, args.rule, oracle, candidate, shape)
-                    if args.shrink_failures and shrunk != query:
-                        print(f"  query (shrunk {len(query)} -> {len(shrunk)}): {shrunk!r}")
-                    else:
-                        print(f"  query: {query!r}")
+                    _print_failure_sample(query, args.rule, oracle, candidate, shape, shrink=args.shrink_failures)
 
-    # ---- JSONL persistence ------------------------------------------------
     if args.write_divergences:
-        # Optionally also shrink before writing — gives a more compact
-        # corpus for later analysis.
-        if args.shrink_failures:
-            for rec in divergence_records:
-                if rec["kind"] == "ast_mismatch":
-                    shape = _shape_from_terminal(
-                        (rec["oracle_root"], rec["candidate_root"]),
-                        _terminal_of(rec["diff_path"]),
-                    )
-                else:
-                    shape = DivergenceShape(
-                        kind="candidate_reject",
-                        reject_signature=rec["reject_signature"],
-                    )
-                shrunk = _shrink_query(rec["query"], rec["rule"], oracle, candidate, shape)
-                rec["query_shrunk"] = shrunk
-        with open(args.write_divergences, "w") as f:
-            for rec in divergence_records:
-                serializable = dict(rec)
-                if "diff_path" in serializable:
-                    serializable["diff_path"] = [
-                        list(s) if isinstance(s, tuple) else s for s in serializable["diff_path"]
-                    ]
-                f.write(json.dumps(serializable) + "\n")
         print()
-        print(f"=== Wrote {len(divergence_records)} divergence records to {args.write_divergences} ===")
+        print(f"=== Wrote {jsonl_count} divergence records to {args.write_divergences} ===")
 
     return 0
 

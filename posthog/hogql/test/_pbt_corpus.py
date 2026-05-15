@@ -51,23 +51,45 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
 
-from posthog.hogql.test._pbt_diagnostic import DivergenceShape, _shape_for, _shape_from_terminal, _terminal_of
+from posthog.hogql.test._pbt_diagnostic import DivergenceShape, _ast_mismatch_shape, _shape_for
 
 
-def _bucket_key(rec: dict) -> tuple:
-    """Stable bucket key for deduping divergences. We use the same
-    structural shape that `_shape_for` / `DivergenceShape` produce, so
-    two examples of the same divergence (with different leaf values)
-    bucket together."""
+def _shape_from_divergence(rec: dict) -> DivergenceShape:
+    """Build the structural shape recorded in a divergences-JSONL row.
+    Same canonical shape `_shape_for` produces, so two examples of the
+    same divergence (with different leaf values) compare equal under
+    this key."""
     if rec["kind"] == "ast_mismatch":
-        shape = _shape_from_terminal(
+        return _ast_mismatch_shape(
             (rec.get("oracle_root", ""), rec.get("candidate_root", "")),
-            _terminal_of(rec.get("diff_path", [])),
+            rec.get("diff_path", []),
         )
+    return DivergenceShape(kind="candidate_reject", reject_signature=rec.get("reject_signature"))
+
+
+def _shape_from_corpus_entry(entry: dict) -> DivergenceShape:
+    """Reconstruct the expected shape from a corpus-JSONL row produced
+    by `cmd_extract`. Mirrors what `_shape_from_divergence` would
+    produce on the original raw record."""
+    if entry["kind"] == "ast_mismatch":
+        types = None
+        if "expected_terminal_oracle" in entry:
+            types = (entry["expected_terminal_oracle"], entry["expected_terminal_candidate"])
+        return DivergenceShape(
+            kind="ast_mismatch",
+            root_pair=(entry["expected_oracle_root"], entry["expected_candidate_root"]),
+            terminal_kind=entry.get("expected_terminal_kind"),
+            terminal_types=types,
+        )
+    return DivergenceShape(kind="candidate_reject", reject_signature=entry.get("expected_reject_signature"))
+
+
+def _bucket_key(shape: DivergenceShape) -> tuple:
+    """Hashable identity for a divergence shape, used to dedup
+    divergences in the extract pass."""
+    if shape.kind == "ast_mismatch":
         return ("ast_mismatch", shape.root_pair, shape.terminal_kind, shape.terminal_types)
-    if rec["kind"] == "candidate_reject":
-        return ("candidate_reject", rec.get("reject_signature"))
-    return ("unknown",)
+    return ("candidate_reject", shape.reject_signature)
 
 
 def cmd_extract(args: argparse.Namespace) -> int:
@@ -79,7 +101,8 @@ def cmd_extract(args: argparse.Namespace) -> int:
             if not args.keep_unshrunken and "query_shrunk" not in rec:
                 skipped_no_shrunk += 1
                 continue
-            key = _bucket_key(rec)
+            shape = _shape_from_divergence(rec)
+            key = _bucket_key(shape)
             if key in seen:
                 continue
             # Prefer the shrunken query if available.
@@ -90,11 +113,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
                 "candidate": rec["candidate"],
                 "query": rec.get("query_shrunk", rec["query"]),
             }
-            if rec["kind"] == "ast_mismatch":
-                shape = _shape_from_terminal(
-                    (rec["oracle_root"], rec["candidate_root"]),
-                    _terminal_of(rec["diff_path"]),
-                )
+            if shape.kind == "ast_mismatch":
                 entry["expected_oracle_root"] = shape.root_pair[0] if shape.root_pair else ""
                 entry["expected_candidate_root"] = shape.root_pair[1] if shape.root_pair else ""
                 if shape.terminal_kind:
@@ -102,8 +121,8 @@ def cmd_extract(args: argparse.Namespace) -> int:
                 if shape.terminal_types:
                     entry["expected_terminal_oracle"] = shape.terminal_types[0]
                     entry["expected_terminal_candidate"] = shape.terminal_types[1]
-            elif rec["kind"] == "candidate_reject":
-                entry["expected_reject_signature"] = rec["reject_signature"]
+            else:
+                entry["expected_reject_signature"] = shape.reject_signature
             seen[key] = entry
 
     with open(args.dst, "w") as f:
@@ -135,32 +154,7 @@ def cmd_check(args: argparse.Namespace) -> int:
                 if len(sample["fixed"]) < args.max_samples:
                     sample["fixed"].append(entry["query"])
                 continue
-            # Reconstruct the expected structural shape from the
-            # corpus entry. terminal_types is only set for `<type>`
-            # terminals (cf. _shape_from_terminal); other terminal
-            # kinds carry no per-instance state.
-            if entry["kind"] == "ast_mismatch":
-                expected = DivergenceShape(
-                    kind="ast_mismatch",
-                    root_pair=(
-                        entry["expected_oracle_root"],
-                        entry["expected_candidate_root"],
-                    ),
-                    terminal_kind=entry.get("expected_terminal_kind"),
-                    terminal_types=(
-                        (
-                            entry["expected_terminal_oracle"],
-                            entry["expected_terminal_candidate"],
-                        )
-                        if "expected_terminal_oracle" in entry
-                        else None
-                    ),
-                )
-            else:
-                expected = DivergenceShape(
-                    kind="candidate_reject",
-                    reject_signature=entry.get("expected_reject_signature"),
-                )
+            expected = _shape_from_corpus_entry(entry)
             if shape == expected:
                 counts["still_diverges"] += 1
                 if len(sample["still_diverges"]) < args.max_samples:
