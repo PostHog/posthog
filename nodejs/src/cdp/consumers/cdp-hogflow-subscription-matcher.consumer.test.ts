@@ -7,6 +7,7 @@ jest.mock('./cdp-base.consumer', () => {
     return {
         CdpConsumerBase: class {
             constructor() {}
+            async start(): Promise<void> {}
         },
     }
 })
@@ -403,6 +404,29 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
             expect(update).not.toBeUndefined()
             expect(update!.params[0]).toEqual(['job-match'])
+        })
+
+        it('propagates processBatch failures through backgroundTask (no swallow)', async () => {
+            // Kafka offsets must not advance past a batch we couldn't match. Otherwise a
+            // transient cyclotron failure silently misses wakeups. The consumer-v2 fatalError
+            // gate then crashes the pod and replays — the SELECT is read-only and the UPDATE
+            // is guarded by `status = 'available'`, so replay is idempotent.
+            const failure = new Error('connection refused')
+            ;(matcher as any).cyclotronPool.query = jest.fn().mockRejectedValue(failure)
+            ;(matcher as any)._parseKafkaBatch = jest.fn().mockResolvedValue([makeGlobals({})])
+
+            let capturedEachBatch: ((messages: any[]) => Promise<any>) | undefined
+            ;(matcher as any).kafkaConsumer = {
+                connect: jest.fn((cb: (messages: any[]) => Promise<any>) => {
+                    capturedEachBatch = cb
+                    return Promise.resolve()
+                }),
+            }
+
+            await matcher.start()
+            const result = await capturedEachBatch!([{ value: Buffer.from('{}') }])
+
+            await expect(result.backgroundTask).rejects.toBe(failure)
         })
 
         it('does not load state for non-matching candidates (projection-only lookup)', async () => {

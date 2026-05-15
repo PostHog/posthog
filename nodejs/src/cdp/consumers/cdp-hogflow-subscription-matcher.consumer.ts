@@ -9,7 +9,6 @@ import { HogFlow, HogFlowAction } from '../../schema/hogflow'
 import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
 import { HogFlowInvocationContext, HogFunctionInvocationGlobals } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { execHog } from '../utils/hog-exec'
@@ -294,11 +293,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             logger.info('🔁', `${this.name} - handling batch`, { size: messages.length })
             return await instrumentFn('cdpHogflowSubscriptionMatcher.handleEachBatch', async () => {
                 const invocationGlobals = await this._parseKafkaBatch(messages)
-                const backgroundTask = this.processBatch(invocationGlobals).catch((err) => {
-                    captureException(err)
-                    logger.error('🔴', 'Error matching workflows', { err })
-                })
-                return { backgroundTask }
+                // Surface failures to the kafka consumer so the offset doesn't advance past a
+                // batch we couldn't match. The pod will crash and replay; the SELECT is read-only
+                // and the UPDATE (with `status = 'available'` guards) is idempotent, so replay is safe.
+                return { backgroundTask: this.processBatch(invocationGlobals) }
             })
         })
     }
