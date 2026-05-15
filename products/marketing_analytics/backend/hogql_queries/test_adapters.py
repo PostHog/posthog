@@ -1283,6 +1283,19 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             _ALL_AD_LEVELS,
         ),
         (
+            "google_no_adset",
+            GoogleAdsAdapter,
+            GoogleAdsConfig,
+            "GoogleAds",
+            {
+                "campaign": "googleads_campaign",
+                "stats": "googleads_campaign_stats",
+                "ad": "googleads_ad",
+                "ad_stats": "googleads_ad_stats",
+            },
+            (MarketingAnalyticsDrillDownLevel.AD,),
+        ),
+        (
             "tiktok",
             TikTokAdsAdapter,
             TikTokAdsConfig,
