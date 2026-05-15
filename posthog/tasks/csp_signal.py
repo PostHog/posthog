@@ -3,6 +3,7 @@ import math
 import hashlib
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.cache import cache
@@ -119,15 +120,38 @@ def _is_csp_signal_enabled(team_id: int) -> bool:
     return enabled
 
 
+def _suggested_origin(blocked_url: str) -> str | None:
+    """Return scheme://host for use in a suggested CSP directive snippet, or None."""
+    if not blocked_url:
+        return None
+    try:
+        parsed = urlparse(blocked_url)
+    except ValueError:
+        return None
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
 def _build_description(properties: dict) -> str:
-    violated_directive = _stringify(_csp_property(properties, "violated_directive")) or "unknown directive"
-    blocked_url = _stringify(_csp_property(properties, "blocked_url")) or "unknown resource"
-    document_url = _stringify(_csp_property(properties, "document_url")) or "unknown page"
+    """
+    Build a static, embedding-friendly description of a CSP violation. Mirrors the structure
+    of the on-demand `csp_reporting.explain` LLM prompt — cause, suggested fix, triage — but
+    without calling an LLM, so it stays cheap and stable for vector grouping.
+    """
+    violated_directive = _stringify(_csp_property(properties, "violated_directive"))
+    effective_directive = _stringify(_csp_property(properties, "effective_directive"))
+    blocked_url = _stringify(_csp_property(properties, "blocked_url"))
+    document_url = _stringify(_csp_property(properties, "document_url"))
     disposition = _stringify(_csp_property(properties, "disposition")) or "unknown"
     source_file = _stringify(_csp_property(properties, "source_file"))
     line_number = _stringify(_csp_property(properties, "line_number"))
     column_number = _stringify(_csp_property(properties, "column_number"))
     user_agent = _stringify(_csp_property(properties, "user_agent"))
+
+    directive_display = violated_directive or "unknown directive"
+    blocked_display = blocked_url or "unknown resource"
+    page_display = document_url or "unknown page"
 
     location = source_file
     if location and line_number:
@@ -135,21 +159,39 @@ def _build_description(properties: dict) -> str:
         if column_number:
             location = f"{location}:{column_number}"
 
-    lines = [
-        f"CSP violation: directive '{violated_directive}' blocked '{blocked_url}' on '{document_url}'.",
+    cause_lines = [
+        "## Cause",
+        f"The `{directive_display}` directive on `{page_display}` blocked the resource `{blocked_display}`.",
         f"Disposition: {disposition}.",
     ]
     if location:
-        lines.append(f"Source: {location}.")
+        cause_lines.append(f"Source location: `{location}`.")
     if user_agent:
-        lines.append(f"Browser: {user_agent}.")
-    lines.append(
-        "This is a Content Security Policy report sent by a user's browser. Investigate whether "
-        "the blocked resource is (1) legitimate and the CSP policy needs widening, (2) an injected "
-        "or compromised script indicating a security incident, or (3) a third-party script the team "
-        "should remove."
-    )
-    return "\n".join(lines)
+        cause_lines.append(f"Browser: `{user_agent}`.")
+
+    fix_directive = effective_directive or violated_directive
+    fix_origin = _suggested_origin(blocked_url)
+    fix_lines = ["## Suggested fix"]
+    if fix_origin and fix_directive:
+        fix_lines.append(
+            f"If `{fix_origin}` is a legitimate resource, allow it by adding it to the `{fix_directive}` directive:"
+        )
+        fix_lines.append(f"`{fix_directive} 'self' {fix_origin};`")
+    else:
+        fix_lines.append(
+            "Decide whether the blocked resource is legitimate. If yes, add its origin to the violated directive. "
+            "If no, investigate where the request to it came from."
+        )
+
+    triage_lines = [
+        "## Triage",
+        "Three things to rule out:",
+        "1. The blocked resource is legitimate and the CSP policy needs widening.",
+        "2. The blocked resource is an injected or compromised script — a security incident.",
+        "3. The blocked resource is a third-party script the team should remove.",
+    ]
+
+    return "\n".join([*cause_lines, "", *fix_lines, "", *triage_lines])
 
 
 def _build_extra(properties: dict) -> dict:
@@ -178,11 +220,13 @@ def _build_extra(properties: dict) -> dict:
         "document_url": get_str("document_url"),
         "violated_directive": get_str("violated_directive"),
         "effective_directive": get_str("effective_directive"),
+        "original_policy": get_str("original_policy"),
         "blocked_url": get_str("blocked_url"),
         "source_file": get_str("source_file"),
         "line_number": get_number("line_number"),
         "column_number": get_number("column_number"),
         "disposition": get_str("disposition"),
+        "referrer": get_str("referrer"),
         "user_agent": get_str("user_agent"),
     }
 

@@ -32,6 +32,8 @@ def _csp_properties(**overrides: Any) -> dict:
         "$csp_column_number": 7,
         "$csp_disposition": "enforce",
         "$csp_user_agent": "Mozilla/5.0",
+        "$csp_original_policy": "default-src 'self'; script-src 'self'",
+        "$csp_referrer": "https://example.com/start",
     }
     base.update(overrides)
     return base
@@ -81,6 +83,24 @@ class TestCSPSignalDescription(BaseTest):
         assert "https://example.com/page.html:42:7" in description
         assert "Mozilla/5.0" in description
 
+    def test_description_has_cause_fix_triage_sections(self) -> None:
+        description = _build_description(_csp_properties())
+        assert "## Cause" in description
+        assert "## Suggested fix" in description
+        assert "## Triage" in description
+
+    def test_description_includes_suggested_directive_snippet_with_blocked_origin(self) -> None:
+        description = _build_description(_csp_properties())
+        # blocked URL is https://evil.example.com/x.js → suggest adding https://evil.example.com
+        assert "https://evil.example.com" in description
+        assert "script-src 'self' https://evil.example.com;" in description
+
+    def test_description_falls_back_when_blocked_url_has_no_origin(self) -> None:
+        description = _build_description(_csp_properties(**{"$csp_blocked_url": "inline"}))
+        # No scheme://host means we don't construct a snippet — fallback prose
+        assert "script-src 'self' inline" not in description
+        assert "Decide whether the blocked resource is legitimate" in description
+
     def test_description_handles_missing_fields(self) -> None:
         description = _build_description({})
         assert "unknown directive" in description
@@ -96,12 +116,16 @@ class TestCSPSignalDescription(BaseTest):
         assert extra["column_number"] == 7.0
         assert extra["disposition"] == "enforce"
         assert extra["user_agent"] == "Mozilla/5.0"
+        assert extra["original_policy"] == "default-src 'self'; script-src 'self'"
+        assert extra["referrer"] == "https://example.com/start"
 
     def test_extra_payload_handles_missing(self) -> None:
         extra = _build_extra({})
         assert extra["document_url"] is None
         assert extra["line_number"] is None
         assert extra["column_number"] is None
+        assert extra["original_policy"] is None
+        assert extra["referrer"] is None
 
     @parameterized.expand(
         [
