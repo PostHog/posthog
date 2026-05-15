@@ -60,7 +60,6 @@ from posthog.tasks.tasks import (
     pg_row_count,
     pg_table_cache_hit_rate,
     process_scheduled_changes,
-    reconcile_sendblue_prewarmed_sandbox_pool,
     redis_celery_queue_depth,
     redis_heartbeat,
     refresh_activity_log_fields_cache,
@@ -172,11 +171,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         60,
         capture_task_run_state_metrics.s(),
         name="tasks run state metrics",
-    )
-    sender.add_periodic_task(
-        60,
-        reconcile_sendblue_prewarmed_sandbox_pool.s(),
-        name="sendblue prewarmed sandbox pool reconciliation",
     )
 
     sender.add_periodic_task(10, redis_heartbeat.s(), name="10 sec heartbeat")

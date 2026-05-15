@@ -23,11 +23,7 @@ export const scene: SceneExport<UserInterviewLogicProps> = {
 function targetingLabel(topic: UserInterviewTopicApi): string {
     const emailCount = topic.interviewee_emails?.length || 0
     const distinctIdCount = topic.interviewee_distinct_ids?.length || 0
-    const hasCohort = topic.interviewee_cohort != null
     const parts: string[] = []
-    if (hasCohort) {
-        parts.push(`Cohort #${topic.interviewee_cohort}`)
-    }
     if (emailCount > 0) {
         parts.push(`${emailCount} email${emailCount !== 1 ? 's' : ''}`)
     }

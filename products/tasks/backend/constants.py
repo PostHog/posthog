@@ -10,8 +10,6 @@ ALL_INITIAL_PERMISSION_MODE_CHOICES: list[str] = [
     arg for member in get_args(InitialPermissionMode) for arg in get_args(member)
 ]
 
-SENDBLUE_TASK_REPOSITORY = "posthog/posthog"
-
 DEFAULT_TRUSTED_DOMAINS = [
     # PostHog Services
     "posthog.com",
