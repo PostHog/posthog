@@ -295,10 +295,17 @@ def _assert_backends_agree(query: str, rule: str) -> None:
 _PBT_SETTINGS = settings(
     max_examples=int(os.environ.get("GRAMMAR_PBT_EXAMPLES", "1000")),
     deadline=None,
+    # ``too_slow`` and ``filter_too_much`` are characteristics of the
+    # grind itself (deep ASTs, semantic-visitor rejections drop a
+    # sizable fraction). ``data_too_large`` is deliberately *not*
+    # suppressed — if it fires, the strategy is producing inputs
+    # larger than Hypothesis's default buffer, which usually means an
+    # unbounded path slipped past the ``_MAX_REPEAT``,
+    # ``_MAX_LR_CHAIN``, or depth-decrement guards. That's a real
+    # signal worth fixing rather than masking.
     suppress_health_check=[
         HealthCheck.too_slow,
         HealthCheck.filter_too_much,
-        HealthCheck.data_too_large,
     ],
 )
 

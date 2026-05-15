@@ -171,6 +171,12 @@ identifier_token: st.SearchStrategy[str] = st.from_regex(r"[a-z][a-z0-9_]{0,7}",
 
 # Quoted identifier: double-quoted form. The lexer also accepts
 # backquoted, but mixing in a smoke test only complicates things.
+# The alphabet deliberately includes space — quoted identifiers can
+# legally contain whitespace (``"abc def"`` is one identifier), and
+# the jiggler-layer guards (``_whitespace_jiggle``, ``_comment_jiggle``)
+# track ``"`` quoting so they don't break identifiers like that. The
+# unquoted ``identifier_token`` above has no such allowance and must
+# also dodge ``_RESERVED_KEYWORDS``; quoted identifiers ignore both.
 quoted_identifier_token: st.SearchStrategy[str] = st.text(alphabet="abcdefghijklmnopq _", min_size=1, max_size=8).map(
     lambda s: f'"{s}"'
 )
