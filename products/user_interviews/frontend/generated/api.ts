@@ -60,7 +60,7 @@ export const getUserInterviewTopicsListUrl = (projectId: string, params?: UserIn
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsList = async (
     projectId: string,
@@ -78,7 +78,7 @@ export const getUserInterviewTopicsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsCreate = async (
     projectId: string,
@@ -98,7 +98,7 @@ export const getUserInterviewTopicsRetrieveUrl = (projectId: string, id: string)
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsRetrieve = async (
     projectId: string,
@@ -116,7 +116,7 @@ export const getUserInterviewTopicsUpdateUrl = (projectId: string, id: string) =
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsUpdate = async (
     projectId: string,
@@ -137,7 +137,7 @@ export const getUserInterviewTopicsPartialUpdateUrl = (projectId: string, id: st
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsPartialUpdate = async (
     projectId: string,
@@ -158,7 +158,7 @@ export const getUserInterviewTopicsDestroyUrl = (projectId: string, id: string) 
 }
 
 /**
- * Planned user interview topics: who we want to target (cohort) and what we want to ask about.
+ * Planned user interview topics: who we want to target and what we want to ask about.
  */
 export const userInterviewTopicsDestroy = async (
     projectId: string,

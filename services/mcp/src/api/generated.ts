@@ -24774,14 +24774,9 @@ export namespace Schemas {
       readonly id: string;
       readonly created_by: UserBasic;
       readonly created_at: string;
-      /**
-         * Optional cohort ID identifying who to target. Not enforced as a foreign key.
-         * @nullable
-         */
-      interviewee_cohort?: number | null;
-      /** Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids. */
+      /** Email addresses of people to interview. May be combined with interviewee_distinct_ids. */
       interviewee_emails?: string[];
-      /** PostHog distinct IDs of people to interview. May be combined with interviewee_cohort and interviewee_emails. */
+      /** PostHog distinct IDs of people to interview. May be combined with interviewee_emails. */
       interviewee_distinct_ids?: string[];
       /** The product, feature, or idea you want to ask interviewees about. */
       topic: string;
@@ -30538,14 +30533,9 @@ export namespace Schemas {
       readonly id?: string;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
-      /**
-         * Optional cohort ID identifying who to target. Not enforced as a foreign key.
-         * @nullable
-         */
-      interviewee_cohort?: number | null;
-      /** Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids. */
+      /** Email addresses of people to interview. May be combined with interviewee_distinct_ids. */
       interviewee_emails?: string[];
-      /** PostHog distinct IDs of people to interview. May be combined with interviewee_cohort and interviewee_emails. */
+      /** PostHog distinct IDs of people to interview. May be combined with interviewee_emails. */
       interviewee_distinct_ids?: string[];
       /** The product, feature, or idea you want to ask interviewees about. */
       topic?: string;
