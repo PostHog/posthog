@@ -250,7 +250,7 @@ export function SourcesList(): JSX.Element {
                     description={
                         <>
                             Content Security Policy violation reports from real browsers → Signals.{' '}
-                            <Link to="https://posthog.com/docs/error-tracking/csp-reporting" target="_blank">
+                            <Link to="https://posthog.com/docs/csp-tracking" target="_blank">
                                 Read the docs
                             </Link>
                         </>
