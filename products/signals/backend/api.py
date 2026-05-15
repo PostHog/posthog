@@ -1,4 +1,5 @@
 import enum
+import functools
 from datetime import timedelta
 from typing import get_args
 
@@ -25,7 +26,13 @@ from products.signals.backend.temporal.types import BufferSignalsInput, EmitSign
 logger = structlog.get_logger(__name__)
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
-_tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
+
+
+@functools.cache
+def _get_tiktoken_encoding() -> tiktoken.Encoding:
+    # Loaded lazily because tiktoken downloads the encoding blob on first use
+    # and verifies its SHA-256 — a corrupt download would otherwise crash module import.
+    return tiktoken.get_encoding("cl100k_base")
 
 
 def _get_field_values(field: pydantic.fields.FieldInfo) -> tuple[str, ...]:
@@ -99,7 +106,7 @@ async def emit_signal(
     if not is_enabled:
         return
 
-    token_count = len(_tiktoken_encoding.encode(description))
+    token_count = len(_get_tiktoken_encoding().encode(description))
     if token_count > MAX_SIGNAL_DESCRIPTION_TOKENS:
         raise ValueError(
             f"Signal description exceeds {MAX_SIGNAL_DESCRIPTION_TOKENS} tokens ({token_count} tokens). "
