@@ -1727,6 +1727,14 @@ export const taggersCreateBodyTaggerConfigOneOneMinTagsMin = 0
 export const taggersCreateBodyTaggerConfigOneOneDynamicTagsDefault = false
 export const taggersCreateBodyTaggerConfigOneOneTagsUrlMax = 2000
 
+export const taggersCreateBodyTaggerConfigOneOneTargetEventTypesItemMax = 200
+
+export const taggersCreateBodyTaggerConfigOneOneTargetEventTypesMax = 20
+
+export const taggersCreateBodyTaggerConfigOneOneTargetPropertyKeysItemMax = 200
+
+export const taggersCreateBodyTaggerConfigOneOneTargetPropertyKeysMax = 50
+
 export const taggersCreateBodyTaggerConfigOneTwoTagsItemNameMax = 100
 
 export const taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionDefault = ``
@@ -1786,6 +1794,20 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
                     .nullish()
                     .describe(
                         'Optional reference URL surfaced to the LLM alongside the prompt when dynamic_tags is true.'
+                    ),
+                target_event_types: zod
+                    .array(zod.string().max(taggersCreateBodyTaggerConfigOneOneTargetEventTypesItemMax))
+                    .max(taggersCreateBodyTaggerConfigOneOneTargetEventTypesMax)
+                    .nullish()
+                    .describe(
+                        "Event names this tagger should run on. Defaults to ['$ai_generation'] when null. Dispatch-side support for non-$ai_generation events is a separate change — see PR notes."
+                    ),
+                target_property_keys: zod
+                    .array(zod.string().max(taggersCreateBodyTaggerConfigOneOneTargetPropertyKeysItemMax))
+                    .max(taggersCreateBodyTaggerConfigOneOneTargetPropertyKeysMax)
+                    .optional()
+                    .describe(
+                        'Event property keys to surface to the LLM. Empty list = include all top-level properties (truncated to a size budget). Only used when target_event_types includes events other than $ai_generation.'
                     ),
             }),
             zod.object({

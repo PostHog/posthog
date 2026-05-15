@@ -19650,6 +19650,17 @@ export namespace Schemas {
          * @nullable
          */
       tags_url?: string | null;
+      /**
+         * Event names this tagger should run on. Defaults to ['$ai_generation'] when null. Dispatch-side support for non-$ai_generation events is a separate change — see PR notes.
+         * @maxItems 20
+         * @nullable
+         */
+      target_event_types?: string[] | null;
+      /**
+         * Event property keys to surface to the LLM. Empty list = include all top-level properties (truncated to a size budget). Only used when target_event_types includes events other than $ai_generation.
+         * @maxItems 50
+         */
+      target_property_keys?: string[];
     }
 
     /**
