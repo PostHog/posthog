@@ -23,8 +23,6 @@
             "products/*": ["../../products/*"],
             "@/*": ["./src/*", "./tests/*"],
             "@shared/*": ["./shared/*"],
-            "@posthog/mosaic": ["../../common/mosaic/src/index.ts"],
-            "@posthog/mosaic/*": ["../../common/mosaic/src/*"],
             "@posthog/mcp-ui": ["./src/ui-apps/lib/index.ts"],
             "@posthog/mcp-ui/*": ["./src/ui-apps/lib/*"],
             "@posthog/quill": ["../../packages/quill/packages/quill/dist/index.d.ts"],

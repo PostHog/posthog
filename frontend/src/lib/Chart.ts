@@ -63,15 +63,17 @@ export type {
 } from 'chart.js'
 export { defaults, registerables } from 'chart.js'
 
-// Mirrors chart.js's internal DeepPartial (frontend/node_modules/chart.js/dist/types/utils.d.ts).
-// Re-declared here because chart.js's `exports` map doesn't expose `dist/types/utils`, and
-// TS 6.0's bundler resolution rejects the deep import. Kept structurally identical so it
-// remains assignable to chart.js options types like `LegendOptions` (which use DeepPartial).
+// DeepPartial implementation taken from the utility-types NPM package, which is
+// Copyright (c) 2016 Piotr Witek <piotrek.witek@gmail.com> (http://piotrwitek.github.io)
+// and used under the terms of the MIT license
 export type DeepPartial<T> = T extends Function
     ? T
     : T extends Array<infer U>
-      ? Array<DeepPartial<U>>
+      ? _DeepPartialArray<U>
       : T extends object
-        ? { [P in keyof T]?: DeepPartial<T[P]> }
+        ? _DeepPartialObject<T>
         : T | undefined
+
+type _DeepPartialArray<T> = Array<DeepPartial<T>>
+type _DeepPartialObject<T> = { [P in keyof T]?: DeepPartial<T[P]> }
 /* oxlint-enable no-restricted-imports */

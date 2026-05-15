@@ -5,10 +5,7 @@
         "moduleResolution": "bundler",
         "outDir": "dist",
         // rootDir is the parent visual_review/ directory because client.ts imports
-        // types from `../frontend/generated/api.schemas.ts` via the @visual-review/types
-        // path alias. Under TS 6.0 the implicit rootDir inference was removed, so we
-        // declare it explicitly; the resulting `dist/cli/src/index.js` layout is what
-        // package.json's `bin: { vr: './dist/cli/src/index.js' }` already expects.
+        // types from `../frontend/generated/api.schemas.ts` via @visual-review/types
         "rootDir": "..",
         "strict": true,
         "esModuleInterop": true,
