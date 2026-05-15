@@ -13,12 +13,14 @@ from posthog.models import Organization, Team
 from products.llm_analytics.backend.models.taggers import Tagger
 
 from .run_tagger import (
+    GENERIC_EVENT_CONTEXT_MAX_LEN,
     EmitTaggerEventInputs,
     ExecuteTaggerInputs,
     RunTaggerInputs,
     RunTaggerWorkflow,
     TagResult,
     build_tag_result_schema,
+    build_tagger_event_context,
     build_tagger_system_prompt,
     disable_tagger_activity,
     emit_tagger_event_activity,
@@ -758,6 +760,45 @@ class TestBuildTaggerSystemPromptDynamic:
         assert "https://posthog.com/handbook/engineering/feature-ownership" in prompt
         assert "at least 1" in prompt
         assert "at most 3" in prompt
+
+
+class TestBuildTaggerEventContext:
+    def test_includes_event_name_and_properties_when_no_keys_selected(self):
+        ctx = build_tagger_event_context(
+            "support_message_received",
+            {"subject": "Billing issue", "body": "I was charged twice", "$current_url": "/billing"},
+            target_property_keys=[],
+        )
+        assert "Event: support_message_received" in ctx
+        assert "Billing issue" in ctx
+        assert "I was charged twice" in ctx
+        assert "/billing" in ctx
+
+    def test_property_keys_filter_to_listed_only(self):
+        ctx = build_tagger_event_context(
+            "support_message_received",
+            {"subject": "Billing issue", "body": "redacted", "internal_id": "abc-123"},
+            target_property_keys=["subject", "body"],
+        )
+        assert "Billing issue" in ctx
+        assert "redacted" in ctx
+        assert "abc-123" not in ctx
+
+    def test_missing_keys_are_silently_skipped(self):
+        ctx = build_tagger_event_context(
+            "support_message_received",
+            {"subject": "ok"},
+            target_property_keys=["subject", "missing_key"],
+        )
+        # The missing key shouldn't show up at all rather than producing "missing_key": null.
+        assert '"missing_key"' not in ctx
+        assert '"subject": "ok"' in ctx
+
+    def test_truncates_oversized_payload(self):
+        huge = "x" * (GENERIC_EVENT_CONTEXT_MAX_LEN * 2)
+        ctx = build_tagger_event_context("e", {"body": huge}, target_property_keys=[])
+        assert len(ctx) <= GENERIC_EVENT_CONTEXT_MAX_LEN + 200
+        assert "truncated" in ctx
 
 
 class TestFetchTaggerActivityDisabled:

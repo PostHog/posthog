@@ -90,6 +90,26 @@ class LLMTaggerConfigSerializer(serializers.Serializer):
         max_length=2000,
         help_text="Optional reference URL surfaced to the LLM alongside the prompt when dynamic_tags is true.",
     )
+    target_event_types = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        required=False,
+        allow_null=True,
+        max_length=20,
+        help_text=(
+            "Event names this tagger should run on. Defaults to ['$ai_generation'] when null. "
+            "Dispatch-side support for non-$ai_generation events is a separate change — see PR notes."
+        ),
+    )
+    target_property_keys = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        required=False,
+        default=list,
+        max_length=50,
+        help_text=(
+            "Event property keys to surface to the LLM. Empty list = include all top-level properties "
+            "(truncated to a size budget). Only used when target_event_types includes events other than $ai_generation."
+        ),
+    )
 
     def validate_tags(self, value: list[dict]) -> list[dict]:
         names = [tag["name"] for tag in value]

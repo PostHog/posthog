@@ -117,6 +117,39 @@ class TestLLMTaggerConfig(BaseTest):
         )
         assert config.tags_url is None
 
+    def test_target_event_types_strips_and_dedupes(self):
+        config = LLMTaggerConfig(
+            prompt="Test",
+            tags=[TagDefinition(name="a")],
+            target_event_types=[" $ai_generation ", "support_message", ""],
+        )
+        assert config.target_event_types == ["$ai_generation", "support_message"]
+
+    def test_target_event_types_empty_list_becomes_none(self):
+        config = LLMTaggerConfig(
+            prompt="Test",
+            tags=[TagDefinition(name="a")],
+            target_event_types=["", "   "],
+        )
+        # Empty after stripping collapses to None so we only have one "no targeting" sentinel.
+        assert config.target_event_types is None
+
+    def test_target_event_types_rejects_duplicates(self):
+        with self.assertRaises(Exception):
+            LLMTaggerConfig(
+                prompt="Test",
+                tags=[TagDefinition(name="a")],
+                target_event_types=["foo", "foo"],
+            )
+
+    def test_target_property_keys_strips_and_dedupes(self):
+        config = LLMTaggerConfig(
+            prompt="Test",
+            tags=[TagDefinition(name="a")],
+            target_property_keys=["  message ", "subject", ""],
+        )
+        assert config.target_property_keys == ["message", "subject"]
+
 
 class TestTaggerModel(BaseTest):
     def _make_tagger_config(self, **overrides):

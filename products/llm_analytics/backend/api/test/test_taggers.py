@@ -375,6 +375,26 @@ class TestTaggersApi(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
+    def test_tagger_persists_target_event_types_and_property_keys(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/taggers/",
+            {
+                "name": "Support router",
+                "tagger_config": {
+                    "prompt": "Tag the message.",
+                    "tags": [{"name": "billing"}, {"name": "auth"}],
+                    "target_event_types": ["support_message_received", "$ai_generation"],
+                    "target_property_keys": ["subject", "body"],
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        tagger = Tagger.objects.first()
+        assert tagger is not None
+        assert tagger.tagger_config["target_event_types"] == ["support_message_received", "$ai_generation"]
+        assert tagger.tagger_config["target_property_keys"] == ["subject", "body"]
+
     def test_non_dynamic_tagger_still_requires_tags(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/taggers/",

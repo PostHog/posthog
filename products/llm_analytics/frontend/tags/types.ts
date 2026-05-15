@@ -47,6 +47,16 @@ export interface LLMTaggerConfig {
     dynamic_tags?: boolean
     /** Optional reference URL surfaced to the LLM alongside the prompt when dynamic_tags is true. */
     tags_url?: string | null
+    /**
+     * Event names this tagger should run on. Defaults to `["$ai_generation"]` when null/undefined.
+     * Note: until the evaluation-scheduler is broadened, only `$ai_generation` is actually dispatched.
+     */
+    target_event_types?: string[] | null
+    /**
+     * Event property keys to surface to the LLM. Empty = include all top-level properties (truncated
+     * to a size budget). Only used when target_event_types is something other than `$ai_generation`.
+     */
+    target_property_keys?: string[]
 }
 
 export interface HogTaggerConfig {

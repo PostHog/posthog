@@ -620,6 +620,74 @@ function LLMAnalyticsTaggerForm({ id }: { id: string }): JSX.Element {
                                         />
                                     </div>
                                 </div>
+
+                                <div className="bg-bg-light border rounded p-3 space-y-2">
+                                    <label className="font-semibold text-sm">
+                                        Target events <span className="text-muted font-normal">(advanced)</span>
+                                    </label>
+                                    <p className="text-muted text-xs m-0">
+                                        Comma-separated event names this tagger should classify. Leave empty for the
+                                        default ($ai_generation only). Other event types are accepted by the API for
+                                        forward compatibility, but the dispatcher currently only forwards $ai_generation
+                                        — broader dispatch is a follow-up.
+                                    </p>
+                                    <LemonInput
+                                        placeholder="$ai_generation, support_message_received"
+                                        value={
+                                            ('target_event_types' in taggerForm.tagger_config &&
+                                                taggerForm.tagger_config.target_event_types?.join(', ')) ||
+                                            ''
+                                        }
+                                        onChange={(value) => {
+                                            const trimmed = value.trim()
+                                            const list = trimmed
+                                                ? trimmed
+                                                      .split(',')
+                                                      .map((s) => s.trim())
+                                                      .filter(Boolean)
+                                                : null
+                                            setTaggerFormValues({
+                                                tagger_config: {
+                                                    ...taggerForm.tagger_config,
+                                                    target_event_types: list,
+                                                },
+                                            })
+                                        }}
+                                        size="small"
+                                    />
+
+                                    <label className="font-semibold text-sm pt-2 block">Property keys to include</label>
+                                    <p className="text-muted text-xs m-0">
+                                        Comma-separated property keys to show the LLM (e.g. <code>message</code>,{' '}
+                                        <code>subject</code>, <code>$current_url</code>). Leave empty to include all
+                                        top-level properties (truncated to ~8KB). Only applies when target events go
+                                        beyond $ai_generation.
+                                    </p>
+                                    <LemonInput
+                                        placeholder="message, subject, $current_url"
+                                        value={
+                                            ('target_property_keys' in taggerForm.tagger_config &&
+                                                taggerForm.tagger_config.target_property_keys?.join(', ')) ||
+                                            ''
+                                        }
+                                        onChange={(value) => {
+                                            const trimmed = value.trim()
+                                            const list = trimmed
+                                                ? trimmed
+                                                      .split(',')
+                                                      .map((s) => s.trim())
+                                                      .filter(Boolean)
+                                                : []
+                                            setTaggerFormValues({
+                                                tagger_config: {
+                                                    ...taggerForm.tagger_config,
+                                                    target_property_keys: list,
+                                                },
+                                            })
+                                        }}
+                                        size="small"
+                                    />
+                                </div>
                             </div>
                         )}
                     </div>

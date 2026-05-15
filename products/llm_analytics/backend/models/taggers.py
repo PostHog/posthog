@@ -48,6 +48,24 @@ class LLMTaggerConfig(BaseModel):
         max_length=2000,
         description="Optional reference URL that is surfaced to the LLM alongside the prompt when dynamic_tags is true",
     )
+    target_event_types: list[str] | None = Field(
+        default=None,
+        description=(
+            "Event names this tagger should run on (e.g. ['$ai_generation', 'support_message']). "
+            "When null, only $ai_generation is targeted (legacy default) and the LLM context is built from "
+            "$ai_input / $ai_output_choices. Dispatch-side filtering broadens beyond $ai_generation is a "
+            "separate change — until then, only $ai_generation actually reaches the tagger."
+        ),
+    )
+    target_property_keys: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description=(
+            "Top-level event property keys to surface to the LLM. When empty and target_event_types includes "
+            "anything other than $ai_generation, all top-level properties are included up to a size budget. "
+            "Ignored for the legacy $ai_generation-only path."
+        ),
+    )
 
     @field_validator("prompt")
     @classmethod
@@ -75,6 +93,28 @@ class LLMTaggerConfig(BaseModel):
         if len(names) != len(set(names)):
             raise ValueError("Tag names must be unique")
         return v
+
+    @field_validator("target_event_types")
+    @classmethod
+    def validate_target_event_types(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        cleaned = [s.strip() for s in v if s and s.strip()]
+        if not cleaned:
+            # An empty list after stripping is ambiguous — collapse to the legacy default
+            # so downstream code only has one "no targeting configured" state.
+            return None
+        if len(cleaned) != len(set(cleaned)):
+            raise ValueError("target_event_types must be unique")
+        return cleaned
+
+    @field_validator("target_property_keys")
+    @classmethod
+    def validate_target_property_keys(cls, v: list[str]) -> list[str]:
+        cleaned = [s.strip() for s in v if s and s.strip()]
+        if len(cleaned) != len(set(cleaned)):
+            raise ValueError("target_property_keys must be unique")
+        return cleaned
 
     @model_validator(mode="after")
     def validate_tag_count_bounds(self) -> "LLMTaggerConfig":

@@ -56,6 +56,8 @@ const DEFAULT_TAGGER_CONFIG: TaggerConfig = {
     max_tags: null,
     dynamic_tags: false,
     tags_url: null,
+    target_event_types: null,
+    target_property_keys: [],
 }
 
 const DEFAULT_CONDITION: TaggerConditionSet = {

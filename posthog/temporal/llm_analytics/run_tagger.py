@@ -102,6 +102,42 @@ def build_tag_result_schema(
     return DynamicTagResult
 
 
+GENERIC_EVENT_CONTEXT_MAX_LEN = 8000
+
+
+def build_tagger_event_context(
+    event_type: str,
+    properties: dict[str, Any],
+    target_property_keys: list[str],
+) -> str:
+    """Build the user-message context for a tagger when running on an arbitrary event.
+
+    When `target_property_keys` is set, only those keys are surfaced (in the order the user listed
+    them). Otherwise the full property bag is serialised, truncated to ``GENERIC_EVENT_CONTEXT_MAX_LEN``
+    characters so an autocapture-shaped event with thousands of properties can't blow the LLM context
+    window. The user message is intentionally structured as JSON so the LLM can read keys
+    deterministically.
+    """
+    if target_property_keys:
+        selected: dict[str, Any] = {}
+        for key in target_property_keys:
+            if key in properties:
+                selected[key] = properties[key]
+    else:
+        selected = properties
+
+    try:
+        serialised = json.dumps(selected, default=str, ensure_ascii=False)
+    except (TypeError, ValueError):
+        # Last-resort fallback — never let a single weird property type kill a tagger run.
+        serialised = str(selected)
+
+    if len(serialised) > GENERIC_EVENT_CONTEXT_MAX_LEN:
+        serialised = serialised[:GENERIC_EVENT_CONTEXT_MAX_LEN] + '... [truncated]"}'
+
+    return f"Event: {event_type}\nProperties: {serialised}"
+
+
 def build_tagger_system_prompt(
     prompt: str,
     tags: list[dict[str, str]],
@@ -257,6 +293,8 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
 
     min_tags = tagger_config.get("min_tags", 0)
     max_tags = tagger_config.get("max_tags")
+    target_event_types = tagger_config.get("target_event_types")
+    target_property_keys = tagger_config.get("target_property_keys", [])
 
     # Resolve model configuration and API key
     team_id = tagger["team_id"]
@@ -323,17 +361,26 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
     if isinstance(properties, str):
         properties = json.loads(properties)
 
-    input_raw, output_raw = extract_event_io(event_type, properties)
-    input_data = extract_text_from_messages(input_raw)
-    output_data = extract_text_from_messages(output_raw)
+    # When the tagger is configured for the legacy $ai_generation path (no explicit
+    # target_event_types, no explicit property-key projection), preserve the original
+    # input/output prompt shape so existing taggers keep working byte-for-byte.
+    use_legacy_ai_generation_shape = (
+        target_event_types is None or target_event_types == ["$ai_generation"]
+    ) and not target_property_keys
+
+    if use_legacy_ai_generation_shape:
+        input_raw, output_raw = extract_event_io(event_type, properties)
+        input_data = extract_text_from_messages(input_raw)
+        output_data = extract_text_from_messages(output_raw)
+        user_prompt = f"""Input: {input_data}
+
+Output: {output_data}"""
+    else:
+        user_prompt = build_tagger_event_context(event_type, properties, target_property_keys)
 
     system_prompt = build_tagger_system_prompt(prompt, tags, min_tags, max_tags, dynamic_tags, tags_url)
     tag_names = [tag["name"] for tag in tags]
     response_format = build_tag_result_schema(tag_names, min_tags, max_tags, dynamic_tags)
-
-    user_prompt = f"""Input: {input_data}
-
-Output: {output_data}"""
 
     config = get_eval_config(provider) if provider_key is None else None
 
