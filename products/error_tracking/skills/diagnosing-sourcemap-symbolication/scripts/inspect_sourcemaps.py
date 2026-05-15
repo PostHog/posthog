@@ -59,7 +59,7 @@ def summarize_sourcemap_text(text: str) -> dict[str, Any]:
         "sources_content_length": len(sources_content) if isinstance(sources_content, list) else None,
         "names_length": len(names) if isinstance(names, list) else None,
         "first_sources": sources[:5] if isinstance(sources, list) else None,
-        "empty_mappings": mappings == "" or mappings is None,
+        "empty_mappings": not mappings,
     }
 
 
