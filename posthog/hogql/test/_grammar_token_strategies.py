@@ -190,18 +190,24 @@ string_literal_token: st.SearchStrategy[str] = st.text(alphabet="abcdefghijklmno
 decimal_literal_token: st.SearchStrategy[str] = st.integers(min_value=0, max_value=999_999).map(str)
 
 
-# Octal and hexadecimal literals fall through to a known cpp bug:
-# ``visitColumnExprLiteral`` in ``common/hogql_parser/parser_json.cpp``
-# calls ``std::stoll(text)`` with the default base of 10, which silently
-# parses `0x1` as `0` (consuming only the leading zero before the non-
-# digit `x`). The bug is documented + locked in by
-# `test_pbt_hex_and_octal_literals_parse_correctly` in `_test_parser.py`
-# (skipped on cpp-json via `_CPP_KNOWN_VISITOR_BUG`). The grammar PBT
-# generates decimal-shaped fallbacks for these so the broader grind
-# doesn't trip on a known divergence each run.
-octal_literal_token: st.SearchStrategy[str] = st.integers(min_value=0, max_value=999_999).map(str)
+# Octal and hexadecimal literals per the lexer:
+#   OCTAL_LITERAL       : '0' OCT_DIGIT+    -- OCT_DIGIT = [0-7]
+#   HEXADECIMAL_LITERAL : '0' [xX] HEX_DIGIT+
+# Emit real ``0...`` / ``0x...`` text rather than decimal-shaped
+# fallbacks so the PBT actually exercises these productions. There is
+# a known cpp visitor bug — ``visitColumnExprLiteral`` in
+# ``common/hogql_parser/parser_json.cpp`` calls ``std::stoll(text)``
+# with the default base of 10 and so silently parses ``0x1F`` as ``0``
+# — which makes the comparison fail at this token on the buggy wheel.
+# That divergence is the whole point: it's the bidirectional contract
+# in ``_assert_backends_agree`` doing its job, the same outcome we
+# wanted when ``_CPP_KNOWN_BUG_PATTERNS`` was dropped. The cpp fix
+# landed upstream in ``common/hogql_parser`` 1.3.42; once
+# ``pyproject.toml`` pins that wheel (or newer), these draws will
+# stop tripping the divergence.
+octal_literal_token: st.SearchStrategy[str] = st.from_regex(r"0[0-7]{1,6}", fullmatch=True)
 
-hexadecimal_literal_token: st.SearchStrategy[str] = st.integers(min_value=0, max_value=999_999).map(str)
+hexadecimal_literal_token: st.SearchStrategy[str] = st.from_regex(r"0[xX][0-9a-fA-F]{1,6}", fullmatch=True)
 
 
 # Floating literal — ``DECIMAL_LITERAL DOT DEC_DIGIT* E (PLUS|DASH)? DEC_DIGIT+``
