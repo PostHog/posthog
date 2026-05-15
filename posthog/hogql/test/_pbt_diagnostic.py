@@ -65,38 +65,12 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
 
-from hypothesis import HealthCheck, given, settings
+from hypothesis import given, settings
 
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.test._generated_grammar_strategies import expr_strategy, select_strategy
-from posthog.hogql.test.test_parser_grammar_pbt import _apply_jiggle
-
-# ---------------------------------------------------------------------------
-# Parse helpers
-# ---------------------------------------------------------------------------
-#
-# `_try_parse` is intentionally local rather than imported from
-# `test_parser_grammar_pbt` so this script doesn't depend on the test
-# module's narrowing of caught exceptions. We treat ANY exception as a
-# rejection here — we want to surface candidate-backend crashes too.
-
-
-def _try_parse(query: str, rule: str, backend: str):
-    """Parse `query` with `backend`. Returns (accepted, ast | None).
-    Any exception counts as rejection so candidate-side crashes show up
-    as rejects in the bucket totals rather than aborting the run."""
-    parser_fn = parse_expr if rule == "expr" else parse_select
-    try:
-        from posthog.hogql.visitor import clear_locations
-
-        node = parser_fn(query, backend=backend)  # type: ignore[arg-type]
-        return True, clear_locations(node)
-    except BaseHogQLError:
-        return False, None
-    except Exception:
-        return False, None
-
+from posthog.hogql.test.test_parser_grammar_pbt import _PBT_SETTINGS, _apply_jiggle, _try_parse
 
 # ---------------------------------------------------------------------------
 # AST diff path
@@ -259,14 +233,15 @@ def _shape_from_terminal(root_pair: tuple[str, str], terminal: tuple[str, str, s
 def _reject_error(query: str, rule: str, backend: str) -> str:
     """Capture the candidate's reject error message, normalised to
     drop the position-dependent `got <token>` payload so two rejects
-    on the same root cause group together."""
+    on the same root cause group together. Only called for queries
+    `_try_parse` already returned `False` for, so `BaseHogQLError`
+    is the only exception type we expect — anything else would have
+    already aborted the run upstream."""
     parser_fn = parse_expr if rule == "expr" else parse_select
     try:
         parser_fn(query, backend=backend)  # type: ignore[arg-type]
     except BaseHogQLError as e:
         return _normalize_error(str(e))
-    except Exception as e:
-        return _normalize_error(f"{type(e).__name__}: {e}")
     return "(unexpected: parse succeeded)"
 
 
@@ -434,17 +409,12 @@ def main() -> int:
     base_strategy = expr_strategy() if args.rule == "expr" else select_strategy()
     strategy = base_strategy.flatmap(_apply_jiggle) if args.jiggle else base_strategy
 
+    # Reuse the pytest PBT's shared settings (deadline=None, slow /
+    # filter-too-much suppression) and only override `max_examples`
+    # from the CLI flag. The pytest PBT deliberately leaves
+    # `data_too_large` unsuppressed — same signal here.
     @given(query=strategy)
-    @settings(
-        max_examples=args.n,
-        deadline=None,
-        suppress_health_check=[
-            HealthCheck.too_slow,
-            HealthCheck.filter_too_much,
-            HealthCheck.data_too_large,
-            HealthCheck.function_scoped_fixture,
-        ],
-    )
+    @settings(parent=_PBT_SETTINGS, max_examples=args.n)
     def run(query: str) -> None:
         counts["total"] += 1
 
