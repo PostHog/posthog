@@ -53,9 +53,7 @@ class ExternalConfig(BaseMarketingConfig):
 class HierarchicalNativeAdsConfig(BaseMarketingConfig):
     """Shared config for native ads sources organized as campaign → ad-group → ad.
 
-    Ad-group and ad tables are optional — only populated when the user has those
-    schemas synced. Sources without that hierarchy (e.g. Bing reports without entity
-    tables, LinkedIn without an ad layer) just leave them None.
+    Ad-group and ad tables are optional — left None when the user hasn't synced them.
     """
 
     campaign_table: DataWarehouseTable
@@ -141,9 +139,7 @@ class QueryContext:
     team: Team
     global_filters: list[Any] = field(default_factory=list)
     base_currency: str = DEFAULT_CURRENCY
-    # Drill-down level controls which platform tables the adapter pulls from.
-    # CAMPAIGN (default) and below query campaign-level stats. AD_GROUP / AD switch
-    # to ad-group / ad-level tables when the adapter supports them.
+    # AD_GROUP / AD pull from ad-group / ad-level tables; CAMPAIGN and below stay at campaign stats.
     drill_down_level: MarketingAnalyticsDrillDownLevel = MarketingAnalyticsDrillDownLevel.CAMPAIGN
 
 
@@ -177,7 +173,6 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
 
     @staticmethod
     def _is_simple_column_name(value: str) -> bool:
-        # Handle single character case first
         if len(value) == 1:
             return value.isalnum() or value == "_"
         return (
@@ -229,10 +224,8 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         self.config: ConfigType = config
         self.logger = logger.bind(source_type=self.get_source_type(), team_id=self.team.pk if self.team else None)
         self.context = context
-        # Cache for `_table_has_column` lookups. Keyed by (id(table), column_name) so we
-        # don't re-introspect the warehouse table on each currency-conversion call (at AD
-        # level the same stats table is hit 3 times per query for cost / conversions /
-        # conversion_value).
+        # Cache for `_table_has_column` lookups, keyed by (id(table), column_name) —
+        # the same stats table is introspected several times per query.
         self._table_column_cache: dict[tuple[int, str], bool] = {}
 
     @abstractmethod
@@ -348,14 +341,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         pass
 
     def _get_ad_group_name_field(self) -> ast.Expr:
-        """Ad group name. Three cases by level for hierarchical adapters:
-          AD_GROUP: adset table IS the FROM table → toString(adsets.<name>), never NULL.
-          AD:       adsets reached via LEFT JOIN → orphan fallback so deleted-parent rows
-                    surface as one explicit "Unknown ad group" row.
-          AD without adsets synced: emit "No sync" placeholder.
-        In unified mode (Bing reports) at AD level, ad-group columns live on the ad
-        report itself — read from the entity table without join, no fallback needed.
-        Default returns NULL for non-hierarchical configs or non-hierarchy levels.
+        """Ad group name for hierarchical adapters. At AD the adsets are reached via
+        LEFT JOIN, so an orphan fallback labels deleted-parent rows; unified-report
+        sources read ad-group columns straight off the entity table. NULL otherwise.
         """
         if not self._has_hierarchical_config():
             return ast.Constant(value=None)
@@ -444,31 +432,17 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             ],
         )
 
-    # =========================================================================
-    # Hierarchy infrastructure (shared across native ad-platform adapters)
-    #
-    # Adapters that have campaign + adset + ad warehouse tables override the
-    # column-name attributes below so the shared FROM/GROUP BY/where builders
-    # know how to join across levels. Each native source has the same shape but
-    # different column names — Meta uses (`id`, `name`, `adset_id`, `date_stop`),
-    # Google uses (`campaign_id`, `campaign_name`, `ad_group_id`, `segments_date`),
-    # etc. The defaults match the most common pattern (`id`, `name`).
-    # =========================================================================
+    # Hierarchy infrastructure: native adapters override the column-name attributes
+    # below so the shared FROM/GROUP BY/WHERE builders know how to join across levels.
+    # Same shape per source, different column names; defaults match `id` / `name`.
 
     # Stats table date column used for the WHERE date range. Override per source.
     _stats_date_column: str = "date_stop"
 
-    # When True, the source's adset/ad warehouse "tables" are actually performance
-    # reports that embed entity columns (id, name, parent IDs) directly — there's no
-    # separate entity table to LEFT JOIN. The factory wires the same DataWarehouseTable
-    # into both `*_table` and `*_stats_table` slots when the source declares matching
-    # schema names (Bing).
-    #
-    # Effects on the default builders:
-    #  - `_get_from`: skips the entity→stats self-join AND skips the parent campaign
-    #    join (the report already exposes `campaign_id` / `campaign_name` columns).
-    #  - `_get_campaign_*_field` at AD_GROUP/AD: reads from the entity_table (the
-    #    report) using `_unified_campaign_*_column` instead of joining to campaigns.
+    # When True, the source's adset/ad "tables" are performance reports that embed
+    # entity + parent columns directly — no separate entity table to join (Bing).
+    # The default builders then skip the entity→stats and parent-campaign joins and
+    # read campaign columns off the report via `_unified_campaign_*_column`.
     _uses_unified_entity_stats: bool = False
     # Column names on a unified report that hold parent campaign info. Only consulted
     # when `_uses_unified_entity_stats` is True. Default to snake_case since most
@@ -725,14 +699,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         return self._get_campaign_name_field()
 
     def _get_match_key_expr(self) -> ast.Expr:
-        """Expression emitted as the `match_key` column. The runner JOINs adapter output
-        against unified_conversion_goals on this column — but at levels where that JOIN
-        is skipped (currently AD_GROUP / AD; gated by `excludes_conversion_goals`), the
-        match value is unused and emitting `campaign_name` is just a confusing duplicate
-        of the campaign column. Empty constant communicates intent and saves wire bytes.
-
-        Tied to DRILL_DOWN_LEVEL_CONFIG so any future level that flips
-        `excludes_conversion_goals` automatically inherits this behavior.
+        """Expression for the `match_key` column (JOINed against unified_conversion_goals).
+        At levels that exclude conversion goals the JOIN is skipped, so emit an empty
+        constant instead of a confusing duplicate of `campaign_name`.
         """
         level_config = DRILL_DOWN_LEVEL_CONFIG.get(self.context.drill_down_level)
         if level_config and level_config.get("excludes_conversion_goals"):
@@ -828,31 +797,11 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         return columns
 
     def build_query(self) -> Optional[ast.SelectQuery]:
-        """
-        Build SelectQuery that returns marketing data in standardized format.
+        """Build the standardized SelectQuery for this source.
 
-        Column count varies by drill-down level (the campaign_costs CTE consumer expects
-        the same shape from every adapter at a given level):
-
-        - At CHANNEL / SOURCE / CAMPAIGN / MEDIUM / CONTENT / TERM: 9 columns
-        - At AD_GROUP / AD: 13 columns (ad_group_name/id + ad_name/id inserted after
-          source_name)
-
-        Column order at AD_GROUP / AD:
-        - match_key (string): Campaign match field for joining with conversion goals
-        - campaign_name (string): Campaign identifier (human-readable name)
-        - campaign_id (string): Campaign identifier (platform ID)
-        - source_name (string): Source identifier
-        - ad_group_name (string | null): Ad group name (null when source doesn't support it)
-        - ad_group_id (string | null): Ad group platform ID
-        - ad_name (string | null): Ad name (null at AD_GROUP level or unsupported)
-        - ad_id (string | null): Ad platform ID
-        - impressions (float): Number of impressions
-        - clicks (float): Number of clicks
-        - cost (float): Total cost in base currency
-        - reported_conversion (float): Number of reported conversions
-        - reported_conversion_value (float): Monetary value of reported conversions
-
+        The campaign_costs CTE expects the same column shape from every adapter at a
+        given level: 9 columns at CHANNEL/SOURCE/CAMPAIGN/MEDIUM/CONTENT/TERM, 13 at
+        AD_GROUP/AD (ad_group_name/id + ad_name/id inserted after source_name).
         Returns None if this source cannot provide data for the given context.
         """
         try:

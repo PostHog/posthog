@@ -1263,11 +1263,8 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             f"got {match_key!r}"
         )
 
-    # Per-source hierarchy fixtures — table-name suffixes (sans the source prefix)
-    # match what the warehouse data import pipelines produce. The `levels` tuple
-    # marks which drill-down levels the source supports; LinkedIn omits AD because
-    # creatives aren't synced. Used by the parameterized
-    # `test_native_adapter_query_at_hierarchy_levels` snapshot test below.
+    # Table-name suffixes match what the warehouse import pipelines produce; the
+    # `levels` tuple marks which drill-down levels the source supports.
     _ALL_AD_LEVELS = (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD)
     _NATIVE_HIERARCHY_FIXTURES: ClassVar[list] = [
         (
@@ -1346,10 +1343,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             _ALL_AD_LEVELS,
         ),
         (
-            # LinkedIn maps `campaigns` (which the API treats as "ad groups") to the
-            # AD_GROUP slot, and `creatives` (their "ad" equivalent) to AD. The data
-            # import pipeline ships these resources behind a feature toggle on the
-            # source — opt-in.
+            # LinkedIn's `campaigns` resource is conceptually an ad group; `creatives` an ad.
             "linkedin",
             LinkedinAdsAdapter,
             LinkedinAdsConfig,
@@ -1365,11 +1359,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             _ALL_AD_LEVELS,
         ),
         (
-            # Bing's reports embed entity columns directly, so the same warehouse
-            # table sits in both the entity and stats slots — `_uses_unified_entity_stats`
-            # on the adapter flips the FROM builder into the no-join code path. We
-            # populate adset_*_table with the same `bingads_ad_group_performance_report`
-            # mock to mirror what the factory would do at runtime.
+            # Bing: entity and stats slots share one table (unified-report mode).
             "bing",
             BingAdsAdapter,
             BingAdsConfig,
@@ -1394,9 +1384,6 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         table_names: dict[str, str],
         level: MarketingAnalyticsDrillDownLevel,
     ) -> MarketingSourceAdapter:
-        # Only wire the slots the fixture provides — sources without an `ad` table
-        # in the dict (e.g. LinkedIn) leave those config fields None so
-        # `supports_level(AD)` correctly returns False.
         config = config_class(
             campaign_table=self._create_mock_table(table_names["campaign"], source_type),
             stats_table=self._create_mock_table(table_names["stats"], source_type),

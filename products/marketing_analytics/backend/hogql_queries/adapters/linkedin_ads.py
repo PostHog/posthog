@@ -30,17 +30,14 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
     _campaign_pk_column = "id"
     _campaign_name_column = "name"
     _campaign_stats_fk_column = "campaign_group_id"
-    # LinkedIn's `campaigns` table is conceptually an ad group. PK is `id`, name is
-    # `name`. The campaign-group FK comes from the URN `campaignGroup` column,
-    # surfaced as `campaign_group_id` (see VIRTUAL_COLUMN_URN_MAPPING in
-    # linkedin_ads/schemas.py). The stats table joins back via `campaign_id`.
+    # `campaign_group_id` is surfaced from the URN `campaignGroup` column — see
+    # VIRTUAL_COLUMN_URN_MAPPING in linkedin_ads/schemas.py.
     _adset_pk_column = "id"
     _adset_name_column = "name"
     _adset_campaign_fk_column = "campaign_group_id"
     _adset_stats_fk_column = "campaign_id"
-    # `creatives.id` is extracted from a URN at import time (see _flatten_linkedin_record),
-    # so it's an integer that lines up with the `creative_id` virtual column on
-    # creative_stats (extracted from pivotValues).
+    # `creatives.id` is URN-extracted at import time so it lines up with the
+    # `creative_id` virtual column on creative_stats.
     _ad_pk_column = "id"
     _ad_name_column = "name"
     _ad_adset_fk_column = "campaign_id"

@@ -572,10 +572,8 @@ class HierarchySchemaNames(TypedDict, total=False):
     ad_stats_table: str
 
 
-# Per-source hierarchy schema names. Sources whose generated config carries the
-# optional `*TableName` fields support those drill-down levels. Unset levels fall
-# back to the campaign-only default (Bing pre-implementation example, or LinkedIn
-# at AD level since creatives aren't synced).
+# A source supports a drill-down level only when its generated config declares the
+# matching `*TableName` fields; otherwise it stays campaign-only.
 def _hierarchy_for(config: type[BaseModel]) -> HierarchySchemaNames | None:
     result: HierarchySchemaNames = {}
     if "adsetTableName" in config.model_fields and "adsetStatsTableName" in config.model_fields:

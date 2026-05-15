@@ -62,8 +62,6 @@ export const NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: Record<NativeMarketin
     ])
 ) as Record<NativeMarketingSource, string[]>
 
-// Human-readable label for a native source's enum value (e.g. "MetaAds" → "Meta Ads").
-// Falls back to the raw key for unknown sources.
 const NATIVE_SOURCE_DISPLAY_LABELS: Record<NativeMarketingSource, string> = {
     GoogleAds: 'Google Ads',
     MetaAds: 'Meta Ads',
@@ -78,12 +76,7 @@ export function nativeSourceDisplayLabel(sourceType: string): string {
     return NATIVE_SOURCE_DISPLAY_LABELS[sourceType as NativeMarketingSource] ?? sourceType
 }
 
-// Per-source schema names for the optional ad-group / ad warehouse tables. Derived
-// from MARKETING_INTEGRATION_CONFIGS — each source's config independently declares
-// adset-level fields (always paired adset/adsetStats) and ad-level fields (always
-// paired ad/adStats). LinkedIn currently only declares adset; Meta / Google / TikTok
-// / Reddit / Pinterest / Snapchat declare both. Mirrors the backend derivation in
-// constants.py so both stay in sync automatically when the schema is regenerated.
+// Mirrors the backend `NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES` derivation (constants.py).
 export type NativeSourceHierarchySchemaNames = {
     adset?: string
     adsetStats?: string
@@ -116,9 +109,8 @@ export const NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES: Partial<
     }).filter((entry): entry is [NativeMarketingSource, NativeSourceHierarchySchemaNames] => entry !== null)
 )
 
-// Legacy table name fallbacks for native sources.
-// When a source's stats table was renamed, old syncs may still use the legacy name.
-// Mirrors the fallback logic in backend factory.py _create_googleads_config.
+// Old syncs may still use a stats table's pre-rename name — mirrors the backend
+// fallback in factory.py.
 const LEGACY_TABLE_NAME_FALLBACKS: Partial<Record<NativeMarketingSource, Record<string, string[]>>> = {
     GoogleAds: {
         campaign_overview_stats: ['campaign_stats'],

@@ -5892,8 +5892,8 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         ] as const,
         primarySource: 'google',
         // Optional ad-group / ad warehouse schemas — present when the platform's API
-        // exposes per-level entity + stats tables. Sources without these stay
-        // CAMPAIGN-only (Bing has reports without entities, LinkedIn lacks an ad layer).
+        // exposes per-level entity + stats tables. A source that omits them stays
+        // CAMPAIGN-only; the factory then reports `supports_level` False at AD_GROUP/AD.
         adsetTableName: 'ad_group' as const,
         adsetStatsTableName: 'ad_group_stats' as const,
         adTableName: 'ad' as const,
@@ -6004,11 +6004,12 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['performance'] as const,
         defaultSources: ['bing', 'microsoft'] as const,
         primarySource: 'bing',
-        // Bing's data import only ships performance *reports* — no separate entity
-        // tables. The same report is used as both entity and stats, since it embeds
-        // ad-group / ad / campaign columns directly. Both `*Table` and `*StatsTable`
-        // point at the same name; the factory detects the duplication and wires the
-        // matched DataWarehouseTable into both adapter slots.
+        // At ad-group / ad level Bing's data import only ships performance *reports* —
+        // no separate entity tables. The report embeds the entity columns, so it
+        // doubles as both entity and stats: `adset*`/`ad*` `Table` and `StatsTable`
+        // point at the same name, and the factory detects the duplication to wire the
+        // matched DataWarehouseTable into both adapter slots. (Campaign level still has
+        // a distinct `campaigns` entity table separate from `campaign_performance_report`.)
         adsetTableName: 'ad_group_performance_report' as const,
         adsetStatsTableName: 'ad_group_performance_report' as const,
         adTableName: 'ad_performance_report' as const,

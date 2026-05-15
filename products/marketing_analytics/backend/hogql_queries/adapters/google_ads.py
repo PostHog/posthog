@@ -22,10 +22,7 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
 
     _source_type = NativeMarketingSource.GOOGLE_ADS
 
-    # Hierarchy column metadata. Google Ads uses dotted source field names that get
-    # flattened with underscores in the warehouse — see
-    # `posthog/temporal/data_imports/sources/google_ads/google_ads.py` (qualified_name
-    # → `name.replace(".", "_")`).
+    # Google Ads' dotted source field names are flattened with underscores at import.
     _stats_date_column = "segments_date"
     _campaign_pk_column = "campaign_id"
     _campaign_name_column = "campaign_name"

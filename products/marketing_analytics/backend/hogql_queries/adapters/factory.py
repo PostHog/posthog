@@ -88,11 +88,8 @@ class MarketingSourceFactory:
         "azure": AzureAdapter,
     }
 
-    # Per-native-source: (NativeMarketingSource enum value, config dataclass to instantiate).
-    # Used by `_create_native_config` to look up the right config class and table patterns
-    # for the source. Adding a new native source means adding an entry here, an entry in
-    # TABLE_PATTERNS (constants.py) and optionally NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES if
-    # the source has ad-group / ad warehouse tables.
+    # A new native source needs an entry here, in TABLE_PATTERNS (constants.py), and
+    # optionally in NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES if it has ad-group / ad tables.
     _native_source_specs: dict[str, tuple[NativeMarketingSource, type[HierarchicalNativeAdsConfig]]] = {
         "GoogleAds": (NativeMarketingSource.GOOGLE_ADS, GoogleAdsConfig),
         "LinkedinAds": (NativeMarketingSource.LINKEDIN_ADS, LinkedinAdsConfig),
@@ -227,10 +224,9 @@ class MarketingSourceFactory:
         ad_table: Optional[DataWarehouseTable] = None
         ad_stats_table: Optional[DataWarehouseTable] = None
 
-        # When the source's hierarchy maps the same schema name to both `*_table` and
-        # `*_stats_table` (Bing — performance reports embed entity columns directly
-        # so there's nothing to self-join), we wire the same DataWarehouseTable into
-        # both adapter slots so the adapter can detect "unified entity+stats" mode.
+        # Bing maps the same schema name to both `*_table` and `*_stats_table` (the
+        # report embeds entity columns) — wire one table into both slots so the
+        # adapter detects unified entity+stats mode.
         adset_unified = hierarchy_names.get("adset_table") == hierarchy_names.get("adset_stats_table")
         ad_unified = hierarchy_names.get("ad_table") == hierarchy_names.get("ad_stats_table")
 
@@ -238,17 +234,14 @@ class MarketingSourceFactory:
             table_suffix = table.name.split(".")[-1].lower()
             schema_name = _extract_schema_name(table_suffix, source.source_type)
 
-            # Campaign table (campaign_table_keywords, exclusions apply to schema name only)
             if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
                 ex in schema_name for ex in patterns["campaign_table_exclusions"]
             ):
                 campaign_table = table
-            # Campaign stats table
             elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
                 campaign_stats_table = table
-            # Optional ad-group / ad tables — exact match on schema name to avoid the
-            # campaign-keyword overlap (e.g. Reddit's "ad_group_report" doesn't contain
-            # the campaign keyword "campaigns" so it falls through here cleanly).
+            # Exact schema-name match (not keyword) so ad-group / ad tables don't
+            # collide with the campaign keyword.
             elif schema_name == hierarchy_names.get("adset_table"):
                 adset_table = table
                 if adset_unified:
@@ -262,9 +255,8 @@ class MarketingSourceFactory:
             elif schema_name == hierarchy_names.get("ad_stats_table"):
                 ad_stats_table = table
 
-        # Google Ads-specific fallback: legacy users may have `campaign_stats` synced but
-        # not the newer `campaign_overview_stats` (the registered keyword). Same shape
-        # applies, so accept either.
+        # Legacy Google Ads users may have `campaign_stats` synced instead of the
+        # newer registered `campaign_overview_stats` — same shape, accept either.
         if not campaign_stats_table and native_source == NativeMarketingSource.GOOGLE_ADS:
             for table in tables:
                 if "campaign_stats" in table.name.split(".")[-1].lower():

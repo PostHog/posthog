@@ -68,10 +68,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
         ],
     })),
     selectors({
-        // Each tile is its own selector so that changing one input (e.g. `drillDownLevel`)
-        // only invalidates the tile that actually uses it. The aggregator `tiles` selector
-        // below preserves entry identity across recomputations, so unrelated tiles don't
-        // see a new `query` reference and `dataNodeLogic` doesn't refetch them.
+        // One selector per tile so an input change only invalidates the tile that uses
+        // it — entries keep identity in `tiles` below, so `dataNodeLogic` doesn't refetch.
         overviewTile: [
             (s) => [s.compareFilter, s.dateFilter, s.draftConversionGoal, s.integrationFilter],
             (
