@@ -1,4 +1,3 @@
-import shlex
 from dataclasses import dataclass
 
 from temporalio import activity
@@ -8,7 +7,6 @@ from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
 from products.tasks.backend.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.services.sandbox import Sandbox, SandboxBase
 from products.tasks.backend.temporal.exceptions import OAuthTokenError, SandboxExecutionError
@@ -48,45 +46,6 @@ def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase
     log_tail = result.stdout.strip()
     if log_tail:
         emit_agent_log(ctx.run_id, "debug", f"agent-server log tail:\n{log_tail}")
-
-
-def _run_connectivity_diagnostics(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
-    """Emit diagnostic info about env vars and network connectivity.
-
-    When allowed_domains is set, runs the checks inside the agentsh exec
-    context to verify the env wrapper restores variables and the DNS proxy
-    resolves correctly.  Without domains, runs directly.
-    """
-    try:
-        checks = (
-            "echo ENV_CHECK:"
-            " LLM_GATEWAY_URL=${LLM_GATEWAY_URL:-UNSET}"
-            " POSTHOG_API_URL=${POSTHOG_API_URL:-UNSET}"
-            " ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-UNSET};"
-            ' node -e "'
-            "const dns=require('dns');"
-            "dns.resolve('gateway.us.posthog.com',(e,a)=>console.log('DNS_RESOLVE:',e?e.code:JSON.stringify(a)));"
-            "dns.lookup('gateway.us.posthog.com',(e,a)=>console.log('DNS_LOOKUP:',e?e.code:a))"
-            '" 2>&1;'
-            " curl -sS --max-time 5 -o /dev/null"
-            " -w 'CURL_GATEWAY: http_code=%{http_code}'"
-            " https://gateway.us.posthog.com/health 2>&1 || echo 'CURL_GATEWAY: failed'"
-        )
-
-        if ctx.allowed_domains is not None:
-            cmd = (
-                f"cd /scripts && env -0 > {ENV_FILE} && "
-                f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(checks)}"
-            )
-        else:
-            cmd = f"bash -c {shlex.quote(checks)}"
-
-        result = sandbox.execute(cmd, timeout_seconds=15)
-        output = (result.stdout + "\n" + result.stderr).strip()
-        if output:
-            emit_agent_log(ctx.run_id, "debug", f"Connectivity diagnostics:\n{output}")
-    except Exception as e:
-        logger.warning("Connectivity diagnostics failed (non-fatal)", error=str(e), run_id=ctx.run_id)
 
 
 @dataclass
@@ -219,11 +178,11 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             # 30m window skip the redundant refresh.
             if mcp_configs:
                 mark_mcp_token_issued(ctx.run_id)
-
-            # emit agentsh logs
-            if ctx.allowed_domains is not None:
-                _emit_agentsh_log_tail(ctx, sandbox)
         except Exception as e:
+            # Failure-only diagnostics: these are sandbox.execute round trips
+            # we don't want to pay on the hot path. Keeping them here means
+            # we still get rich debug output when the agent server fails to
+            # come up.
             if ctx.allowed_domains is not None:
                 _emit_agentsh_log_tail(ctx, sandbox)
             _emit_agent_server_log_tail(ctx, sandbox)
@@ -240,12 +199,6 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 
         if ctx.allowed_domains is not None:
             emit_agent_log(ctx.run_id, "debug", "agentsh policy initialized successfully")
-            _emit_agentsh_log_tail(ctx, sandbox)
-        _emit_agent_server_log_tail(ctx, sandbox)
-
-        # Connectivity diagnostics — run inside the agentsh exec context when
-        # domains are restricted so we can verify the env wrapper + DNS proxy work.
-        _run_connectivity_diagnostics(ctx, sandbox)
 
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {sandbox_url}")
         activity.logger.info(f"Agent server started at {sandbox_url} for task {ctx.task_id}")

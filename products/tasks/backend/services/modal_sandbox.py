@@ -78,7 +78,9 @@ SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
-AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
+# 120s ceiling (1200 x 100ms) — enough headroom for the EADDRINUSE retry path
+# to come up, while polling at 10 Hz so a ready server is detected quickly.
+AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 1200
 
 # Modal region mapping based on cloud deployment
 MODAL_REGION_BY_DEPLOYMENT: dict[str | None, str] = {
@@ -737,15 +739,31 @@ class ModalSandbox(SandboxBase):
         config_yaml = generate_config_yaml(enable_ptrace=True, full_trace=True)
         policy_yaml = generate_policy_yaml(allowed_domains)
 
-        self.execute("pkill -f 'agentsh server' || true", timeout_seconds=5)
-        self.execute("mkdir -p /etc/agentsh/policies /var/log/agentsh /var/lib/agentsh/sessions", timeout_seconds=5)
+        # Three filesystem writes are kept as discrete RPCs because the Modal
+        # sandbox API exposes write_bytes — they cannot be folded into the
+        # batched shell call below without base64 encoding the YAML payloads.
         self.write_file("/etc/agentsh/config.yaml", config_yaml.encode())
         self.write_file("/etc/agentsh/policies/default.yaml", policy_yaml.encode())
         self.write_file(ENV_WRAPPER_SCRIPT, generate_env_wrapper().encode())
-        self.execute(f"chmod +x {ENV_WRAPPER_SCRIPT}", timeout_seconds=5)
 
+        # Collapse pkill / mkdir / chmod / setup_script / session_check into a
+        # single sandbox.execute round trip. Each separate execute() round-trips
+        # to Modal (~100-300ms each), so on cold start this used to add ~1-2s
+        # of pure latency on the agentsh path.
         setup_script = build_setup_script(workspace_path)
-        result = self.execute(setup_script, timeout_seconds=30)
+        combined = (
+            "set -e; "
+            "pkill -f 'agentsh server' || true; "
+            "mkdir -p /etc/agentsh/policies /var/log/agentsh /var/lib/agentsh/sessions; "
+            f"chmod +x {shlex.quote(ENV_WRAPPER_SCRIPT)}; "
+            f"{setup_script}; "
+            f"[ -s {shlex.quote(SESSION_ID_FILE)} ] || {{ "
+            "  echo 'agentsh session id file empty' >&2; "
+            "  cat /var/log/agentsh/agentsh.log >&2 2>/dev/null || true; "
+            "  exit 1; "
+            "}}"
+        )
+        result = self.execute(combined, timeout_seconds=30)
         if result.exit_code != 0:
             agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
             raise SandboxExecutionError(
@@ -756,26 +774,13 @@ class ModalSandbox(SandboxBase):
                     "stdout": result.stdout,
                     "agentsh_log": agentsh_log.stdout,
                 },
-                cause=RuntimeError(result.stderr),
-            )
-
-        session_check = self.execute(f"cat {SESSION_ID_FILE}", timeout_seconds=5)
-        if session_check.exit_code != 0 or not session_check.stdout.strip():
-            agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
-            raise SandboxExecutionError(
-                "Failed to create agentsh session",
-                {
-                    "sandbox_id": self.id,
-                    "stderr": session_check.stderr,
-                    "agentsh_log": agentsh_log.stdout,
-                },
-                cause=RuntimeError("agentsh session create failed"),
+                cause=RuntimeError(result.stderr or "agentsh setup failed"),
             )
 
         logger.info("agentsh daemon started and session created in sandbox %s", self.id)
 
     def _wait_for_health_check(
-        self, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS, poll_interval: float = 0.5
+        self, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS, poll_interval: float = 0.1
     ) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)

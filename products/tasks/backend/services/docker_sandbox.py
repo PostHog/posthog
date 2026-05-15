@@ -695,7 +695,7 @@ class DockerSandbox(SandboxBase):
         if result.exit_code != 0:
             logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {result.stderr}")
             return False
-        return self._wait_for_health_check(max_attempts=20)
+        return self._wait_for_health_check(max_attempts=100)
 
     def start_agent_server(
         self,
@@ -854,7 +854,7 @@ class DockerSandbox(SandboxBase):
 
         logger.info("agentsh daemon started and session created in Docker sandbox %s", self.id)
 
-    def _wait_for_health_check(self, max_attempts: int = 60, poll_interval: float = 0.5) -> bool:
+    def _wait_for_health_check(self, max_attempts: int = 300, poll_interval: float = 0.1) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
 
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)

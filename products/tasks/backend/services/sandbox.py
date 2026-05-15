@@ -291,24 +291,27 @@ def wait_for_health_check(
     execute: _ExecuteFn,
     sandbox_id: str,
     port: int,
-    max_attempts: int = 60,
-    poll_interval: float = 0.5,
+    max_attempts: int = 300,
+    poll_interval: float = 0.1,
 ) -> bool:
     """Poll health endpoint until server is ready (single remote call).
 
     Runs a bash polling loop inside the sandbox so only one round-trip is
     needed regardless of how many attempts are required.
+
+    Defaults give a 30s ceiling at 100ms polling. Health response is a
+    fixed-shape JSON object (``{"status":"ok","hasSession":true}``) so we
+    use grep instead of spawning a python interpreter every iteration —
+    that adds up at 10 Hz polling.
     """
     health_script = (
         f"for i in $(seq 1 {max_attempts}); do "
         f"  body=$(curl -s http://localhost:{port}/health); "
         "  status=$?; "
-        '  if [ "$status" = "0" ]; then '
-        "    python3 -c '"
-        "import json, sys; "
-        "payload = json.loads(sys.argv[1]); "
-        'sys.exit(0 if payload.get("status") == "ok" and payload.get("hasSession") is True else 1)'
-        f'\' "$body" && echo "ok:$i" && exit 0; '
+        '  if [ "$status" = "0" ] && '
+        '     printf %s "$body" | grep -q \'"status":"ok"\' && '
+        '     printf %s "$body" | grep -q \'"hasSession":true\'; then '
+        f'    echo "ok:$i" && exit 0; '
         "  fi; "
         f"  sleep {poll_interval}; "
         f"done; "
