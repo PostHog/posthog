@@ -192,6 +192,25 @@ tools:
             `summary`. Use after `user-interviews-list` has narrowed down to a specific interview — for example, to read
             what a particular interviewee said about a research topic.
         feature_flag: user-interviews
+    user-interviews-search:
+        operation: user_interviews_search_create
+        enabled: true
+        scopes:
+            - user_interview:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Semantic search across interview responses
+        description: >
+            Search recorded user interviews by meaning, not keywords. Embeds the natural-language `query` with the same
+            model used to index transcripts and summaries, then returns the top matches by cosine similarity. Each match
+            is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and
+            summary score above other interviews. Use `document_types` to restrict to just `transcript` or just
+            `summary`. Filter by `topic_id` to scope the search to a single interview topic. `limit` caps the number of
+            returned matches (1-50, default 10). Useful for surfacing relevant excerpts when the caller has a research
+            question rather than a known string to grep for.
+        feature_flag: user-interviews
     user-interviews-update:
         operation: user_interviews_update
         enabled: false

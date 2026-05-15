@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -174,5 +174,47 @@ export const UserInterviewsRetrieveParams = /* @__PURE__ */ zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Embed `query` with the same model used to index interview transcripts and summaries, then return the top matches by cosine distance. Each match is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and summary score above other interviews. Useful for surfacing relevant interview snippets in natural language, without exact keyword matches.
+ * @summary Search interview responses by semantic similarity
+ */
+export const UserInterviewsSearchCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const userInterviewsSearchCreateBodyQueryMax = 2000
+
+export const userInterviewsSearchCreateBodyLimitMax = 50
+
+export const UserInterviewsSearchCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(userInterviewsSearchCreateBodyQueryMax)
+        .describe('Natural-language query to match semantically against interview transcripts and summaries.'),
+    document_types: zod
+        .array(zod.enum(['transcript', 'summary']).describe('* `transcript` - transcript\n* `summary` - summary'))
+        .min(1)
+        .optional()
+        .describe(
+            'Which document types to search across. Omit to default to both `transcript` and `summary`. Pass a non-empty subset to restrict the search.'
+        ),
+    topic_id: zod
+        .uuid()
+        .nullish()
+        .describe('Optional. Restrict results to interviews belonging to a specific UserInterviewTopic.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(userInterviewsSearchCreateBodyLimitMax)
+        .optional()
+        .describe(
+            'Maximum number of matches to return (1-50). Defaults to 10. Two matches per interview are possible — one for the transcript, one for the summary.'
         ),
 })
