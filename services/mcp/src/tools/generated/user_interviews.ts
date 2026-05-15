@@ -24,9 +24,6 @@ const userInterviewTopicsCreate = (): ToolBase<typeof UserInterviewTopicsCreateS
     handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.interviewee_cohort !== undefined) {
-            body['interviewee_cohort'] = params.interviewee_cohort
-        }
         if (params.interviewee_emails !== undefined) {
             body['interviewee_emails'] = params.interviewee_emails
         }

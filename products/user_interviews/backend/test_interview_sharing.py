@@ -94,14 +94,44 @@ class TestGenerateInterviewLinks(_FeatureFlagEnabledMixin):
         self.assertIn("heavy user, churned last quarter", link["agent_context"])
         self.assertIn("Researching adoption of session replay", link["agent_context"])
 
-    def test_generate_links_rejects_topic_with_only_cohort(self):
-        topic = self._create_topic(
-            interviewee_emails=[],
-            interviewee_distinct_ids=[],
-            interviewee_cohort=123,
-        )
+    def test_generate_links_rejects_topic_with_no_identifiers(self):
+        topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
         response = self.client.post(self._generate_links_url(str(topic.id)))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestUserInterviewTopicCreate(_FeatureFlagEnabledMixin):
+    def _url(self) -> str:
+        return f"/api/environments/{self.team.id}/user_interview_topics/"
+
+    @parameterized.expand(
+        [
+            ("no_targeting", {}),
+            ("empty_lists", {"interviewee_emails": [], "interviewee_distinct_ids": []}),
+        ]
+    )
+    def test_rejects_topic_without_identifiers(self, _name: str, targeting: dict[str, Any]):
+        payload = {"topic": "Why people churn", **targeting}
+        response = self.client.post(self._url(), data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        body = response.json()
+        errors = body.get("non_field_errors") or [body.get("detail", "")]
+        assert any("interviewee_emails" in str(e) and "interviewee_distinct_ids" in str(e) for e in errors), body
+
+    @parameterized.expand(
+        [
+            ("emails_only", {"interviewee_emails": ["alex@example.com"]}),
+            ("distinct_ids_only", {"interviewee_distinct_ids": ["distinct-abc"]}),
+            (
+                "both",
+                {"interviewee_emails": ["alex@example.com"], "interviewee_distinct_ids": ["distinct-abc"]},
+            ),
+        ]
+    )
+    def test_accepts_topic_with_identifiers(self, _name: str, targeting: dict[str, Any]):
+        payload = {"topic": "Why people churn", **targeting}
+        response = self.client.post(self._url(), data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
 
 
 class TestInterviewPublicViewer(APIBaseTest):
@@ -544,8 +574,8 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
             response = self.client.post(self._url(str(topic.id)), data={}, format="json")
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
-    def test_send_invites_400_when_topic_only_has_cohort(self):
-        topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[], interviewee_cohort=123)
+    def test_send_invites_400_when_topic_has_no_identifiers(self):
+        topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
         with patch("products.user_interviews.backend.api.is_email_available", return_value=True):
             response = self.client.post(self._url(str(topic.id)), data={}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
