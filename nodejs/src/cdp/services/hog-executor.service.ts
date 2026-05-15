@@ -167,6 +167,30 @@ export const isPostHogIngestHost = (urlString: string): boolean => {
     }
 }
 
+export const extractEmittedEventNames = (body: string | null | undefined): string[] | null => {
+    if (!body) {
+        return null
+    }
+    try {
+        const parsed = parseJSON(body)
+        if (parsed && typeof parsed === 'object') {
+            if (typeof (parsed as any).event === 'string') {
+                return [(parsed as any).event]
+            }
+            const batch = (parsed as any).batch
+            if (Array.isArray(batch) && batch.length > 0) {
+                const names = batch.map((e: any) => e?.event).filter((n: any): n is string => typeof n === 'string')
+                if (names.length > 0) {
+                    return names
+                }
+            }
+        }
+    } catch {
+        // unparseable
+    }
+    return null
+}
+
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
     help: 'Processing time and success status of internal functions',
@@ -679,21 +703,30 @@ export class HogExecutorService {
                 const haystack = `${params.url}\n${params.body ?? ''}\n${Object.values(headers).join('\n')}`
                 const matchedToken = teamTokens.find((token) => haystack.includes(token))
                 if (matchedToken) {
-                    const message =
-                        "Refusing to fetch a posthog.com endpoint using this project's own API token — this would create an event-forwarding loop. " +
-                        'If you want to capture an event back into this project, use the `postHogCapture` helper. ' +
-                        'If you want to enrich or modify incoming events, use a transformation instead.'
-                    addLog('error', message)
-                    result.metrics.push({
-                        team_id: invocation.teamId,
-                        app_source_id: invocation.parentRunId ?? invocation.functionId,
-                        metric_kind: 'failure',
-                        metric_name: 'failed',
-                        count: 1,
-                    })
-                    result.error = new Error(message)
-                    result.finished = true
-                    return result
+                    const emittedEvents = extractEmittedEventNames(params.body)
+                    const triggerEventIds = (invocation.hogFunction.filters?.events ?? []).map((event) => event.id)
+                    const matchesAllEvents = triggerEventIds.length === 0 || triggerEventIds.some((id) => id === null)
+                    const wouldLoop =
+                        matchesAllEvents ||
+                        (emittedEvents !== null && emittedEvents.some((e) => triggerEventIds.includes(e)))
+
+                    if (wouldLoop) {
+                        const message =
+                            "Refusing to fetch a posthog.com endpoint using this project's own API token — this would create an event-forwarding loop. " +
+                            'If you want to capture an event back into this project, use the `postHogCapture` helper. ' +
+                            'If you want to enrich or modify incoming events, use a transformation instead.'
+                        addLog('error', message)
+                        result.metrics.push({
+                            team_id: invocation.teamId,
+                            app_source_id: invocation.parentRunId ?? invocation.functionId,
+                            metric_kind: 'failure',
+                            metric_name: 'failed',
+                            count: 1,
+                        })
+                        result.error = new Error(message)
+                        result.finished = true
+                        return result
+                    }
                 }
             }
         }

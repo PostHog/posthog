@@ -18,7 +18,12 @@ import { promisifyCallback } from '../../utils/utils'
 import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { EXTEND_OBJECT_KEY, isConnectionLevelError, isPostHogIngestHost } from './hog-executor.service'
+import {
+    EXTEND_OBJECT_KEY,
+    extractEmittedEventNames,
+    isConnectionLevelError,
+    isPostHogIngestHost,
+} from './hog-executor.service'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -1551,6 +1556,152 @@ describe('Hog Executor', () => {
                 expect(jest.mocked(fetch)).toHaveBeenCalled()
                 expect(result.error).toBeUndefined()
             })
+
+            describe('when the function has specific trigger events', () => {
+                const okFetchResponse = {
+                    status: 200,
+                    body: 'ok',
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('ok'),
+                    dump: () => Promise.resolve(),
+                } as any
+
+                const setHogFunctionFilters = (
+                    invocation: CyclotronJobInvocationHogFunction,
+                    eventIds: (string | null)[]
+                ) => {
+                    invocation.hogFunction = {
+                        ...invocation.hogFunction,
+                        filters: {
+                            ...(invocation.hogFunction.filters ?? {}),
+                            events: eventIds.map((id, order) => ({
+                                id,
+                                name: id ?? 'All events',
+                                type: 'events',
+                                order,
+                            })),
+                        },
+                    } as any
+                }
+
+                it('rejects when the emitted event matches one of the trigger events', async () => {
+                    const invocation = await createFetchInvocation({
+                        url: 'https://us.posthog.com/i/v0/e/',
+                        method: 'POST',
+                        body: JSON.stringify({ api_token: TEAM_API_TOKEN, event: '$pageview' }),
+                    })
+                    setHogFunctionFilters(invocation, ['$pageview'])
+
+                    const result = await executor.executeFetch(invocation)
+
+                    expect(jest.mocked(fetch)).not.toHaveBeenCalled()
+                    expect(result.finished).toBe(true)
+                    expect(String(result.error)).toContain(expectedRejectionMessage)
+                })
+
+                it('allows when the emitted event does not match any trigger event', async () => {
+                    jest.mocked(fetch).mockResolvedValue(okFetchResponse)
+                    const invocation = await createFetchInvocation({
+                        url: 'https://us.posthog.com/i/v0/e/',
+                        method: 'POST',
+                        body: JSON.stringify({ api_token: TEAM_API_TOKEN, event: '$set' }),
+                    })
+                    setHogFunctionFilters(invocation, ['$pageview', '$autocapture'])
+
+                    const result = await executor.executeFetch(invocation)
+
+                    expect(jest.mocked(fetch)).toHaveBeenCalled()
+                    expect(result.error).toBeUndefined()
+                })
+
+                it('rejects when batch body contains a matching event as the first entry', async () => {
+                    const invocation = await createFetchInvocation({
+                        url: 'https://us.posthog.com/batch/',
+                        method: 'POST',
+                        body: JSON.stringify({
+                            api_token: TEAM_API_TOKEN,
+                            batch: [{ event: '$pageview' }, { event: '$set' }],
+                        }),
+                    })
+                    setHogFunctionFilters(invocation, ['$pageview'])
+
+                    const result = await executor.executeFetch(invocation)
+
+                    expect(jest.mocked(fetch)).not.toHaveBeenCalled()
+                    expect(result.finished).toBe(true)
+                    expect(String(result.error)).toContain(expectedRejectionMessage)
+                })
+
+                it('rejects when batch body contains a matching event as a non-first entry', async () => {
+                    // Regression: earlier implementation only checked batch[0]. A batch where the
+                    // first entry doesn't match but a later entry does would form a loop after
+                    // the matching event re-triggers the function.
+                    const invocation = await createFetchInvocation({
+                        url: 'https://us.posthog.com/batch/',
+                        method: 'POST',
+                        body: JSON.stringify({
+                            api_token: TEAM_API_TOKEN,
+                            batch: [{ event: '$set' }, { event: '$pageview' }],
+                        }),
+                    })
+                    setHogFunctionFilters(invocation, ['$pageview'])
+
+                    const result = await executor.executeFetch(invocation)
+
+                    expect(jest.mocked(fetch)).not.toHaveBeenCalled()
+                    expect(result.finished).toBe(true)
+                    expect(String(result.error)).toContain(expectedRejectionMessage)
+                })
+
+                it('allows when no event in a batch body matches any trigger event', async () => {
+                    jest.mocked(fetch).mockResolvedValue(okFetchResponse)
+                    const invocation = await createFetchInvocation({
+                        url: 'https://us.posthog.com/batch/',
+                        method: 'POST',
+                        body: JSON.stringify({
+                            api_token: TEAM_API_TOKEN,
+                            batch: [{ event: '$set' }, { event: '$groupidentify' }],
+                        }),
+                    })
+                    setHogFunctionFilters(invocation, ['$pageview', '$autocapture'])
+
+                    const result = await executor.executeFetch(invocation)
+
+                    expect(jest.mocked(fetch)).toHaveBeenCalled()
+                    expect(result.error).toBeUndefined()
+                })
+
+                it('allows when the body is unparseable (no extractable event name, cannot form a loop)', async () => {
+                    jest.mocked(fetch).mockResolvedValue(okFetchResponse)
+                    const invocation = await createFetchInvocation({
+                        url: 'https://us.posthog.com/capture/',
+                        method: 'POST',
+                        body: `not-json-${TEAM_API_TOKEN}-garbage`,
+                    })
+                    setHogFunctionFilters(invocation, ['$pageview'])
+
+                    const result = await executor.executeFetch(invocation)
+
+                    expect(jest.mocked(fetch)).toHaveBeenCalled()
+                    expect(result.error).toBeUndefined()
+                })
+
+                it('rejects when filter is null id (all-events)', async () => {
+                    const invocation = await createFetchInvocation({
+                        url: 'https://us.posthog.com/i/v0/e/',
+                        method: 'POST',
+                        body: JSON.stringify({ api_token: TEAM_API_TOKEN, event: '$set' }),
+                    })
+                    setHogFunctionFilters(invocation, [null])
+
+                    const result = await executor.executeFetch(invocation)
+
+                    expect(jest.mocked(fetch)).not.toHaveBeenCalled()
+                    expect(result.finished).toBe(true)
+                    expect(String(result.error)).toContain(expectedRejectionMessage)
+                })
+            })
         })
 
         it('replaces access token placeholders in body, headers, and url', async () => {
@@ -1613,6 +1764,44 @@ describe('Hog Executor', () => {
             [false, ''],
         ])('returns %s for %s', (expected, url) => {
             expect(isPostHogIngestHost(url)).toBe(expected)
+        })
+    })
+
+    describe('extractEmittedEventNames', () => {
+        it.each<[string, string | undefined, string[] | null]>([
+            [
+                'returns a single-element array for a standard capture body',
+                JSON.stringify({ event: '$pageview' }),
+                ['$pageview'],
+            ],
+            [
+                'returns the event when other fields are present',
+                JSON.stringify({ api_token: 'phc_x', event: '$set', properties: {} }),
+                ['$set'],
+            ],
+            [
+                'returns every event in a batch body',
+                JSON.stringify({ batch: [{ event: 'first' }, { event: 'second' }, { event: 'third' }] }),
+                ['first', 'second', 'third'],
+            ],
+            [
+                'skips non-string event entries in a batch',
+                JSON.stringify({ batch: [{ event: 'ok' }, { event: 123 }, { properties: {} }, { event: 'also-ok' }] }),
+                ['ok', 'also-ok'],
+            ],
+            ['returns null for an empty body', '', null],
+            ['returns null for undefined', undefined, null],
+            ['returns null for a non-JSON body', 'not-json-at-all', null],
+            ['returns null when body has no event field', JSON.stringify({ api_token: 'phc_x' }), null],
+            ['returns null when event field is non-string', JSON.stringify({ event: 123 }), null],
+            ['returns null when batch is empty', JSON.stringify({ batch: [] }), null],
+            [
+                'returns null when no batch entries have a string event',
+                JSON.stringify({ batch: [{ properties: {} }, { event: 123 }] }),
+                null,
+            ],
+        ])('%s', (_name, body, expected) => {
+            expect(extractEmittedEventNames(body as any)).toEqual(expected)
         })
     })
 
