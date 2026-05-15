@@ -583,6 +583,17 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
+        # If the connection host changed, require credentials to be re-entered.
+        connection_host_changed = "host" in incoming_job_inputs and incoming_job_inputs[
+            "host"
+        ] != existing_job_inputs.get("host")
+        if connection_host_changed:
+            missing_credentials = [
+                key for key in sensitive_fields if existing_job_inputs.get(key) and not incoming_job_inputs.get(key)
+            ]
+            if missing_credentials:
+                raise ValidationError("Changing the connection host requires re-entering your credentials.")
+
         # Preserve sensitive credentials not explicitly provided (API response omits them for security)
         for key in sensitive_fields:
             if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
@@ -614,6 +625,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
+            ssh_tunnel_host_changed = "host" in incoming_ssh_tunnel and incoming_ssh_tunnel[
+                "host"
+            ] != existing_ssh_tunnel.get("host")
+
             # Deep-merge: start with existing, overlay incoming top-level keys
             merged_ssh_tunnel = {**existing_ssh_tunnel, **incoming_ssh_tunnel}
 
@@ -625,15 +640,19 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 (incoming_ssh_tunnel or {}).get("auth") or (incoming_ssh_tunnel or {}).get("auth_type") or {}
             )
 
+            if ssh_tunnel_host_changed and not incoming_auth:
+                raise ValidationError("Changing the SSH tunnel host requires re-entering your SSH credentials.")
+
             if not incoming_auth:
                 # No auth in incoming request - preserve entire existing auth
                 merged_ssh_tunnel["auth"] = {**existing_auth}
             else:
                 # Merge auth, preserving sensitive fields not explicitly provided
                 merged_auth = {**incoming_auth}
-                for key in ("password", "passphrase", "private_key"):
-                    if existing_auth.get(key) and not incoming_auth.get(key):
-                        merged_auth[key] = existing_auth[key]
+                if not ssh_tunnel_host_changed:
+                    for key in ("password", "passphrase", "private_key"):
+                        if existing_auth.get(key) and not incoming_auth.get(key):
+                            merged_auth[key] = existing_auth[key]
                 merged_ssh_tunnel["auth"] = merged_auth
 
             new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
@@ -1965,23 +1984,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Missing required fields: {', '.join(blanked_required)}"},
-            )
-
-        schema_ids = list(
-            ExternalDataSchema.objects.filter(
-                source=instance,
-                team_id=self.team_id,
-                sync_type=ExternalDataSchema.SyncType.WEBHOOK,
-                should_sync=True,
-            )
-            .exclude(deleted=True)
-            .values_list("id", flat=True)
-        )
-
-        if not schema_ids:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "No eligible schemas found"},
             )
 
         try:

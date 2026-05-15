@@ -106,6 +106,8 @@ export enum NodeKind {
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
     TraceSpansQuery = 'TraceSpansQuery',
+    TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
+    TraceSpansTreeQuery = 'TraceSpansTreeQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -230,6 +232,8 @@ export type AnyDataNode =
     | LogAttributesQuery
     | LogValuesQuery
     | TraceSpansQuery
+    | TraceSpansAggregationQuery
+    | TraceSpansTreeQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | CalendarHeatmapQuery
@@ -329,6 +333,8 @@ export type QuerySchema =
 
     // Tracing
     | TraceSpansQuery
+    | TraceSpansAggregationQuery
+    | TraceSpansTreeQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -387,6 +393,8 @@ export type AnyResponseType =
     | LogAttributesQueryResponse
     | LogValuesQueryResponse
     | TraceSpansQueryResponse
+    | TraceSpansAggregationQueryResponse
+    | TraceSpansTreeQueryResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -1371,10 +1379,29 @@ export type TrendsFilter = {
     /** @default false */
     showAlertThresholdLines?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
-    /** @default numeric */
+    // The aggregation-axis description below is duplicated, intentionally and divergently, on
+    // `AssistantTrendsFilter` in schema-assistant-queries.ts. The assistant copy is deliberately
+    // more cautious ("do not use unless absolutely sure") because Max picks formats without explicit
+    // query context; this copy is more prescriptive because MCP callers know the units up front.
+    // Keep both in sync when the format set changes, but treat their wording as audience-specific.
+    /**
+     * Y-axis value formatter. Picks a human-friendly unit per value at render time without changing the underlying series values.
+     *
+     * - `numeric` (default): raw numbers, e.g. `1,234`.
+     * - `duration`: values are in seconds; rendered as friendly units per value (`45s`, `2m 12s`, `1h 4m`). Use this whenever the series is in seconds (latency, session length, time-to-event) instead of dividing in `formula` to force minutes or hours.
+     * - `duration_ms`: values are in milliseconds; rendered as friendly units (`850ms`, `1.5s`, `1m 4s`).
+     * - `percentage`: values are already in the 0-100 range; appends `%`.
+     * - `percentage_scaled`: values are a 0-1 ratio; multiplied and rendered as `%`.
+     * - `currency`: values are in the project's base currency (set in project settings, defaults to USD); rendered with that currency symbol. For values pinned to a specific currency regardless of project base (e.g. `$ai_total_cost_usd` is always USD), use `aggregationAxisPrefix` instead.
+     * - `short`: compact notation for large counts (`1.2K`, `3.4M`).
+     * @default numeric
+     */
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
+    /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
     aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
+    /** Literal suffix applied to every value (e.g. ` req`). Reserve for units that `aggregationAxisFormat` cannot express. Do not use ` mins`, ` s`, ` ms`, `%` etc. — pick the matching `aggregationAxisFormat` instead so the underlying values stay numerically correct for breakdowns, formulas, and alerts. Include any leading space yourself. */
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+    /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
     minDecimalPlaces?: TrendsFilterLegacy['min_decimal_places']
     /** @default false */
@@ -3039,6 +3066,82 @@ export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedTraceSpansQueryResponse = CachedQueryResponse<TraceSpansQueryResponse>
 
+/** One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view. */
+export interface AggregatedSpanRow {
+    service_name: string
+    name: string
+    count: integer
+    total_duration_nano: number
+    avg_duration_nano: number
+    p50_duration_nano: number
+    p95_duration_nano: number
+    error_count: integer
+}
+
+export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregationQueryResponse> {
+    kind: NodeKind.TraceSpansAggregationQuery
+    dateRange: DateRange
+    /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+    compareFilter?: CompareFilter
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+}
+
+export interface TraceSpansAggregationQueryResponse extends AnalyticsQueryResponseBase {
+    results: AggregatedSpanRow[]
+    /** Result rows for the comparison period when `compareFilter.compare` is true. */
+    compare?: AggregatedSpanRow[]
+}
+
+export type CachedTraceSpansAggregationQueryResponse = CachedQueryResponse<TraceSpansAggregationQueryResponse>
+
+/**
+ * One node in an aggregated span call tree. The `(service_name, name)` pair identifies
+ * the node; `(parent_service, parent_name)` links it to its parent. Spans without a
+ * matching parent in the window get `parent_name = '<ROOT>'` so orphans surface explicitly.
+ */
+export interface SpanTreeNode {
+    parent_service: string
+    parent_name: string
+    service_name: string
+    name: string
+    count: integer
+    total_duration_nano: number
+    avg_duration_nano: number
+    p50_duration_nano: number
+    p95_duration_nano: number
+    error_count: integer
+    /**
+     * Average nanoseconds from the parent span's start to this span's start. Zero for
+     * root spans. Used to order children left-to-right by typical start time in the
+     * flame graph.
+     */
+    avg_start_offset_nano: number
+}
+
+export interface TraceSpansTreeQuery extends DataNode<TraceSpansTreeQueryResponse> {
+    kind: NodeKind.TraceSpansTreeQuery
+    dateRange: DateRange
+    /**
+     * Span name to scope the matched trace set. Required because the
+     * `(trace_id, parent_span_id)` self-join is prohibitive without bounding the
+     * matched traces — at high name cardinality the query becomes unsafe to run.
+     */
+    spanName: string
+    /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+    compareFilter?: CompareFilter
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+}
+
+export interface TraceSpansTreeQueryResponse extends AnalyticsQueryResponseBase {
+    results: SpanTreeNode[]
+    /** Result rows for the comparison period when `compareFilter.compare` is true. */
+    compare?: SpanTreeNode[]
+}
+
+export type CachedTraceSpansTreeQueryResponse = CachedQueryResponse<TraceSpansTreeQueryResponse>
+
 export interface FileSystemCount {
     count: number
     entries: FileSystemEntry[]
@@ -3149,6 +3252,7 @@ export type FileSystemIconType =
     | 'llm_prompts'
     | 'llm_clusters'
     | 'exports'
+    | 'deployments'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -3530,11 +3634,20 @@ export type ExperimentMetricTypeProps =
     | ExperimentRatioMetricTypeProps
     | ExperimentRetentionMetricTypeProps
 
-export type ExperimentMetric =
+// Named separately from `ExperimentMetric` so the JSDoc `@discriminator` tag below
+// can attach without colliding with the `NodeKind.ExperimentMetric` enum value
+// (which trips ts-json-schema-generator's deduplication). The alias is the public
+// type — callers continue to use `ExperimentMetric`.
+/**
+ * @discriminator metric_type
+ */
+export type ExperimentMetricUnion =
     | ExperimentMeanMetric
     | ExperimentFunnelMetric
     | ExperimentRatioMetric
     | ExperimentRetentionMetric
+
+export type ExperimentMetric = ExperimentMetricUnion
 
 export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     kind: NodeKind.ExperimentQuery
@@ -6193,6 +6306,7 @@ export enum ProductKey {
     CUSTOMER_ANALYTICS = 'customer_analytics',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
+    DEPLOYMENTS = 'deployments',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     ENDPOINTS = 'endpoints',
     ERROR_TRACKING = 'error_tracking',

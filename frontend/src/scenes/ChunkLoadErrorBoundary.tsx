@@ -1,18 +1,9 @@
 import { Component, type ReactNode } from 'react'
 
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
+
 const RELOAD_GUARD_KEY = 'posthog-chunk-reload-at'
 const RELOAD_GUARD_WINDOW_MS = 20_000
-
-function isChunkLoadError(error: unknown): boolean {
-    if (!error || typeof error !== 'object') {
-        return false
-    }
-    const err = error as { name?: string; message?: string }
-    return (
-        err.name === 'ChunkLoadError' ||
-        (typeof err.message === 'string' && err.message.includes('Failed to fetch dynamically imported module'))
-    )
-}
 
 interface State {
     error: unknown

@@ -9,9 +9,20 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    IntervieweeContextApi,
+    PaginatedInterviewInviteResultListApi,
+    PaginatedInterviewLinkListApi,
+    PaginatedIntervieweeContextListApi,
     PaginatedUserInterviewListApi,
+    PaginatedUserInterviewTopicListApi,
+    PatchedIntervieweeContextApi,
     PatchedUserInterviewApi,
+    PatchedUserInterviewTopicApi,
+    SendInvitesRequestApi,
     UserInterviewApi,
+    UserInterviewTopicApi,
+    UserInterviewTopicsIntervieweesListParams,
+    UserInterviewTopicsListParams,
     UserInterviewsListParams,
 } from './api.schemas'
 
@@ -31,6 +42,320 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getUserInterviewTopicsListUrl = (projectId: string, params?: UserInterviewTopicsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/user_interview_topics/?${stringifiedParams}`
+        : `/api/environments/${projectId}/user_interview_topics/`
+}
+
+/**
+ * Planned user interview topics: who we want to target and what we want to ask about.
+ */
+export const userInterviewTopicsList = async (
+    projectId: string,
+    params?: UserInterviewTopicsListParams,
+    options?: RequestInit
+): Promise<PaginatedUserInterviewTopicListApi> => {
+    return apiMutator<PaginatedUserInterviewTopicListApi>(getUserInterviewTopicsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUserInterviewTopicsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/`
+}
+
+/**
+ * Planned user interview topics: who we want to target and what we want to ask about.
+ */
+export const userInterviewTopicsCreate = async (
+    projectId: string,
+    userInterviewTopicApi: NonReadonly<UserInterviewTopicApi>,
+    options?: RequestInit
+): Promise<UserInterviewTopicApi> => {
+    return apiMutator<UserInterviewTopicApi>(getUserInterviewTopicsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userInterviewTopicApi),
+    })
+}
+
+export const getUserInterviewTopicsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/`
+}
+
+/**
+ * Planned user interview topics: who we want to target and what we want to ask about.
+ */
+export const userInterviewTopicsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<UserInterviewTopicApi> => {
+    return apiMutator<UserInterviewTopicApi>(getUserInterviewTopicsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUserInterviewTopicsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/`
+}
+
+/**
+ * Planned user interview topics: who we want to target and what we want to ask about.
+ */
+export const userInterviewTopicsUpdate = async (
+    projectId: string,
+    id: string,
+    userInterviewTopicApi: NonReadonly<UserInterviewTopicApi>,
+    options?: RequestInit
+): Promise<UserInterviewTopicApi> => {
+    return apiMutator<UserInterviewTopicApi>(getUserInterviewTopicsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userInterviewTopicApi),
+    })
+}
+
+export const getUserInterviewTopicsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/`
+}
+
+/**
+ * Planned user interview topics: who we want to target and what we want to ask about.
+ */
+export const userInterviewTopicsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedUserInterviewTopicApi?: NonReadonly<PatchedUserInterviewTopicApi>,
+    options?: RequestInit
+): Promise<UserInterviewTopicApi> => {
+    return apiMutator<UserInterviewTopicApi>(getUserInterviewTopicsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUserInterviewTopicApi),
+    })
+}
+
+export const getUserInterviewTopicsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/`
+}
+
+/**
+ * Planned user interview topics: who we want to target and what we want to ask about.
+ */
+export const userInterviewTopicsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUserInterviewTopicsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getUserInterviewTopicsGenerateLinksCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/generate_links/`
+}
+
+/**
+ * Generate one public interview link per targeted interviewee. Materializes an IntervieweeContext row for every identifier on the topic (without overwriting existing per-person context), and an enabled SharingConfiguration with a unique access token. The URL resolves to the public interview viewer with no PostHog auth required.
+ */
+export const userInterviewTopicsGenerateLinksCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PaginatedInterviewLinkListApi> => {
+    return apiMutator<PaginatedInterviewLinkListApi>(getUserInterviewTopicsGenerateLinksCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getUserInterviewTopicsSendInvitesCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/send_invites/`
+}
+
+/**
+ * Generate (if needed) and email a personalized public interview link to every targeted interviewee on this topic whose identifier is an email address. Distinct-ID-only interviewees are skipped and surfaced in the response. Each invite is keyed on the underlying SharingConfiguration so re-runs after token rotation produce a fresh send.
+ */
+export const userInterviewTopicsSendInvitesCreate = async (
+    projectId: string,
+    id: string,
+    sendInvitesRequestApi?: SendInvitesRequestApi,
+    options?: RequestInit
+): Promise<PaginatedInterviewInviteResultListApi> => {
+    return apiMutator<PaginatedInterviewInviteResultListApi>(
+        getUserInterviewTopicsSendInvitesCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(sendInvitesRequestApi),
+        }
+    )
+}
+
+export const getUserInterviewTopicsIntervieweesListUrl = (
+    projectId: string,
+    topicId: string,
+    params?: UserInterviewTopicsIntervieweesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/?${stringifiedParams}`
+        : `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/`
+}
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const userInterviewTopicsIntervieweesList = async (
+    projectId: string,
+    topicId: string,
+    params?: UserInterviewTopicsIntervieweesListParams,
+    options?: RequestInit
+): Promise<PaginatedIntervieweeContextListApi> => {
+    return apiMutator<PaginatedIntervieweeContextListApi>(
+        getUserInterviewTopicsIntervieweesListUrl(projectId, topicId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getUserInterviewTopicsIntervieweesCreateUrl = (projectId: string, topicId: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/`
+}
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const userInterviewTopicsIntervieweesCreate = async (
+    projectId: string,
+    topicId: string,
+    intervieweeContextApi: NonReadonly<IntervieweeContextApi>,
+    options?: RequestInit
+): Promise<IntervieweeContextApi> => {
+    return apiMutator<IntervieweeContextApi>(getUserInterviewTopicsIntervieweesCreateUrl(projectId, topicId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(intervieweeContextApi),
+    })
+}
+
+export const getUserInterviewTopicsIntervieweesRetrieveUrl = (projectId: string, topicId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
+}
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const userInterviewTopicsIntervieweesRetrieve = async (
+    projectId: string,
+    topicId: string,
+    id: string,
+    options?: RequestInit
+): Promise<IntervieweeContextApi> => {
+    return apiMutator<IntervieweeContextApi>(getUserInterviewTopicsIntervieweesRetrieveUrl(projectId, topicId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUserInterviewTopicsIntervieweesUpdateUrl = (projectId: string, topicId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
+}
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const userInterviewTopicsIntervieweesUpdate = async (
+    projectId: string,
+    topicId: string,
+    id: string,
+    intervieweeContextApi: NonReadonly<IntervieweeContextApi>,
+    options?: RequestInit
+): Promise<IntervieweeContextApi> => {
+    return apiMutator<IntervieweeContextApi>(getUserInterviewTopicsIntervieweesUpdateUrl(projectId, topicId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(intervieweeContextApi),
+    })
+}
+
+export const getUserInterviewTopicsIntervieweesPartialUpdateUrl = (projectId: string, topicId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
+}
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const userInterviewTopicsIntervieweesPartialUpdate = async (
+    projectId: string,
+    topicId: string,
+    id: string,
+    patchedIntervieweeContextApi?: NonReadonly<PatchedIntervieweeContextApi>,
+    options?: RequestInit
+): Promise<IntervieweeContextApi> => {
+    return apiMutator<IntervieweeContextApi>(
+        getUserInterviewTopicsIntervieweesPartialUpdateUrl(projectId, topicId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedIntervieweeContextApi),
+        }
+    )
+}
+
+export const getUserInterviewTopicsIntervieweesDestroyUrl = (projectId: string, topicId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/${id}/`
+}
+
+/**
+ * Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier).
+ */
+export const userInterviewTopicsIntervieweesDestroy = async (
+    projectId: string,
+    topicId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUserInterviewTopicsIntervieweesDestroyUrl(projectId, topicId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
 
 export const getUserInterviewsListUrl = (projectId: string, params?: UserInterviewsListParams) => {
     const normalizedParams = new URLSearchParams()

@@ -12,6 +12,25 @@ export type PostHogMcpAnalyticsOptions = {
     // catalog. In single-exec mode the wrapper handles every call, so the
     // signal has nothing to map to and the extra slot is just noise.
     reportMissingEnabled: boolean
+    // In single-exec mode, every event's `$mcp_tool_name` is `exec` — the real
+    // tool the LLM was invoking lives inside `arguments.command`. This callback
+    // lets the caller resolve that inner tool's name + description from the
+    // request so they can be surfaced as `$mcp_exec_tool_call_name` /
+    // `$mcp_exec_tool_call_description`. Returns undefined when the request
+    // isn't an exec call or the inner tool isn't recognized. Type accepts
+    // `| undefined` explicitly so callers can pass the value through
+    // unconditionally under `exactOptionalPropertyTypes: true`.
+    resolveExecInnerToolCall?:
+        | ((request: unknown) => { name: string; description: string } | undefined)
+        | undefined
+    // In single-exec mode the SDK's $mcp_listed_tool_names on mcp_tools_list
+    // collapses to just the dispatcher's name (`exec`) because that's the
+    // only tool the server actually advertises over MCP. Passing the full
+    // inner-tool catalog here lets us attach the inner names on tools/list
+    // events as $mcp_exec_inner_tool_names so dashboards can compute the
+    // "advertised but never called" diff against $mcp_exec_tool_call_name
+    // from mcp_tool_call events.
+    execInnerToolNames?: readonly string[] | undefined
 }
 
 export type PostHogMcpAnalyticsInitResult =
@@ -60,6 +79,8 @@ async function buildEventProperties(identity: PostHogMcpAnalyticsIdentityProvide
         transport,
         mcpConsumer,
         mcpMode,
+        mcpSessionId,
+        mcpConversationId,
     ] = await Promise.all([
         identity.getMcpVersion(),
         identity.getClientUserAgent(),
@@ -73,6 +94,8 @@ async function buildEventProperties(identity: PostHogMcpAnalyticsIdentityProvide
         identity.getTransport(),
         identity.getMcpConsumer(),
         identity.getMcpMode(),
+        identity.getMcpSessionId(),
+        identity.getMcpConversationId(),
     ])
 
     const groups = {
@@ -97,6 +120,8 @@ async function buildEventProperties(identity: PostHogMcpAnalyticsIdentityProvide
         $mcp_transport: transport,
         $mcp_consumer: mcpConsumer,
         $mcp_mode: mcpMode,
+        $mcp_session_id: mcpSessionId,
+        $mcp_conversation_id: mcpConversationId,
         ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
     }
 }
@@ -126,6 +151,7 @@ export async function initPostHogMcpAnalytics(
             apiKey: posthogApiKey,
             context: options.contextEnabled,
             enableAITracing: true,
+            enableConversationId: true,
             enableTracing: true,
             host: posthogHost,
             identify: async () => identifyResult,
@@ -136,7 +162,26 @@ export async function initPostHogMcpAnalytics(
             },
             reportMissing: options.reportMissingEnabled,
             eventTags: async () => buildEventTags(identity),
-            eventProperties: async () => buildEventProperties(identity),
+            eventProperties: async (request) => {
+                const base = await buildEventProperties(identity)
+                const innerToolCall = options.resolveExecInnerToolCall?.(request)
+                const isListToolsRequest =
+                    (request as { method?: unknown })?.method === 'tools/list' &&
+                    !!options.execInnerToolNames &&
+                    options.execInnerToolNames.length > 0
+                return {
+                    ...base,
+                    ...(innerToolCall
+                        ? {
+                              $mcp_exec_tool_call_name: innerToolCall.name,
+                              $mcp_exec_tool_call_description: innerToolCall.description,
+                          }
+                        : {}),
+                    ...(isListToolsRequest
+                        ? { $mcp_exec_inner_tool_names: [...(options.execInnerToolNames ?? [])] }
+                        : {}),
+                }
+            },
             redactSensitiveInformation: (text) => Promise.resolve(redactSensitiveInformation(text)),
         })
 

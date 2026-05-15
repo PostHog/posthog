@@ -30,7 +30,10 @@ PRO_PLAN_PREFIXES = ("posthog-code-200", "posthog-code-pro-")
 def _seat_priority(seat: dict[str, Any]) -> tuple[bool, int, float]:
     # Tuple comparison: active (True > False) first, then tier, then
     # earliest created_at wins ties (oldest seat is the stable pick).
-    active = seat.get("status") == "active"
+    # `canceling` is treated as currently active because the seat is still in
+    # effect until its `active_until` timestamp (notably during the alpha→free
+    # migration window where alpha seats are flipped to `canceling`).
+    active = seat.get("status") in ("active", "canceling")
     plan_key = seat.get("plan_key") or ""
     created_at = seat.get("created_at") or ""
     try:

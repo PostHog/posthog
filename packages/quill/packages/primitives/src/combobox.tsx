@@ -216,7 +216,7 @@ function ComboboxChips({
     return (
         <ComboboxPrimitive.Chips
             data-slot="combobox-chips"
-            className={cn('quill-combobox__chips flex flex-wrap items-center gap-1', className)}
+            className={cn('quill-combobox__chips flex flex-wrap items-center gap-1 py-1', className)}
             {...props}
         />
     )

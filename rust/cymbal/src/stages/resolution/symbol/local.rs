@@ -161,10 +161,8 @@ impl SymbolResolver for LocalSymbolResolver {
         class: String,
     ) -> Result<String, ResolveError> {
         let map: Arc<FetchedMapping> = self.catalog.pg.lookup(team_id, symbolset_ref).await?;
-        let mapper = map.get_mapper();
-        let result = mapper
-            .remap_class(class.as_str())
-            .map(|s| s.to_string())
+        let result = map
+            .remap_class(class.as_str())?
             .ok_or(ProguardError::MissingClass)?;
         Ok(result)
     }

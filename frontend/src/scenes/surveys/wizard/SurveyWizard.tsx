@@ -78,8 +78,8 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     // Redirect existing surveys that use wizard-unsupported fields to the full
     // editor. Brand-new surveys should always start on template selection,
     // regardless of the user's editor preference.
-    // Hash-carrying deep links (#fromTemplate, #preserveLocalChanges) are
-    // respected and bypass the redirect.
+    // Hash-carrying deep links (e.g. #fromTemplate) are respected and bypass the
+    // redirect.
     useEffect(() => {
         if (window.location.hash) {
             return
@@ -124,9 +124,9 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
 
     const handleCustomizeMore = (): void => {
         setPreferredEditor('full')
-        const target = isEditing
-            ? `${urls.survey(id)}?edit=true#preserveLocalChanges=true`
-            : `${urls.survey(id)}#fromTemplate=true&preserveLocalChanges=true`
+        // Unsaved edits are preserved automatically by surveyLogic when the route
+        // re-mounts with the same survey id — no URL flag needed.
+        const target = isEditing ? `${urls.survey(id)}?edit=true` : `${urls.survey(id)}#fromTemplate=true`
         router.actions.push(target)
     }
 
