@@ -12,6 +12,7 @@ from django.utils import timezone
 
 import posthoganalytics
 import posthoganalytics.ai.openai
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from elevenlabs import ElevenLabs
 from posthoganalytics.ai.openai import OpenAI
@@ -239,24 +240,21 @@ class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     parser_classes = [MultiPartParser, JSONParser]
     posthog_feature_flag = "user-interviews"
     permission_classes = [PostHogFeatureFlagPermission]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["topic"]
 
 
 class UserInterviewTopicSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    interviewee_cohort = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text="Optional cohort ID identifying who to target. Not enforced as a foreign key.",
-    )
     interviewee_emails = serializers.ListField(
         child=serializers.CharField(max_length=254, validators=[EmailWithDisplayNameValidator()]),
         required=False,
-        help_text="Email addresses of people to interview. May be combined with interviewee_cohort and interviewee_distinct_ids.",
+        help_text="Email addresses of people to interview. May be combined with interviewee_distinct_ids.",
     )
     interviewee_distinct_ids = serializers.ListField(
         child=serializers.CharField(max_length=400),
         required=False,
-        help_text="PostHog distinct IDs of people to interview. May be combined with interviewee_cohort and interviewee_emails.",
+        help_text="PostHog distinct IDs of people to interview. May be combined with interviewee_emails.",
     )
     topic = serializers.CharField(
         help_text="The product, feature, or idea you want to ask interviewees about.",
@@ -278,7 +276,6 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
             "id",
             "created_by",
             "created_at",
-            "interviewee_cohort",
             "interviewee_emails",
             "interviewee_distinct_ids",
             "topic",
@@ -287,27 +284,19 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id", "created_by", "created_at")
 
+    MISSING_TARGETING_ERROR = "At least one of interviewee_emails or interviewee_distinct_ids must be provided."
+
     def validate(self, attrs: dict) -> dict:
-        cohort = (
-            attrs.get("interviewee_cohort")
-            if "interviewee_cohort" in attrs
-            else getattr(self.instance, "interviewee_cohort", None)
-        )
-        emails = (
-            attrs.get("interviewee_emails")
-            if "interviewee_emails" in attrs
-            else getattr(self.instance, "interviewee_emails", [])
-        )
-        distinct_ids = (
-            attrs.get("interviewee_distinct_ids")
-            if "interviewee_distinct_ids" in attrs
-            else getattr(self.instance, "interviewee_distinct_ids", [])
-        )
-        if cohort is None and not emails and not distinct_ids:
-            raise serializers.ValidationError(
-                "At least one of interviewee_cohort, interviewee_emails, or interviewee_distinct_ids must be provided."
-            )
+        if not self._current(attrs, "interviewee_emails", []) and not self._current(
+            attrs, "interviewee_distinct_ids", []
+        ):
+            raise serializers.ValidationError(self.MISSING_TARGETING_ERROR)
         return attrs
+
+    def _current(self, attrs: dict, field: str, default: Any) -> Any:
+        if field in attrs:
+            return attrs[field]
+        return getattr(self.instance, field, default)
 
     def create(self, validated_data: dict) -> UserInterviewTopic:
         request = self.context["request"]
@@ -455,7 +444,7 @@ class SendInvitesRequestSerializer(serializers.Serializer):
 
 @extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """Planned user interview topics: who we want to target (cohort) and what we want to ask about."""
+    """Planned user interview topics: who we want to target and what we want to ask about."""
 
     scope_object = "user_interview"
     # Treat the custom @action endpoints as writes so personal API keys with
@@ -498,8 +487,8 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(
                 {
                     "error": (
-                        "Topic targets a cohort but has no resolved emails or distinct IDs. "
-                        "Add interviewee_emails or interviewee_distinct_ids before generating links."
+                        "Topic has no interviewee_emails or interviewee_distinct_ids set. "
+                        "Add them before generating links."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -544,8 +533,8 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(
                 {
                     "error": (
-                        "Topic targets a cohort but has no resolved emails or distinct IDs. "
-                        "Add interviewee_emails or interviewee_distinct_ids before sending invites."
+                        "Topic has no interviewee_emails or interviewee_distinct_ids set. "
+                        "Add them before sending invites."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
