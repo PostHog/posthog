@@ -199,7 +199,14 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.EXPERIMENT_DATA_WAREHOUSE_NODE
         ):
             return {"product": Product.EXPERIMENTS}
-        case NodeKind.TRACE_QUERY | NodeKind.TRACES_QUERY | NodeKind.TRACE_NEIGHBORS_QUERY | NodeKind.TRACE_SPANS_QUERY:
+        case (
+            NodeKind.TRACE_QUERY
+            | NodeKind.TRACES_QUERY
+            | NodeKind.TRACE_NEIGHBORS_QUERY
+            | NodeKind.TRACE_SPANS_QUERY
+            | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
+            | NodeKind.TRACE_SPANS_TREE_QUERY
+        ):
             return {"product": Product.LLM_ANALYTICS}
         case (
             NodeKind.VECTOR_SEARCH_QUERY

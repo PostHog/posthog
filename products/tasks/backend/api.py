@@ -683,6 +683,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if initial_permission_mode is not None:
             extra_state = extra_state or {}
             extra_state["initial_permission_mode"] = initial_permission_mode
+        if task.origin_product == Task.OriginProduct.SENDBLUE:
+            extra_state = extra_state or {}
+            extra_state["interaction_origin"] = "sendblue"
 
         if resume_from_run_id:
             # prevent cross-task resume
@@ -797,6 +800,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
 
         task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+        if task.origin_product == Task.OriginProduct.SENDBLUE:
+            try:
+                from posthog.tasks.tasks import reconcile_sendblue_prewarmed_sandbox_pool
+
+                reconcile_sendblue_prewarmed_sandbox_pool.delay(task.team_id)
+            except Exception:
+                logger.exception("Failed to enqueue Sendblue prewarmed sandbox pool reconciliation")
 
         if pending_user_artifact_ids:
             run_artifacts: list[dict] = []
@@ -1192,6 +1202,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 new_status,
                 request.validated_data.get("error_message"),
             )
+            # mark_completed / mark_failed fire pushes from the model. Cancellation
+            # transitions only flow through this PATCH path, so dispatch here.
+            if new_status == TaskRun.Status.CANCELLED:
+                from products.tasks.backend.push_dispatcher import notify_task_run_cancelled
+
+                notify_task_run_cancelled(task_run)
         new_environment = request.validated_data.get("environment")
         if new_environment == "local" and old_environment == TaskRun.Environment.CLOUD:
             self._signal_workflow_completion(task_run, "cancelled", "handoff")

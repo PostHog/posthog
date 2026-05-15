@@ -142,6 +142,10 @@ def _connect_to_postgres(
             sslrootcert="/tmp/no.txt",
             sslcert="/tmp/no.txt",
             sslkey="/tmp/no.txt",
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=5,
             **kwargs,
         )
     except psycopg.OperationalError as e:
@@ -1479,6 +1483,10 @@ def postgres_source(
                 sslrootcert="/tmp/no.txt",
                 sslcert="/tmp/no.txt",
                 sslkey="/tmp/no.txt",
+                keepalives=1,
+                keepalives_idle=30,
+                keepalives_interval=10,
+                keepalives_count=5,
             )
         except psycopg.OperationalError as e:
             if require_ssl and "SSL" in str(e):
@@ -1664,6 +1672,10 @@ def postgres_source(
                         sslcert="/tmp/no.txt",
                         sslkey="/tmp/no.txt",
                         cursor_factory=cursor_factory,
+                        keepalives=1,
+                        keepalives_idle=30,
+                        keepalives_interval=10,
+                        keepalives_count=5,
                     )
                 except psycopg.OperationalError as e:
                     if require_ssl and "SSL" in str(e):

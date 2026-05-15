@@ -47,6 +47,18 @@ describe('appendFilterParams', () => {
             expected: [],
         },
         {
+            label: 'skips filters that are not event properties',
+            filters: [
+                {
+                    type: PropertyFilterType.Person,
+                    key: 'email',
+                    value: 'test@example.com',
+                    operator: PropertyOperator.Exact,
+                },
+            ] as WebAnalyticsPropertyFilter[],
+            expected: [],
+        },
+        {
             label: 'skips null entries within an array value',
             filters: [
                 {

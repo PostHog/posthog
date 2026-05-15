@@ -56,7 +56,7 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    common/ ee/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
+                    common/ ee/ frontend/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
 
     semgrep-go:
         runs-on: ubuntu-latest
@@ -193,6 +193,45 @@ jobs:
                     --exclude ./services/ \
                     .
 
+    # Devex / hygiene rules. Two passes:
+    #   - WARNING-severity rules print findings without failing the job
+    #     (used while migrating away from a pattern with a known backlog).
+    #   - ERROR-severity rules fail the job on any finding (regression guards).
+    # See `.semgrep/devex-rules/README.md`.
+    semgrep-devex:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        container:
+            image: semgrep/semgrep
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            # Pass 1: print WARNING-severity findings. No --error — this step
+            # does not fail CI. Backlogs from migration-in-progress rules show
+            # up here.
+            - name: Warnings (informational)
+              run: |
+                  semgrep \
+                    --config ".semgrep/devex-rules/" \
+                    --severity=WARNING \
+                    --metrics=off \
+                    --verbose \
+                    common/ ee/ frontend/ posthog/ products/
+
+            # Pass 2: enforce ERROR-severity rules. Any finding fails the
+            # job — regression guards live here.
+            - name: Errors (blocking)
+              run: |
+                  semgrep \
+                    --config ".semgrep/devex-rules/" \
+                    --severity=ERROR \
+                    --error \
+                    --metrics=off \
+                    --verbose \
+                    common/ ee/ frontend/ posthog/ products/
+
     semgrep-test-rules:
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -215,6 +254,7 @@ jobs:
             - semgrep-js
             - semgrep-products-frontend
             - semgrep-general
+            - semgrep-devex
             - semgrep-test-rules
         name: Semgrep Checks Pass
         runs-on: ubuntu-latest
@@ -245,6 +285,10 @@ jobs:
                   fi
                   if [[ "${{ needs.semgrep-general.result }}" != "success" && "${{ needs.semgrep-general.result }}" != "skipped" ]]; then
                     echo "semgrep-general did not complete successfully."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.semgrep-devex.result }}" != "success" && "${{ needs.semgrep-devex.result }}" != "skipped" ]]; then
+                    echo "semgrep-devex did not complete successfully."
                     exit 1
                   fi
                   if [[ "${{ needs.semgrep-test-rules.result }}" != "success" && "${{ needs.semgrep-test-rules.result }}" != "skipped" ]]; then

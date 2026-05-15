@@ -90,6 +90,7 @@ export interface SharingModalBaseProps {
      */
     recordingLinkTimeForm?: ReactNode
     userAccessLevel?: AccessControlLevel
+    onSharingEnabledChange?: (enabled: boolean) => void
 }
 
 export interface SharingModalProps extends SharingModalBaseProps {
@@ -110,6 +111,7 @@ export function SharingModalContent({
     previewIframe = false,
     recordingLinkTimeForm = undefined,
     userAccessLevel,
+    onSharingEnabledChange,
 }: SharingModalBaseProps): JSX.Element {
     const logicProps = {
         dashboardId,
@@ -117,6 +119,7 @@ export function SharingModalContent({
         recordingId,
         notebookShortId,
         additionalParams,
+        onSharingEnabledChange,
     }
     const {
         whitelabelAvailable,

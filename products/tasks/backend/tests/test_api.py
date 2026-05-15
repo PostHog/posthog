@@ -504,6 +504,29 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
 
+    def test_create_sendblue_task_defaults_repository_without_github_integration(self):
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Sendblue Task",
+                "description": "Created from Sendblue",
+                "origin_product": "sendblue",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["origin_product"], Task.OriginProduct.SENDBLUE)
+        self.assertEqual(data["repository"], "posthog/posthog")
+
+        task = Task.objects.get(id=data["id"])
+        self.assertEqual(task.origin_product, Task.OriginProduct.SENDBLUE)
+        self.assertEqual(task.repository, "posthog/posthog")
+        self.assertIsNone(task.github_integration_id)
+
     def test_create_task_with_github_user_integration(self):
         user_integration = _grant_user_github_access(self.user)
 
@@ -1136,6 +1159,27 @@ class TestTaskAPI(BaseTaskAPITest):
         task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
         assert "initial_permission_mode" not in (task_run.state or {})
         mock_workflow.assert_called_once()
+
+    @patch("posthog.tasks.tasks.reconcile_sendblue_prewarmed_sandbox_pool.delay")
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_sendblue_marks_origin_and_enqueues_pool_reconcile(self, mock_workflow, mock_reconcile):
+        task = self.create_task()
+        task.origin_product = Task.OriginProduct.SENDBLUE
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["origin_product", "repository"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "interactive", "pending_user_message": "hello from sms"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["interaction_origin"] == "sendblue"
+        assert task_run.state["pending_user_message"] == "hello from sms"
+        mock_workflow.assert_called_once()
+        mock_reconcile.assert_called_once_with(task.team_id)
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_rejects_invalid_initial_permission_mode(self, mock_workflow):
@@ -2678,6 +2722,39 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_signal.assert_called_once()
         call_args = mock_signal.call_args
         self.assertEqual(call_args[0][1], "cancelled")
+
+    @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
+    @patch("products.tasks.backend.push_dispatcher.notify_task_run_cancelled")
+    def test_update_run_status_to_cancelled_triggers_push(self, mock_notify, _mock_signal):
+        """Cancellation only flows through the API PATCH path — mark_completed / mark_failed
+        cover the other terminal transitions. A regression that removes this hook would go
+        undetected without an integration test here."""
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "cancelled"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_notify.assert_called_once()
+        self.assertEqual(str(mock_notify.call_args.args[0].id), str(run.id))
+
+    @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
+    @patch("products.tasks.backend.push_dispatcher.notify_task_run_cancelled")
+    def test_update_run_status_to_non_cancelled_terminal_does_not_trigger_cancel_push(self, mock_notify, _mock_signal):
+        """Sanity check: a PATCH to completed/failed must NOT fire the cancelled push."""
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "completed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_notify.assert_not_called()
 
     @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
     def test_update_run_non_terminal_status_does_not_signal(self, mock_signal):
