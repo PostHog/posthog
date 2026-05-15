@@ -1,27 +1,19 @@
-import functools
 from typing import Any
 
-import tiktoken
 import structlog
 
 from posthog.schema import LLMTrace
 
+from posthog.helpers.tiktoken_encoding import get_tiktoken_encoding_for_model
 from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
 
 
-@functools.cache
-def _get_tiktoken_encoding() -> tiktoken.Encoding:
-    # Loaded lazily and cached so we only download the encoding blob once per process,
-    # and a corrupt download doesn't crash module import.
-    return tiktoken.encoding_for_model("gpt-4o")
-
-
 class LLMTracesSummarizerStringifier:
     def __init__(self, team: Team):
         self._team = team
-        self._token_encoder = _get_tiktoken_encoding()
+        self._token_encoder = get_tiktoken_encoding_for_model("gpt-4o")
         self._stringified_trace_max_tokens = 5000
 
     def stringify_traces(self, traces_chunk: list[LLMTrace]) -> dict[str, str]:

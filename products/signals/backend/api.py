@@ -1,12 +1,10 @@
 import enum
-import functools
 from datetime import timedelta
 from typing import get_args
 
 from django.conf import settings
 
 import pydantic
-import tiktoken
 import structlog
 import temporalio
 import posthoganalytics
@@ -14,6 +12,7 @@ import posthoganalytics
 from posthog.schema import SignalInput
 
 from posthog.event_usage import groups
+from posthog.helpers.tiktoken_encoding import CL100K_BASE_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
@@ -26,13 +25,6 @@ from products.signals.backend.temporal.types import BufferSignalsInput, EmitSign
 logger = structlog.get_logger(__name__)
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
-
-
-@functools.cache
-def _get_tiktoken_encoding() -> tiktoken.Encoding:
-    # Loaded lazily because tiktoken downloads the encoding blob on first use
-    # and verifies its SHA-256 — a corrupt download would otherwise crash module import.
-    return tiktoken.get_encoding("cl100k_base")
 
 
 def _get_field_values(field: pydantic.fields.FieldInfo) -> tuple[str, ...]:
@@ -106,7 +98,7 @@ async def emit_signal(
     if not is_enabled:
         return
 
-    token_count = len(_get_tiktoken_encoding().encode(description))
+    token_count = len(get_tiktoken_encoding_for_model(CL100K_BASE_PROXY_MODEL).encode(description))
     if token_count > MAX_SIGNAL_DESCRIPTION_TOKENS:
         raise ValueError(
             f"Signal description exceeds {MAX_SIGNAL_DESCRIPTION_TOKENS} tokens ({token_count} tokens). "

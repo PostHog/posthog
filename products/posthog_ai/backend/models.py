@@ -1,23 +1,14 @@
-import functools
 from typing import TYPE_CHECKING
 
 from django.db import models
 
-import tiktoken
-
+from posthog.helpers.tiktoken_encoding import CL100K_BASE_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
     from posthog.kafka_client.client import ProduceResult
 
 EMBEDDING_MODEL_TOKEN_LIMIT = 8192
-
-
-@functools.cache
-def _get_tiktoken_encoding() -> tiktoken.Encoding:
-    # Loaded lazily and cached so we only download the encoding blob once per process,
-    # and a corrupt download doesn't crash module import.
-    return tiktoken.get_encoding("cl100k_base")
 
 
 class AgentMemory(UUIDModel):
@@ -44,7 +35,7 @@ class AgentMemory(UUIDModel):
         ]
 
     def embed(self, model_name: str) -> "ProduceResult":
-        enc = _get_tiktoken_encoding()
+        enc = get_tiktoken_encoding_for_model(CL100K_BASE_PROXY_MODEL)
         token_count = len(enc.encode(self.contents))
         if token_count > EMBEDDING_MODEL_TOKEN_LIMIT:
             raise ValueError(
