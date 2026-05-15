@@ -79,36 +79,3 @@ export const WithCspFlag: Story = {
         return <SourcesList />
     },
 }
-
-/**
- * Flag on AND the team already has CSP reporting enabled — toggle is checked.
- */
-export const WithCspFlagAndEnabled: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.PRODUCT_AUTONOMY, FEATURE_FLAGS.CSP_REPORTING_SIGNAL_SOURCE],
-    },
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/api/projects/:team_id/signals/source_configs/': {
-                    ...SOURCE_CONFIGS_MOCK,
-                    count: SOURCE_CONFIGS_MOCK.count + 1,
-                    results: [
-                        ...SOURCE_CONFIGS_MOCK.results,
-                        {
-                            id: 'cfg-csp',
-                            source_product: 'csp_reporting',
-                            source_type: 'violation',
-                            enabled: true,
-                            config: {},
-                            created_at: '2026-05-14T10:00:00Z',
-                            updated_at: '2026-05-14T10:00:00Z',
-                            status: null,
-                        },
-                    ],
-                },
-            },
-        })
-        return <SourcesList />
-    },
-}
