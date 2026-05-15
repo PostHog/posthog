@@ -1,5 +1,3 @@
-import { ComponentProps } from 'react'
-
 import {
     IconAndroid,
     IconApple,
@@ -18,11 +16,10 @@ import {
     IconRuby,
     IconRust,
     IconSwift,
+    type IconProps,
 } from '@posthog/icons'
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
-
-type IconProps = Omit<ComponentProps<'svg'>, 'children'>
 
 const RuntimeIconMap: Record<ErrorTrackingRuntime, React.FC> = {
     python: IconPython,

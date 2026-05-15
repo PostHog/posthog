@@ -62,4 +62,16 @@ export type {
     TooltipPositionerFunction,
 } from 'chart.js'
 export { defaults, registerables } from 'chart.js'
+
+// Mirrors chart.js's internal DeepPartial (frontend/node_modules/chart.js/dist/types/utils.d.ts).
+// Re-declared here because chart.js's `exports` map doesn't expose `dist/types/utils`, and
+// TS 6.0's bundler resolution rejects the deep import. Kept structurally identical so it
+// remains assignable to chart.js options types like `LegendOptions` (which use DeepPartial).
+export type DeepPartial<T> = T extends Function
+    ? T
+    : T extends Array<infer U>
+      ? Array<DeepPartial<U>>
+      : T extends object
+        ? { [P in keyof T]?: DeepPartial<T[P]> }
+        : T | undefined
 /* oxlint-enable no-restricted-imports */

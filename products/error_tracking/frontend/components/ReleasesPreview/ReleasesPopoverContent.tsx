@@ -1,11 +1,15 @@
-import { ComponentProps, FunctionComponent, ReactNode, RefAttributes, createElement, useMemo } from 'react'
+import { ReactNode, createElement, useMemo } from 'react'
 import { P, match } from 'ts-pattern'
 
-import { IconCommit, IconGitBranch, IconGitRepository, IconShare } from '@posthog/icons'
+import {
+    IconCommit,
+    IconGitBranch,
+    IconGitRepository,
+    IconShare,
+    type IconComponent,
+    type IconProps,
+} from '@posthog/icons'
 import { LemonTag, LemonTagProps, Link, Tooltip } from '@posthog/lemon-ui'
-
-type IconProps = Omit<ComponentProps<'svg'>, 'children'>
-type IconComponent<T> = FunctionComponent<T & RefAttributes<SVGSVGElement>>
 
 import { ErrorTrackingRelease, ReleaseGitMetadata } from 'lib/components/Errors/types'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'

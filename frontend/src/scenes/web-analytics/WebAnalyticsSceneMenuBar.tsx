@@ -124,7 +124,7 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                                 >
                                     <IconBolt />
                                     New query engine
-                                    <Badge variant="info" size="sm" className="ml-1 uppercase">
+                                    <Badge variant="info" className="ml-1 uppercase">
                                         Beta
                                     </Badge>
                                 </SceneMenuBarCheckboxItem>
