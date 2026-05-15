@@ -76,6 +76,8 @@ class CostThrottle(Throttle):
                 detail=self._get_limit_exceeded_detail(),
                 scope=self.scope,
                 retry_after=window,
+                used_usd=0.0,
+                limit_usd=0.0,
             )
         limiter = self._get_limiter(context)
         key = self._get_cache_key(context)
@@ -106,6 +108,8 @@ class CostThrottle(Throttle):
                 detail=self._get_limit_exceeded_detail(),
                 scope=self.scope,
                 retry_after=retry_after,
+                used_usd=current,
+                limit_usd=limit,
             )
         return ThrottleResult.allow()
 
