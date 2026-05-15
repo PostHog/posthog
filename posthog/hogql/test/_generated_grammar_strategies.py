@@ -2,7 +2,7 @@
 
 DO NOT EDIT. Regenerate via::
 
-    ./bin/build-hogql-grammar-strategies.py
+    python -m posthog.hogql.scripts.build_grammar_strategies
 
 The generator reads ``posthog/hogql/grammar/HogQLParser.g4`` and
 ``posthog/hogql/grammar/HogQLLexer.common.g4`` and emits this file.

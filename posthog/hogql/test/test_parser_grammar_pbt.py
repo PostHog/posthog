@@ -1,9 +1,10 @@
 """Grammar-driven property-based tests for the HogQL parser.
 
 Strategies are auto-generated from ``HogQLParser.g4`` /
-``HogQLLexer.common.g4`` by ``bin/build-hogql-grammar-strategies.py``
-and imported from ``_generated_grammar_strategies``. Variable-content
-tokens are hand-written once in ``_grammar_token_strategies``.
+``HogQLLexer.common.g4`` by
+``posthog/hogql/scripts/build_grammar_strategies.py`` and imported
+from ``_generated_grammar_strategies``. Variable-content tokens are
+hand-written once in ``_grammar_token_strategies``.
 
 The stylistic-jiggle layer (case-flipping, whitespace, comment
 insertion) wraps grammar-generated text to cover lexical axes that are

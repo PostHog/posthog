@@ -7,15 +7,15 @@ Reads ``posthog/hogql/grammar/HogQLParser.g4`` and
 
 Modes:
 
-    ./bin/build-hogql-grammar-strategies.py
+    python -m posthog.hogql.scripts.build_grammar_strategies
         Regenerate and write the file.
 
-    ./bin/build-hogql-grammar-strategies.py --check
+    python -m posthog.hogql.scripts.build_grammar_strategies --check
         Regenerate to memory and exit non-zero if the on-disk file
         differs. Use in CI to catch drift between the grammar and the
         checked-in generated strategies.
 
-The codegen library is in ``posthog/hogql/test/_grammar_codegen.py``.
+The codegen library is at ``posthog/hogql/scripts/grammar_codegen.py``.
 """
 # ruff: noqa: T201
 
@@ -25,10 +25,10 @@ import sys
 import argparse
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from posthog.hogql.test._grammar_codegen import generate  # noqa: E402
+from posthog.hogql.scripts.grammar_codegen import generate  # noqa: E402
 
 PARSER_GRAMMAR = REPO_ROOT / "posthog" / "hogql" / "grammar" / "HogQLParser.g4"
 LEXER_GRAMMAR = REPO_ROOT / "posthog" / "hogql" / "grammar" / "HogQLLexer.common.g4"
@@ -54,7 +54,7 @@ def main() -> int:
         if existing != source:
             print(
                 f"FAIL: {OUTPUT_PATH} is out of sync with the grammar.\n"
-                f"Run ./bin/build-hogql-grammar-strategies.py to regenerate."
+                f"Run `python -m posthog.hogql.scripts.build_grammar_strategies` to regenerate."
             )
             return 1
         print(f"OK: {OUTPUT_PATH} is in sync with the grammar.")

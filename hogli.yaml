@@ -1004,11 +1004,3 @@ environment:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true
-    build:hogql:grammar:strategies:
-        bin_script: build-hogql-grammar-strategies.py
-        description: 'Regenerate Hypothesis strategies from HogQLParser.g4 into posthog/hogql/test/_generated_grammar_strategies.py'
-        hidden: true
-    hogql:pbt:stream:
-        bin_script: hogql-pbt-stream.py
-        description: 'Continuous grammar-driven differential PBT comparing Python vs C++ HogQL parsers; appends divergences to pbt-divergences.jsonl'
-        hidden: true
