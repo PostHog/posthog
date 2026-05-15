@@ -961,9 +961,9 @@ _OPT_INCLUSION_DEN = 8
 # Firing them at a low rate keeps parity coverage without tanking
 # acceptance. With ~10 columnExpr nodes per SELECT, a rate of 1/30
 # yields ~70% chance the SELECT contains no soft alt.
-# Interpolated from the generator's module-level constant so the
-# runtime value here and the literal embedded into alt-selector emit
-# (``_emit_alt_selector``) can't drift.
+# Interpolated from the generator's module-level constant; both
+# alt-level and element-level soft-firing emit ``_include_soft(draw)``
+# below, so the rate lives in exactly one place at runtime.
 _SOFT_FREQ_DENOM = {_SOFT_FREQ_DENOM}
 
 
@@ -1065,16 +1065,20 @@ class _Emitter:
             # Nothing to weight; flat sampling
             lines.append(f"        alt_idx = draw(st.integers(min_value=0, max_value={total - 1}))")
             return
+        # Routed through the emitted ``_include_soft`` helper so the
+        # alt-level and element-level soft-firing rates share one
+        # definition; without this the integer-check would be inlined
+        # here while element-level emission calls the helper.
         if has_leaves:
             lines.append("        if depth <= 0:")
             lines.append(f"            alt_idx = draw(st.sampled_from({leaf_indices!r}))")
             if soft_indices:
-                lines.append(f"        elif draw(st.integers(min_value=0, max_value={_SOFT_FREQ_DENOM - 1})) == 0:")
+                lines.append("        elif _include_soft(draw):")
                 lines.append(f"            alt_idx = draw(st.sampled_from({soft_indices!r}))")
             lines.append("        else:")
             lines.append(f"            alt_idx = draw(st.sampled_from({common_indices!r}))")
         else:
-            lines.append(f"        if draw(st.integers(min_value=0, max_value={_SOFT_FREQ_DENOM - 1})) == 0:")
+            lines.append("        if _include_soft(draw):")
             lines.append(f"            alt_idx = draw(st.sampled_from({soft_indices!r}))")
             lines.append("        else:")
             lines.append(f"            alt_idx = draw(st.sampled_from({common_indices!r}))")

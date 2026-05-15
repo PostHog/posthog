@@ -52,9 +52,9 @@ _OPT_INCLUSION_DEN = 8
 # Firing them at a low rate keeps parity coverage without tanking
 # acceptance. With ~10 columnExpr nodes per SELECT, a rate of 1/30
 # yields ~70% chance the SELECT contains no soft alt.
-# Interpolated from the generator's module-level constant so the
-# runtime value here and the literal embedded into alt-selector emit
-# (``_emit_alt_selector``) can't drift.
+# Interpolated from the generator's module-level constant; both
+# alt-level and element-level soft-firing emit ``_include_soft(draw)``
+# below, so the rate lives in exactly one place at runtime.
 _SOFT_FREQ_DENOM = 30
 
 

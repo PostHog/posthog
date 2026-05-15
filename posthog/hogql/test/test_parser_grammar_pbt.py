@@ -175,12 +175,17 @@ def _comment_jiggle(draw: Any, query: str) -> str:
             and tok.upper() in _KEYWORDS_FOR_CASE_VARIATION
             and draw(st.integers(min_value=0, max_value=4)) == 0
         ):
+            # ``-- ...\n`` is a separate lexical path from ``/* ... */``
+            # — line comments must extend to end-of-line, so they
+            # exercise ``\n``-terminated lookaheads that the block-comment
+            # form doesn't reach.
             comment = draw(
                 st.sampled_from(
                     [
                         "/* note */",
                         "/**/",
                         "/* multi\nline */",
+                        "-- note\n",
                     ]
                 )
             )
