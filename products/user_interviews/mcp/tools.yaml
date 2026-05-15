@@ -9,6 +9,24 @@ feature: user_interviews
 url_prefix: /user_interviews
 ui_apps: {}
 tools:
+    user-interview-topics-add-interviewee:
+        operation: user_interview_topics_add_interviewee_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Add an interviewee to a topic
+        description: >
+            Append a single interviewee identifier to a user interview topic. Email-shaped identifiers (including the
+            `Display Name <email@host>` form) go to `interviewee_emails`; everything else goes to
+            `interviewee_distinct_ids`. Idempotent — adding an identifier that is already present leaves the topic
+            unchanged. Returns the updated topic.
+        include_params:
+            - identifier
+        feature_flag: user-interviews
     user-interview-topics-create:
         operation: user_interview_topics_create
         enabled: true
@@ -34,24 +52,6 @@ tools:
             - topic
             - agent_context
             - questions
-        feature_flag: user-interviews
-    user-interview-topics-add-interviewee:
-        operation: user_interview_topics_add_interviewee_create
-        enabled: true
-        scopes:
-            - user_interview:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Add an interviewee to a topic
-        description: >
-            Append a single interviewee identifier to a user interview topic. Email-shaped identifiers (including the
-            `Display Name <email@host>` form) go to `interviewee_emails`; everything else goes to
-            `interviewee_distinct_ids`. Idempotent — adding an identifier that is already present leaves the topic
-            unchanged. Returns the updated topic.
-        include_params:
-            - identifier
         feature_flag: user-interviews
     user-interview-topics-destroy:
         operation: user_interview_topics_destroy
@@ -175,9 +175,8 @@ tools:
         title: Update a user interview topic
         description: >
             Update fields on a user interview topic. Pass only the fields you want to change. For incremental edits to
-            targeting, prefer `user-interview-topics-add-interviewee` and
-            `user-interview-topics-remove-interviewee` — sending `interviewee_emails` or `interviewee_distinct_ids`
-            here replaces the entire array.
+            targeting, prefer `user-interview-topics-add-interviewee` and `user-interview-topics-remove-interviewee` —
+            sending `interviewee_emails` or `interviewee_distinct_ids` here replaces the entire array.
         include_params:
             - topic
             - agent_context
