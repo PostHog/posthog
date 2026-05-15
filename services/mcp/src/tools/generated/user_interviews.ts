@@ -29,6 +29,31 @@ import {
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const UserInterviewTopicsAddIntervieweeSchema = UserInterviewTopicsAddIntervieweeCreateParams.omit({
+    project_id: true,
+}).extend(UserInterviewTopicsAddIntervieweeCreateBody.shape)
+
+const userInterviewTopicsAddInterviewee = (): ToolBase<
+    typeof UserInterviewTopicsAddIntervieweeSchema,
+    Schemas.UserInterviewTopic
+> => ({
+    name: 'user-interview-topics-add-interviewee',
+    schema: UserInterviewTopicsAddIntervieweeSchema,
+    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsAddIntervieweeSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.identifier !== undefined) {
+            body['identifier'] = params.identifier
+        }
+        const result = await context.api.request<Schemas.UserInterviewTopic>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/add_interviewee/`,
+            body,
+        })
+        return result
+    },
+})
+
 const UserInterviewTopicsCreateSchema = UserInterviewTopicsCreateBody
 
 const userInterviewTopicsCreate = (): ToolBase<typeof UserInterviewTopicsCreateSchema, Schemas.UserInterviewTopic> => ({
@@ -55,31 +80,6 @@ const userInterviewTopicsCreate = (): ToolBase<typeof UserInterviewTopicsCreateS
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'POST',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/`,
-            body,
-        })
-        return result
-    },
-})
-
-const UserInterviewTopicsAddIntervieweeSchema = UserInterviewTopicsAddIntervieweeCreateParams.omit({
-    project_id: true,
-}).extend(UserInterviewTopicsAddIntervieweeCreateBody.shape)
-
-const userInterviewTopicsAddInterviewee = (): ToolBase<
-    typeof UserInterviewTopicsAddIntervieweeSchema,
-    Schemas.UserInterviewTopic
-> => ({
-    name: 'user-interview-topics-add-interviewee',
-    schema: UserInterviewTopicsAddIntervieweeSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsAddIntervieweeSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.identifier !== undefined) {
-            body['identifier'] = params.identifier
-        }
-        const result = await context.api.request<Schemas.UserInterviewTopic>({
-            method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/add_interviewee/`,
             body,
         })
         return result
@@ -403,8 +403,8 @@ const userInterviewsSearch = (): ToolBase<typeof UserInterviewsSearchSchema, Sch
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'user-interview-topics-create': userInterviewTopicsCreate,
     'user-interview-topics-add-interviewee': userInterviewTopicsAddInterviewee,
+    'user-interview-topics-create': userInterviewTopicsCreate,
     'user-interview-topics-generate-links': userInterviewTopicsGenerateLinks,
     'user-interview-topics-interviewees-create': userInterviewTopicsIntervieweesCreate,
     'user-interview-topics-interviewees-destroy': userInterviewTopicsIntervieweesDestroy,
