@@ -153,6 +153,31 @@
                                 }
                             ],
                             "description": "Optional reference URL surfaced to the LLM alongside the prompt when dynamic_tags is true."
+                        },
+                        "target_event_types": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "maxLength": 200,
+                                        "type": "string"
+                                    },
+                                    "maxItems": 20,
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Event names this tagger should run on. Defaults to ['$ai_generation'] when null. Dispatch-side support for non-$ai_generation events is a separate change — see PR notes."
+                        },
+                        "target_property_keys": {
+                            "description": "Event property keys to surface to the LLM. Empty list = include all top-level properties (truncated to a size budget). Only used when target_event_types includes events other than $ai_generation.",
+                            "items": {
+                                "maxLength": 200,
+                                "type": "string"
+                            },
+                            "maxItems": 50,
+                            "type": "array"
                         }
                     },
                     "required": ["prompt"],
