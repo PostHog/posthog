@@ -14,6 +14,7 @@ from posthog.api.capture import capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.llm_analytics.dynamic_tags import resolve_dynamic_tags
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 from posthog.temporal.llm_analytics.run_evaluation import extract_event_io
 
@@ -202,8 +203,9 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
     if not prompt:
         raise ApplicationError("Missing prompt in tagger_config", non_retryable=True)
 
+    tag_source = tagger_config.get("tag_source", "static")
     tags = tagger_config.get("tags", [])
-    if not tags:
+    if tag_source == "static" and not tags:
         raise ApplicationError("No tags defined in tagger_config", non_retryable=True)
 
     min_tags = tagger_config.get("min_tags", 0)
@@ -268,6 +270,44 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
     is_byok = provider_key is not None
     key_id = str(provider_key.id) if provider_key else None
 
+    eval_config = get_eval_config(provider) if provider_key is None else None
+
+    extraction_llm_used = False
+    extraction_input_tokens = 0
+    extraction_output_tokens = 0
+    if tag_source == "dynamic":
+        tag_source_url = tagger_config.get("tag_source_url")
+        tag_source_prompt = tagger_config.get("tag_source_prompt")
+        if not tag_source_url or not tag_source_prompt:
+            raise ApplicationError(
+                "Dynamic tag source requires tag_source_url and tag_source_prompt",
+                {"error_type": "tag_source_misconfigured"},
+                non_retryable=True,
+            )
+
+        dynamic_result = await resolve_dynamic_tags(
+            tagger_id=str(tagger["id"]),
+            tag_source_url=tag_source_url,
+            tag_source_prompt=tag_source_prompt,
+            provider=provider,
+            model=model,
+            provider_key=provider_key,
+            eval_config=eval_config,
+        )
+
+        if dynamic_result.skip_reason is not None:
+            raise ApplicationError(
+                dynamic_result.skip_message or "Dynamic tag resolution failed",
+                {"error_type": dynamic_result.skip_reason},
+                non_retryable=True,
+            )
+
+        assert dynamic_result.tags is not None  # narrowing for type-checker; skip_reason guarded above
+        tags = dynamic_result.tags
+        extraction_llm_used = dynamic_result.extraction_llm_used
+        extraction_input_tokens = dynamic_result.extraction_input_tokens
+        extraction_output_tokens = dynamic_result.extraction_output_tokens
+
     # Build context from event
     event_type = event_data["event"]
     properties = event_data["properties"]
@@ -286,11 +326,9 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
 
 Output: {output_data}"""
 
-    config = get_eval_config(provider) if provider_key is None else None
-
     client = Client(
         provider_key=provider_key,
-        config=config,
+        config=eval_config,
         capture_analytics=False,
     )
 
@@ -387,6 +425,9 @@ Output: {output_data}"""
         "key_id": key_id,
         "model": model,
         "provider": provider,
+        "extraction_llm_used": extraction_llm_used,
+        "extraction_input_tokens": extraction_input_tokens,
+        "extraction_output_tokens": extraction_output_tokens,
     }
 
 
@@ -661,7 +702,19 @@ class RunTaggerWorkflow(PostHogWorkflow):
                     details = e.cause.details[0]
                     error_type = details.get("error_type")
 
-                    if error_type in ("trial_limit_reached", "key_invalid", "parse_error", "model_not_allowed"):
+                    if error_type in (
+                        "trial_limit_reached",
+                        "key_invalid",
+                        "parse_error",
+                        "model_not_allowed",
+                        # Dynamic-tag resolution failures — skip this run, don't fail the workflow.
+                        # Transient (fetch) and persistent (misconfigured) reasons both surface here;
+                        # the surrounding $ai_tag event is simply not emitted for this event.
+                        "tag_source_fetch_failed",
+                        "tag_source_empty",
+                        "tag_source_extract_failed",
+                        "tag_source_misconfigured",
+                    ):
                         if error_type in ("trial_limit_reached", "model_not_allowed"):
                             await temporalio.workflow.execute_activity(
                                 disable_tagger_activity,
@@ -712,7 +765,9 @@ class RunTaggerWorkflow(PostHogWorkflow):
                         )
                 raise
 
-        # Increment trial counter if using PostHog key (LLM taggers only — Hog taggers have no LLM cost)
+        # Increment trial counter if using PostHog key (LLM taggers only — Hog taggers have no LLM cost).
+        # Dynamic-source taggers that hit the LLM for tag extraction count that as an additional
+        # trial use, matching Q1: extraction and classification are independent LLM spend.
         if tagger_type != "hog" and not result.get("is_byok"):
             from posthog.temporal.llm_analytics.run_evaluation import (
                 SendTrialUsageEmailInputs,
@@ -720,13 +775,16 @@ class RunTaggerWorkflow(PostHogWorkflow):
                 send_trial_usage_email_activity,
             )
 
-            threshold_pct = await temporalio.workflow.execute_activity(
-                increment_trial_eval_count_activity,
-                tagger["team_id"],
-                activity_id=f"increment-trial-tagger-{tagger['id']}",
-                schedule_to_close_timeout=timedelta(seconds=10),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+            increments = 2 if result.get("extraction_llm_used") else 1
+            threshold_pct = None
+            for i in range(increments):
+                threshold_pct = await temporalio.workflow.execute_activity(
+                    increment_trial_eval_count_activity,
+                    tagger["team_id"],
+                    activity_id=f"increment-trial-tagger-{tagger['id']}-{i}",
+                    schedule_to_close_timeout=timedelta(seconds=10),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
 
             if threshold_pct is not None and temporalio.workflow.patched("trial-usage-email"):
                 try:
