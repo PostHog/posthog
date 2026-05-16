@@ -38,6 +38,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
 
 from posthog.hogql.parser import clear_parse_caches, parse_expr, parse_select
+from posthog.hogql.test._pbt_diagnostic import _probe_backend
 
 N_EXPR = 1_000
 N_SELECT = 1_000
@@ -201,14 +202,16 @@ SELECT_QUERIES: dict[str, str] = {
 }
 
 
-def run(parse_fn, q: str, n: int) -> float:
-    """Per-call microseconds for `n` iterations of `parse_fn(q)`. Clears
-    the cache before each invocation so we measure cold parse cost rather
-    than the cache hit path."""
+def run(parse_fn, n: int) -> float:
+    """Per-call microseconds for `n` iterations of `parse_fn()`. The
+    caller is expected to pre-bind the query (and backend) via a
+    closure so this stays a single-arity callable. Clears the cache
+    before each invocation so we measure cold parse cost rather than
+    the cache hit path."""
 
     def body() -> Any:
         clear_parse_caches()
-        return parse_fn(q)
+        return parse_fn()
 
     # Warm up to surface errors before we time.
     body()
@@ -232,14 +235,14 @@ def bench(
     for name, q in queries.items():
         nq = N_PER_QUERY.get(name, n)
         try:
-            oracle_us = run(lambda q=q: parse_fn(q, backend=oracle), q, nq)  # type: ignore[arg-type]
+            oracle_us = run(lambda q=q: parse_fn(q, backend=oracle), nq)
         except Exception as e:
             print(f"{name:<22} {len(q):>6} {'ERROR':>12} {'-':>14} {'-':>12}  ({oracle}: {e})")
             continue
         try:
-            cand_us = run(lambda q=q: parse_fn(q, backend=candidate), q, nq)  # type: ignore[arg-type]
-        except Exception:
-            print(f"{name:<22} {len(q):>6} {oracle_us:>12.3f} {'(skip)':>14} {'-':>12}")
+            cand_us = run(lambda q=q: parse_fn(q, backend=candidate), nq)
+        except Exception as e:
+            print(f"{name:<22} {len(q):>6} {oracle_us:>12.3f} {'(skip)':>14} {'-':>12}  ({candidate}: {e})")
             continue
         ratio = oracle_us / cand_us if cand_us > 0 else float("nan")
         print(f"{name:<22} {len(q):>6} {oracle_us:>12.3f} {cand_us:>14.3f} {ratio:>11.1f}x")
@@ -291,8 +294,28 @@ def main() -> int:
             "other backend available in your environment."
         )
         return 2
-    bench("parse_expr", parse_expr, EXPR_QUERIES, N_EXPR, args.oracle, args.candidate)
-    bench("parse_select", parse_select, SELECT_QUERIES, N_SELECT, args.oracle, args.candidate)
+
+    # Sanity-probe both backends so a typo in `--candidate` or a
+    # missing backend in the environment fails immediately with a
+    # readable error, rather than tripping the per-row `except` on
+    # every query and silently reporting zero comparable rows.
+    for label, backend in (("oracle", args.oracle), ("candidate", args.candidate)):
+        err = _probe_backend("expr", backend)
+        if err is not None:
+            print(f"ERROR: {label} backend {backend!r} unavailable: {err}")
+            return 2
+
+    comparable = 0
+    comparable += bench("parse_expr", parse_expr, EXPR_QUERIES, N_EXPR, args.oracle, args.candidate)
+    comparable += bench("parse_select", parse_select, SELECT_QUERIES, N_SELECT, args.oracle, args.candidate)
+    if comparable == 0:
+        print(
+            f"\nERROR: zero comparable rows — candidate {args.candidate!r} "
+            f"failed every query. Backend is reachable (probe passed) but "
+            f"can't parse any of the corpus; this is a regression, not a "
+            f"config issue."
+        )
+        return 1
     return 0
 
 
