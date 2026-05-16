@@ -71,6 +71,7 @@ import {
 } from '../types'
 import { updateContentHeading } from '../utils'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { notebookCollabLogic } from './notebookCollabLogic'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
@@ -1195,29 +1196,16 @@ export const notebookLogic = kea<notebookLogicType>([
     })),
 
     beforeUnload((logic) => ({
-        enabled: (newLocation?: CombinedLocation) => {
-            // Only guard real, server-backed notebooks that the current user can edit.
-            // Scratchpad/canvas/templates are local-only, shared views are read-only.
-            if (
-                logic.values.mode !== 'notebook' ||
-                logic.values.isLocalOnly ||
-                logic.values.isShared ||
-                !logic.values.isEditable
-            ) {
-                return false
-            }
-            // syncStatus is `unsaved` while there is local content not yet on the server,
-            // and `saving` while a save is in flight (including the 409 retry loop in
-            // collab mode). Either way, leaving now risks dropping changes.
-            if (logic.values.syncStatus !== 'unsaved' && logic.values.syncStatus !== 'saving') {
-                return false
-            }
-            // Ignore in-page URL updates (side panel, hash params, comment selection, ...).
-            if (newLocation && newLocation.pathname === router.values.location.pathname) {
-                return false
-            }
-            return true
-        },
+        enabled: (newLocation?: CombinedLocation) =>
+            shouldWarnBeforeLeavingNotebook({
+                mode: logic.values.mode,
+                isLocalOnly: logic.values.isLocalOnly,
+                isShared: logic.values.isShared,
+                isEditable: logic.values.isEditable,
+                syncStatus: logic.values.syncStatus,
+                currentPathname: router.values.location.pathname,
+                newPathname: newLocation?.pathname,
+            }),
         message: 'Leave notebook?\nChanges you made may not be saved.',
     })),
 
