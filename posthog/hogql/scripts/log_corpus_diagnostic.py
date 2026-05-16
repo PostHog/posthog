@@ -112,21 +112,31 @@ _REDACTION_PASSES: list[tuple[str, str]] = [
     # IPv6 — 4+ colon-separated hex groups, so `HH:MM:SS` timestamps
     # inside toDateTime() literals don't false-positive.
     (r"([0-9a-fA-F]{1,4}:){3,7}[0-9a-fA-F]{1,4}", "<ipv6>"),
-    (r"\b(\d{1,3}\.){3}\d{1,3}\b", "<ipv4>"),
+    # IPv4 — `(^|[^.\d])` captures the char before so a `.`-preceded
+    # match (e.g. `1.2.3.4` inside the tuple access `t.1.2.3.4`) is
+    # skipped; re2 has no lookbehind, so the captured char is re-emitted
+    # via the `\1` backreference. A digit prefix is excluded too, to
+    # keep the original `\b`-start semantics.
+    (r"(^|[^.\d])(\d{1,3}\.){3}\d{1,3}\b", r"\1<ipv4>"),
     # Broad catch-all: 32+ contiguous hex (hashes / opaque ids).
     (r"\b[a-fA-F0-9]{32,}\b", "<hex>"),
 ]
 
 
+def _sql_str_literal(s: str) -> str:
+    """Escape a string for a ClickHouse single-quoted literal — double
+    backslashes, escape quotes. Applied to both the pattern and the
+    replacement so `_REDACTION_PASSES` can hold plain re2 source,
+    including replacements with `\\1` backreferences."""
+    return s.replace("\\", "\\\\").replace("'", "\\'")
+
+
 def _build_redaction_expr() -> str:
     """Nest `_REDACTION_PASSES` into one `replaceRegexpAll(…)` chain over
-    the HogQL column. Patterns are escaped for the ClickHouse string
-    literal (backslashes doubled) so `_REDACTION_PASSES` holds plain
-    re2 source."""
+    the HogQL column."""
     expr = "JSONExtractString(log_comment, 'query', 'query')"
     for pattern, replacement in _REDACTION_PASSES:
-        sql_pattern = pattern.replace("\\", "\\\\").replace("'", "\\'")
-        expr = f"replaceRegexpAll({expr}, '{sql_pattern}', '{replacement}')"
+        expr = f"replaceRegexpAll({expr}, '{_sql_str_literal(pattern)}', '{_sql_str_literal(replacement)}')"
     return expr
 
 
