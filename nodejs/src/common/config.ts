@@ -316,8 +316,9 @@ export function getDefaultCommonConfig(): CommonConfig {
         // Local dev points at the in-tree services/llm-gateway uvicorn (port 3308).
         // Prod / cloud sets LLM_GATEWAY_URL + LLM_GATEWAY_API_KEY via env to point at
         // gateway.us / gateway.eu and the shared internal-service key.
+        // Dev default mirrors ee/settings.py DEV_API_KEY auto-provisioned by setup_local_api_key.
         LLM_GATEWAY_URL: isDevEnv() ? 'http://localhost:3308' : '',
-        LLM_GATEWAY_API_KEY: '',
+        LLM_GATEWAY_API_KEY: isDevEnv() ? 'phx_dev_local_test_api_key_1234567890abcdef' : '',
         ENCRYPTION_SALT_KEYS: isDevEnv() || isTestEnv() ? '00beef0000beef0000beef0000beef00' : '',
         CAPTURE_INTERNAL_URL: isProdEnv()
             ? 'http://capture.posthog.svc.cluster.local:3000/capture'
