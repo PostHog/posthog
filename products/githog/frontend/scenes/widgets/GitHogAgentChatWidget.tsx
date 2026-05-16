@@ -158,11 +158,11 @@ function EmbeddedMaxChat({ tabId }: { tabId: string }): JSX.Element {
                             <div className="grow" />
                         )}
                         <div
-                            className={`w-full max-w-3xl mx-auto px-4 transition-all duration-300 ease-out z-50 ${
-                                hasMessages ? 'sticky bottom-0 bg-primary py-2 max-w-none' : 'pb-4'
+                            className={`w-full transition-all duration-300 ease-out z-50 ${
+                                hasMessages ? 'sticky bottom-0 bg-primary py-2' : 'pb-2'
                             }`}
                         >
-                            {!conversation?.has_unsupported_content && <SidebarQuestionInput />}
+                            {!conversation?.has_unsupported_content && <SidebarQuestionInput sidePanel />}
                         </div>
                     </div>
                 </div>

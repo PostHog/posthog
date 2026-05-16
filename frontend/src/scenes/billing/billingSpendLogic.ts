@@ -5,8 +5,6 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
@@ -114,12 +112,10 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         end_date: values.dateTo || dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
                         ...(interval ? { interval } : {}),
                     }
-                    try {
-                        return await api.get(`api/billing/spend/?${toParams(params)}`)
-                    } catch (error) {
-                        lemonToast.error('Failed to load billing spend, please try again or contact support.')
-                        throw error
-                    }
+                    // Don't surface a toast here — same rationale as billingUsageLogic:
+                    // this loader can fail benignly on local dev without billing set
+                    // up, and a popup on every page-load drowns out real signal.
+                    return await api.get(`api/billing/spend/?${toParams(params)}`)
                 },
             },
         ],

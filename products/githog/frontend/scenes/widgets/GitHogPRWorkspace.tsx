@@ -61,7 +61,7 @@ type WidgetType = GitHogWidgetType
 const WIDGET_DEFS: Record<WidgetType, { label: string; description: string; defaultW: number; defaultH: number }> = {
     conversation: { label: 'Conversation', description: 'Comments and review discussion', defaultW: 8, defaultH: 5 },
     files: { label: 'Files changed', description: 'Modified files with line counts', defaultW: 8, defaultH: 5 },
-    agent: { label: 'Ask the agent', description: 'Chat with an AI agent about this PR', defaultW: 8, defaultH: 6 },
+    agent: { label: 'Ask GitHog', description: 'Chat with an AI agent about this PR', defaultW: 8, defaultH: 6 },
     dataFlow: {
         label: 'Data flow',
         description: 'AI-generated execution flow before vs after',

@@ -57,10 +57,6 @@ export interface GitHogDataFlow {
 
 export type DataFlowView = 'graphs' | 'diff' | 'steps'
 
-// Survives kea unmount/remount cycles (e.g. React StrictMode dev double-mount). The Refresh
-// button bypasses this set explicitly by calling refreshDataFlow → loadDataFlow({refresh:true}).
-const loadedKeys = new Set<string>()
-
 export const gitHogPullRequestDataFlowLogic = kea<gitHogPullRequestDataFlowLogicType>([
     props({} as GitHogPullRequestDataFlowLogicProps),
     key((p) => `${p.owner}/${p.name}#${p.number}`),
@@ -102,14 +98,13 @@ export const gitHogPullRequestDataFlowLogic = kea<gitHogPullRequestDataFlowLogic
             actions.loadDataFlow({ refresh: true })
         },
     })),
-    afterMount(({ actions, values, props }) => {
-        // Guard against React StrictMode double-mount and back-to-back remounts (kea
-        // tears down state on unmount, so module-level memoization is the only place
-        // the prior-load fact survives an unmount/remount cycle).
-        const key = `${props.owner}/${props.name}#${props.number}`
-        if (values.dataFlow === null && !values.dataFlowLoading && !loadedKeys.has(key)) {
-            loadedKeys.add(key)
-            actions.loadDataFlow({})
-        }
+    afterMount(({ actions }) => {
+        // Always ask the backend — its single-flight lock + DB cache make
+        // re-mounts cheap. The previous module-level "loadedKeys" guard
+        // tried to dedupe StrictMode double-mounts but also blocked the
+        // PR-revisit path: kea tears down `dataFlow` on unmount, so on the
+        // next mount we'd see `null` AND the guard would skip loading,
+        // leaving the UI permanently "not available" until manual refresh.
+        actions.loadDataFlow({})
     }),
 ])

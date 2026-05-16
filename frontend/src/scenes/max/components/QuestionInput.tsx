@@ -196,7 +196,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 
     useEffect(() => {
         if (!streamingActive && textAreaRef?.current) {
-            textAreaRef.current.focus()
+            // `preventScroll` so embedded usages (e.g. the GitHog PR workspace,
+            // which mounts this input in a sticky right column) don't scroll
+            // the host page to bring the textarea into view on first render.
+            textAreaRef.current.focus({ preventScroll: true })
         }
     }, [streamingActive]) // oxlint-disable-line react-hooks/exhaustive-deps
 

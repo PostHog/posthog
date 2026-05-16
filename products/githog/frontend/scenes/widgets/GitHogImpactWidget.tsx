@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconPeople, IconRefresh } from '@posthog/icons'
 
@@ -35,11 +35,173 @@ function Star({ reason }: { reason?: string }): JSX.Element | null {
     )
 }
 
-function SectionHeading({ children }: { children: React.ReactNode }): JSX.Element {
+// Best-effort parse of the LLM's headline number. Handles "0", "1,234", "1.5k",
+// "<10", "~50", and "0-10" (returns lower bound). Returns null on shapes we
+// can't parse so we fall back to rendering the raw string.
+function parseHeadlineNumber(headline: string | null | undefined): number | null {
+    if (!headline) {
+        return null
+    }
+    const cleaned = headline
+        .replace(/\(.*?\)/g, '')
+        .replace(/[~,\s≈]/g, '')
+        .toLowerCase()
+    if (
+        cleaned === '' ||
+        cleaned === '0' ||
+        cleaned === '0.0' ||
+        cleaned === '—' ||
+        cleaned === '-' ||
+        cleaned === 'none' ||
+        cleaned === 'zero'
+    ) {
+        return 0
+    }
+    const range = cleaned.match(/^([0-9.]+)[-–]([0-9.]+)([kmb])?$/)
+    if (range) {
+        const n = parseFloat(range[1])
+        return Number.isFinite(n) ? n : null
+    }
+    const m = cleaned.match(/^[<>]?=?([0-9.]+)([kmb])?$/)
+    if (!m) {
+        return null
+    }
+    let n = parseFloat(m[1])
+    if (m[2] === 'k') {
+        n *= 1_000
+    } else if (m[2] === 'm') {
+        n *= 1_000_000
+    } else if (m[2] === 'b') {
+        n *= 1_000_000_000
+    }
+    return Number.isFinite(n) ? n : null
+}
+
+const CONFIDENCE_STYLES: Record<'high' | 'medium' | 'low', { text: string; dot: string }> = {
+    high: { text: 'text-success', dot: 'bg-success' },
+    medium: { text: 'text-warning', dot: 'bg-warning' },
+    low: { text: 'text-muted', dot: 'bg-muted' },
+}
+
+// Shape of an impact — different change types have different blast-radius
+// stories and "X users" is only one of them. CI / migration / docs aren't
+// measured in users at all.
+type ImpactShape = 'ci' | 'infra' | 'migration' | 'docs' | 'styling' | 'feature' | 'mixed'
+
+const IMPACT_SHAPE_DEFS: Record<
+    ImpactShape,
+    { label: string; description: string; tint: string; reachApplies: boolean }
+> = {
+    ci: {
+        label: 'CI / build pipeline',
+        description:
+            'Affects every future build of this repo. Runtime user reach does not apply — see Risk above for safety implications.',
+        tint: 'bg-bg-3000',
+        reachApplies: false,
+    },
+    infra: {
+        label: 'Infrastructure',
+        description:
+            'Touches deploy, container, or orchestration config. Potentially every production user on the next rollout.',
+        tint: 'bg-warning-highlight',
+        reachApplies: false,
+    },
+    migration: {
+        label: 'Database migration',
+        description:
+            'Schema change — affects every existing row and every future write. Runtime user reach does not apply on a per-user basis.',
+        tint: 'bg-warning-highlight',
+        reachApplies: false,
+    },
+    docs: {
+        label: 'Documentation',
+        description: 'Markdown / docs only. No runtime impact.',
+        tint: 'bg-bg-3000',
+        reachApplies: false,
+    },
+    styling: {
+        label: 'Styling change',
+        description: 'CSS / visual only — everyone who renders the affected surfaces sees it.',
+        tint: 'bg-bg-3000',
+        reachApplies: true,
+    },
+    feature: { label: '', description: '', tint: 'bg-fill-highlight-50', reachApplies: true },
+    mixed: { label: '', description: '', tint: 'bg-fill-highlight-50', reachApplies: true },
+}
+
+function detectImpactShape(
+    files: string[],
+    signals: { flags: boolean; events: boolean; pages: boolean; dashboards: boolean; issues: boolean }
+): ImpactShape {
+    if (!files || files.length === 0) {
+        return 'mixed'
+    }
+    const lower = files.map((f) => f.toLowerCase())
+    const all = (predicate: (f: string) => boolean): boolean => lower.every(predicate)
+
+    if (
+        all(
+            (f) =>
+                f.startsWith('.github/workflows/') ||
+                /(^|\/)\.gitlab-ci\.yml$/.test(f) ||
+                /(^|\/)\.circleci\//.test(f) ||
+                /jenkinsfile/.test(f)
+        )
+    ) {
+        return 'ci'
+    }
+    if (
+        all((f) =>
+            /(dockerfile|docker-compose|k8s|kubernetes|kustomization|helm|terraform|\.tf$|(^|\/)infra\/|(^|\/)deploy\/)/.test(
+                f
+            )
+        )
+    ) {
+        return 'infra'
+    }
+    if (all((f) => /(^|\/)migrations?\//.test(f) || f.endsWith('.sql'))) {
+        return 'migration'
+    }
+    if (all((f) => /\.(md|mdx|rst|txt|adoc)$/.test(f) || /(^|\/)docs?\//.test(f) || /(^|\/)readme/i.test(f))) {
+        return 'docs'
+    }
+    if (all((f) => /\.(css|scss|sass|less|styl)$/.test(f))) {
+        return 'styling'
+    }
+    if (signals.flags || signals.events || signals.pages || signals.dashboards) {
+        return 'feature'
+    }
+    return 'mixed'
+}
+
+function SectionToggle({
+    open,
+    onToggle,
+    title,
+    count,
+    accent,
+}: {
+    open: boolean
+    onToggle: () => void
+    title: string
+    count: number | string
+    accent?: 'danger' | 'warning' | 'default'
+}): JSX.Element {
+    const countClass = accent === 'danger' ? 'text-danger' : accent === 'warning' ? 'text-warning' : 'text-secondary'
     return (
-        <div className="px-4 py-3">
-            <span className="font-semibold text-xs uppercase tracking-wide text-secondary">{children}</span>
-        </div>
+        <button
+            type="button"
+            onClick={onToggle}
+            className="w-full px-4 py-2.5 flex items-center gap-x-2 text-left hover:bg-fill-highlight-50 transition-colors"
+        >
+            {open ? (
+                <IconChevronDown className="size-3.5 text-muted shrink-0" />
+            ) : (
+                <IconChevronRight className="size-3.5 text-muted shrink-0" />
+            )}
+            <span className="text-sm font-medium flex-1 truncate">{title}</span>
+            <span className={`text-xs tabular-nums ${countClass}`}>{count}</span>
+        </button>
     )
 }
 
@@ -76,7 +238,25 @@ export function GitHogImpactWidget({ owner, name, number }: GitHogPRImpactLogicP
     }, [report?.llm_analysis?.top_picks])
     const starOf = (kind: string, key: string): string | undefined => starredItems.get(`${kind}:${key}`)
 
-    const [aiOpen, setAiOpen] = useState(false)
+    // Single set of expanded section keys; default collapsed. Reviewers expand
+    // only the sections they actually want to dig into.
+    const [expanded, setExpanded] = useState<Set<string>>(new Set())
+    const toggle = useCallback((key: string) => {
+        setExpanded((prev) => {
+            const next = new Set(prev)
+            if (next.has(key)) {
+                next.delete(key)
+            } else {
+                next.add(key)
+            }
+            return next
+        })
+    }, [])
+    const isOpen = (key: string): boolean => expanded.has(key)
+
+    const activeIssueCount = report?.issue_references?.filter(
+        (i: IssueReference) => i.status !== 'resolved' && i.status !== 'archived' && i.status !== 'suppressed'
+    ).length
 
     return (
         <div className="flex flex-col divide-y divide-border">
@@ -107,16 +287,11 @@ export function GitHogImpactWidget({ owner, name, number }: GitHogPRImpactLogicP
                 </div>
             </div>
 
-            <div className="px-4 py-2 text-xs text-secondary">
-                Real users, sessions, and surfaces this PR touches — measured from PostHog activity, not configured
-                rollouts.
-            </div>
-
             {isInitialLoading && (
-                <div className="px-4 py-6 flex flex-col items-center justify-center gap-y-1 text-secondary text-sm">
+                <div className="px-4 py-8 flex flex-col items-center justify-center gap-y-1 text-secondary text-sm">
                     <div className="flex items-center gap-x-2">
                         <Spinner />
-                        Measuring impact and asking the model…
+                        Measuring impact…
                     </div>
                     <span className="text-xs text-muted">This can take up to ~30 seconds for large PRs.</span>
                 </div>
@@ -136,425 +311,140 @@ export function GitHogImpactWidget({ owner, name, number }: GitHogPRImpactLogicP
             )}
 
             {hasResult && !hasAnySignal && (
-                <div className="px-4 py-6 flex flex-col gap-y-2 text-sm">
-                    <span className="text-secondary text-center">
-                        No PostHog flag or event references found in this PR
-                        {isReloading ? ' (reloading…)' : '.'}
-                    </span>
-                    <span className="text-xs text-muted text-center">
-                        Scanned {report.known_flag_count.toLocaleString()} flag keys and{' '}
-                        {report.known_event_count.toLocaleString()} recent event names against{' '}
-                        {report.changed_files.length} touched file
-                        {report.changed_files.length === 1 ? '' : 's'}.
-                    </span>
+                <div className="px-4 py-8 text-sm text-secondary text-center">
+                    No PostHog flag or event references found in this PR
+                    {isReloading ? ' (reloading…)' : '.'}
                 </div>
             )}
 
             {hasResult && hasAnySignal && (
                 <>
-                    {/* Loud metric — the answer to "how many and who" */}
-                    {hasLLM && report.llm_analysis?.affected && (
-                        <div className="px-4 py-5 flex flex-col gap-y-2 bg-fill-highlight-50">
-                            <div className="flex items-baseline gap-x-3 flex-wrap">
-                                <span className="text-3xl font-bold leading-none tabular-nums">
-                                    {report.llm_analysis.affected.headline}
-                                </span>
-                                {(() => {
-                                    const a = report.llm_analysis.affected
-                                    const range =
-                                        a.lower != null && a.upper != null && a.lower !== a.upper
-                                            ? `${a.lower.toLocaleString()}–${a.upper.toLocaleString()}`
-                                            : a.lower != null
-                                              ? a.lower.toLocaleString()
-                                              : a.upper != null
-                                                ? a.upper.toLocaleString()
-                                                : null
-                                    const share =
-                                        a.share_lower != null && a.share_upper != null
-                                            ? a.share_lower === a.share_upper
-                                                ? `${Math.round(a.share_upper * 100)}% of active`
-                                                : `${Math.round(a.share_lower * 100)}–${Math.round(a.share_upper * 100)}% of active`
-                                            : null
-                                    const parts: string[] = []
-                                    if (range) {
-                                        parts.push(`${range} ${a.unit}`)
-                                    }
-                                    if (share) {
-                                        parts.push(share)
-                                    }
-                                    if (parts.length === 0) {
-                                        return null
-                                    }
-                                    return <span className="text-sm text-secondary">{parts.join(' · ')}</span>
-                                })()}
-                                <LemonTag
-                                    type={
-                                        report.llm_analysis.affected.confidence === 'high'
-                                            ? 'success'
-                                            : report.llm_analysis.affected.confidence === 'medium'
-                                              ? 'warning'
-                                              : 'muted'
-                                    }
-                                    size="small"
-                                >
-                                    {report.llm_analysis.affected.confidence} confidence
-                                </LemonTag>
-                            </div>
-                            {report.llm_analysis.audience.length > 0 && (
-                                <div className="flex items-center gap-x-1.5 flex-wrap">
-                                    {report.llm_analysis.audience.map((who: string, idx: number) => (
-                                        <LemonTag key={idx} type="option" size="small">
-                                            {who}
-                                        </LemonTag>
+                    {/* HERO — shape-aware. CI / infra / migration / docs are not
+                        measured in users, so we surface a categorical statement
+                        instead of a misleading "0 users". Only feature/mixed
+                        changes get the numeric stat treatment. */}
+                    {(() => {
+                        const shape = detectImpactShape(report.changed_files, {
+                            flags: hasFlags,
+                            events: hasEvents,
+                            pages: hasWebPaths,
+                            dashboards: hasDashboards,
+                            issues: hasIssues,
+                        })
+                        const def = IMPACT_SHAPE_DEFS[shape]
+                        const affected = report.llm_analysis?.affected
+                        const parsedReach = parseHeadlineNumber(affected?.headline)
+                        const hasMeaningfulReach =
+                            def.reachApplies && affected != null && parsedReach != null && parsedReach >= 1
+                        const audience = report.llm_analysis?.audience ?? []
+                        const confStyles = affected
+                            ? (CONFIDENCE_STYLES[affected.confidence] ?? CONFIDENCE_STYLES.low)
+                            : CONFIDENCE_STYLES.low
+
+                        // Signal-count strip — quiet line under the hero so reviewers
+                        // can see what's behind the framing without scrolling.
+                        const signalChips: string[] = []
+                        if (hasFlags) {
+                            signalChips.push(
+                                `${report.per_flag_reach.length} flag${report.per_flag_reach.length === 1 ? '' : 's'}`
+                            )
+                        }
+                        if (hasEvents) {
+                            signalChips.push(
+                                `${report.per_event_reach.length} event${report.per_event_reach.length === 1 ? '' : 's'}`
+                            )
+                        }
+                        if (hasWebPaths) {
+                            signalChips.push(
+                                `${report.web_paths.length} page${report.web_paths.length === 1 ? '' : 's'}`
+                            )
+                        }
+                        if (hasIssues) {
+                            signalChips.push(
+                                `${report.issue_references.length} error${report.issue_references.length === 1 ? '' : 's'}`
+                            )
+                        }
+                        if (hasDashboards) {
+                            signalChips.push(
+                                `${report.dashboard_references.length} dashboard${report.dashboard_references.length === 1 ? '' : 's'}`
+                            )
+                        }
+                        signalChips.push(
+                            `${report.changed_files.length} file${report.changed_files.length === 1 ? '' : 's'} touched`
+                        )
+
+                        return (
+                            <div className={`px-5 py-4 ${def.tint}`}>
+                                {hasMeaningfulReach ? (
+                                    <>
+                                        <div className="flex items-baseline gap-x-2 flex-wrap">
+                                            <span className="text-3xl font-bold tabular-nums tracking-tight leading-none">
+                                                {affected!.headline}
+                                            </span>
+                                            <span className="text-sm text-secondary">{affected!.unit}</span>
+                                            <span className="text-muted text-xs">·</span>
+                                            <span
+                                                className={`inline-flex items-center gap-x-1.5 text-xs font-medium ${confStyles.text}`}
+                                            >
+                                                <span className={`size-1.5 rounded-full ${confStyles.dot}`} />
+                                                {affected!.confidence} confidence
+                                            </span>
+                                        </div>
+                                        {audience.length > 0 && (
+                                            <div className="mt-1.5 text-xs text-secondary">
+                                                {audience.slice(0, 3).join(' · ')}
+                                            </div>
+                                        )}
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="text-base font-semibold leading-snug">
+                                            {def.label || affected?.headline || 'Mixed change'}
+                                        </div>
+                                        <p className="mt-1.5 text-sm text-secondary leading-relaxed my-0">
+                                            {def.description ||
+                                                affected?.rationale ||
+                                                'Could not determine a single user-reach figure for this change.'}
+                                        </p>
+                                    </>
+                                )}
+                                <div className="mt-3 pt-3 border-t border-border-light text-xs text-muted flex flex-wrap gap-x-3 gap-y-0.5">
+                                    {signalChips.map((chip, idx) => (
+                                        <span key={idx}>{chip}</span>
                                     ))}
                                 </div>
-                            )}
-                            {report.llm_analysis.affected.rationale && (
-                                <span className="text-xs text-muted leading-relaxed">
-                                    {report.llm_analysis.affected.rationale}
-                                </span>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Errors — risk signal, surfaced first */}
-                    {hasIssues && (
-                        <>
-                            <SectionHeading>
-                                Errors related · {report.issue_references.length} ·{' '}
-                                {
-                                    report.issue_references.filter(
-                                        (i: IssueReference) =>
-                                            i.status !== 'resolved' &&
-                                            i.status !== 'archived' &&
-                                            i.status !== 'suppressed'
-                                    ).length
-                                }{' '}
-                                active
-                            </SectionHeading>
-                            {report.issue_references.map((issue: IssueReference) => (
-                                <div key={issue.id} className="px-4 py-3 flex flex-col gap-y-1.5">
-                                    <div className="flex items-center gap-x-2 flex-wrap">
-                                        <LemonTag
-                                            type={
-                                                issue.status === 'resolved'
-                                                    ? 'success'
-                                                    : issue.status === 'pending_release'
-                                                      ? 'warning'
-                                                      : issue.status === 'archived' || issue.status === 'suppressed'
-                                                        ? 'muted'
-                                                        : 'danger'
-                                            }
-                                            size="small"
-                                        >
-                                            {issue.status}
-                                        </LemonTag>
-                                        <span className="text-sm font-medium flex-1 truncate">{issue.name}</span>
-                                        <Star reason={starOf('issue', issue.name)} />
-                                        <span className="text-xs text-secondary tabular-nums">
-                                            {issue.occurrences.toLocaleString()} events
-                                        </span>
-                                        <span className="text-xs text-muted tabular-nums">
-                                            {issue.users_affected.toLocaleString()} users
-                                        </span>
-                                    </div>
-                                    {issue.sample_message && (
-                                        <span className="text-xs text-secondary font-mono truncate">
-                                            {issue.sample_message}
-                                        </span>
-                                    )}
-                                    <span
-                                        className="text-xs text-muted truncate"
-                                        title={issue.matched_terms.join(', ')}
-                                    >
-                                        via {issue.matched_terms.slice(0, 3).join(', ')}
-                                        {issue.matched_terms.length > 3 ? ` +${issue.matched_terms.length - 3}` : ''}
-                                    </span>
-                                </div>
-                            ))}
-                        </>
-                    )}
-
-                    {/* Insights & dashboards this PR affects */}
-                    {hasDashboards && (
-                        <>
-                            <SectionHeading>
-                                Insights this affects · {report.dashboard_references.length}
-                            </SectionHeading>
-                            {report.dashboard_references.map((ref: DashboardReference) => (
-                                <div key={`${ref.kind}-${ref.id}`} className="px-4 py-3 flex items-center gap-x-3">
-                                    <LemonTag type={ref.kind === 'dashboard' ? 'primary' : 'muted'} size="small">
-                                        {ref.kind === 'dashboard' ? 'Dashboard' : 'Insight'}
-                                    </LemonTag>
-                                    <span className="text-sm flex-1 truncate">{ref.name}</span>
-                                    <Star reason={starOf('dashboard', ref.name)} />
-                                    <span
-                                        className="text-xs text-muted truncate max-w-[40%]"
-                                        title={ref.matched_keys.join(', ')}
-                                    >
-                                        via {ref.matched_keys.slice(0, 2).join(', ')}
-                                        {ref.matched_keys.length > 2 ? ` +${ref.matched_keys.length - 2}` : ''}
-                                    </span>
-                                </div>
-                            ))}
-                        </>
-                    )}
-
-                    {/* Pages this PR affects — web analytics */}
-                    {hasWebPaths && (
-                        <>
-                            <SectionHeading>
-                                Pages this affects · {report.web_paths.length} · last {report.lookback_days} days
-                            </SectionHeading>
-                            {report.web_paths.map((page: WebPathReach) => (
-                                <div key={page.path} className="px-4 py-3 flex items-center gap-x-3">
-                                    <LemonTag type="muted" size="small">
-                                        page
-                                    </LemonTag>
-                                    <span className="text-sm flex-1 font-mono truncate">{page.path}</span>
-                                    <Star reason={starOf('page', page.path)} />
-                                    {page.matched_from === 'llm_tool' && (
-                                        <LemonTag type="option" size="small">
-                                            AI-inferred
-                                        </LemonTag>
-                                    )}
-                                    {page.has_data ? (
-                                        <>
-                                            <span className="text-xs text-secondary tabular-nums">
-                                                {page.unique_visitors.toLocaleString()} visitors
-                                            </span>
-                                            <span className="text-xs text-muted tabular-nums">
-                                                {page.pageviews.toLocaleString()} pageviews
-                                            </span>
-                                        </>
-                                    ) : (
-                                        <LemonTag type="warning" size="small">
-                                            No pageviews
-                                        </LemonTag>
-                                    )}
-                                </div>
-                            ))}
-                        </>
-                    )}
-
-                    {/* Flag touch + reach */}
-                    {hasFlags && (
-                        <>
-                            <SectionHeading>
-                                Flags touched · {report.per_flag_reach.length} · last {report.lookback_days} days
-                            </SectionHeading>
-                            {hasFlags && (
-                                <div className="px-4 py-3 flex items-center gap-x-6 text-xs text-secondary">
-                                    <span>
-                                        Intersection:{' '}
-                                        <span className="font-semibold text-primary tabular-nums">
-                                            {report.intersection_users.toLocaleString()}
-                                        </span>{' '}
-                                        users ·{' '}
-                                        <span className="font-semibold text-primary tabular-nums">
-                                            {report.intersection_sessions.toLocaleString()}
-                                        </span>{' '}
-                                        sessions
-                                    </span>
-                                </div>
-                            )}
-                            {report.per_flag_reach.map((flag: FlagReach) => (
-                                <div key={flag.key} className="px-4 py-3 flex items-center gap-x-3">
-                                    <span className="text-sm flex-1 font-mono truncate">{flag.key}</span>
-                                    <Star reason={starOf('flag', flag.key)} />
-                                    {flag.is_server_side && (
-                                        <LemonTag type="muted" size="small">
-                                            server-side
-                                        </LemonTag>
-                                    )}
-                                    {flag.has_data ? (
-                                        flag.is_server_side ? (
-                                            <>
-                                                <span className="text-xs text-secondary tabular-nums">
-                                                    {flag.call_count.toLocaleString()} evaluations
-                                                </span>
-                                                <span className="text-xs text-muted tabular-nums">
-                                                    {flag.users_affected.toLocaleString()} identities
-                                                </span>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <span className="text-xs text-secondary tabular-nums">
-                                                    {flag.users_affected.toLocaleString()} users
-                                                </span>
-                                                <span className="text-xs text-muted tabular-nums">
-                                                    {flag.call_count.toLocaleString()} evaluations
-                                                </span>
-                                            </>
-                                        )
-                                    ) : (
-                                        <LemonTag type="warning" size="small">
-                                            No data
-                                        </LemonTag>
-                                    )}
-                                </div>
-                            ))}
-                        </>
-                    )}
-
-                    {/* Event instrumentation + reach */}
-                    {hasEvents && (
-                        <>
-                            <SectionHeading>
-                                Events instrumented · {report.per_event_reach.length} · last {report.lookback_days} days
-                            </SectionHeading>
-                            {report.per_event_reach.map((evt: EventReach) => (
-                                <div key={evt.name} className="px-4 py-3 flex items-center gap-x-3">
-                                    <span className="text-sm flex-1 font-mono truncate">{evt.name}</span>
-                                    <Star reason={starOf('event', evt.name)} />
-                                    {evt.is_server_side && (
-                                        <LemonTag type="muted" size="small">
-                                            server-side
-                                        </LemonTag>
-                                    )}
-                                    {evt.has_data ? (
-                                        evt.is_server_side ? (
-                                            <>
-                                                <span className="text-xs text-secondary tabular-nums">
-                                                    {evt.call_count.toLocaleString()} fires
-                                                </span>
-                                                <span className="text-xs text-muted tabular-nums">
-                                                    {evt.users_affected.toLocaleString()} identities
-                                                </span>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <span className="text-xs text-secondary tabular-nums">
-                                                    {evt.users_affected.toLocaleString()} users
-                                                </span>
-                                                <span className="text-xs text-muted tabular-nums">
-                                                    {evt.call_count.toLocaleString()} fires
-                                                </span>
-                                            </>
-                                        )
-                                    ) : (
-                                        <LemonTag type="warning" size="small">
-                                            No data
-                                        </LemonTag>
-                                    )}
-                                </div>
-                            ))}
-                        </>
-                    )}
-
-                    {/* Related signals — filename-token suggestions */}
-                    {hasRelated && (
-                        <>
-                            <SectionHeading>
-                                Related signals · {report.related_signals.length} · by filename match
-                            </SectionHeading>
-                            <div className="px-4 -mt-1 pb-2">
-                                <span className="text-xs text-muted">
-                                    Not literally referenced in this PR, but they share names with files you touched.
-                                </span>
                             </div>
-                            {report.related_signals.map((sig: RelatedSignal) => (
-                                <div key={`${sig.kind}-${sig.key}`} className="px-4 py-3 flex items-center gap-x-3">
-                                    <LemonTag type="muted" size="small">
-                                        {sig.kind}
-                                    </LemonTag>
-                                    <span className="text-sm flex-1 font-mono truncate">{sig.key}</span>
-                                    <Star reason={starOf(sig.kind, sig.key)} />
-                                    {sig.is_server_side && (
-                                        <LemonTag type="muted" size="small">
-                                            server-side
-                                        </LemonTag>
-                                    )}
-                                    {sig.has_data ? (
-                                        sig.is_server_side ? (
-                                            <span className="text-xs text-secondary tabular-nums">
-                                                {sig.call_count.toLocaleString()}{' '}
-                                                {sig.kind === 'flag' ? 'evaluations' : 'fires'}
-                                            </span>
-                                        ) : (
-                                            <span className="text-xs text-secondary tabular-nums">
-                                                {sig.users_affected.toLocaleString()} users
-                                            </span>
-                                        )
-                                    ) : (
-                                        <LemonTag type="warning" size="small">
-                                            No data
-                                        </LemonTag>
-                                    )}
-                                    <span
-                                        className="text-xs text-muted truncate max-w-[30%]"
-                                        title={sig.matched_tokens.join(', ')}
-                                    >
-                                        via {sig.matched_tokens.slice(0, 2).join(', ')}
-                                        {sig.matched_tokens.length > 2 ? ` +${sig.matched_tokens.length - 2}` : ''}
-                                    </span>
-                                </div>
-                            ))}
-                        </>
-                    )}
+                        )
+                    })()}
 
-                    {hasFlags && report.flag_references.some((r: FlagReference) => r.key.startsWith('const:')) && (
-                        <div className="px-4 py-3">
-                            <span className="font-semibold text-xs uppercase tracking-wide text-secondary">
-                                Unresolved references
-                            </span>
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                                {report.flag_references
-                                    .filter((r: FlagReference) => r.key.startsWith('const:'))
-                                    .map((r: FlagReference) => (
-                                        <LemonTag key={r.key} type="muted" size="small">
-                                            {r.key}
-                                        </LemonTag>
-                                    ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {report.notes.length > 0 && (
-                        <div className="px-4 py-3 flex flex-col gap-y-1.5">
-                            {report.notes.map((note: string, idx: number) => (
-                                <span key={idx} className="text-xs text-secondary">
-                                    · {note}
-                                </span>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* AI synthesis — collapsed by default. Stars on items above
-                        already encode the model's prioritization; this is for
-                        reviewers who want the prose. */}
+                    {/* Description — available, not prominent. Click to expand. */}
                     {hasLLM && report.llm_analysis && (
                         <div className="flex flex-col">
-                            <button
-                                type="button"
-                                className="px-4 py-3 flex items-center gap-x-2 text-left hover:bg-fill-highlight-50 transition-colors"
-                                onClick={() => setAiOpen((v) => !v)}
-                            >
-                                {aiOpen ? (
-                                    <IconChevronDown className="size-3.5 text-secondary" />
-                                ) : (
-                                    <IconChevronRight className="size-3.5 text-secondary" />
-                                )}
-                                <span className="font-semibold text-xs uppercase tracking-wide text-secondary">
-                                    AI synthesis
-                                </span>
-                                <span className="text-xs text-muted">
-                                    · {report.llm_analysis.tool_calls_used} tool call
-                                    {report.llm_analysis.tool_calls_used === 1 ? '' : 's'} used
-                                </span>
-                            </button>
-                            {aiOpen && (
-                                <div className="px-4 pb-4 pt-1 flex flex-col gap-y-3">
-                                    <p className="text-sm font-medium leading-snug my-0">
-                                        {report.llm_analysis.headline}
-                                    </p>
+                            <SectionToggle
+                                open={isOpen('why')}
+                                onToggle={() => toggle('why')}
+                                title="Why this estimate?"
+                                count=""
+                            />
+                            {isOpen('why') && (
+                                <div className="px-4 pb-4 flex flex-col gap-y-2">
+                                    {report.llm_analysis.affected?.rationale && (
+                                        <p className="text-sm text-primary leading-relaxed my-0">
+                                            {report.llm_analysis.affected.rationale}
+                                        </p>
+                                    )}
+                                    {report.llm_analysis.headline && (
+                                        <p className="text-sm font-medium leading-snug my-0">
+                                            {report.llm_analysis.headline}
+                                        </p>
+                                    )}
                                     {report.llm_analysis.summary && (
                                         <p className="text-sm text-secondary leading-relaxed my-0">
                                             {report.llm_analysis.summary}
                                         </p>
                                     )}
                                     {report.llm_analysis.caveats.length > 0 && (
-                                        <div className="flex flex-col gap-y-0.5">
+                                        <div className="flex flex-col gap-y-0.5 pt-1">
                                             {report.llm_analysis.caveats.map((c: string, idx: number) => (
                                                 <span key={idx} className="text-xs text-muted">
                                                     · {c}
@@ -564,6 +454,245 @@ export function GitHogImpactWidget({ owner, name, number }: GitHogPRImpactLogicP
                                     )}
                                 </div>
                             )}
+                        </div>
+                    )}
+
+                    {/* Errors */}
+                    {hasIssues && (
+                        <div className="flex flex-col">
+                            <SectionToggle
+                                open={isOpen('errors')}
+                                onToggle={() => toggle('errors')}
+                                title="Errors"
+                                count={
+                                    activeIssueCount != null && activeIssueCount > 0
+                                        ? `${report.issue_references.length} · ${activeIssueCount} active`
+                                        : report.issue_references.length
+                                }
+                                accent={activeIssueCount && activeIssueCount > 0 ? 'danger' : 'default'}
+                            />
+                            {isOpen('errors') &&
+                                report.issue_references.map((issue: IssueReference) => (
+                                    <div
+                                        key={issue.id}
+                                        className="px-4 py-2.5 flex flex-col gap-y-1 border-t border-border"
+                                    >
+                                        <div className="flex items-center gap-x-2 flex-wrap">
+                                            <LemonTag
+                                                type={
+                                                    issue.status === 'resolved'
+                                                        ? 'success'
+                                                        : issue.status === 'pending_release'
+                                                          ? 'warning'
+                                                          : issue.status === 'archived' || issue.status === 'suppressed'
+                                                            ? 'muted'
+                                                            : 'danger'
+                                                }
+                                                size="small"
+                                            >
+                                                {issue.status}
+                                            </LemonTag>
+                                            <span className="text-sm font-medium flex-1 truncate">{issue.name}</span>
+                                            <Star reason={starOf('issue', issue.name)} />
+                                            <span className="text-xs text-secondary tabular-nums">
+                                                {issue.occurrences.toLocaleString()}
+                                            </span>
+                                            <span className="text-xs text-muted tabular-nums">
+                                                {issue.users_affected.toLocaleString()}u
+                                            </span>
+                                        </div>
+                                        {issue.sample_message && (
+                                            <span className="text-xs text-muted font-mono truncate">
+                                                {issue.sample_message}
+                                            </span>
+                                        )}
+                                    </div>
+                                ))}
+                        </div>
+                    )}
+
+                    {/* Insights & dashboards */}
+                    {hasDashboards && (
+                        <div className="flex flex-col">
+                            <SectionToggle
+                                open={isOpen('insights')}
+                                onToggle={() => toggle('insights')}
+                                title="Insights & dashboards"
+                                count={report.dashboard_references.length}
+                            />
+                            {isOpen('insights') &&
+                                report.dashboard_references.map((ref: DashboardReference) => (
+                                    <div
+                                        key={`${ref.kind}-${ref.id}`}
+                                        className="px-4 py-2.5 flex items-center gap-x-3 border-t border-border"
+                                    >
+                                        <LemonTag type={ref.kind === 'dashboard' ? 'primary' : 'muted'} size="small">
+                                            {ref.kind === 'dashboard' ? 'Dashboard' : 'Insight'}
+                                        </LemonTag>
+                                        <span className="text-sm flex-1 truncate">{ref.name}</span>
+                                        <Star reason={starOf('dashboard', ref.name)} />
+                                    </div>
+                                ))}
+                        </div>
+                    )}
+
+                    {/* Pages */}
+                    {hasWebPaths && (
+                        <div className="flex flex-col">
+                            <SectionToggle
+                                open={isOpen('pages')}
+                                onToggle={() => toggle('pages')}
+                                title="Pages"
+                                count={report.web_paths.length}
+                            />
+                            {isOpen('pages') &&
+                                report.web_paths.map((page: WebPathReach) => (
+                                    <div
+                                        key={page.path}
+                                        className="px-4 py-2.5 flex items-center gap-x-3 border-t border-border"
+                                    >
+                                        <span className="text-sm flex-1 font-mono truncate">{page.path}</span>
+                                        <Star reason={starOf('page', page.path)} />
+                                        {page.has_data ? (
+                                            <span className="text-xs text-secondary tabular-nums">
+                                                {page.unique_visitors.toLocaleString()}u ·{' '}
+                                                {page.pageviews.toLocaleString()}pv
+                                            </span>
+                                        ) : (
+                                            <LemonTag type="warning" size="small">
+                                                no data
+                                            </LemonTag>
+                                        )}
+                                    </div>
+                                ))}
+                        </div>
+                    )}
+
+                    {/* Flags */}
+                    {hasFlags && (
+                        <div className="flex flex-col">
+                            <SectionToggle
+                                open={isOpen('flags')}
+                                onToggle={() => toggle('flags')}
+                                title="Flags"
+                                count={report.per_flag_reach.length}
+                            />
+                            {isOpen('flags') && (
+                                <>
+                                    {report.per_flag_reach.map((flag: FlagReach) => (
+                                        <div
+                                            key={flag.key}
+                                            className="px-4 py-2.5 flex items-center gap-x-3 border-t border-border"
+                                        >
+                                            <span className="text-sm flex-1 font-mono truncate">{flag.key}</span>
+                                            <Star reason={starOf('flag', flag.key)} />
+                                            {flag.has_data ? (
+                                                <span className="text-xs text-secondary tabular-nums">
+                                                    {flag.users_affected.toLocaleString()}
+                                                    {flag.is_server_side ? 'i' : 'u'} ·{' '}
+                                                    {flag.call_count.toLocaleString()}e
+                                                </span>
+                                            ) : (
+                                                <LemonTag type="warning" size="small">
+                                                    no data
+                                                </LemonTag>
+                                            )}
+                                        </div>
+                                    ))}
+                                    {report.flag_references.some((r: FlagReference) => r.key.startsWith('const:')) && (
+                                        <div className="px-4 py-2 border-t border-border flex flex-wrap gap-1.5 bg-fill-highlight-50">
+                                            <span className="text-xs text-muted">unresolved:</span>
+                                            {report.flag_references
+                                                .filter((r: FlagReference) => r.key.startsWith('const:'))
+                                                .map((r: FlagReference) => (
+                                                    <LemonTag key={r.key} type="muted" size="small">
+                                                        {r.key}
+                                                    </LemonTag>
+                                                ))}
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Events */}
+                    {hasEvents && (
+                        <div className="flex flex-col">
+                            <SectionToggle
+                                open={isOpen('events')}
+                                onToggle={() => toggle('events')}
+                                title="Events"
+                                count={report.per_event_reach.length}
+                            />
+                            {isOpen('events') &&
+                                report.per_event_reach.map((evt: EventReach) => (
+                                    <div
+                                        key={evt.name}
+                                        className="px-4 py-2.5 flex items-center gap-x-3 border-t border-border"
+                                    >
+                                        <span className="text-sm flex-1 font-mono truncate">{evt.name}</span>
+                                        <Star reason={starOf('event', evt.name)} />
+                                        {evt.has_data ? (
+                                            <span className="text-xs text-secondary tabular-nums">
+                                                {evt.users_affected.toLocaleString()}
+                                                {evt.is_server_side ? 'i' : 'u'} · {evt.call_count.toLocaleString()}f
+                                            </span>
+                                        ) : (
+                                            <LemonTag type="warning" size="small">
+                                                no data
+                                            </LemonTag>
+                                        )}
+                                    </div>
+                                ))}
+                        </div>
+                    )}
+
+                    {/* Related — quieter, filename-token heuristic */}
+                    {hasRelated && (
+                        <div className="flex flex-col">
+                            <SectionToggle
+                                open={isOpen('related')}
+                                onToggle={() => toggle('related')}
+                                title="Related signals"
+                                count={report.related_signals.length}
+                            />
+                            {isOpen('related') && (
+                                <>
+                                    {report.related_signals.map((sig: RelatedSignal) => (
+                                        <div
+                                            key={`${sig.kind}-${sig.key}`}
+                                            className="px-4 py-2.5 flex items-center gap-x-3 border-t border-border"
+                                        >
+                                            <LemonTag type="muted" size="small">
+                                                {sig.kind}
+                                            </LemonTag>
+                                            <span className="text-sm flex-1 font-mono truncate">{sig.key}</span>
+                                            <Star reason={starOf(sig.kind, sig.key)} />
+                                            {sig.has_data ? (
+                                                <span className="text-xs text-secondary tabular-nums">
+                                                    {sig.users_affected.toLocaleString()}
+                                                    {sig.is_server_side ? 'i' : 'u'}
+                                                </span>
+                                            ) : (
+                                                <LemonTag type="warning" size="small">
+                                                    no data
+                                                </LemonTag>
+                                            )}
+                                        </div>
+                                    ))}
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    {report.notes.length > 0 && (
+                        <div className="px-4 py-2 flex flex-col gap-y-0.5">
+                            {report.notes.map((note: string, idx: number) => (
+                                <span key={idx} className="text-xs text-muted">
+                                    · {note}
+                                </span>
+                            ))}
                         </div>
                     )}
                 </>

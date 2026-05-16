@@ -49,13 +49,17 @@ export function SidebarQuestionInput({
 
     useEffect(() => {
         if (threadLoading) {
-            textAreaRef.current?.focus() // Focus after submit
+            // `preventScroll` so that when this input is embedded in a
+            // host page (e.g. the GitHog PR workspace, where the chat lives
+            // in a sticky right column), focusing the textarea doesn't
+            // scroll the host page to bring it into view.
+            textAreaRef.current?.focus({ preventScroll: true })
         }
     }, [threadLoading])
 
     useEffect(() => {
         if (textAreaRef.current) {
-            textAreaRef.current.focus()
+            textAreaRef.current.focus({ preventScroll: true })
             textAreaRef.current.setSelectionRange(textAreaRef.current.value.length, textAreaRef.current.value.length)
         }
     }, [focusCounter]) // Update focus when focusCounter changes
@@ -95,7 +99,9 @@ function SuggestionsList(): JSX.Element | null {
 
     useEffect(() => {
         if (focusElementRef.current && activeSuggestionGroup) {
-            focusElementRef.current.focus()
+            // See SidebarQuestionInput above for why `preventScroll` matters
+            // when this component is embedded in a host page.
+            focusElementRef.current.focus({ preventScroll: true })
         }
         previousSuggestionGroup.current = activeSuggestionGroup
     }, [activeSuggestionGroup, rendered])

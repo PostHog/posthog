@@ -76,7 +76,17 @@ function PRListItem({
 }): JSX.Element {
     const { push } = useActions(router)
     const onClick = (): void => {
+        // Belt-and-suspenders: capture and restore the page's scroll position
+        // across the URL change. Some Max-chat lifecycle effects can sneak in
+        // a scroll when the workspace remounts on PR switch; restoring across
+        // a few animation frames neutralises any of those.
+        const savedScroll = window.scrollY
         push(urls.gitHogPullRequest(owner, name, pr.number))
+        const restore = (): void => window.scrollTo({ top: savedScroll, behavior: 'auto' })
+        requestAnimationFrame(restore)
+        requestAnimationFrame(() => requestAnimationFrame(restore))
+        setTimeout(restore, 50)
+        setTimeout(restore, 150)
     }
 
     return (
