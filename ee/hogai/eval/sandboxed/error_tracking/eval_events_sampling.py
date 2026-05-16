@@ -29,6 +29,7 @@ from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.error_tracking.scorers import (
     ERROR_TRACKING_WRITE_TOOLS,
     EventsArgsAlignment,
+    EventsToolUsed,
     IssueIdMatchesTarget,
 )
 from ee.hogai.eval.sandboxed.error_tracking.seeders import seed_error_tracking_lookup
@@ -100,6 +101,7 @@ async def eval_events_sampling(sandboxed_demo_data, pytestconfig, posthog_client
         scorers=[
             ExitCodeZero(),
             NoToolCall(forbidden=ERROR_TRACKING_WRITE_TOOLS, name="no_error_tracking_write"),
+            EventsToolUsed(),
             EventsArgsAlignment(),
             IssueIdMatchesTarget(),
         ],

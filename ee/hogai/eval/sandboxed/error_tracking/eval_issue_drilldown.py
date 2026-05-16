@@ -49,12 +49,16 @@ def _drilldown_case(
     target_issue_name: str,
     requires_events: bool = False,
     requires_recordings: bool = False,
+    forbids_events: bool = False,
+    forbids_recordings: bool = False,
 ) -> SandboxedEvalCase:
     expected: dict[str, Any] = {
         "target_issue": {"name": target_issue_name},
         "drilldown": {
             "requires_events": requires_events,
             "requires_recordings": requires_recordings,
+            "forbids_events": forbids_events,
+            "forbids_recordings": forbids_recordings,
         },
     }
     return SandboxedEvalCase(
@@ -69,7 +73,7 @@ def _drilldown_case(
 async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases = [
         # Detail-only — impact numbers + a glance at the issue. Should not
-        # trigger the heavier events tool.
+        # trigger the heavier events tool or fan out to session recordings.
         _drilldown_case(
             name="drilldown_checkout_timeout_impact",
             prompt=(
@@ -77,9 +81,12 @@ async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client
                 "'Checkout API timeout' error in the last 14 days."
             ),
             target_issue_name="Checkout API timeout",
+            forbids_events=True,
+            forbids_recordings=True,
         ),
         # Stack-trace ask — requires query-error-tracking-issue-events to pull
-        # the sampled exception payload.
+        # the sampled exception payload. No replay context asked for, so
+        # fanning into session recordings would be wasteful.
         _drilldown_case(
             name="drilldown_pdf_preview_show_examples",
             prompt=(
@@ -88,6 +95,7 @@ async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client
             ),
             target_issue_name="File preview render failure",
             requires_events=True,
+            forbids_recordings=True,
         ),
         # Pre-error behavior — events first (to extract $session_id), then a
         # session-recordings lookup. The drill-down ordering check insists on

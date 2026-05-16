@@ -29,6 +29,7 @@ __all__ = [
     "BINARY_CHOICE_SCORES",
     "ERROR_TRACKING_WRITE_TOOLS",
     "EventsArgsAlignment",
+    "EventsToolUsed",
     "IssueDrilldownOrder",
     "IssueIdMatchesTarget",
     "IssuesListInputAlignment",
@@ -119,17 +120,18 @@ def _user_prompt(output: dict[str, Any] | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-class IssuesListToolUsed(Scorer):
-    """Binary deterministic: did the agent successfully call ``query-error-tracking-issues-list``?
+class _ToolUsedScorer(Scorer):
+    """Binary deterministic floor: did the agent successfully call ``_tool_name`` at least once?
 
-    The list tool is the entry point for "what's broken / which errors"
-    questions — a successful call is the floor we expect for every case
-    in ``eval_issues_list.py``. Failure modes this catches: agent
-    hallucinated an answer without querying, or fell back to a generic
-    SQL/HogQL workaround instead of the typed tool.
+    Used as the entry-point floor for evals whose other scorers short-circuit
+    with ``score=None`` when the target tool was never called — without this
+    floor, an agent that never reaches the tool would pass the suite with no
+    negative signal.
     """
 
-    def __init__(self, *, name: str = "issues_list_tool_used"):
+    _tool_name: str = ""
+
+    def __init__(self, *, name: str):
         self._label = name
 
     def _name(self) -> str:
@@ -142,14 +144,46 @@ class IssuesListToolUsed(Scorer):
         return self._evaluate(output)
 
     def _evaluate(self, output: dict | None) -> Score:
-        actual = extract_last_query_issues_list_input(output)
-        if actual is None:
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log to parse"})
+        called = any(not c.is_error for c in parser.get_tool_calls(self._tool_name))
+        if not called:
             return Score(
                 name=self._name(),
                 score=0.0,
-                metadata={"reason": f"Agent never ran {QUERY_ISSUES_LIST_TOOL} successfully"},
+                metadata={"reason": f"Agent never ran {self._tool_name} successfully"},
             )
-        return Score(name=self._name(), score=1.0, metadata={"input": actual})
+        return Score(name=self._name(), score=1.0, metadata={"tool": self._tool_name})
+
+
+class IssuesListToolUsed(_ToolUsedScorer):
+    """Floor scorer for ``query-error-tracking-issues-list``.
+
+    Entry point for "what's broken / which errors" questions. Catches the
+    agent hallucinating without querying, or falling back to a generic
+    SQL/HogQL workaround instead of the typed tool.
+    """
+
+    _tool_name = QUERY_ISSUES_LIST_TOOL
+
+    def __init__(self, *, name: str = "issues_list_tool_used"):
+        super().__init__(name=name)
+
+
+class EventsToolUsed(_ToolUsedScorer):
+    """Floor scorer for ``query-error-tracking-issue-events``.
+
+    Required for ``eval_events_sampling.py`` so the suite can't pass when
+    the agent never reaches the events tool — without this floor,
+    ``EventsArgsAlignment`` and ``IssueIdMatchesTarget`` both short-circuit
+    with ``score=None`` and the run produces no failing signal.
+    """
+
+    _tool_name = QUERY_ISSUE_EVENTS_TOOL
+
+    def __init__(self, *, name: str = "events_tool_used"):
+        super().__init__(name=name)
 
 
 # ---------------------------------------------------------------------------
@@ -468,8 +502,13 @@ class IssueDrilldownOrder(Scorer):
        (the events response is what surfaces the ``$session_id`` values
        to feed it).
 
-    Steps 3 and 4 are gated so list-only / detail-only cases can reuse
-    the same scorer without spurious failures.
+    The case can additionally set ``forbids_events`` / ``forbids_recordings``
+    to catch over-fetching: detail-only prompts ("just tell me the impact"
+    of an issue) shouldn't trigger the heavier sampled-events query, and
+    impact-only prompts shouldn't fan out into session recordings. When
+    set, a successful call to the corresponding tool fails the scorer.
+    ``requires_*`` and ``forbids_*`` for the same tool are mutually
+    exclusive — when both are true, ``forbids_*`` is ignored.
     """
 
     def __init__(self, *, name: str = "issue_drilldown_order"):
@@ -500,6 +539,8 @@ class IssueDrilldownOrder(Scorer):
             )
         requires_events = bool(spec.get("requires_events", False))
         requires_recordings = bool(spec.get("requires_recordings", False))
+        forbids_events = bool(spec.get("forbids_events", False)) and not requires_events
+        forbids_recordings = bool(spec.get("forbids_recordings", False)) and not requires_recordings
 
         list_pos = self._first_pos(parser, QUERY_ISSUES_LIST_TOOL)
         issue_pos = self._first_pos(parser, QUERY_ISSUE_TOOL)
@@ -513,6 +554,8 @@ class IssueDrilldownOrder(Scorer):
             "recordings_pos": recordings_pos,
             "requires_events": requires_events,
             "requires_recordings": requires_recordings,
+            "forbids_events": forbids_events,
+            "forbids_recordings": forbids_recordings,
         }
 
         if list_pos is None:
@@ -532,6 +575,11 @@ class IssueDrilldownOrder(Scorer):
             if events_pos < issue_pos:
                 metadata["reason"] = f"{QUERY_ISSUE_EVENTS_TOOL} ran before {QUERY_ISSUE_TOOL}"
                 return Score(name=self._name(), score=0.0, metadata=metadata)
+        elif forbids_events and events_pos is not None:
+            metadata["reason"] = (
+                f"{QUERY_ISSUE_EVENTS_TOOL} was called for a prompt that did not ask for sampled events"
+            )
+            return Score(name=self._name(), score=0.0, metadata=metadata)
 
         if requires_recordings:
             if recordings_pos is None:
@@ -546,6 +594,11 @@ class IssueDrilldownOrder(Scorer):
             if recordings_pos < min_pred:
                 metadata["reason"] = f"{SESSION_RECORDINGS_LIST_TOOL} ran before its prerequisite drill-down"
                 return Score(name=self._name(), score=0.0, metadata=metadata)
+        elif forbids_recordings and recordings_pos is not None:
+            metadata["reason"] = (
+                f"{SESSION_RECORDINGS_LIST_TOOL} was called for a prompt that did not ask for replay context"
+            )
+            return Score(name=self._name(), score=0.0, metadata=metadata)
 
         return Score(name=self._name(), score=1.0, metadata=metadata)
 
