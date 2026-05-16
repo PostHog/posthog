@@ -1844,9 +1844,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         # Hex before the float guard: hex digits include 'e', so "0xfe" would route through float().
         if abs_text.startswith("0x"):
             return ast.Constant(value=sign * int(abs_text, 16))
-        # `0b…` is the BINARY_LITERAL lexer token; strip the prefix, parse base 2.
+        # `0b…` (BINARY_LITERAL): ClickHouse caps binary literals at 64 bits — magnitude
+        # must fit UInt64 (positive) or Int64 (negative); wider literals are rejected.
         if abs_text.startswith("0b"):
-            return ast.Constant(value=sign * int(abs_text[2:], 2))
+            magnitude = int(abs_text[2:], 2)
+            if magnitude > (2**63 if sign < 0 else 2**64 - 1):
+                raise SyntaxError(f"HogQL binary integer literals are limited to 64 bits; got {text!r}.")
+            return ast.Constant(value=sign * magnitude)
         # `0o…` (OCTAL_PREFIX_LITERAL): rejected — ClickHouse and pre-pg16 Postgres reject it too.
         if abs_text.startswith("0o"):
             raise SyntaxError(
