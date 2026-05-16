@@ -75,12 +75,32 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             return
         }
 
-        const candidates = await this.findParkedJobs(teamIds, distinctIds, personIds)
-        if (candidates.length === 0) {
+        // Team-level early-out via the in-memory hogflow cache (same pattern as cdp-events).
+        // Skip cyclotron entirely for teams that have no workflow with a wait_until_condition
+        // step or an event-based conversion goal — most batches won't have any.
+        const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamIds)
+        const candidateTeamIds: number[] = []
+        const hogflows: Record<string, HogFlow> = {}
+        for (const teamIdStr of Object.keys(hogFlowsByTeam)) {
+            const teamId = parseInt(teamIdStr)
+            const flows = hogFlowsByTeam[teamId]
+            if (!flows.some(hasWaitUntilOrConversion)) {
+                continue
+            }
+            candidateTeamIds.push(teamId)
+            for (const flow of flows) {
+                hogflows[flow.id] = flow
+            }
+        }
+
+        if (candidateTeamIds.length === 0) {
             return
         }
 
-        const hogflows = await this.hogFlowManager.getHogFlows([...new Set(candidates.map((c) => c.functionId))])
+        const candidates = await this.findParkedJobs(candidateTeamIds, distinctIds, personIds)
+        if (candidates.length === 0) {
+            return
+        }
 
         // Compute filterGlobals once per event; the same event can match many candidates.
         const filterGlobalsByEvent = new Map<HogFunctionInvocationGlobals, FilterGlobals>()
@@ -322,6 +342,17 @@ type IndexedBatch = {
     personIds: string[]
     byDistinctId: Map<string, HogFunctionInvocationGlobals[]>
     byPersonId: Map<string, HogFunctionInvocationGlobals[]>
+}
+
+// True iff the matcher has anything to evaluate against this hogflow: a
+// wait_until_condition step (matcher's bread and butter) or an event-based
+// conversion goal that could fire on any parked step.
+function hasWaitUntilOrConversion(hogflow: HogFlow): boolean {
+    if (hogflow.actions.some((a: HogFlowAction) => a.type === 'wait_until_condition')) {
+        return true
+    }
+    const conversionEvents = (hogflow.conversion as any)?.events
+    return Array.isArray(conversionEvents) && conversionEvents.length > 0
 }
 
 // Single pass over the batch: dedup distinct/person ids, collect team ids,

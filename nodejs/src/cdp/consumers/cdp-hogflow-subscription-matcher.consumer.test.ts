@@ -119,12 +119,17 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
         }
         // Stub hogFlowManager
         ;(this as any).hogFlowManager = {
-            getHogFlows: jest.fn(),
+            getHogFlowsForTeams: jest.fn().mockResolvedValue({}),
         }
     }
 
     public setHogFlows(map: Record<string, HogFlow>): void {
-        ;(this as any).hogFlowManager.getHogFlows.mockResolvedValue(map)
+        const byTeam: Record<number, HogFlow[]> = {}
+        for (const flow of Object.values(map)) {
+            byTeam[flow.team_id] = byTeam[flow.team_id] ?? []
+            byTeam[flow.team_id].push(flow)
+        }
+        ;(this as any).hogFlowManager.getHogFlowsForTeams.mockResolvedValue(byTeam)
     }
 
     public async runWake(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
@@ -150,6 +155,8 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         })
 
         it('passes both distinct_ids and person_ids to the lookup query', async () => {
+            // Need a qualifying hogflow on the team or the team-level early-out skips findParkedJobs.
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
             await matcher.runWake([
                 makeGlobals({}),
                 makeGlobals({
@@ -162,6 +169,13 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(lookup.params[0]).toEqual([1])
             expect(lookup.params[1].sort()).toEqual(['user-1', 'user-2'])
             expect(lookup.params[2].sort()).toEqual(['person-uuid-1', 'person-uuid-2'])
+        })
+
+        it('skips cyclotron entirely when no team in the batch has a wait_until_condition or conversion goal', async () => {
+            // Default: no hogflows configured → team has nothing the matcher could wake.
+            // The cyclotron lookup must NOT fire.
+            await matcher.runWake([makeGlobals({})])
+            expect(matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))).toBeUndefined()
         })
 
         it('wakes when the matching event is not the first event in the batch for a distinct_id', async () => {
@@ -346,12 +360,13 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         })
 
         it('returns no candidates when lookup query returns empty', async () => {
+            // Team has a qualifying hogflow, so the team-level early-out doesn't fire and we
+            // do hit cyclotron — but the lookup itself returns no rows, so no UPDATE follows.
             matcher.findRows = []
-            matcher.setHogFlows({})
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
 
             await matcher.runWake([makeGlobals({})])
 
-            // Lookup query is made; no UPDATE follows
             expect(matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))).not.toBeUndefined()
             expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
         })
@@ -412,6 +427,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // gate then crashes the pod and replays — the SELECT is read-only and the UPDATE
             // is guarded by `status = 'available'`, so replay is idempotent.
             const failure = new Error('connection refused')
+            // Need a qualifying hogflow so the team-level early-out doesn't skip the cyclotron
+            // call we want to see fail.
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
             ;(matcher as any).cyclotronPool.query = jest.fn().mockRejectedValue(failure)
             ;(matcher as any)._parseKafkaBatch = jest.fn().mockResolvedValue([makeGlobals({})])
 
