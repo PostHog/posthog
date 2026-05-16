@@ -12,6 +12,8 @@ FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=builder /llm-gateway /llm-gateway
 
+ENV LLM_GATEWAY_PORT=8080
+
 EXPOSE 8080
 
 CMD ["/llm-gateway"]

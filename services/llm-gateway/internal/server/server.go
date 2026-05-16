@@ -262,8 +262,12 @@ func (a *App) anthropicMessages(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.StatusCode)
 	if req.stream {
 		_, _ = io.Copy(w, resp.Body)
-		metrics.RequestCount.WithLabelValues("anthropic_messages", "anthropic", req.model, strconv.Itoa(resp.StatusCode), req.user.AuthMethod, req.product).Inc()
-		metrics.RequestLatency.WithLabelValues("anthropic_messages", "anthropic", "true", req.product).Observe(time.Since(start).Seconds())
+		if resp.StatusCode >= 400 {
+			metrics.RequestCount.WithLabelValues("anthropic_messages", "anthropic", req.model, strconv.Itoa(resp.StatusCode), req.user.AuthMethod, req.product).Inc()
+			metrics.RequestLatency.WithLabelValues("anthropic_messages", "anthropic", "true", req.product).Observe(time.Since(start).Seconds())
+			return
+		}
+		a.afterSuccess(context.Background(), req, "anthropic_messages", start, true, &llm.Response{})
 		return
 	}
 	parsed, body, err := llm.DecodeBody(resp)
@@ -414,10 +418,17 @@ func (a *App) prepareJSONRequest(w http.ResponseWriter, r *http.Request, endpoin
 		writeError(w, 400, fmt.Sprintf("Model '%s' is not supported by this gateway", model), "invalid_request_error", "model_not_supported")
 		return nil, nil, false
 	}
-	provider, valid := providerFromHeaders(r)
-	if !valid {
-		writeError(w, 400, "Expected one of: anthropic, bedrock", "invalid_request_error", nil)
-		return nil, nil, false
+	provider := ""
+	if endpoint == "anthropic_messages" || endpoint == "anthropic_count_tokens" {
+		var valid bool
+		provider, valid = providerFromHeaders(r)
+		if !valid {
+			writeError(w, 400, "Expected one of: anthropic, bedrock", "invalid_request_error", nil)
+			return nil, nil, false
+		}
+	} else {
+		parsedProvider, _ := llm.ProviderFromModel(model, schemas.OpenAI)
+		provider = string(parsedProvider)
 	}
 	if allowed, msg := products.CheckAccess(a.settings, req.product, req.user, model, provider); !allowed {
 		writeJSON(w, 403, msg)
@@ -430,6 +441,7 @@ func (a *App) prepareJSONRequest(w http.ResponseWriter, r *http.Request, endpoin
 	req.traceID = traceID(body)
 	result := a.limiter.Check(r.Context(), req.user, req.product, req.endUserID)
 	if !result.Allowed {
+		metrics.RateLimitExceeded.WithLabelValues(result.Detail).Inc()
 		writeJSONWithHeaders(w, result.StatusCode, map[string]any{"error": map[string]any{"message": "Rate limit exceeded", "type": "rate_limit_error", "reason": result.Detail}}, map[string]string{"Retry-After": strconv.Itoa(result.RetryAfter)})
 		return nil, nil, false
 	}
@@ -474,10 +486,15 @@ func (a *App) afterSuccess(ctx context.Context, req *requestState, endpoint stri
 	if usage.OutputTokens > 0 {
 		metrics.TokensOutput.WithLabelValues(req.provider, req.model, req.product).Add(float64(usage.OutputTokens))
 	}
-	cost := a.settings.DefaultFallbackCostUSD
+	cost := estimateCost(req.model, req.provider, usage.InputTokens, usage.OutputTokens)
+	if cost > 0 {
+		metrics.CostEstimated.WithLabelValues(req.provider, req.model, req.product).Inc()
+	} else {
+		cost = a.settings.DefaultFallbackCostUSD
+		metrics.CostFallbackDefault.WithLabelValues(req.provider, req.model, req.product).Inc()
+		metrics.CostMissing.WithLabelValues(req.provider, req.model, req.product).Inc()
+	}
 	usage.TotalCostUSD = cost
-	metrics.CostFallbackDefault.WithLabelValues(req.provider, req.model, req.product).Inc()
-	metrics.CostMissing.WithLabelValues(req.provider, req.model, req.product).Inc()
 	metrics.CostRecorded.WithLabelValues(req.provider, req.model, req.product).Add(cost)
 	metrics.CostUSD.WithLabelValues(req.provider, req.model, req.product).Add(cost)
 	a.limiter.RecordCost(ctx, req.user, req.product, req.endUserID, cost)
@@ -652,6 +669,28 @@ func intNumber(value any) int {
 	}
 	if v, ok := value.(int); ok {
 		return v
+	}
+	return 0
+}
+
+func estimateCost(model string, provider string, inputTokens int, outputTokens int) float64 {
+	type rate struct{ input, output float64 }
+	rates := map[string]rate{
+		"gpt-4.1-mini":      {0.0000004, 0.0000016},
+		"gpt-4.1-nano":      {0.0000001, 0.0000004},
+		"gpt-5-mini":        {0.00000025, 0.000002},
+		"claude-haiku-4-5":  {0.0000008, 0.000004},
+		"claude-sonnet-4-5": {0.000003, 0.000015},
+		"claude-sonnet-4-6": {0.000003, 0.000015},
+		"claude-opus-4-5":   {0.000015, 0.000075},
+		"claude-opus-4-6":   {0.000015, 0.000075},
+		"claude-opus-4-7":   {0.000015, 0.000075},
+	}
+	normalized := strings.TrimPrefix(strings.ToLower(model), provider+"/")
+	for prefix, value := range rates {
+		if strings.HasPrefix(normalized, prefix) {
+			return float64(inputTokens)*value.input + float64(outputTokens)*value.output
+		}
 	}
 	return 0
 }

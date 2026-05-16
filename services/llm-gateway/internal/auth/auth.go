@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/posthog/posthog/services/llm-gateway/internal/config"
+	"github.com/posthog/posthog/services/llm-gateway/internal/metrics"
 )
 
 type User struct {
@@ -86,8 +87,13 @@ func (s *Service) AuthenticateHeaders(ctx context.Context, headers map[string][]
 func (s *Service) authenticatePersonalKey(ctx context.Context, token string) (*User, error) {
 	tokenHash := "sha256$" + sha256Hex(token)
 	if hit, user := s.cache.Get(tokenHash); hit {
+		metrics.AuthCacheHits.WithLabelValues("personal_api_key").Inc()
+		if user == nil {
+			metrics.AuthInvalid.WithLabelValues("personal_api_key").Inc()
+		}
 		return user, nil
 	}
+	metrics.AuthCacheMisses.WithLabelValues("personal_api_key").Inc()
 	var id string
 	var userID int
 	var scopes []string
@@ -101,10 +107,12 @@ func (s *Service) authenticatePersonalKey(ctx context.Context, token string) (*U
     `, tokenHash).Scan(&id, &userID, &scopes, &teamID, &distinctID)
 	if err != nil {
 		s.cache.Set(tokenHash, nil, s.settings.AuthCacheTTL)
+		metrics.AuthInvalid.WithLabelValues("personal_api_key").Inc()
 		return nil, nil
 	}
 	if !hasRequiredScope(scopes, false) {
 		s.cache.Set(tokenHash, nil, s.settings.AuthCacheTTL)
+		metrics.AuthInvalid.WithLabelValues("personal_api_key").Inc()
 		return nil, nil
 	}
 	user := &User{UserID: userID, TeamID: teamID, AuthMethod: "personal_api_key", DistinctID: stringPtrValue(distinctID), Scopes: scopes}
@@ -115,8 +123,13 @@ func (s *Service) authenticatePersonalKey(ctx context.Context, token string) (*U
 func (s *Service) authenticateOAuthToken(ctx context.Context, token string) (*User, error) {
 	tokenHash := sha256Hex(token)
 	if hit, user := s.cache.Get(tokenHash); hit {
+		metrics.AuthCacheHits.WithLabelValues("oauth_access_token").Inc()
+		if user == nil {
+			metrics.AuthInvalid.WithLabelValues("oauth_access_token").Inc()
+		}
 		return user, nil
 	}
+	metrics.AuthCacheMisses.WithLabelValues("oauth_access_token").Inc()
 	var id int
 	var userID int
 	var scopeRaw *string
@@ -132,6 +145,7 @@ func (s *Service) authenticateOAuthToken(ctx context.Context, token string) (*Us
     `, tokenHash).Scan(&id, &userID, &scopeRaw, &expires, &applicationID, &teamID, &distinctID)
 	if err != nil || applicationID == nil || (expires != nil && expires.Before(time.Now().UTC())) {
 		s.cache.Set(tokenHash, nil, s.settings.AuthCacheTTLOAuth)
+		metrics.AuthInvalid.WithLabelValues("oauth_access_token").Inc()
 		return nil, nil
 	}
 	scopes := []string{}
@@ -140,6 +154,7 @@ func (s *Service) authenticateOAuthToken(ctx context.Context, token string) (*Us
 	}
 	if !hasRequiredScope(scopes, true) {
 		s.cache.Set(tokenHash, nil, s.settings.AuthCacheTTLOAuth)
+		metrics.AuthInvalid.WithLabelValues("oauth_access_token").Inc()
 		return nil, nil
 	}
 	user := &User{UserID: userID, TeamID: teamID, AuthMethod: "oauth_access_token", DistinctID: stringPtrValue(distinctID), Scopes: scopes, ApplicationID: applicationID, TokenExpiresAt: expires}
@@ -155,6 +170,10 @@ func (c *Cache) Get(key string) (bool, *User) {
 		delete(c.values, key)
 		return false, nil
 	}
+	if entry.user != nil && entry.user.TokenExpiresAt != nil && time.Now().UTC().After(*entry.user.TokenExpiresAt) {
+		delete(c.values, key)
+		return false, nil
+	}
 	return true, entry.user
 }
 
@@ -167,7 +186,11 @@ func (c *Cache) Set(key string, user *User, ttl time.Duration) {
 			break
 		}
 	}
-	c.values[key] = cacheEntry{user: user, expiresAt: time.Now().Add(ttl)}
+	expiresAt := time.Now().Add(ttl)
+	if user != nil && user.TokenExpiresAt != nil && user.TokenExpiresAt.Before(expiresAt) {
+		expiresAt = *user.TokenExpiresAt
+	}
+	c.values[key] = cacheEntry{user: user, expiresAt: expiresAt}
 }
 
 func hasRequiredScope(scopes []string, allowWildcard bool) bool {
