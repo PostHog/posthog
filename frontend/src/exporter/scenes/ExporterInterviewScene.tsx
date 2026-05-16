@@ -1,3 +1,4 @@
+import Vapi from '@vapi-ai/web'
 import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -44,7 +45,7 @@ export default function ExporterInterviewScene({
 }): JSX.Element {
     const [state, setState] = useState<CallState>('idle')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
-    const vapiRef = useRef<{ stop: () => void } | null>(null)
+    const vapiRef = useRef<Vapi | null>(null)
 
     useEffect(() => {
         document.title = `Interview · ${interview.topic}`
@@ -64,10 +65,7 @@ export default function ExporterInterviewScene({
         }
         setState('loading')
         try {
-            const [{ default: Vapi }, startPayload] = await Promise.all([
-                import(/* webpackChunkName: "vapi-sdk" */ '@vapi-ai/web'),
-                fetchStartCallPayload(accessToken),
-            ])
+            const startPayload = await fetchStartCallPayload(accessToken)
             const vapi = new Vapi(startPayload.public_key)
             vapiRef.current = vapi
             vapi.on('call-end', () => setState('ended'))
