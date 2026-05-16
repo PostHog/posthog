@@ -2,6 +2,7 @@
 // This file contains the core parser logic that returns JSON representations of ASTs.
 // It can be compiled for Python (via parser_python.cpp), WebAssembly, or other platforms.
 
+#include <cstdint>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -2860,14 +2861,27 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       }
       return json;
     } else if (is_binary) {
-      // Strip the `0b` / `-0b` prefix and parse base 2.
-      string digits = (text[0] == '-') ? text.substr(3) : text.substr(2);
+      // ClickHouse caps binary literals at 64 bits — magnitude must fit UInt64
+      // (positive) or Int64 (negative); wider literals are rejected.
+      bool negative = text[0] == '-';
+      string digits = negative ? text.substr(3) : text.substr(2);
+      uint64_t magnitude;
       try {
-        int64_t value = static_cast<int64_t>(stoll(digits, nullptr, 2));
-        json["value"] = (text[0] == '-') ? -value : value;
+        magnitude = stoull(digits, nullptr, 2);
       } catch (const std::out_of_range&) {
-        json["value"] = (text[0] == '-') ? "-Infinity" : "Infinity";
-        json["value_type"] = "number";
+        throw SyntaxError("HogQL binary integer literals are limited to 64 bits; got `" + text + "`.");
+      }
+      if (negative) {
+        if (magnitude > 9223372036854775808ULL) {
+          throw SyntaxError("HogQL binary integer literals are limited to 64 bits; got `" + text + "`.");
+        }
+        json["value"] = (magnitude == 9223372036854775808ULL) ? INT64_MIN : -static_cast<int64_t>(magnitude);
+      } else if (magnitude > static_cast<uint64_t>(INT64_MAX)) {
+        // Exceeds Int64 but fits UInt64; Json has no unsigned slot, so emit
+        // the exact value as a raw JSON number rather than rounding to double.
+        json["value"] = Json::raw(std::to_string(magnitude));
+      } else {
+        json["value"] = static_cast<int64_t>(magnitude);
       }
       return json;
     } else {

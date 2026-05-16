@@ -133,6 +133,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ("binary_uppercase_prefix", "0B11", 3),
                 ("binary_negative", "-0b1010", -10),
                 ("binary_positive_sign", "+0b11", 3),
+                # 64-bit boundary: magnitude fits UInt64 (positive) or Int64 (negative).
+                ("binary_int64_max", "0b" + "1" * 63, 2**63 - 1),
+                ("binary_uint64_max", "0b" + "1" * 64, 2**64 - 1),
+                ("binary_int64_min", "-0b1" + "0" * 63, -(2**63)),
             ]
         )
         def test_binary_literals(self, _name: str, expr: str, expected: int):
@@ -191,6 +195,18 @@ def parser_test_factory(backend: HogQLParserBackend):
         )
         def test_malformed_binary_literals_rejected(self, _name: str, query: str):
             # `0b<non-binary-digit>` lexes as MALFORMED_BINARY_LITERAL, unreferenced by any rule, so the parser rejects it.
+            with self.assertRaises((ExposedHogQLError, SyntaxError)):
+                self._select(query)
+
+        @parameterized.expand(
+            [
+                ("65_bits", "SELECT 0b" + "1" * 65),
+                ("2_to_the_64", "SELECT 0b1" + "0" * 64),
+                ("negative_below_int64_min", "SELECT -0b" + "1" * 64),
+            ]
+        )
+        def test_oversized_binary_literals_rejected(self, _name: str, query: str):
+            # ClickHouse caps binary literals at 64 bits — magnitude must fit UInt64 (positive) or Int64 (negative).
             with self.assertRaises((ExposedHogQLError, SyntaxError)):
                 self._select(query)
 
