@@ -562,6 +562,20 @@ class TestBytecode(BaseTest):
             str(e.exception), 'Variable "globalVar" not declared in this scope. Can not assign to globals.'
         )
 
+    def test_bytecode_bare_throw(self):
+        # A bare `throw` (no expression) parses cleanly — the grammar marks
+        # the expression optional (`throwStmt: THROW expression? SEMICOLON?`)
+        # and both parser backends produce `ThrowStatement(expr=None)`. It
+        # has no runtime meaning though, so compiling one must fail with a
+        # clear QueryError rather than crash on the missing expression.
+        with self.assertRaises(QueryError) as e:
+            execute_hog("throw", team=self.team)
+        self.assertEqual(str(e.exception), "THROW requires an expression")
+
+        # A `throw` WITH an expression still compiles — the compiler only
+        # rejects the bare form, not throwing in general.
+        create_bytecode(parse_program("throw Error('boom')"))
+
     def test_bytecode_execute(self):
         # Test a simple operations. The Hog execution itself is tested under common/hogvm/python/
         self.assertEqual(execute_hog("1 + 2", team=self.team).result, 3)
