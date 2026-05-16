@@ -2618,6 +2618,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
 
             if (method === 'PUSH') {
+                // Don't wipe the user's in-progress edits if a navigation slips through
+                // (e.g. the beforeUnload prompt was shown and cancelled, but the route still
+                // reaches this handler). Mirrors the dirty check used by `beforeUnload` below.
+                const isDirty = values.originalFeatureFlag ? values.hasUnsavedChanges : values.featureFlagChanged
+                if (isDirty) {
+                    return
+                }
                 if (props.id) {
                     // When there is sourceId, we load the feature flag (for duplicating)
                     if (props.id === 'new' && searchParams.sourceId != null) {

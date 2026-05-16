@@ -1,8 +1,10 @@
 import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -528,6 +530,33 @@ describe('featureFlagLogic', () => {
                     name: 'Bulk edit',
                 } as Parameters<typeof logic.actions.setFeatureFlagValues>[0])
             }).toMatchValues({ hasUnsavedChanges: true })
+        })
+    })
+
+    describe('urlToAction preserves in-progress edits', () => {
+        // Regression for https://github.com/PostHog/posthog/issues/58656 — when the user
+        // dismisses the beforeUnload prompt, urlToAction must not silently reload the
+        // flag and wipe their in-progress edits.
+
+        it('preserves an in-progress edit on a PUSH navigation when the form is dirty', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('name', 'Edited but not saved')
+            }).toMatchValues({ hasUnsavedChanges: true })
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.featureFlag(1))
+            }).toFinishAllListeners()
+
+            expect(logic.values.featureFlag.name).toBe('Edited but not saved')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it('still reloads the flag on a PUSH navigation when the form is clean', async () => {
+            await expectLogic(logic).toMatchValues({ hasUnsavedChanges: false })
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.featureFlag(1))
+            }).toDispatchActions(['loadFeatureFlag'])
         })
     })
 
