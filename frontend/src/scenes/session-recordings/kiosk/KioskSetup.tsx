@@ -23,9 +23,17 @@ export function KioskSetup(): JSX.Element {
     const [visitedPage, setVisitedPage] = useState(filters.visitedPage || '')
     const [dateFrom, setDateFrom] = useState(filters.dateFrom || '-30d')
     const [minDurationSeconds, setMinDurationSeconds] = useState(filters.minDurationSeconds)
+    const [featureFlagKey, setFeatureFlagKey] = useState(filters.featureFlagKey || '')
+    const [featureFlagValue, setFeatureFlagValue] = useState(filters.featureFlagValue || '')
 
     const handleStart = (): void => {
-        setFilters({ visitedPage: visitedPage.trim() || null, dateFrom, minDurationSeconds })
+        setFilters({
+            visitedPage: visitedPage.trim() || null,
+            dateFrom,
+            minDurationSeconds,
+            featureFlagKey: featureFlagKey.trim() || null,
+            featureFlagValue: featureFlagValue.trim() || null,
+        })
         startPlayback()
     }
 
@@ -71,6 +79,31 @@ export function KioskSetup(): JSX.Element {
                         onChange={(val) => setMinDurationSeconds(Number(val) || 0)}
                         fullWidth
                         onPressEnter={handleStart}
+                    />
+                </div>
+
+                <div className="KioskSetup__field">
+                    <label htmlFor="kiosk-feature-flag-key">Feature flag (optional)</label>
+                    <LemonInput
+                        id="kiosk-feature-flag-key"
+                        value={featureFlagKey}
+                        onChange={setFeatureFlagKey}
+                        placeholder="flag key, e.g. new-checkout"
+                        fullWidth
+                        onPressEnter={handleStart}
+                    />
+                </div>
+
+                <div className="KioskSetup__field">
+                    <label htmlFor="kiosk-feature-flag-value">Feature flag value</label>
+                    <LemonInput
+                        id="kiosk-feature-flag-value"
+                        value={featureFlagValue}
+                        onChange={setFeatureFlagValue}
+                        placeholder="e.g. true, control, variant-a"
+                        fullWidth
+                        onPressEnter={handleStart}
+                        disabled={!featureFlagKey.trim()}
                     />
                 </div>
 
