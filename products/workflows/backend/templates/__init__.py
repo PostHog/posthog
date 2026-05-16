@@ -27,6 +27,7 @@ TEMPLATE_FILES = [
     "unused-features-education.json",
     "user-stuck-onboarding.json",
     "user-upgrade-webhook.json",
+    "frustrated-user-outreach.json",
 ]
 
 _TEMPLATE_CACHE: Optional[list[dict]] = None

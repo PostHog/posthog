@@ -1,0 +1,154 @@
+{
+    "id": "019d3a00-0001-0000-0000-frustoutreach",
+    "name": "Frustrated user outreach",
+    "description": "Automatically send a helpful email when a user shows signs of frustration during a session (rage clicks, errors). Requires frustration detection to be enabled in Session replay settings.",
+    "image_url": "",
+    "scope": "global",
+    "created_at": "2026-04-13T00:00:00.000000Z",
+    "created_by": null,
+    "updated_at": "2026-04-13T00:00:00.000000Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "events": [
+                {
+                    "id": "$session_frustration_detected",
+                    "name": "Session frustration detected",
+                    "type": "events",
+                    "uuid": "a1b2c3d4-0001-0000-0000-frusttrigger",
+                    "order": 0
+                }
+            ],
+            "source": "events",
+            "actions": [],
+            "bytecode": ["_H", 1, 32, "$session_frustration_detected", 32, "event", 1, 1, 11],
+            "filter_test_accounts": false
+        }
+    },
+    "trigger_masking": {
+        "ttl": 259200,
+        "threshold": null,
+        "hash": "{person.id}",
+        "bytecode": ["_H", 1, 32, "id", 32, "person", 1, 2]
+    },
+    "conversion": {
+        "filters": [],
+        "bytecode": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "to": "action_delay_frust_001",
+            "from": "trigger_node",
+            "type": "continue"
+        },
+        {
+            "to": "action_function_email_frust_001",
+            "from": "action_delay_frust_001",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_function_email_frust_001",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Frustration detected",
+            "description": "Triggers when a user session shows frustration signals (rage clicks, errors).",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$session_frustration_detected",
+                            "name": "Session frustration detected",
+                            "type": "events",
+                            "uuid": "a1b2c3d4-0001-0000-0000-frusttrigger",
+                            "order": 0
+                        }
+                    ],
+                    "source": "events",
+                    "actions": [],
+                    "bytecode": ["_H", 1, 32, "$session_frustration_detected", 32, "event", 1, 1, 11],
+                    "filter_test_accounts": false
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_delay_frust_001",
+            "name": "Wait 1 hour",
+            "description": "Wait before sending to avoid emailing during an active session.",
+            "on_error": null,
+            "created_at": 1712966400000,
+            "updated_at": 1712966400000,
+            "filters": null,
+            "type": "delay",
+            "config": {
+                "delay_duration": "1h"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_email_frust_001",
+            "name": "Send helpful email",
+            "description": "Send a personalized email offering help to the frustrated user.",
+            "on_error": null,
+            "created_at": 1712966400000,
+            "updated_at": 1712966400000,
+            "filters": null,
+            "type": "function_email",
+            "config": {
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "",
+                                "email": "{{ person.properties.email }}"
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "subject": "Need help? We noticed you ran into some trouble",
+                            "html": "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>We're here to help</title></head><body style=\"margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background-color:#f7f8f9;\"><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#f7f8f9;\"><tr><td align=\"center\" style=\"padding:40px 20px;\"><table role=\"presentation\" width=\"500\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#ffffff;border-radius:8px;\"><tr><td style=\"padding:32px;\"><p style=\"font-size:16px;line-height:1.5;color:#333;\">Hi {person.properties.first_name},</p><p style=\"font-size:16px;line-height:1.5;color:#333;margin-top:16px;\">We noticed you might have hit a snag while using our product. We want to make sure you're not stuck!</p><p style=\"font-size:16px;line-height:1.5;color:#333;margin-top:16px;\">If you ran into any issues or have questions, just reply to this email and we'll get back to you as soon as possible.</p><p style=\"font-size:16px;line-height:1.5;color:#333;margin-top:16px;\">Best,<br>The team</p></td></tr></table></td></tr></table></body></html>",
+                            "text": "Hi {person.properties.first_name},\n\nWe noticed you might have hit a snag while using our product. We want to make sure you're not stuck!\n\nIf you ran into any issues or have questions, just reply to this email and we'll get back to you as soon as possible.\n\nBest,\nThe team",
+                            "design": null
+                        },
+                        "templating": "hog"
+                    }
+                },
+                "template_id": "template-email"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function_email"],
+    "tags": ["session replay", "frustration", "email", "user outreach"],
+    "scope": "global"
+}

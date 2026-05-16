@@ -47,6 +47,7 @@ from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQ
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
+from posthog.temporal.session_frustration.schedule import create_session_frustration_detection_schedule
 from posthog.temporal.session_replay.delete_recordings.types import PurgeDeletedMetadataInput
 from posthog.temporal.session_replay.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
 from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCountMetricsInput
@@ -446,6 +447,7 @@ schedules = [
     create_ingestion_acceptance_test_schedule,
     create_health_check_schedules,
     create_logs_alert_check_schedule,
+    create_session_frustration_detection_schedule,
 ]
 
 if settings.EE_AVAILABLE:

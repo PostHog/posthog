@@ -21,6 +21,7 @@ import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/Bounc
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
+import { FrustrationDetectionSettings } from 'scenes/settings/environment/FrustrationDetectionSettings'
 import { MaxChangelogSettings } from 'scenes/settings/environment/MaxChangelogSettings'
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
 import { PersonLastSeenAtEnabled } from 'scenes/settings/environment/PersonLastSeenAtEnabled'
@@ -1036,6 +1037,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ReplayAuthorizedDomains />,
                 allowForTeam: (t) => !!t?.recording_domains?.length,
                 keywords: ['domain', 'whitelist', 'allowlist'],
+            },
+            {
+                id: 'replay-frustration-detection',
+                title: 'Frustration detection',
+                description:
+                    'Automatically detect frustrated user sessions (rage clicks, errors) and emit events that can trigger workflows.',
+                component: <FrustrationDetectionSettings />,
+                keywords: ['frustration', 'rage click', 'session replay', 'automated messaging'],
             },
             {
                 id: 'replay-retention',

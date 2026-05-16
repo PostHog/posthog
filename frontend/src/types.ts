@@ -666,6 +666,7 @@ export interface TeamType extends TeamBasicType {
     capture_console_log_opt_in: boolean | null
     capture_performance_opt_in: boolean | null
     capture_dead_clicks: boolean | null
+    frustration_detection_enabled: boolean | null
     // a string representation of the decimal value between 0 and 1
     session_recording_sample_rate: string
     session_recording_minimum_duration_milliseconds: number | null
