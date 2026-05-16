@@ -321,7 +321,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     public override async start(): Promise<void> {
         await super.start()
         await this.kafkaConsumer.connect(async (messages) => {
-            logger.info('🔁', `${this.name} - handling batch`, { size: messages.length })
             return await instrumentFn('cdpHogflowSubscriptionMatcher.handleEachBatch', async () => {
                 const invocationGlobals = await this._parseKafkaBatch(messages)
                 // Surface failures to the kafka consumer so the offset doesn't advance past a
