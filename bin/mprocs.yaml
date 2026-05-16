@@ -389,10 +389,10 @@ procs:
     llm-gateway:
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'
         capability: llm_gateway
-        ready_pattern: 'Application startup complete'
+        ready_pattern: 'LLM Gateway ready'
         groups:
             layer: Product services
-            tech: Python
+            tech: Go
         env:
             LLM_GATEWAY_DEBUG: 'true'
             LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS: '{"1": 10}'

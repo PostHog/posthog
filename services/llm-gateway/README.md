@@ -1,6 +1,6 @@
 # LLM Gateway
 
-A standalone microservice for proxying LLM requests to Anthropic, OpenAI, OpenRouter, and Fireworks AI APIs.
+A standalone Go microservice for proxying LLM requests to Anthropic, OpenAI, OpenRouter, and Fireworks AI APIs.
 
 ## Quick start
 
@@ -8,8 +8,7 @@ A standalone microservice for proxying LLM requests to Anthropic, OpenAI, OpenRo
 
 ```bash
 cd services/llm-gateway
-uv sync
-uv run uvicorn llm_gateway.main:app --reload
+go run .
 ```
 
 ### Making a request

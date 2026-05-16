@@ -1,0 +1,47 @@
+package metrics
+
+import "github.com/prometheus/client_golang/prometheus"
+
+var Registry = prometheus.NewRegistry()
+
+var RequestCount = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_requests_total", Help: "Total gateway requests."}, []string{"endpoint", "provider", "model", "status_code", "auth_method", "product"})
+var RequestLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "llm_gateway_request_duration_seconds", Help: "Gateway request duration.", Buckets: prometheus.DefBuckets}, []string{"endpoint", "provider", "streaming", "product"})
+var TokensInput = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_tokens_input_total", Help: "Input tokens."}, []string{"provider", "model", "product"})
+var TokensOutput = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_tokens_output_total", Help: "Output tokens."}, []string{"provider", "model", "product"})
+var TokensCacheRead = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_tokens_cache_read_total", Help: "Cache read tokens."}, []string{"provider", "model", "product"})
+var TokensCacheCreation = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_tokens_cache_creation_total", Help: "Cache creation tokens."}, []string{"provider", "model", "product"})
+var TokensReasoning = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_tokens_reasoning_total", Help: "Reasoning tokens."}, []string{"provider", "model", "product"})
+var CostUSD = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_cost_usd_total", Help: "LLM cost USD."}, []string{"provider", "model", "product"})
+var CostInputUSD = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_cost_input_usd_total", Help: "Input cost USD."}, []string{"provider", "model", "product"})
+var CostOutputUSD = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_cost_output_usd_total", Help: "Output cost USD."}, []string{"provider", "model", "product"})
+var CostCacheSavingsUSD = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_cost_cache_savings_usd_total", Help: "Cache savings USD."}, []string{"provider", "model", "product"})
+var LLMResponseTime = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "llm_gateway_llm_response_time_seconds", Help: "Provider response time.", Buckets: prometheus.DefBuckets}, []string{"provider", "model", "product"})
+var LLMTimeToFirstToken = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "llm_gateway_llm_ttft_seconds", Help: "Time to first token.", Buckets: prometheus.DefBuckets}, []string{"provider", "model", "product"})
+var LLMRequests = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_llm_requests_total", Help: "Provider LLM requests."}, []string{"provider", "model", "product", "streaming"})
+var RateLimitExceeded = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_rate_limit_exceeded_total", Help: "Rate limit exceeded."}, []string{"scope"})
+var ProductCostWindow = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "llm_gateway_product_cost_window_usd", Help: "Product cost window."}, []string{"product"})
+var ProductCostLimit = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "llm_gateway_product_cost_limit_usd", Help: "Product cost limit."}, []string{"product"})
+var ProductCostWindowSeconds = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "llm_gateway_product_cost_window_seconds", Help: "Product cost window seconds."}, []string{"product"})
+var ProviderErrors = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_provider_errors_total", Help: "Provider errors."}, []string{"provider", "error_type", "product"})
+var ActiveStreams = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "llm_gateway_active_streams", Help: "Active streams."}, []string{"provider", "model", "product"})
+var DBPoolSize = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "llm_gateway_db_pool_size", Help: "DB pool size."}, []string{"state"})
+var AuthCacheHits = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_auth_cache_hits_total", Help: "Auth cache hits."}, []string{"auth_type"})
+var AuthCacheMisses = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_auth_cache_misses_total", Help: "Auth cache misses."}, []string{"auth_type"})
+var AuthInvalid = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_auth_invalid_total", Help: "Invalid auth."}, []string{"auth_type"})
+var RedisFallback = prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_gateway_redis_fallback_total", Help: "Redis fallback count."})
+var StreamingClientDisconnect = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_streaming_client_disconnect_total", Help: "Streaming disconnects."}, []string{"provider", "model", "product"})
+var ConcurrentRequests = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "llm_gateway_concurrent_requests", Help: "Concurrent requests."}, []string{"provider", "model", "product"})
+var DBPoolExhausted = prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_gateway_db_pool_exhausted_total", Help: "DB pool exhausted."})
+var CallbackSuccess = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_callback_success_total", Help: "Callback successes."}, []string{"callback"})
+var CallbackErrors = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_callback_errors_total", Help: "Callback errors."}, []string{"callback", "error_type"})
+var CostRecorded = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_cost_recorded_total", Help: "Cost recorded."}, []string{"provider", "model", "product"})
+var CostEstimated = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_cost_estimated_total", Help: "Cost estimated."}, []string{"provider", "model", "product"})
+var CostMissing = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_cost_missing_total", Help: "Cost missing."}, []string{"provider", "model", "product"})
+var CostFallbackDefault = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_cost_fallback_default_total", Help: "Fallback cost default used."}, []string{"provider", "model", "product"})
+var BedrockFallbackTriggered = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_bedrock_fallback_triggered_total", Help: "Bedrock fallback triggered."}, []string{"model", "product", "original_error_type"})
+var BedrockFallbackSuccess = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_bedrock_fallback_success_total", Help: "Bedrock fallback success."}, []string{"model", "product"})
+var BedrockFallbackFailure = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_gateway_bedrock_fallback_failure_total", Help: "Bedrock fallback failure."}, []string{"model", "product"})
+
+func init() {
+	Registry.MustRegister(RequestCount, RequestLatency, TokensInput, TokensOutput, TokensCacheRead, TokensCacheCreation, TokensReasoning, CostUSD, CostInputUSD, CostOutputUSD, CostCacheSavingsUSD, LLMResponseTime, LLMTimeToFirstToken, LLMRequests, RateLimitExceeded, ProductCostWindow, ProductCostLimit, ProductCostWindowSeconds, ProviderErrors, ActiveStreams, DBPoolSize, AuthCacheHits, AuthCacheMisses, AuthInvalid, RedisFallback, StreamingClientDisconnect, ConcurrentRequests, DBPoolExhausted, CallbackSuccess, CallbackErrors, CostRecorded, CostEstimated, CostMissing, CostFallbackDefault, BedrockFallbackTriggered, BedrockFallbackSuccess, BedrockFallbackFailure)
+}

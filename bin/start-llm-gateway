@@ -27,16 +27,7 @@ provision_api_key &
 
 cd "$REPO_ROOT/services/llm-gateway"
 
-unset VIRTUAL_ENV
-export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
+export LLM_GATEWAY_PORT="${LLM_GATEWAY_PORT:-3308}"
+export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
 
-if [ ! -d ".venv" ]; then
-    uv venv .venv
-fi
-
-uv pip install -e . --quiet
-
-exec .venv/bin/uvicorn llm_gateway.main:app \
-    --host 0.0.0.0 \
-    --port "${LLM_GATEWAY_PORT:-3308}" \
-    --reload
+exec go run .

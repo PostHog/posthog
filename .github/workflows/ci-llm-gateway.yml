@@ -1,7 +1,7 @@
 # This workflow runs the tests for the LLM Gateway service
 # (services/llm-gateway/). It lives outside the Backend CI workflow because
 # the service has no runtime dependencies on the PostHog Django backend — it
-# only needs Python + uv + pytest.
+# only needs Go + the provider SDK compatibility tests.
 #
 # The `llm_services_tests` roll-up is what gets marked as a required check
 # in branch protection: new LLM-service test jobs can be added to its `needs`
@@ -62,33 +62,14 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+            - name: Set up Go
+              uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v6.0.0
               with:
-                  python-version: '3.12'
-
-            - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
-              with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-
-            - name: Install dependencies
-              run: uv sync --frozen --dev
+                  go-version-file: services/llm-gateway/go.mod
+                  cache-dependency-path: services/llm-gateway/go.sum
 
             - name: Run tests
-              env:
-                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-                  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-                  FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
-              run: uv run pytest tests/ -v --tb=short --junitxml=junit.xml
-
-            - name: Upload test results
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
-              with:
-                  name: junit-results-llm-gateway
-                  path: services/llm-gateway/junit.xml
+              run: go test ./...
 
     # Single required status check for branch protection. Add future LLM
     # services test jobs to `needs` here rather than reconfiguring GitHub.
