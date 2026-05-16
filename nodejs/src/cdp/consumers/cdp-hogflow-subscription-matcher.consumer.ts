@@ -52,7 +52,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         if (config.CYCLOTRON_NODE_DATABASE_URL) {
             this.cyclotronPool = new Pool({
                 connectionString: config.CYCLOTRON_NODE_DATABASE_URL,
-                max: 5,
+                max: config.CYCLOTRON_NODE_MAX_CONNECTIONS,
             })
         }
     }
@@ -216,6 +216,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             return []
         }
 
+        // Two index-friendly branches with UNION (dedupes rows that match both keys).
+        // A single OR across distinct_id and person_id often forces Postgres into a
+        // sequential scan; splitting lets each branch hit its own composite index.
         const result = await this.cyclotronPool.query(
             `SELECT id, team_id, function_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
@@ -223,7 +226,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                AND queue_name = 'hogflow'
                AND scheduled > NOW()
                AND team_id = ANY($1::int[])
-               AND (distinct_id = ANY($2::text[]) OR person_id = ANY($3::uuid[]))`,
+               AND distinct_id = ANY($2::text[])
+             UNION
+             SELECT id, team_id, function_id, action_id, distinct_id, person_id
+             FROM cyclotron_jobs
+             WHERE status = 'available'
+               AND queue_name = 'hogflow'
+               AND scheduled > NOW()
+               AND team_id = ANY($1::int[])
+               AND person_id = ANY($3::uuid[])`,
             [teamIds, distinctIds, personIds]
         )
 
