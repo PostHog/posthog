@@ -6,6 +6,7 @@ def register_all_admin():
     from django.contrib import admin
 
     from posthog.admin.admins import (
+        AlertConfigurationAdmin,
         AsyncDeletionAdmin,
         BatchImportAdmin,
         CohortAdmin,
@@ -39,6 +40,7 @@ def register_all_admin():
         PluginConfigAdmin,
         ProductTourAdmin,
         ProjectAdmin,
+        SubscriptionAdmin,
         SurveyAdmin,
         TeamAdmin,
         TextAdmin,
@@ -48,6 +50,7 @@ def register_all_admin():
     )
     from posthog.admin.admins.exported_asset_admin import ExportedAssetAdmin
     from posthog.models import (
+        AlertConfiguration,
         AsyncDeletion,
         BatchImport,
         Cohort,
@@ -74,6 +77,7 @@ def register_all_admin():
         Plugin,
         PluginConfig,
         Project,
+        Subscription,
         Team,
         User,
         UserIntegration,
@@ -158,6 +162,9 @@ def register_all_admin():
 
     admin.site.register(PersonalAPIKey, PersonalAPIKeyAdmin)
     admin.site.register(OAuthApplication, OAuthApplicationAdmin)
+
+    admin.site.register(Subscription, SubscriptionAdmin)
+    admin.site.register(AlertConfiguration, AlertConfigurationAdmin)
 
     admin.site.register(Task, TaskAdmin)
     admin.site.register(TaskRun, TaskRunAdmin)

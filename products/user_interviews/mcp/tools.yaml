@@ -9,6 +9,24 @@ feature: user_interviews
 url_prefix: /user_interviews
 ui_apps: {}
 tools:
+    user-interview-topics-add-interviewee:
+        operation: user_interview_topics_add_interviewee_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Add an interviewee to a topic
+        description: >
+            Append a single interviewee identifier to a user interview topic. Email-shaped identifiers (including the
+            `Display Name <email@host>` form) go to `interviewee_emails`; everything else goes to
+            `interviewee_distinct_ids`. Idempotent — adding an identifier that is already present leaves the topic
+            unchanged. Returns the updated topic.
+        include_params:
+            - identifier
+        feature_flag: user-interviews
     user-interview-topics-create:
         operation: user_interview_topics_create
         enabled: true
@@ -77,7 +95,20 @@ tools:
         feature_flag: user-interviews
     user-interview-topics-interviewees-destroy:
         operation: user_interview_topics_interviewees_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a per-interviewee context row
+        description: >
+            Remove the extra context attached to a single interviewee on a user interview topic. Only deletes the
+            `IntervieweeContext` row — does not change the topic's targeting (`interviewee_emails` /
+            `interviewee_distinct_ids`). Use `user-interview-topics-remove-interviewee` if you want to drop the
+            interviewee from targeting as well.
+        feature_flag: user-interviews
     user-interview-topics-interviewees-list:
         operation: user_interview_topics_interviewees_list
         enabled: true
@@ -95,7 +126,21 @@ tools:
         feature_flag: user-interviews
     user-interview-topics-interviewees-partial-update:
         operation: user_interview_topics_interviewees_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a per-interviewee context row
+        description: >
+            Update the `agent_context` field on a per-interviewee context row. Pass only the fields you want to change.
+            Does not modify the topic's targeting; use `user-interview-topics-add-interviewee` /
+            `user-interview-topics-remove-interviewee` for that.
+        include_params:
+            - agent_context
+        feature_flag: user-interviews
     user-interview-topics-interviewees-retrieve:
         operation: user_interview_topics_interviewees_retrieve
         enabled: false
@@ -120,10 +165,58 @@ tools:
         feature_flag: user-interviews
     user-interview-topics-partial-update:
         operation: user_interview_topics_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a user interview topic
+        description: >
+            Update fields on a user interview topic. Pass only the fields you want to change. For incremental edits to
+            targeting, prefer `user-interview-topics-add-interviewee` and `user-interview-topics-remove-interviewee` —
+            sending `interviewee_emails` or `interviewee_distinct_ids` here replaces the entire array.
+        include_params:
+            - topic
+            - agent_context
+            - questions
+            - interviewee_emails
+            - interviewee_distinct_ids
+        feature_flag: user-interviews
+    user-interview-topics-remove-interviewee:
+        operation: user_interview_topics_remove_interviewee_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Remove an interviewee from a topic
+        description: >
+            Remove an interviewee identifier from a topic's targeting. Drops the identifier from both
+            `interviewee_emails` and `interviewee_distinct_ids`, and disables any active SharingConfiguration tied to
+            that interviewee on this topic so the removed person can no longer open their interview link. Idempotent —
+            removing an identifier that isn't present is a no-op. Returns the updated topic.
+        include_params:
+            - identifier
+        feature_flag: user-interviews
     user-interview-topics-retrieve:
         operation: user_interview_topics_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - user_interview:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get user interview topic
+        description: >
+            Retrieve a single user interview topic by ID, including its full targeting (`interviewee_emails`,
+            `interviewee_distinct_ids`), voice agent setup (`agent_context`, `questions`), and metadata. Use this to
+            list the current interviewees on a topic before adding, editing, or removing them.
+        feature_flag: user-interviews
     user-interview-topics-send-invites:
         operation: user_interview_topics_send_invites_create
         enabled: true

@@ -7,6 +7,7 @@ import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
+import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 import { LearnMorePopover } from 'scenes/web-analytics/WebAnalyticsDashboard'
 
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
@@ -94,6 +95,7 @@ export const NonIntegratedConversionsTable = (): JSX.Element | null => {
             select: selectColumns,
             limit: 50,
             draftConversionGoal: draftConversionGoal || undefined,
+            tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
         }
 
         return {

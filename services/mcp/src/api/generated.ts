@@ -19158,6 +19158,14 @@ export namespace Schemas {
       agent_context: string;
     }
 
+    export interface IntervieweeIdentifierRequest {
+      /**
+         * Email address or PostHog distinct ID for the interviewee. Email-shaped values (including the `Display Name <email@host>` form) are routed to `interviewee_emails`; everything else lands in `interviewee_distinct_ids`.
+         * @maxLength 400
+         */
+      identifier: string;
+    }
+
     /**
      * * `2.0` - 2.0
      */

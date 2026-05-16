@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Logo } from 'lib/brand/Logo'
+import { RobotHog } from 'lib/components/hedgehogs'
 
 import { InterviewExportPayload } from '../types'
 
@@ -94,6 +95,10 @@ export default function ExporterInterviewScene({
             <div className="mb-8 flex items-center justify-between">
                 <Logo className="text-lg" />
                 <span className="text-xs text-muted">Powered by PostHog</span>
+            </div>
+
+            <div className="flex justify-center mb-6">
+                <RobotHog className="w-40 h-40" alt="" />
             </div>
 
             <h1 className="text-3xl font-bold mb-4">Hi {interview.user_name}!</h1>
