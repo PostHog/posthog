@@ -248,7 +248,10 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(task.id))
 
-    def test_list_signal_report_tasks_hidden_by_default_but_visible_with_internal_flag(self):
+    def test_list_signal_report_tasks_hidden_by_default(self):
+        # Signal-report tasks are always created with internal=True, so the
+        # default list still hides them. The retrieve-by-ID path (and the
+        # staff/DEBUG `?internal=true` path) is how they're surfaced.
         other_user = self.create_organization_user("signal-owner")
         signal_task = Task.objects.create(
             team=self.team,
@@ -260,19 +263,11 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         )
         mine = self.create_task("Mine", created_by=self.user)
 
-        # Default list: signal-report task is internal, so it's hidden.
-        default_resp = self.client.get("/api/projects/@current/tasks/")
-        self.assertEqual(default_resp.status_code, status.HTTP_200_OK)
-        default_ids = {t["id"] for t in default_resp.json()["results"]}
-        self.assertIn(str(mine.id), default_ids)
-        self.assertNotIn(str(signal_task.id), default_ids)
-
-        # With `?internal=true`, signal-report tasks become visible to the
-        # requesting team member even though they didn't create them.
-        internal_resp = self.client.get("/api/projects/@current/tasks/?internal=true")
-        self.assertEqual(internal_resp.status_code, status.HTTP_200_OK)
-        internal_ids = {t["id"] for t in internal_resp.json()["results"]}
-        self.assertIn(str(signal_task.id), internal_ids)
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {t["id"] for t in response.json()["results"]}
+        self.assertIn(str(mine.id), ids)
+        self.assertNotIn(str(signal_task.id), ids)
 
     def test_retrieve_other_user_non_signal_internal_task_returns_404(self):
         # Non-signal internal tasks created by another user remain private.
@@ -2230,12 +2225,38 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         self.assertIn(str(self.external_task.id), task_ids)
         self.assertNotIn(str(self.internal_task.id), task_ids)
 
-    def test_list_internal_true_shows_only_internal_tasks(self):
-        # Any team member can opt into seeing internal tasks visible to them
-        # (their own, legacy unowned, or signal-report) via `?internal=true`.
+    def test_list_internal_true_is_ignored_for_non_staff_in_production(self):
+        # Non-staff user with DEBUG=False must not have internal tasks surfaced.
         self.assertFalse(self.user.is_staff)
         with self.settings(DEBUG=False):
             response = self.client.get("/api/projects/@current/tasks/?internal=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertIn(str(self.external_task.id), task_ids)
+        self.assertNotIn(str(self.internal_task.id), task_ids)
+
+    def test_list_internal_true_shows_only_internal_tasks_in_debug(self):
+        with self.settings(DEBUG=True):
+            response = self.client.get("/api/projects/@current/tasks/?internal=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertNotIn(str(self.external_task.id), task_ids)
+        self.assertIn(str(self.internal_task.id), task_ids)
+
+    def test_list_internal_true_shows_only_internal_tasks_for_staff(self):
+        # Staff users can list internal tasks even with DEBUG=False.
+        staff_user = User.objects.create_user(
+            email="staff@example.com", password="password", first_name="Staff", is_staff=True
+        )
+        self.organization.members.add(staff_user)
+        staff_client = APIClient()
+        staff_client.force_authenticate(staff_user)
+        with self.settings(DEBUG=False):
+            response = staff_client.get("/api/projects/@current/tasks/?internal=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
