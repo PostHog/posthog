@@ -225,14 +225,20 @@ def _reject_error(query: str, rule: str, backend: str) -> str:
     """Capture the candidate's reject error message, normalised to
     drop the position-dependent `got <token>` payload so two rejects
     on the same root cause group together. Only called for queries
-    `_try_parse` already returned `False` for, so `BaseHogQLError`
-    is the only exception type we expect — anything else would have
-    already aborted the run upstream."""
+    `_try_parse` already returned `False` for — but `_try_parse`
+    swallows EVERY `Exception` subclass, not just `BaseHogQLError`,
+    so a backend-internal crash (`RuntimeError`, `TypeError`, …) also
+    reaches here. We normalise those into a distinct `<ExcType>: …`
+    signature rather than letting them propagate: an uncaught
+    exception here would escape into the Hypothesis-decorated `run()`
+    and abort the whole session with spurious shrinking output."""
     parser_fn = parse_expr if rule == "expr" else parse_select
     try:
         parser_fn(query, backend=backend)  # type: ignore[arg-type]
     except BaseHogQLError as e:
         return _normalize_error(str(e))
+    except Exception as e:
+        return _normalize_error(f"{type(e).__name__}: {e}")
     return "(unexpected: parse succeeded)"
 
 
