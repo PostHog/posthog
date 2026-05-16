@@ -578,6 +578,8 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_throw_statement(self, node: ast.ThrowStatement):
+        if node.expr is None:
+            raise QueryError("THROW requires an expression")
         return [*self.visit(node.expr), Operation.THROW]
 
     def visit_try_catch_statement(self, node: ast.TryCatchStatement):
