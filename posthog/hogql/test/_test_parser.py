@@ -4240,4 +4240,2896 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        # =====================================================================
+        # Cross-backend parser-shape contract tests, consolidated from the
+        # rust-allstar-json and rust-backtrack-json fork test files. Each test
+        # asserts the parser produces the canonical AST for an ANTLR ALL(*)-only
+        # construct (BETWEEN body absorption, CTE column form, NOT-prefix vs
+        # function-call dispatch, etc.). Backends that can't disambiguate the
+        # case fail the test naturally — no per-fork skipping needed.
+        # =====================================================================
+
+        # --- backtrack :: TestPrattLimitationsViaBacktrack (116 tests) ---
+        def test_between_with_lambda_body(self):
+            self.assertEqual(
+                self._expr("x BETWEEN lambda y : a AND b AND high"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.Lambda(args=["y"], expr=ast.And(exprs=[ast.Field(chain=["a"]), ast.Field(chain=["b"])])),
+                    high=ast.Field(chain=["high"]),
+                ),
+            )
+
+        def test_between_with_arrow_lambda_body(self):
+            self.assertEqual(
+                self._expr("x BETWEEN (a) -> b AND c AND high"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.Lambda(args=["a"], expr=ast.And(exprs=[ast.Field(chain=["b"]), ast.Field(chain=["c"])])),
+                    high=ast.Field(chain=["high"]),
+                ),
+            )
+
+        def test_between_with_named_arg_body(self):
+            self.assertEqual(
+                self._expr("x BETWEEN name := value AND high"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.NamedArgument(name="name", value=ast.Field(chain=["value"])),
+                    high=ast.Field(chain=["high"]),
+                ),
+            )
+
+        def test_between_with_as_alias_body(self):
+            self.assertEqual(
+                self._expr("x BETWEEN y AS alias AND high"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.Alias(alias="alias", expr=ast.Field(chain=["y"])),
+                    high=ast.Field(chain=["high"]),
+                ),
+            )
+
+        def test_between_with_ternary_body(self):
+            self.assertEqual(
+                self._expr("x BETWEEN a ? b : c AND high"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.Call(
+                        name="if", args=[ast.Field(chain=["a"]), ast.Field(chain=["b"]), ast.Field(chain=["c"])]
+                    ),
+                    high=ast.Field(chain=["high"]),
+                ),
+            )
+
+        def test_between_nested_between(self):
+            self.assertEqual(
+                self._expr("x BETWEEN y BETWEEN z AND w AND v"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.BetweenExpr(
+                        expr=ast.Field(chain=["y"]), low=ast.Field(chain=["z"]), high=ast.Field(chain=["w"])
+                    ),
+                    high=ast.Field(chain=["v"]),
+                ),
+            )
+
+        def test_between_left_recursive_nested(self):
+            self.assertEqual(
+                self._expr("x BETWEEN 1 AND 2 BETWEEN 3 AND 4"),
+                ast.BetweenExpr(
+                    expr=ast.BetweenExpr(
+                        expr=ast.Field(chain=["x"]), low=ast.Constant(value=1), high=ast.Constant(value=2)
+                    ),
+                    low=ast.Constant(value=3),
+                    high=ast.Constant(value=4),
+                ),
+            )
+
+        def test_between_left_recursive_with_postfix(self):
+            self.assertEqual(
+                self._expr('x BETWEEN 1 AND 2 BETWEEN 3 AND 4 ?. "a"'),
+                ast.BetweenExpr(
+                    expr=ast.BetweenExpr(
+                        expr=ast.Field(chain=["x"]), low=ast.Constant(value=1), high=ast.Constant(value=2)
+                    ),
+                    low=ast.Constant(value=3),
+                    high=ast.ArrayAccess(array=ast.Constant(value=4), property=ast.Constant(value="a"), nullish=True),
+                ),
+            )
+
+        def test_between_three_keywords_three_ands(self):
+            self.assertEqual(
+                self._expr("a BETWEEN b BETWEEN c AND d AND e BETWEEN f AND g"),
+                ast.BetweenExpr(
+                    expr=ast.BetweenExpr(
+                        expr=ast.Field(chain=["a"]),
+                        low=ast.BetweenExpr(
+                            expr=ast.Field(chain=["b"]), low=ast.Field(chain=["c"]), high=ast.Field(chain=["d"])
+                        ),
+                        high=ast.Field(chain=["e"]),
+                    ),
+                    low=ast.Field(chain=["f"]),
+                    high=ast.Field(chain=["g"]),
+                ),
+            )
+
+        def test_between_three_keywords_three_ands_placeholders(self):
+            self.assertEqual(
+                self._expr("{ } BETWEEN { } BETWEEN ( '' ) AND ( '' ) AND { } BETWEEN ( '' ) AND ( '' )"),
+                ast.BetweenExpr(
+                    expr=ast.BetweenExpr(
+                        expr=ast.Dict(items=[]),
+                        low=ast.BetweenExpr(
+                            expr=ast.Dict(items=[]), low=ast.Constant(value=""), high=ast.Constant(value="")
+                        ),
+                        high=ast.Dict(items=[]),
+                    ),
+                    low=ast.Constant(value=""),
+                    high=ast.Constant(value=""),
+                ),
+            )
+
+        def test_not_asterisk_alone(self):
+            self.assertEqual(self._expr("NOT *"), ast.Not(expr=ast.Field(chain=["*"])))
+
+        def test_not_asterisk_plus_primary(self):
+            self.assertEqual(
+                self._expr("NOT * + 1"),
+                ast.Not(expr=ast.ArithmeticOperation(left=ast.Field(chain=["*"]), right=ast.Constant(value=1), op="+")),
+            )
+
+        def test_not_asterisk_division(self):
+            self.assertEqual(
+                self._expr("NOT * / 1"),
+                ast.Not(expr=ast.ArithmeticOperation(left=ast.Field(chain=["*"]), right=ast.Constant(value=1), op="/")),
+            )
+
+        def test_number_dot_and_with_rhs_is_binary(self):
+            self.assertEqual(
+                self._expr("1 . and columns((a))"),
+                ast.And(exprs=[ast.Constant(value=1.0), ast.ColumnsExpr(columns=[ast.Field(chain=["a"])])]),
+            )
+
+        def test_number_dot_in_with_rhs_is_compare(self):
+            self.assertEqual(
+                self._expr("1.in 2"),
+                ast.CompareOperation(left=ast.Constant(value=1.0), right=ast.Constant(value=2), op="in"),
+            )
+
+        def test_number_dot_and_alone_is_property_access(self):
+            self.assertEqual(
+                self._expr("1.and"),
+                ast.ArrayAccess(array=ast.Constant(value=1), property=ast.Constant(value="and")),
+            )
+
+        def test_interpolate_inner_alias_absorbs_as_identifier(self):
+            self.assertEqual(
+                self._select("select 1 order by 1 with fill interpolate (a as b)"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    order_by=[ast.OrderExpr(expr=ast.Constant(value=1), with_fill=ast.WithFillExpr())],
+                    interpolate=[ast.InterpolateExpr(expr=ast.Alias(alias="b", expr=ast.Field(chain=["a"])))],
+                ),
+            )
+
+        def test_interpolate_inner_alias_then_postfix_call(self):
+            self.assertEqual(
+                self._select("select 1 order by 1 with fill interpolate (a as f())"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    order_by=[ast.OrderExpr(expr=ast.Constant(value=1), with_fill=ast.WithFillExpr())],
+                    interpolate=[
+                        ast.InterpolateExpr(
+                            expr=ast.ExprCall(expr=ast.Alias(alias="f", expr=ast.Field(chain=["a"])), args=[])
+                        )
+                    ],
+                ),
+            )
+
+        def test_interpolate_as_value_when_inner_alias_invalid(self):
+            self.assertEqual(
+                self._select("select 1 order by 1 with fill interpolate (1+1 as 2)"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    order_by=[ast.OrderExpr(expr=ast.Constant(value=1), with_fill=ast.WithFillExpr())],
+                    interpolate=[
+                        ast.InterpolateExpr(
+                            expr=ast.ArithmeticOperation(
+                                left=ast.Constant(value=1), right=ast.Constant(value=1), op="+"
+                            ),
+                            value=ast.Constant(value=2),
+                        )
+                    ],
+                ),
+            )
+
+        def test_set_offset_hops_up_without_trailing_decorators(self):
+            self.assertEqual(
+                self._select("select 1 union select 2 limit 3 offset 5"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(select=[ast.Constant(value=2)], limit=ast.Constant(value=3)),
+                            set_operator="UNION DISTINCT",
+                        )
+                    ],
+                    offset=ast.Constant(value=5),
+                ),
+            )
+
+        def test_set_offset_stays_inner_when_set_level_order_by_present(self):
+            self.assertEqual(
+                self._select("select 1 union select 2 limit 3 offset 5 order by 7"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(
+                                select=[ast.Constant(value=2)],
+                                limit=ast.Constant(value=3),
+                                offset=ast.Constant(value=5),
+                            ),
+                            set_operator="UNION DISTINCT",
+                        )
+                    ],
+                ),
+            )
+
+        def test_set_offset_with_spread_and_trailing_order_by(self):
+            self.assertEqual(
+                self._select(
+                    "{ 208277 } intersect { ( '' ) } intersect select ( 'dc' ) ( ) ( ) limit ( * ) offset * columns ( 'if' ) order by { } nulls last , 843946"
+                ),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.Placeholder(expr=ast.Constant(value=208277)),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.Placeholder(expr=ast.Constant(value="")), set_operator="INTERSECT"
+                        ),
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(
+                                select=[
+                                    ast.ExprCall(expr=ast.ExprCall(expr=ast.Constant(value="dc"), args=[]), args=[])
+                                ],
+                                limit=ast.Field(chain=["*"]),
+                                offset=ast.SpreadExpr(expr=ast.ColumnsExpr(regex="if")),
+                            ),
+                            set_operator="INTERSECT",
+                        ),
+                    ],
+                ),
+            )
+
+        def test_from_paren_inner_sample_wins_over_outer(self):
+            self.assertEqual(
+                self._select("select 1 from (t sample 0.1) sample {x}"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["t"]),
+                        sample=ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=0.1))),
+                    ),
+                ),
+            )
+
+        def test_from_paren_placeholder_with_inner_sample_keeps_inner(self):
+            self.assertEqual(
+                self._select("select 1 from ({x} sample {y}) sample 0.5"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Placeholder(expr=ast.Field(chain=["x"])),
+                        sample=ast.SampleExpr(sample_value=ast.Placeholder(expr=ast.Field(chain=["y"]))),
+                    ),
+                ),
+            )
+
+        def test_from_paren_placeholder_alone_takes_outer_sample(self):
+            self.assertEqual(
+                self._select("select 1 from ({x}) sample 0.5"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Placeholder(expr=ast.Field(chain=["x"])),
+                        sample=ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=0.5))),
+                    ),
+                ),
+            )
+
+        def test_set_offset_compact_form_stays_inner(self):
+            self.assertEqual(
+                self._select("select 1 union select 2 limit 3, 5"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(
+                                select=[ast.Constant(value=2)],
+                                limit=ast.Constant(value=3),
+                                offset=ast.Constant(value=5),
+                            ),
+                            set_operator="UNION DISTINCT",
+                        )
+                    ],
+                ),
+            )
+
+        def test_set_offset_compact_form_with_ties_stays_inner(self):
+            self.assertEqual(
+                self._select("select 1 union select 2 limit 3, 5 with ties"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(
+                                select=[ast.Constant(value=2)],
+                                limit=ast.Constant(value=3),
+                                limit_with_ties=True,
+                                offset=ast.Constant(value=5),
+                            ),
+                            set_operator="UNION DISTINCT",
+                        )
+                    ],
+                ),
+            )
+
+        def test_set_offset_compact_columns_spread_with_ties(self):
+            self.assertEqual(
+                self._select(
+                    "{996203} except select {} group by grouping sets (()) with totals limit {}, columns(*) with ties"
+                ),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.Placeholder(expr=ast.Constant(value=996203)),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(
+                                select=[ast.Dict(items=[])],
+                                group_by=[ast.GroupingSet(exprs=[])],
+                                group_by_mode="grouping_sets",
+                                limit=ast.Dict(items=[]),
+                                limit_with_ties=True,
+                                offset=ast.ColumnsExpr(columns=[ast.Field(chain=["*"])]),
+                            ),
+                            set_operator="EXCEPT",
+                        )
+                    ],
+                ),
+            )
+
+        def test_set_offset_paren_collapsed_inner_stays(self):
+            self.assertEqual(
+                self._select("select 1 except ((select 2) limit 3 offset 5)"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(
+                                select=[ast.Constant(value=2)],
+                                limit=ast.Constant(value=3),
+                                offset=ast.Constant(value=5),
+                            ),
+                            set_operator="EXCEPT",
+                        )
+                    ],
+                ),
+            )
+
+        def test_set_offset_nested_setquery_inner_stays(self):
+            self.assertEqual(
+                self._select("select 1 except ({(*)} union select 2 intersect (({(*)})) limit 3 offset columns(*))"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectSetQuery(
+                                initial_select_query=ast.Placeholder(expr=ast.Field(chain=["*"])),
+                                subsequent_select_queries=[
+                                    ast.SelectSetNode(
+                                        select_query=ast.SelectQuery(select=[ast.Constant(value=2)]),
+                                        set_operator="UNION DISTINCT",
+                                    ),
+                                    ast.SelectSetNode(
+                                        select_query=ast.Placeholder(expr=ast.Field(chain=["*"])),
+                                        set_operator="INTERSECT",
+                                    ),
+                                ],
+                                limit=ast.Constant(value=3),
+                                offset=ast.ColumnsExpr(columns=[ast.Field(chain=["*"])]),
+                            ),
+                            set_operator="EXCEPT",
+                        )
+                    ],
+                ),
+            )
+
+        def test_parametric_probe_order_by_in_first_parens_is_args_shape(self):
+            self.assertEqual(
+                self._expr("f(order by 1)(2)"),
+                ast.ExprCall(
+                    expr=ast.Call(name="f", args=[], order_by=[ast.OrderExpr(expr=ast.Constant(value=1))]),
+                    args=[ast.Constant(value=2)],
+                ),
+            )
+
+        def test_parametric_probe_distinct_in_first_parens_is_args_shape(self):
+            self.assertEqual(
+                self._expr("f(distinct 1)(2)"),
+                ast.ExprCall(
+                    expr=ast.Call(name="f", args=[ast.Constant(value=1)], distinct=True), args=[ast.Constant(value=2)]
+                ),
+            )
+
+        def test_cast_with_arrow_lambda_body(self):
+            self.assertEqual(
+                self._expr("cast((x) -> y AS Int)"),
+                ast.TypeCast(expr=ast.Lambda(args=["x"], expr=ast.Field(chain=["y"])), type_name="int"),
+            )
+
+        def test_try_cast_with_arrow_lambda_body(self):
+            self.assertEqual(
+                self._expr("try_cast((x) -> y AS Int)"),
+                ast.TryCast(expr=ast.Lambda(args=["x"], expr=ast.Field(chain=["y"])), type_name="int"),
+            )
+
+        def test_interval_with_empty_paren_arrow_lambda(self):
+            self.assertEqual(
+                self._expr("interval () -> (*) quarter"),
+                ast.Call(name="toIntervalQuarter", args=[ast.Lambda(args=[], expr=ast.Field(chain=["*"]))]),
+            )
+
+        def test_not_paren_star_replace_is_prefix(self):
+            self.assertEqual(
+                self._expr("not (* replace (1 as a))"),
+                ast.Not(expr=ast.ColumnsExpr(all_columns=True, replace={"a": ast.Constant(value=1)})),
+            )
+
+        def test_not_paren_star_exclude_replace_is_prefix(self):
+            self.assertEqual(
+                self._expr("not (* exclude (a) replace (1 as b))"),
+                ast.Not(expr=ast.ColumnsExpr(all_columns=True, exclude=["a"], replace={"b": ast.Constant(value=1)})),
+            )
+
+        def test_not_paren_star_exclude_only_is_function_call(self):
+            self.assertEqual(
+                self._expr("not (* exclude (a))"),
+                ast.Call(name="not", args=[ast.ColumnsExpr(all_columns=True, exclude=["a"])]),
+            )
+
+        def test_not_paren_star_alone_is_function_call(self):
+            self.assertEqual(self._expr("not (*)"), ast.Call(name="not", args=[ast.Field(chain=["*"])]))
+
+        def test_not_paren_arrow_lambda_is_prefix(self):
+            self.assertEqual(
+                self._expr("not (a) -> 1"), ast.Not(expr=ast.Lambda(args=["a"], expr=ast.Constant(value=1)))
+            )
+
+        def test_not_paren_empty_arrow_lambda_is_prefix(self):
+            self.assertEqual(self._expr("not () -> 1"), ast.Not(expr=ast.Lambda(args=[], expr=ast.Constant(value=1))))
+
+        def test_not_arrow_is_lambda_with_not_param(self):
+            self.assertEqual(self._expr("not -> 1"), ast.Lambda(args=["not"], expr=ast.Constant(value=1)))
+
+        def test_from_paren_field_drops_sample(self):
+            self.assertEqual(
+                self._select("SELECT 1 FROM (t) SAMPLE inf"),
+                ast.SelectQuery(select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["t"]))),
+            )
+
+        def test_from_double_paren_values_drops_sample(self):
+            self.assertEqual(
+                self._select("SELECT 1 FROM ((values(1))) SAMPLE inf"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.ValuesQuery(rows=[[ast.Constant(value=1)]])),
+                ),
+            )
+
+        def test_from_paren_subquery_keeps_sample(self):
+            self.assertEqual(
+                self._select("SELECT 1 FROM ((SELECT 1)) SAMPLE inf"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                        sample=ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=float("inf")))),
+                    ),
+                ),
+            )
+
+        def test_from_paren_placeholder_keeps_sample(self):
+            self.assertEqual(
+                self._select("SELECT 1 FROM (({x})) SAMPLE inf"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Placeholder(expr=ast.Field(chain=["x"])),
+                        sample=ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=float("inf")))),
+                    ),
+                ),
+            )
+
+        def test_set_level_offset_hops_up_when_outer_empty(self):
+            self.assertEqual(
+                self._expr("f((select 1 union select 2 limit 'j' offset 5))"),
+                ast.Call(
+                    name="f",
+                    args=[
+                        ast.SelectSetQuery(
+                            initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                            subsequent_select_queries=[
+                                ast.SelectSetNode(
+                                    select_query=ast.SelectQuery(
+                                        select=[ast.Constant(value=2)], limit=ast.Constant(value="j")
+                                    ),
+                                    set_operator="UNION DISTINCT",
+                                )
+                            ],
+                            offset=ast.Constant(value=5),
+                        )
+                    ],
+                ),
+            )
+
+        def test_set_level_offset_stays_inner_when_outer_has_limit(self):
+            self.assertEqual(
+                self._select("(SELECT 1 UNION SELECT 2 LIMIT 1 OFFSET 2 LIMIT 3)"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(
+                                select=[ast.Constant(value=2)],
+                                limit=ast.Constant(value=1),
+                                offset=ast.Constant(value=2),
+                            ),
+                            set_operator="UNION DISTINCT",
+                        )
+                    ],
+                    limit=ast.Constant(value=3),
+                ),
+            )
+
+        def test_offset_with_spread_expression_hops_up(self):
+            self.assertEqual(
+                self._expr("f((select 1 union select 2 limit 'j' offset *columns('x')))"),
+                ast.Call(
+                    name="f",
+                    args=[
+                        ast.SelectSetQuery(
+                            initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                            subsequent_select_queries=[
+                                ast.SelectSetNode(
+                                    select_query=ast.SelectQuery(
+                                        select=[ast.Constant(value=2)], limit=ast.Constant(value="j")
+                                    ),
+                                    set_operator="UNION DISTINCT",
+                                )
+                            ],
+                            offset=ast.SpreadExpr(expr=ast.ColumnsExpr(regex="x")),
+                        )
+                    ],
+                ),
+            )
+
+        def test_limit_modulo_offset_arithmetic_extends_with_spread(self):
+            self.assertEqual(
+                self._select("select 1 limit a % offset * columns('x')"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit=ast.ArithmeticOperation(
+                        left=ast.ArithmeticOperation(
+                            left=ast.Field(chain=["a"]), right=ast.Field(chain=["offset"]), op="%"
+                        ),
+                        right=ast.ColumnsExpr(regex="x"),
+                        op="*",
+                    ),
+                ),
+            )
+
+        def test_limit_modulo_offset_arithmetic_extends_with_exclude(self):
+            self.assertEqual(
+                self._select("select 1 limit a % offset * exclude (x)"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit=ast.ArithmeticOperation(
+                        left=ast.ArithmeticOperation(
+                            left=ast.Field(chain=["a"]), right=ast.Field(chain=["offset"]), op="%"
+                        ),
+                        right=ast.Call(name="exclude", args=[ast.Field(chain=["x"])]),
+                        op="*",
+                    ),
+                ),
+            )
+
+        def test_limit_modulo_offset_keeps_percent_for_bare_asterisk(self):
+            self.assertEqual(
+                self._select("select 1 limit a % offset *"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit=ast.Field(chain=["a"]),
+                    limit_percent=True,
+                    offset=ast.Field(chain=["*"]),
+                ),
+            )
+
+        def test_limit_modulo_offset_keeps_percent_for_identifier_body(self):
+            self.assertEqual(
+                self._select("select 1 limit a % offset b"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit=ast.Field(chain=["a"]),
+                    limit_percent=True,
+                    offset=ast.Field(chain=["b"]),
+                ),
+            )
+
+        def test_offset_body_consumes_full_arithmetic_chain(self):
+            self.assertEqual(
+                self._select("select 1 limit a % offset b * c"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit=ast.Field(chain=["a"]),
+                    limit_percent=True,
+                    offset=ast.ArithmeticOperation(left=ast.Field(chain=["b"]), right=ast.Field(chain=["c"]), op="*"),
+                ),
+            )
+
+        def test_limit_by_extends_through_offset_keyword_in_arithmetic(self):
+            self.assertEqual(
+                self._select("select 1 limit 5 by a, offset * columns('r')"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Constant(value=5),
+                        exprs=[
+                            ast.Field(chain=["a"]),
+                            ast.ArithmeticOperation(
+                                left=ast.Field(chain=["offset"]), right=ast.ColumnsExpr(regex="r"), op="*"
+                            ),
+                        ],
+                    ),
+                ),
+            )
+
+        def test_octal_lhs_dot_number_is_tuple_access(self):
+            self.assertEqual(
+                self._expr("03326 . 719972"), ast.TupleAccess(tuple=ast.Constant(value=1750), index=719972)
+            )
+
+        def test_octal_lhs_dot_number_no_whitespace_is_tuple_access(self):
+            self.assertEqual(self._expr("03326.719972"), ast.TupleAccess(tuple=ast.Constant(value=1750), index=719972))
+
+        def test_decimal_lhs_dot_number_remains_float(self):
+            self.assertEqual(self._expr("17 . 5"), ast.Constant(value=17.5))
+
+        def test_hex_lhs_dot_number_is_tuple_access(self):
+            self.assertEqual(
+                self._expr("0x0fb5bB . 293155"), ast.TupleAccess(tuple=ast.Constant(value=1029563), index=293155)
+            )
+
+        def test_not_brace_multi_member_setop_is_not_prefix(self):
+            self.assertEqual(
+                self._expr("not ({1} except {2})"),
+                ast.Not(
+                    expr=ast.SelectSetQuery(
+                        initial_select_query=ast.Placeholder(expr=ast.Constant(value=1)),
+                        subsequent_select_queries=[
+                            ast.SelectSetNode(
+                                select_query=ast.Placeholder(expr=ast.Constant(value=2)), set_operator="EXCEPT"
+                            )
+                        ],
+                    )
+                ),
+            )
+
+        def test_not_brace_single_placeholder_is_call(self):
+            self.assertEqual(
+                self._expr("not ({1})"),
+                ast.Call(name="not", args=[ast.Placeholder(expr=ast.Constant(value=1))]),
+            )
+
+        def test_not_brace_single_placeholder_with_decorator_is_call(self):
+            self.assertEqual(
+                self._expr("not ({1} order by 0)"),
+                ast.Call(
+                    name="not",
+                    args=[ast.Placeholder(expr=ast.Constant(value=1))],
+                    order_by=[ast.OrderExpr(expr=ast.Constant(value=0))],
+                ),
+            )
+
+        def test_not_brace_setop_with_postfix_arrayaccess(self):
+            self.assertEqual(
+                self._expr("not ({1} except {2}) [3]"),
+                ast.Not(
+                    expr=ast.ArrayAccess(
+                        array=ast.SelectSetQuery(
+                            initial_select_query=ast.Placeholder(expr=ast.Constant(value=1)),
+                            subsequent_select_queries=[
+                                ast.SelectSetNode(
+                                    select_query=ast.Placeholder(expr=ast.Constant(value=2)), set_operator="EXCEPT"
+                                )
+                            ],
+                        ),
+                        property=ast.Constant(value=3),
+                    )
+                ),
+            )
+
+        def test_paren_call_with_brace_setop_arg_is_call_subquery(self):
+            self.assertEqual(
+                self._expr("name() ({1} except {2})"),
+                ast.ExprCall(
+                    expr=ast.Call(name="name", args=[]),
+                    args=[
+                        ast.SelectSetQuery(
+                            initial_select_query=ast.Placeholder(expr=ast.Constant(value=1)),
+                            subsequent_select_queries=[
+                                ast.SelectSetNode(
+                                    select_query=ast.Placeholder(expr=ast.Constant(value=2)), set_operator="EXCEPT"
+                                )
+                            ],
+                        )
+                    ],
+                ),
+            )
+
+        def test_paren_call_with_select_arg_is_call_subquery(self):
+            self.assertEqual(
+                self._expr("name() (select 1)"),
+                ast.ExprCall(
+                    expr=ast.Call(name="name", args=[]), args=[ast.SelectQuery(select=[ast.Constant(value=1)])]
+                ),
+            )
+
+        def test_limit_by_list_terminates_at_trailing_except_setop(self):
+            self.assertEqual(
+                self._select("select 1 limit 5 by (*), except (select 2)"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(
+                        select=[ast.Constant(value=1)],
+                        limit_by=ast.LimitByExpr(n=ast.Constant(value=5), exprs=[ast.Field(chain=["*"])]),
+                    ),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(select=[ast.Constant(value=2)]), set_operator="EXCEPT"
+                        )
+                    ],
+                ),
+            )
+
+        def test_limit_by_list_terminates_at_trailing_union_setop(self):
+            self.assertEqual(
+                self._select("select 1 limit 5 by (*), union all select 2"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(
+                        select=[ast.Constant(value=1)],
+                        limit_by=ast.LimitByExpr(n=ast.Constant(value=5), exprs=[ast.Field(chain=["*"])]),
+                    ),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(select=[ast.Constant(value=2)]), set_operator="UNION ALL"
+                        )
+                    ],
+                ),
+            )
+
+        def test_int_dot_ignore_nulls_is_trailing_dot_float(self):
+            self.assertEqual(self._expr("5 . ignore nulls"), ast.Constant(value=5.0))
+
+        def test_int_dot_ignore_without_nulls_is_property_access(self):
+            self.assertEqual(
+                self._expr("5 . ignore"),
+                ast.ArrayAccess(array=ast.Constant(value=5), property=ast.Constant(value="ignore")),
+            )
+
+        def test_int_dot_ignore_followed_by_arith_is_property_access(self):
+            self.assertEqual(
+                self._expr("5 . ignore + 3"),
+                ast.ArithmeticOperation(
+                    left=ast.ArrayAccess(array=ast.Constant(value=5), property=ast.Constant(value="ignore")),
+                    right=ast.Constant(value=3),
+                    op="+",
+                ),
+            )
+
+        def test_paren_around_setop_typecast_int(self):
+            self.assertEqual(
+                self._expr("(({1} intersect {2}) :: int)"),
+                ast.TypeCast(
+                    expr=ast.SelectSetQuery(
+                        initial_select_query=ast.Placeholder(expr=ast.Constant(value=1)),
+                        subsequent_select_queries=[
+                            ast.SelectSetNode(
+                                select_query=ast.Placeholder(expr=ast.Constant(value=2)), set_operator="INTERSECT"
+                            )
+                        ],
+                    ),
+                    type_name="int",
+                ),
+            )
+
+        def test_paren_around_setop_typecast_quoted_type(self):
+            self.assertEqual(
+                self._expr('(({1} intersect {2}) :: "_")'),
+                ast.TypeCast(
+                    expr=ast.SelectSetQuery(
+                        initial_select_query=ast.Placeholder(expr=ast.Constant(value=1)),
+                        subsequent_select_queries=[
+                            ast.SelectSetNode(
+                                select_query=ast.Placeholder(expr=ast.Constant(value=2)), set_operator="INTERSECT"
+                            )
+                        ],
+                    ),
+                    type_name="_",
+                ),
+            )
+
+        def test_paren_around_setop_typecast_with_time_zone(self):
+            self.assertEqual(
+                self._expr("(({1} intersect {2}) :: int with time zone)"),
+                ast.TypeCast(
+                    expr=ast.SelectSetQuery(
+                        initial_select_query=ast.Placeholder(expr=ast.Constant(value=1)),
+                        subsequent_select_queries=[
+                            ast.SelectSetNode(
+                                select_query=ast.Placeholder(expr=ast.Constant(value=2)), set_operator="INTERSECT"
+                            )
+                        ],
+                    ),
+                    type_name="int with time zone",
+                ),
+            )
+
+        def test_paren_around_setop_array_access(self):
+            self.assertEqual(
+                self._expr("({1} intersect {2}) [0]"),
+                ast.ArrayAccess(
+                    array=ast.SelectSetQuery(
+                        initial_select_query=ast.Placeholder(expr=ast.Constant(value=1)),
+                        subsequent_select_queries=[
+                            ast.SelectSetNode(
+                                select_query=ast.Placeholder(expr=ast.Constant(value=2)), set_operator="INTERSECT"
+                            )
+                        ],
+                    ),
+                    property=ast.Constant(value=0),
+                ),
+            )
+
+        def test_paren_around_setop_property_access(self):
+            self.assertEqual(
+                self._expr("(({1} intersect {2}) . prop)"),
+                ast.ArrayAccess(
+                    array=ast.SelectSetQuery(
+                        initial_select_query=ast.Placeholder(expr=ast.Constant(value=1)),
+                        subsequent_select_queries=[
+                            ast.SelectSetNode(
+                                select_query=ast.Placeholder(expr=ast.Constant(value=2)), set_operator="INTERSECT"
+                            )
+                        ],
+                    ),
+                    property=ast.Constant(value="prop"),
+                ),
+            )
+
+        def test_intersect_chain_offset_hoist_after_limit_by(self):
+            self.assertEqual(
+                self._select("select 1 intersect select 2 limit 5 by 1 limit 3 offset 0"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(
+                                select=[ast.Constant(value=2)],
+                                limit=ast.Constant(value=3),
+                                limit_by=ast.LimitByExpr(n=ast.Constant(value=5), exprs=[ast.Constant(value=1)]),
+                            ),
+                            set_operator="INTERSECT",
+                        )
+                    ],
+                    offset=ast.Constant(value=0),
+                ),
+            )
+
+        def test_between_absorbs_inner_between_with_trailing_and(self):
+            self.assertEqual(
+                self._expr("x between a and b between c and d and e"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.BetweenExpr(
+                        expr=ast.And(exprs=[ast.Field(chain=["a"]), ast.Field(chain=["b"])]),
+                        low=ast.Field(chain=["c"]),
+                        high=ast.Field(chain=["d"]),
+                    ),
+                    high=ast.Field(chain=["e"]),
+                ),
+            )
+
+        def test_between_nested_without_trailing_and_left_recurses(self):
+            self.assertEqual(
+                self._expr("x between 1 and 2 between 3 and 4"),
+                ast.BetweenExpr(
+                    expr=ast.BetweenExpr(
+                        expr=ast.Field(chain=["x"]), low=ast.Constant(value=1), high=ast.Constant(value=2)
+                    ),
+                    low=ast.Constant(value=3),
+                    high=ast.Constant(value=4),
+                ),
+            )
+
+        def test_between_absorbs_inner_not_between_with_trailing_and(self):
+            self.assertEqual(
+                self._expr("x between a is null and b not between c and d and e"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.BetweenExpr(
+                        expr=ast.And(
+                            exprs=[
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["a"]),
+                                    right=ast.Constant(value=None),
+                                    op="==",
+                                    is_null_comparison_style=True,
+                                ),
+                                ast.Field(chain=["b"]),
+                            ]
+                        ),
+                        low=ast.Field(chain=["c"]),
+                        high=ast.Field(chain=["d"]),
+                        negated=True,
+                    ),
+                    high=ast.Field(chain=["e"]),
+                ),
+            )
+
+        def test_limit_modulo_limit_blocks_modulo(self):
+            self.assertEqual(
+                self._select("select 1 limit 5 % limit 3"),
+                ast.SelectQuery(select=[ast.Constant(value=1)], limit=ast.Constant(value=3), limit_percent=True),
+            )
+
+        def test_limit_chain_with_ties_offset_limit(self):
+            self.assertEqual(
+                self._select("select 1 limit 5 by a limit 3 with ties offset 2 limit 7"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit=ast.Constant(value=7),
+                    limit_by=ast.LimitByExpr(n=ast.Constant(value=5), exprs=[ast.Field(chain=["a"])]),
+                    limit_with_ties=True,
+                    offset=ast.Constant(value=2),
+                ),
+            )
+
+        def test_limit_modulo_order_by_blocked_after_limit_by(self):
+            self.assertEqual(
+                self._select("select 1 limit 5 by a limit 3 % order by 0"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit=ast.Constant(value=3),
+                    limit_by=ast.LimitByExpr(n=ast.Constant(value=5), exprs=[ast.Field(chain=["a"])]),
+                    limit_percent=True,
+                ),
+            )
+
+        def test_not_colon_equals_value_is_named_argument(self):
+            self.assertEqual(self._expr("not := 5"), ast.NamedArgument(name="not", value=ast.Constant(value=5)))
+
+        def test_not_asterisk_dot_decimal_is_not_tuple_access(self):
+            self.assertEqual(
+                self._expr("not * . 5"), ast.Not(expr=ast.TupleAccess(tuple=ast.Field(chain=["*"]), index=5))
+            )
+
+        def test_not_asterisk_array_access_is_not_array_access(self):
+            self.assertEqual(
+                self._expr("not * [0]"),
+                ast.Not(expr=ast.ArrayAccess(array=ast.Field(chain=["*"]), property=ast.Constant(value=0))),
+            )
+
+        def test_between_body_named_arg_value_does_not_absorb_and(self):
+            self.assertEqual(
+                self._expr('x between y and "n" := 5 and z'),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.And(
+                        exprs=[ast.Field(chain=["y"]), ast.NamedArgument(name="n", value=ast.Constant(value=5))]
+                    ),
+                    high=ast.Field(chain=["z"]),
+                ),
+            )
+
+        def test_standalone_named_arg_value_still_absorbs_and(self):
+            self.assertEqual(
+                self._expr('"x" := y and z'),
+                ast.NamedArgument(name="x", value=ast.And(exprs=[ast.Field(chain=["y"]), ast.Field(chain=["z"])])),
+            )
+
+        def test_with_cte_chained_as_alias_with_postfix_call(self):
+            self.assertEqual(
+                self._select("with 3 as x ('a') as y select 4"),
+                ast.SelectQuery(
+                    ctes={
+                        "y": ast.CTE(
+                            name="y",
+                            expr=ast.ExprCall(
+                                expr=ast.Alias(alias="x", expr=ast.Constant(value=3)), args=[ast.Constant(value="a")]
+                            ),
+                            cte_type="column",
+                        )
+                    },
+                    select=[ast.Constant(value=4)],
+                ),
+            )
+
+        def test_with_cte_plain_column_form(self):
+            self.assertEqual(
+                self._select("with 42 as answer select answer"),
+                ast.SelectQuery(
+                    ctes={"answer": ast.CTE(name="answer", expr=ast.Constant(value=42), cte_type="column")},
+                    select=[ast.Field(chain=["answer"])],
+                ),
+            )
+
+        def test_with_cte_rewind_when_postfix_extends_past_outermost_alias(self):
+            self.assertEqual(
+                self._select('with (\'\') as "eill_" () as "jj" (select(*)()) offset 2'),
+                ast.SelectQuery(
+                    ctes={
+                        "jj": ast.CTE(
+                            name="jj",
+                            expr=ast.ExprCall(expr=ast.Alias(alias="eill_", expr=ast.Constant(value="")), args=[]),
+                            cte_type="column",
+                        )
+                    },
+                    select=[ast.ExprCall(expr=ast.Field(chain=["*"]), args=[])],
+                    offset=ast.Constant(value=2),
+                ),
+            )
+
+        def test_with_cte_rewind_with_unquoted_inner_alias(self):
+            self.assertEqual(
+                self._select("with ('') as yi_j_w_n () as \"jj\" (select(*)()) offset 2"),
+                ast.SelectQuery(
+                    ctes={
+                        "jj": ast.CTE(
+                            name="jj",
+                            expr=ast.ExprCall(expr=ast.Alias(alias="yi_j_w_n", expr=ast.Constant(value="")), args=[]),
+                            cte_type="column",
+                        )
+                    },
+                    select=[ast.ExprCall(expr=ast.Field(chain=["*"]), args=[])],
+                    offset=ast.Constant(value=2),
+                ),
+            )
+
+        def test_set_level_limit_comma_form_orders_limit_then_offset(self):
+            self.assertEqual(
+                self._expr("(({1} intersect by name {2}) limit 3, 4)"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.Placeholder(expr=ast.Constant(value=1)),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.Placeholder(expr=ast.Constant(value=2)), set_operator="INTERSECT BY NAME"
+                        )
+                    ],
+                    limit=ast.Constant(value=3),
+                    offset=ast.Constant(value=4),
+                ),
+            )
+
+        def test_parametric_call_with_distinct_identifier_in_params(self):
+            self.assertEqual(
+                self._expr("a is distinct from f(distinct)(b)"),
+                ast.IsDistinctFrom(
+                    left=ast.Field(chain=["a"]),
+                    right=ast.Call(name="f", args=[ast.Field(chain=["b"])], params=[ast.Field(chain=["distinct"])]),
+                ),
+            )
+
+        def test_parametric_call_ordinary_params(self):
+            self.assertEqual(
+                self._expr("quantile(0.5)(x)"),
+                ast.Call(name="quantile", args=[ast.Field(chain=["x"])], params=[ast.Constant(value=0.5)]),
+            )
+
+        def test_single_paren_call_keeps_distinct_modifier(self):
+            self.assertEqual(
+                self._expr("f(distinct b)"), ast.Call(name="f", args=[ast.Field(chain=["b"])], distinct=True)
+            )
+
+        def test_filter_between_parens_breaks_parametric(self):
+            self.assertEqual(
+                self._expr("f(a) filter (where x) (b)"),
+                ast.ExprCall(
+                    expr=ast.Call(name="f", args=[ast.Field(chain=["a"])], filter_expr=ast.Field(chain=["x"])),
+                    args=[ast.Field(chain=["b"])],
+                ),
+            )
+
+        def test_filter_after_parametric_args_attaches_normally(self):
+            self.assertEqual(
+                self._expr("quantile(0.5)(x) filter (where y)"),
+                ast.Call(
+                    name="quantile",
+                    args=[ast.Field(chain=["x"])],
+                    params=[ast.Constant(value=0.5)],
+                    filter_expr=ast.Field(chain=["y"]),
+                ),
+            )
+
+        def test_call_select_postfix_not_parametric(self):
+            self.assertEqual(
+                self._expr("f(1)(select 1)"),
+                ast.ExprCall(
+                    expr=ast.Call(name="f", args=[ast.Constant(value=1)]),
+                    args=[ast.SelectQuery(select=[ast.Constant(value=1)])],
+                ),
+            )
+
+        def test_call_select_postfix_with_not_prefix(self):
+            self.assertEqual(
+                self._expr("not(1)(select 1)"),
+                ast.ExprCall(
+                    expr=ast.Call(name="not", args=[ast.Constant(value=1)]),
+                    args=[ast.SelectQuery(select=[ast.Constant(value=1)])],
+                ),
+            )
+
+        def test_columns_empty_parens_is_function_call(self):
+            self.assertEqual(self._expr("columns()"), ast.Call(name="columns", args=[]))
+
+        def test_columns_empty_parens_then_property(self):
+            self.assertEqual(
+                self._expr("columns().a"),
+                ast.ArrayAccess(array=ast.Call(name="columns", args=[]), property=ast.Constant(value="a")),
+            )
+
+        def test_call_arg_dict_with_outer_order_by(self):
+            self.assertEqual(
+                self._expr("f({} order by 1)"),
+                ast.Call(name="f", args=[ast.Dict(items=[])], order_by=[ast.OrderExpr(expr=ast.Constant(value=1))]),
+            )
+
+        def test_call_arg_placeholder_with_outer_order_by(self):
+            self.assertEqual(
+                self._expr("f({x} order by 1)"),
+                ast.Call(
+                    name="f",
+                    args=[ast.Placeholder(expr=ast.Field(chain=["x"]))],
+                    order_by=[ast.OrderExpr(expr=ast.Constant(value=1))],
+                ),
+            )
+
+        def test_call_arg_paren_select_outer_order_by(self):
+            self.assertEqual(
+                self._expr("f((select 1) order by 2)"),
+                ast.Call(
+                    name="f",
+                    args=[ast.SelectQuery(select=[ast.Constant(value=1)])],
+                    order_by=[ast.OrderExpr(expr=ast.Constant(value=2))],
+                ),
+            )
+
+        def test_call_arg_paren_select_offset_stays_inner(self):
+            self.assertEqual(
+                self._expr("f((select 1) offset 2)"),
+                ast.Call(
+                    name="f", args=[ast.SelectQuery(select=[ast.Constant(value=1)], offset=ast.Constant(value=2))]
+                ),
+            )
+
+        def test_asterisk_call_with_placeholder_arg_folds_to_call(self):
+            self.assertEqual(
+                self._expr("* ({1})"), ast.Call(name="*", args=[ast.Placeholder(expr=ast.Constant(value=1))])
+            )
+
+        def test_asterisk_call_with_dict_arg_keeps_exprcall(self):
+            self.assertEqual(self._expr("* ({})"), ast.ExprCall(expr=ast.Field(chain=["*"]), args=[ast.Dict(items=[])]))
+
+        def test_not_paren_select_is_prefix(self):
+            self.assertEqual(
+                self._expr("not (select 1)"), ast.Not(expr=ast.SelectQuery(select=[ast.Constant(value=1)]))
+            )
+
+        def test_not_paren_select_typecast_is_prefix_over_typecast(self):
+            self.assertEqual(
+                self._expr("not (select 1) :: typ"),
+                ast.Not(expr=ast.TypeCast(expr=ast.SelectQuery(select=[ast.Constant(value=1)]), type_name="typ")),
+            )
+
+        def test_not_paren_select_union_is_prefix(self):
+            self.assertEqual(
+                self._expr("not (select 1 union select 2)"),
+                ast.Not(
+                    expr=ast.SelectSetQuery(
+                        initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                        subsequent_select_queries=[
+                            ast.SelectSetNode(
+                                select_query=ast.SelectQuery(select=[ast.Constant(value=2)]),
+                                set_operator="UNION DISTINCT",
+                            )
+                        ],
+                    )
+                ),
+            )
+
+        def test_not_paren_grouped_selects_unioned_is_prefix(self):
+            self.assertEqual(
+                self._expr("not ((select 1) union (select 2))"),
+                ast.Not(
+                    expr=ast.SelectSetQuery(
+                        initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                        subsequent_select_queries=[
+                            ast.SelectSetNode(
+                                select_query=ast.SelectQuery(select=[ast.Constant(value=2)]),
+                                set_operator="UNION DISTINCT",
+                            )
+                        ],
+                    )
+                ),
+            )
+
+        def test_not_paren_grouped_selects_intersected_is_prefix(self):
+            self.assertEqual(
+                self._expr("not ((select 1) intersect (select 2))"),
+                ast.Not(
+                    expr=ast.SelectSetQuery(
+                        initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                        subsequent_select_queries=[
+                            ast.SelectSetNode(
+                                select_query=ast.SelectQuery(select=[ast.Constant(value=2)]), set_operator="INTERSECT"
+                            )
+                        ],
+                    )
+                ),
+            )
+
+        def test_not_paren_constant_still_function_call(self):
+            self.assertEqual(self._expr("not (1)"), ast.Call(name="not", args=[ast.Constant(value=1)]))
+
+        def test_call_arg_bare_select_consumes_trailing_order_by(self):
+            self.assertEqual(
+                self._expr("f(select 1 offset 2 order by 3)"),
+                ast.Call(
+                    name="f", args=[ast.SelectQuery(select=[ast.Constant(value=1)], offset=ast.Constant(value=2))]
+                ),
+            )
+
+        def test_postfix_call_select_consumes_trailing_order_by(self):
+            self.assertEqual(
+                self._expr("columns('')(select 1 offset 2 order by 3)"),
+                ast.ExprCall(
+                    expr=ast.ColumnsExpr(regex=""),
+                    args=[ast.SelectQuery(select=[ast.Constant(value=1)], offset=ast.Constant(value=2))],
+                ),
+            )
+
+        def test_select_between_with_lambda_body(self):
+            self.assertEqual(
+                self._select("SELECT 1 WHERE x BETWEEN lambda y : a AND b AND high"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    where=ast.BetweenExpr(
+                        expr=ast.Field(chain=["x"]),
+                        low=ast.Lambda(
+                            args=["y"], expr=ast.And(exprs=[ast.Field(chain=["a"]), ast.Field(chain=["b"])])
+                        ),
+                        high=ast.Field(chain=["high"]),
+                    ),
+                ),
+            )
+
+        # --- allstar :: TestAllStarPrattLimitations (87 tests) ---
+        def test_between_nested_between_depth_3(self):
+            self.assertEqual(
+                self._expr("a BETWEEN b BETWEEN c BETWEEN d AND e AND f AND g"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["a"]),
+                    low=ast.BetweenExpr(
+                        expr=ast.Field(chain=["b"]),
+                        low=ast.BetweenExpr(
+                            expr=ast.Field(chain=["c"]), low=ast.Field(chain=["d"]), high=ast.Field(chain=["e"])
+                        ),
+                        high=ast.Field(chain=["f"]),
+                    ),
+                    high=ast.Field(chain=["g"]),
+                ),
+            )
+
+        def test_between_chained_not_between(self):
+            self.assertEqual(
+                self._expr("a NOT BETWEEN b AND c NOT BETWEEN d AND e"),
+                ast.BetweenExpr(
+                    expr=ast.BetweenExpr(
+                        expr=ast.Field(chain=["a"]),
+                        low=ast.Field(chain=["b"]),
+                        high=ast.Field(chain=["c"]),
+                        negated=True,
+                    ),
+                    low=ast.Field(chain=["d"]),
+                    high=ast.Field(chain=["e"]),
+                    negated=True,
+                ),
+            )
+
+        def test_between_chained_with_case_high(self):
+            self.assertEqual(
+                self._expr("a NOT BETWEEN b AND CASE 1 WHEN 2 THEN 3 ELSE 4 END NOT BETWEEN 5 AND 6"),
+                ast.BetweenExpr(
+                    expr=ast.BetweenExpr(
+                        expr=ast.Field(chain=["a"]),
+                        low=ast.Field(chain=["b"]),
+                        high=ast.Call(
+                            name="transform",
+                            args=[
+                                ast.Constant(value=1),
+                                ast.Array(exprs=[ast.Constant(value=2)]),
+                                ast.Array(exprs=[ast.Constant(value=3)]),
+                                ast.Constant(value=4),
+                            ],
+                        ),
+                        negated=True,
+                    ),
+                    low=ast.Constant(value=5),
+                    high=ast.Constant(value=6),
+                    negated=True,
+                ),
+            )
+
+        def test_between_chained_between(self):
+            self.assertEqual(
+                self._expr("a BETWEEN b AND c BETWEEN d AND e"),
+                ast.BetweenExpr(
+                    expr=ast.BetweenExpr(
+                        expr=ast.Field(chain=["a"]), low=ast.Field(chain=["b"]), high=ast.Field(chain=["c"])
+                    ),
+                    low=ast.Field(chain=["d"]),
+                    high=ast.Field(chain=["e"]),
+                ),
+            )
+
+        def test_interval_with_empty_paren_lambda_value(self):
+            self.assertEqual(
+                self._expr("interval () -> 1 month"),
+                ast.Call(name="toIntervalMonth", args=[ast.Lambda(args=[], expr=ast.Constant(value=1))]),
+            )
+
+        def test_case_with_empty_paren_lambda_value(self):
+            self.assertEqual(
+                self._expr("case () -> 1 when 1 then 2 end"),
+                ast.Call(
+                    name="transform",
+                    args=[
+                        ast.Lambda(args=[], expr=ast.Constant(value=1)),
+                        ast.Array(exprs=[ast.Constant(value=1)]),
+                        ast.Array(exprs=[]),
+                        ast.Constant(value=2),
+                    ],
+                ),
+            )
+
+        def test_interval_call_form_single_arg(self):
+            self.assertEqual(self._expr("interval(1)"), ast.Call(name="interval", args=[ast.Constant(value=1)]))
+
+        def test_interval_call_form_multi_args(self):
+            self.assertEqual(
+                self._expr("interval(1, 2)"),
+                ast.Call(name="interval", args=[ast.Constant(value=1), ast.Constant(value=2)]),
+            )
+
+        def test_interval_call_form_with_distinct(self):
+            self.assertEqual(
+                self._expr("interval(distinct 1, 2)"),
+                ast.Call(name="interval", args=[ast.Constant(value=1), ast.Constant(value=2)], distinct=True),
+            )
+
+        def test_interval_call_form_within_group(self):
+            self.assertEqual(
+                self._expr("interval (columns(*), columns(*)) within group (order by {})"),
+                ast.Call(
+                    name="interval",
+                    args=[],
+                    params=[
+                        ast.ColumnsExpr(columns=[ast.Field(chain=["*"])]),
+                        ast.ColumnsExpr(columns=[ast.Field(chain=["*"])]),
+                    ],
+                    within_group=[ast.OrderExpr(expr=ast.Dict(items=[]))],
+                ),
+            )
+
+        def test_columns_empty_parametric_is_function_call(self):
+            self.assertEqual(self._expr("columns()()"), ast.Call(name="columns", args=[], params=[]))
+
+        def test_columns_empty_paren_with_filter(self):
+            self.assertEqual(
+                self._expr("columns() filter(where 1)"),
+                ast.Call(name="columns", args=[], filter_expr=ast.Constant(value=1)),
+            )
+
+        def test_infinity_keyword_is_nan(self):
+            # NaN can't be checked with ==, so unwrap and use math.isnan.
+            parsed = self._expr("infinity")
+            self.assertIsInstance(parsed, ast.Constant)
+            self.assertTrue(math.isnan(cast(ast.Constant, parsed).value))
+
+        def test_negative_infinity_is_nan(self):
+            parsed = self._expr("-infinity")
+            self.assertIsInstance(parsed, ast.Constant)
+            self.assertTrue(math.isnan(cast(ast.Constant, parsed).value))
+
+        def test_order_by_in_call_then_postfix_call(self):
+            self.assertEqual(
+                self._expr("foo (order by x) ()"),
+                ast.ExprCall(
+                    expr=ast.Call(name="foo", args=[], order_by=[ast.OrderExpr(expr=ast.Field(chain=["x"]))]), args=[]
+                ),
+            )
+
+        def test_distinct_in_call_then_postfix_call(self):
+            self.assertEqual(
+                self._expr("foo (distinct x) ()"),
+                ast.ExprCall(expr=ast.Call(name="foo", args=[ast.Field(chain=["x"])], distinct=True), args=[]),
+            )
+
+        def test_args_with_trailing_order_by_then_postfix_call(self):
+            self.assertEqual(
+                self._expr("foo (x order by y) ()"),
+                ast.ExprCall(
+                    expr=ast.Call(
+                        name="foo", args=[ast.Field(chain=["x"])], order_by=[ast.OrderExpr(expr=ast.Field(chain=["y"]))]
+                    ),
+                    args=[],
+                ),
+            )
+
+        def test_parametric_form_keeps_distinct_as_field(self):
+            self.assertEqual(
+                self._expr("foo (distinct) ()"), ast.Call(name="foo", args=[], params=[ast.Field(chain=["distinct"])])
+            )
+
+        def test_parametric_form_with_distinct_and_comma(self):
+            self.assertEqual(
+                self._expr("foo (distinct, x) ()"),
+                ast.Call(name="foo", args=[], params=[ast.Field(chain=["distinct"]), ast.Field(chain=["x"])]),
+            )
+
+        def test_distinct_followed_by_comma_is_field(self):
+            self.assertEqual(
+                self._expr("foo (distinct, x)"),
+                ast.Call(name="foo", args=[ast.Field(chain=["distinct"]), ast.Field(chain=["x"])]),
+            )
+
+        def test_distinct_followed_by_dot_is_field(self):
+            self.assertEqual(
+                self._expr("foo (distinct.x)"), ast.Call(name="foo", args=[ast.Field(chain=["distinct", "x"])])
+            )
+
+        def test_not_asterisk_bare(self):
+            self.assertEqual(self._expr("not *"), ast.Not(expr=ast.Field(chain=["*"])))
+
+        def test_not_asterisk_postfix_call_empty(self):
+            self.assertEqual(self._expr("not * ()"), ast.Not(expr=ast.ExprCall(expr=ast.Field(chain=["*"]), args=[])))
+
+        def test_not_asterisk_postfix_call_with_args(self):
+            self.assertEqual(
+                self._expr("not * (1)"),
+                ast.Not(expr=ast.ExprCall(expr=ast.Field(chain=["*"]), args=[ast.Constant(value=1)])),
+            )
+
+        def test_not_asterisk_postfix_array_access(self):
+            self.assertEqual(
+                self._expr("not * [1]"),
+                ast.Not(expr=ast.ArrayAccess(array=ast.Field(chain=["*"]), property=ast.Constant(value=1))),
+            )
+
+        def test_not_asterisk_chain_dot_split(self):
+            self.assertEqual(
+                self._expr("not * . x"),
+                ast.Not(expr=ast.ArrayAccess(array=ast.Field(chain=["*"]), property=ast.Constant(value="x"))),
+            )
+
+        def test_not_asterisk_null_property(self):
+            self.assertEqual(
+                self._expr("not * ?. x"),
+                ast.Not(
+                    expr=ast.ArrayAccess(array=ast.Field(chain=["*"]), property=ast.Constant(value="x"), nullish=True)
+                ),
+            )
+
+        def test_not_asterisk_typecast(self):
+            self.assertEqual(
+                self._expr("not * :: Int"),
+                ast.Not(expr=ast.TypeCast(expr=ast.Field(chain=["*"]), type_name="int")),
+            )
+
+        def test_not_asterisk_binary_plus(self):
+            self.assertEqual(
+                self._expr("not * + 1"),
+                ast.Not(expr=ast.ArithmeticOperation(left=ast.Field(chain=["*"]), right=ast.Constant(value=1), op="+")),
+            )
+
+        def test_not_asterisk_compare(self):
+            self.assertEqual(
+                self._expr("not * = 1"),
+                ast.Not(expr=ast.CompareOperation(left=ast.Field(chain=["*"]), right=ast.Constant(value=1), op="==")),
+            )
+
+        def test_not_asterisk_is_null(self):
+            self.assertEqual(
+                self._expr("not * is null"),
+                ast.Not(
+                    expr=ast.CompareOperation(
+                        left=ast.Field(chain=["*"]),
+                        right=ast.Constant(value=None),
+                        op="==",
+                        is_null_comparison_style=True,
+                    )
+                ),
+            )
+
+        def test_not_asterisk_between(self):
+            self.assertEqual(
+                self._expr("not * between 1 and 2"),
+                ast.BetweenExpr(
+                    expr=ast.Not(expr=ast.Field(chain=["*"])), low=ast.Constant(value=1), high=ast.Constant(value=2)
+                ),
+            )
+
+        def test_not_asterisk_and_binds_outside(self):
+            self.assertEqual(
+                self._expr("not * and 1"),
+                ast.And(exprs=[ast.Not(expr=ast.Field(chain=["*"])), ast.Constant(value=1)]),
+            )
+
+        def test_not_asterisk_exclude(self):
+            self.assertEqual(
+                self._expr("not * exclude (x)"), ast.Not(expr=ast.ColumnsExpr(all_columns=True, exclude=["x"]))
+            )
+
+        def test_not_asterisk_columns_spread(self):
+            self.assertEqual(
+                self._expr("not * columns(*)"),
+                ast.Not(expr=ast.SpreadExpr(expr=ast.ColumnsExpr(columns=[ast.Field(chain=["*"])]))),
+            )
+
+        def test_not_asterisk_number_is_multiplication(self):
+            self.assertEqual(
+                self._expr("not * 1"),
+                ast.ArithmeticOperation(left=ast.Field(chain=["not"]), right=ast.Constant(value=1), op="*"),
+            )
+
+        def test_not_asterisk_ident_is_multiplication(self):
+            self.assertEqual(
+                self._expr("not * x"),
+                ast.ArithmeticOperation(left=ast.Field(chain=["not"]), right=ast.Field(chain=["x"]), op="*"),
+            )
+
+        def test_not_asterisk_replace_alone_is_multiplication(self):
+            self.assertEqual(
+                self._expr("not * replace (1 as x)"),
+                ast.ArithmeticOperation(
+                    left=ast.Field(chain=["not"]),
+                    right=ast.Call(name="replace", args=[ast.Alias(alias="x", expr=ast.Constant(value=1))]),
+                    op="*",
+                ),
+            )
+
+        def test_between_ternary_body_with_alias_outside(self):
+            self.assertEqual(
+                self._expr("x between a ? b : c and d as fill"),
+                ast.Alias(
+                    alias="fill",
+                    expr=ast.BetweenExpr(
+                        expr=ast.Field(chain=["x"]),
+                        low=ast.Call(
+                            name="if", args=[ast.Field(chain=["a"]), ast.Field(chain=["b"]), ast.Field(chain=["c"])]
+                        ),
+                        high=ast.Field(chain=["d"]),
+                    ),
+                ),
+            )
+
+        def test_between_simple_with_alias_outside(self):
+            self.assertEqual(
+                self._expr("x between y and z as fill"),
+                ast.Alias(
+                    alias="fill",
+                    expr=ast.BetweenExpr(
+                        expr=ast.Field(chain=["x"]), low=ast.Field(chain=["y"]), high=ast.Field(chain=["z"])
+                    ),
+                ),
+            )
+
+        def test_between_chained_alias_outside(self):
+            self.assertEqual(
+                self._expr("x between y and z as fill1 as fill2"),
+                ast.Alias(
+                    alias="fill2",
+                    expr=ast.Alias(
+                        alias="fill1",
+                        expr=ast.BetweenExpr(
+                            expr=ast.Field(chain=["x"]), low=ast.Field(chain=["y"]), high=ast.Field(chain=["z"])
+                        ),
+                    ),
+                ),
+            )
+
+        def test_between_ternary_with_inner_postfix_and_alias_outside(self):
+            self.assertEqual(
+                self._expr("x between [] ? b : c and y[:] ?. [z] as fill"),
+                ast.Alias(
+                    alias="fill",
+                    expr=ast.BetweenExpr(
+                        expr=ast.Field(chain=["x"]),
+                        low=ast.Call(
+                            name="if", args=[ast.Array(exprs=[]), ast.Field(chain=["b"]), ast.Field(chain=["c"])]
+                        ),
+                        high=ast.ArrayAccess(
+                            array=ast.ArraySlice(array=ast.Field(chain=["y"])),
+                            property=ast.Field(chain=["z"]),
+                            nullish=True,
+                        ),
+                    ),
+                ),
+            )
+
+        def test_between_two_aliases_one_inside_one_outside(self):
+            self.assertEqual(
+                self._expr("x between y as a and z as b"),
+                ast.Alias(
+                    alias="b",
+                    expr=ast.BetweenExpr(
+                        expr=ast.Field(chain=["x"]),
+                        low=ast.Alias(alias="a", expr=ast.Field(chain=["y"])),
+                        high=ast.Field(chain=["z"]),
+                    ),
+                ),
+            )
+
+        def test_between_lambda_body_with_alias_outside(self):
+            self.assertEqual(
+                self._expr("x between lambda a : b and high as alias"),
+                ast.Alias(
+                    alias="alias",
+                    expr=ast.BetweenExpr(
+                        expr=ast.Field(chain=["x"]),
+                        low=ast.Lambda(args=["a"], expr=ast.Field(chain=["b"])),
+                        high=ast.Field(chain=["high"]),
+                    ),
+                ),
+            )
+
+        def test_between_named_arg_body_with_alias_outside(self):
+            self.assertEqual(
+                self._expr("x between a := b and high as alias"),
+                ast.Alias(
+                    alias="alias",
+                    expr=ast.BetweenExpr(
+                        expr=ast.Field(chain=["x"]),
+                        low=ast.NamedArgument(name="a", value=ast.Field(chain=["b"])),
+                        high=ast.Field(chain=["high"]),
+                    ),
+                ),
+            )
+
+        def test_chained_not_between_with_ternary_body(self):
+            self.assertEqual(
+                self._expr("a NOT BETWEEN b ? c : d AND e NOT BETWEEN f AND g"),
+                ast.BetweenExpr(
+                    expr=ast.BetweenExpr(
+                        expr=ast.Field(chain=["a"]),
+                        low=ast.Call(
+                            name="if", args=[ast.Field(chain=["b"]), ast.Field(chain=["c"]), ast.Field(chain=["d"])]
+                        ),
+                        high=ast.Field(chain=["e"]),
+                        negated=True,
+                    ),
+                    low=ast.Field(chain=["f"]),
+                    high=ast.Field(chain=["g"]),
+                    negated=True,
+                ),
+            )
+
+        def test_chained_between_with_ternary_body_and_alias(self):
+            self.assertEqual(
+                self._expr("a between b ? c : d and e between f and g as alias"),
+                ast.Alias(
+                    alias="alias",
+                    expr=ast.BetweenExpr(
+                        expr=ast.BetweenExpr(
+                            expr=ast.Field(chain=["a"]),
+                            low=ast.Call(
+                                name="if", args=[ast.Field(chain=["b"]), ast.Field(chain=["c"]), ast.Field(chain=["d"])]
+                            ),
+                            high=ast.Field(chain=["e"]),
+                        ),
+                        low=ast.Field(chain=["f"]),
+                        high=ast.Field(chain=["g"]),
+                    ),
+                ),
+            )
+
+        def test_between_with_ternary_hoisted_outside(self):
+            self.assertEqual(
+                self._expr("a between lambda x : y and z ? w : v"),
+                ast.Call(
+                    name="if",
+                    args=[
+                        ast.BetweenExpr(
+                            expr=ast.Field(chain=["a"]),
+                            low=ast.Lambda(args=["x"], expr=ast.Field(chain=["y"])),
+                            high=ast.Field(chain=["z"]),
+                        ),
+                        ast.Field(chain=["w"]),
+                        ast.Field(chain=["v"]),
+                    ],
+                ),
+            )
+
+        def test_octal_with_tuple_access(self):
+            self.assertEqual(self._expr("017.5"), ast.TupleAccess(tuple=ast.Constant(value=15), index=5))
+
+        def test_octal_partial_prefix(self):
+            self.assertEqual(self._expr("019"), ast.Constant(value=1))
+
+        def test_octal_invalid_digit(self):
+            self.assertEqual(self._expr("08"), ast.Constant(value=0))
+
+        def test_hex_with_tuple_access(self):
+            self.assertEqual(self._expr("0xc.518790"), ast.TupleAccess(tuple=ast.Constant(value=12), index=518790))
+
+        def test_hex_with_array_access(self):
+            self.assertEqual(
+                self._expr("0xc.x"),
+                ast.ArrayAccess(array=ast.Constant(value=12), property=ast.Constant(value="x")),
+            )
+
+        def test_between_three_ands_two_betweens_nested_via_low(self):
+            self.assertEqual(
+                self._expr("a between b and c between d and e and f"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["a"]),
+                    low=ast.BetweenExpr(
+                        expr=ast.And(exprs=[ast.Field(chain=["b"]), ast.Field(chain=["c"])]),
+                        low=ast.Field(chain=["d"]),
+                        high=ast.Field(chain=["e"]),
+                    ),
+                    high=ast.Field(chain=["f"]),
+                ),
+            )
+
+        def test_between_three_ands_with_array_expr(self):
+            self.assertEqual(
+                self._expr("lambda l : [] between a and b between c and d ?? e and f"),
+                ast.Lambda(
+                    args=["l"],
+                    expr=ast.BetweenExpr(
+                        expr=ast.Array(exprs=[]),
+                        low=ast.BetweenExpr(
+                            expr=ast.And(exprs=[ast.Field(chain=["a"]), ast.Field(chain=["b"])]),
+                            low=ast.Field(chain=["c"]),
+                            high=ast.Call(name="ifNull", args=[ast.Field(chain=["d"]), ast.Field(chain=["e"])]),
+                        ),
+                        high=ast.Field(chain=["f"]),
+                    ),
+                ),
+            )
+
+        def test_call_select_after_parametric_paren(self):
+            self.assertEqual(
+                self._expr("foo(a, b)(select 1)"),
+                ast.ExprCall(
+                    expr=ast.Call(name="foo", args=[ast.Field(chain=["a"]), ast.Field(chain=["b"])]),
+                    args=[ast.SelectQuery(select=[ast.Constant(value=1)])],
+                ),
+            )
+
+        def test_call_select_after_single_arg_paren(self):
+            self.assertEqual(
+                self._expr("foo(a)(select 1)"),
+                ast.ExprCall(
+                    expr=ast.Call(name="foo", args=[ast.Field(chain=["a"])]),
+                    args=[ast.SelectQuery(select=[ast.Constant(value=1)])],
+                ),
+            )
+
+        def test_call_select_after_empty_paren(self):
+            self.assertEqual(
+                self._expr("foo()(select 1)"),
+                ast.ExprCall(
+                    expr=ast.Call(name="foo", args=[]), args=[ast.SelectQuery(select=[ast.Constant(value=1)])]
+                ),
+            )
+
+        def test_call_select_placeholder_set_stmt(self):
+            self.assertEqual(
+                self._expr("foo(a)({1} intersect {2})"),
+                ast.ExprCall(
+                    expr=ast.Call(name="foo", args=[ast.Field(chain=["a"])]),
+                    args=[
+                        ast.SelectSetQuery(
+                            initial_select_query=ast.Placeholder(expr=ast.Constant(value=1)),
+                            subsequent_select_queries=[
+                                ast.SelectSetNode(
+                                    select_query=ast.Placeholder(expr=ast.Constant(value=2)), set_operator="INTERSECT"
+                                )
+                            ],
+                        )
+                    ],
+                ),
+            )
+
+        def test_limit_by_offset_field_mult_continuation(self):
+            self.assertEqual(
+                self._select("SELECT 1 LIMIT a BY b, offset * c"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Field(chain=["a"]),
+                        exprs=[
+                            ast.Field(chain=["b"]),
+                            ast.ArithmeticOperation(
+                                left=ast.Field(chain=["offset"]), right=ast.Field(chain=["c"]), op="*"
+                            ),
+                        ],
+                    ),
+                ),
+            )
+
+        def test_limit_by_offset_primary_ends_list(self):
+            self.assertEqual(
+                self._select("SELECT 1 LIMIT 5 BY a, offset 10"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit_by=ast.LimitByExpr(n=ast.Constant(value=5), exprs=[ast.Field(chain=["a"])]),
+                    offset=ast.Constant(value=10),
+                ),
+            )
+
+        def test_limit_by_offset_hash_positional_ends_list(self):
+            self.assertEqual(
+                self._select("SELECT 1 LIMIT 5 BY a, offset #0"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit_by=ast.LimitByExpr(n=ast.Constant(value=5), exprs=[ast.Field(chain=["a"])]),
+                    offset=ast.PositionalRef(index=0),
+                ),
+            )
+
+        def test_limit_by_offset_field_mult_with_columns_paren(self):
+            self.assertEqual(
+                self._select("SELECT 1 LIMIT a BY b, offset * columns('r')"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Field(chain=["a"]),
+                        exprs=[
+                            ast.Field(chain=["b"]),
+                            ast.ArithmeticOperation(
+                                left=ast.Field(chain=["offset"]), right=ast.ColumnsExpr(regex="r"), op="*"
+                            ),
+                        ],
+                    ),
+                ),
+            )
+
+        def test_set_op_verbose_offset_lifts(self):
+            self.assertEqual(
+                self._select("SELECT 1 UNION ALL SELECT 2 LIMIT 5 OFFSET 10"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(select=[ast.Constant(value=2)], limit=ast.Constant(value=5)),
+                            set_operator="UNION ALL",
+                        )
+                    ],
+                    offset=ast.Constant(value=10),
+                ),
+            )
+
+        def test_set_op_compact_offset_stays_inner(self):
+            self.assertEqual(
+                self._select("SELECT 1 UNION ALL SELECT 2 LIMIT 5, 10"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(
+                                select=[ast.Constant(value=2)],
+                                limit=ast.Constant(value=5),
+                                offset=ast.Constant(value=10),
+                            ),
+                            set_operator="UNION ALL",
+                        )
+                    ],
+                ),
+            )
+
+        def test_set_op_bare_offset_stays_inner(self):
+            self.assertEqual(
+                self._select("SELECT 1 UNION ALL SELECT 2 OFFSET 10"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(select=[ast.Constant(value=2)], offset=ast.Constant(value=10)),
+                            set_operator="UNION ALL",
+                        )
+                    ],
+                ),
+            )
+
+        def test_set_op_limit_by_trailing_bare_offset_stays_inner(self):
+            self.assertEqual(
+                self._select("SELECT 1 UNION ALL SELECT 2 LIMIT 5 BY a OFFSET 10"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(
+                                select=[ast.Constant(value=2)],
+                                limit_by=ast.LimitByExpr(n=ast.Constant(value=5), exprs=[ast.Field(chain=["a"])]),
+                                offset=ast.Constant(value=10),
+                            ),
+                            set_operator="UNION ALL",
+                        )
+                    ],
+                ),
+            )
+
+        def test_set_op_limit_by_trailing_verbose_offset_lifts(self):
+            self.assertEqual(
+                self._select("SELECT 1 UNION ALL SELECT 2 LIMIT 5 BY a, LIMIT 7 OFFSET 10"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(
+                                select=[ast.Constant(value=2)],
+                                limit=ast.Constant(value=7),
+                                limit_by=ast.LimitByExpr(n=ast.Constant(value=5), exprs=[ast.Field(chain=["a"])]),
+                            ),
+                            set_operator="UNION ALL",
+                        )
+                    ],
+                    offset=ast.Constant(value=10),
+                ),
+            )
+
+        def test_set_op_verbose_offset_doesnt_lift_when_outer_has_limit(self):
+            self.assertEqual(
+                self._select("SELECT 1 UNION ALL SELECT 2 LIMIT 5 OFFSET 7 LIMIT 9, 11"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(
+                                select=[ast.Constant(value=2)],
+                                limit=ast.Constant(value=5),
+                                offset=ast.Constant(value=7),
+                            ),
+                            set_operator="UNION ALL",
+                        )
+                    ],
+                    limit=ast.Constant(value=9),
+                    offset=ast.Constant(value=11),
+                ),
+            )
+
+        def test_limit_by_then_verbose_with_ties_offset(self):
+            self.assertEqual(
+                self._select("SELECT 1 LIMIT 2 BY 3, LIMIT 4 % WITH TIES OFFSET 5"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit=ast.Constant(value=4),
+                    limit_by=ast.LimitByExpr(n=ast.Constant(value=2), exprs=[ast.Constant(value=3)]),
+                    limit_with_ties=True,
+                    limit_percent=True,
+                    offset=ast.Constant(value=5),
+                ),
+            )
+
+        def test_limit_by_then_verbose_with_ties_offset_then_outer_limit(self):
+            self.assertEqual(
+                self._select("SELECT 1 LIMIT 2 BY 3, LIMIT 4 % WITH TIES OFFSET 5 LIMIT 6, 7"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit=ast.Constant(value=6),
+                    limit_by=ast.LimitByExpr(n=ast.Constant(value=2), exprs=[ast.Constant(value=3)]),
+                    limit_with_ties=True,
+                    limit_percent=True,
+                    offset=ast.Constant(value=7),
+                ),
+            )
+
+        def test_set_op_verbose_offset_doesnt_lift_when_outer_has_orderby(self):
+            self.assertEqual(
+                self._select("SELECT 1 UNION ALL SELECT 2 LIMIT 5 OFFSET 10 ORDER BY 1"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(
+                                select=[ast.Constant(value=2)],
+                                limit=ast.Constant(value=5),
+                                offset=ast.Constant(value=10),
+                            ),
+                            set_operator="UNION ALL",
+                        )
+                    ],
+                ),
+            )
+
+        def test_field_chain_asterisk_mid(self):
+            self.assertEqual(
+                self._expr("ft.*.high"),
+                ast.ArrayAccess(array=ast.Field(chain=["ft", "*"]), property=ast.Constant(value="high")),
+            )
+
+        def test_field_chain_asterisk_end(self):
+            self.assertEqual(self._expr("ft.high.*"), ast.Field(chain=["ft", "high", "*"]))
+
+        def test_field_chain_asterisk_mid_quoted_property(self):
+            self.assertEqual(
+                self._expr('ft . y2 . gv1ye . * . "__high__"'),
+                ast.ArrayAccess(
+                    array=ast.Field(chain=["ft", "y2", "gv1ye", "*"]), property=ast.Constant(value="__high__")
+                ),
+            )
+
+        def test_not_placeholder_set_stmt(self):
+            self.assertEqual(
+                self._expr("not ({a} union {b})"),
+                ast.Not(
+                    expr=ast.SelectSetQuery(
+                        initial_select_query=ast.Placeholder(expr=ast.Field(chain=["a"])),
+                        subsequent_select_queries=[
+                            ast.SelectSetNode(
+                                select_query=ast.Placeholder(expr=ast.Field(chain=["b"])), set_operator="UNION DISTINCT"
+                            )
+                        ],
+                    )
+                ),
+            )
+
+        def test_not_parens_arrow_lambda(self):
+            self.assertEqual(
+                self._expr("not (a,) -> 1"), ast.Not(expr=ast.Lambda(args=["a"], expr=ast.Constant(value=1)))
+            )
+
+        def test_not_double_paren_lambda_is_call(self):
+            self.assertEqual(
+                self._expr("not ((a,) -> 1)"),
+                ast.Call(name="not", args=[ast.Lambda(args=["a"], expr=ast.Constant(value=1))]),
+            )
+
+        def test_not_call_with_placeholder_arg(self):
+            self.assertEqual(
+                self._expr("not ({a})"),
+                ast.Call(name="not", args=[ast.Placeholder(expr=ast.Field(chain=["a"]))]),
+            )
+
+        def test_not_self_contained_columns_replace(self):
+            self.assertEqual(
+                self._expr('not (* replace (("a") as a))'),
+                ast.Not(expr=ast.ColumnsExpr(all_columns=True, replace={"a": ast.Field(chain=["a"])})),
+            )
+
+        def test_not_self_contained_columns_exclude_replace(self):
+            self.assertEqual(
+                self._expr("not (* exclude (a) replace ((1) as b))"),
+                ast.Not(expr=ast.ColumnsExpr(all_columns=True, exclude=["a"], replace={"b": ast.Constant(value=1)})),
+            )
+
+        def test_paren_wrapped_table_drops_trailing_sample(self):
+            self.assertEqual(
+                self._select("SELECT 1 FROM (a) SAMPLE {x}"),
+                ast.SelectQuery(select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["a"]))),
+            )
+
+        def test_paren_wrapped_table_with_final_drops_trailing_sample(self):
+            self.assertEqual(
+                self._select("SELECT 1 FROM (a FINAL) SAMPLE {x}"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["a"]), table_final=True),
+                ),
+            )
+
+        def test_paren_wrapped_placeholder_subquery_keeps_sample(self):
+            self.assertEqual(
+                self._select("SELECT 1 FROM ({a}) SAMPLE {x}"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Placeholder(expr=ast.Field(chain=["a"])),
+                        sample=ast.SampleExpr(sample_value=ast.Placeholder(expr=ast.Field(chain=["x"]))),
+                    ),
+                ),
+            )
+
+        def test_lambda_single_param(self):
+            self.assertEqual(self._expr("lambda x : 1"), ast.Lambda(args=["x"], expr=ast.Constant(value=1)))
+
+        def test_lambda_trailing_comma(self):
+            self.assertEqual(self._expr('lambda "_" , : 1'), ast.Lambda(args=["_"], expr=ast.Constant(value=1)))
+
+        def test_lambda_as_field_function_call(self):
+            self.assertEqual(self._expr("lambda(1)"), ast.Call(name="lambda", args=[ast.Constant(value=1)]))
+
+        # --- allstar :: TestAllStarColumnExprListBacktrack (5 tests) ---
+        def test_group_by_extends_through_qualify_with_arith(self):
+            self.assertEqual(
+                self._select("select x from t group by columns(*), qualify * columns('')"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["x"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["t"])),
+                    group_by=[
+                        ast.ColumnsExpr(columns=[ast.Field(chain=["*"])]),
+                        ast.ArithmeticOperation(
+                            left=ast.Field(chain=["qualify"]), right=ast.ColumnsExpr(regex=""), op="*"
+                        ),
+                    ],
+                ),
+            )
+
+        def test_group_by_backs_off_when_qualify_has_clause_body(self):
+            self.assertEqual(
+                self._select("select x from t group by columns(*), qualify *"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["x"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["t"])),
+                    qualify=ast.Field(chain=["*"]),
+                    group_by=[ast.ColumnsExpr(columns=[ast.Field(chain=["*"])])],
+                ),
+            )
+
+        def test_group_by_trailing_comma_then_qualify_ident(self):
+            self.assertEqual(
+                self._select("select x from t group by columns(*), qualify"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["x"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["t"])),
+                    group_by=[ast.ColumnsExpr(columns=[ast.Field(chain=["*"])]), ast.Field(chain=["qualify"])],
+                ),
+            )
+
+        def test_limit_by_extends_through_limit_with_arith(self):
+            self.assertEqual(
+                self._select("select 1 from t limit 5 by a, limit * columns('ok')"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["t"])),
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Constant(value=5),
+                        exprs=[
+                            ast.Field(chain=["a"]),
+                            ast.ArithmeticOperation(
+                                left=ast.Field(chain=["limit"]), right=ast.ColumnsExpr(regex="ok"), op="*"
+                            ),
+                        ],
+                    ),
+                ),
+            )
+
+        def test_limit_by_trailing_comma_then_bare_limit_ident(self):
+            self.assertEqual(
+                self._select("select 1 from t limit 5 by a, limit"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["t"])),
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Constant(value=5), exprs=[ast.Field(chain=["a"]), ast.Field(chain=["limit"])]
+                    ),
+                ),
+            )
+
+        # --- allstar :: TestAllStarLimitPercentDisambiguation (4 tests) ---
+        def test_limit_modulo_extends_through_offset_arith(self):
+            self.assertEqual(
+                self._select("select 1 from t limit * columns('a') % offset * columns('')"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["t"])),
+                    limit=ast.ArithmeticOperation(
+                        left=ast.ArithmeticOperation(
+                            left=ast.SpreadExpr(expr=ast.ColumnsExpr(regex="a")),
+                            right=ast.Field(chain=["offset"]),
+                            op="%",
+                        ),
+                        right=ast.ColumnsExpr(regex=""),
+                        op="*",
+                    ),
+                ),
+            )
+
+        def test_limit_percent_offset_simple(self):
+            self.assertEqual(
+                self._select("select 1 from t limit 5 % offset 10"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["t"])),
+                    limit=ast.Constant(value=5),
+                    limit_percent=True,
+                    offset=ast.Constant(value=10),
+                ),
+            )
+
+        def test_limit_modulo_extends_then_offset_arith(self):
+            self.assertEqual(
+                self._select("select 1 from t limit 5 % offset * 2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["t"])),
+                    limit=ast.ArithmeticOperation(
+                        left=ast.ArithmeticOperation(
+                            left=ast.Constant(value=5), right=ast.Field(chain=["offset"]), op="%"
+                        ),
+                        right=ast.Constant(value=2),
+                        op="*",
+                    ),
+                ),
+            )
+
+        def test_limit_percent_offset_with_clean_asterisk_body(self):
+            self.assertEqual(
+                self._select("select 1 from t limit 5% offset 10"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["t"])),
+                    limit=ast.Constant(value=5),
+                    limit_percent=True,
+                    offset=ast.Constant(value=10),
+                ),
+            )
+
+        # --- allstar :: TestAllStarBetweenAliasOrHoist (6 tests) ---
+        def test_between_alias_or_simple(self):
+            self.assertEqual(
+                self._expr("x between low and high as al or rest"),
+                ast.Or(
+                    exprs=[
+                        ast.Alias(
+                            alias="al",
+                            expr=ast.BetweenExpr(
+                                expr=ast.Field(chain=["x"]),
+                                low=ast.Field(chain=["low"]),
+                                high=ast.Field(chain=["high"]),
+                            ),
+                        ),
+                        ast.Field(chain=["rest"]),
+                    ]
+                ),
+            )
+
+        def test_between_or_without_alias_absorbs(self):
+            self.assertEqual(
+                self._expr("x between low and high or rest"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.Field(chain=["low"]),
+                    high=ast.Or(exprs=[ast.Field(chain=["high"]), ast.Field(chain=["rest"])]),
+                ),
+            )
+
+        def test_between_alias_or_multiple_siblings(self):
+            self.assertEqual(
+                self._expr("x between low and high as al or r1 or r2"),
+                ast.Or(
+                    exprs=[
+                        ast.Alias(
+                            alias="al",
+                            expr=ast.BetweenExpr(
+                                expr=ast.Field(chain=["x"]),
+                                low=ast.Field(chain=["low"]),
+                                high=ast.Field(chain=["high"]),
+                            ),
+                        ),
+                        ast.Field(chain=["r1"]),
+                        ast.Field(chain=["r2"]),
+                    ]
+                ),
+            )
+
+        def test_between_alias_or_with_left_sibling(self):
+            self.assertEqual(
+                self._expr("x or x2 between low and high as al or r1"),
+                ast.Or(
+                    exprs=[
+                        ast.Alias(
+                            alias="al",
+                            expr=ast.BetweenExpr(
+                                expr=ast.Or(exprs=[ast.Field(chain=["x"]), ast.Field(chain=["x2"])]),
+                                low=ast.Field(chain=["low"]),
+                                high=ast.Field(chain=["high"]),
+                            ),
+                        ),
+                        ast.Field(chain=["r1"]),
+                    ]
+                ),
+            )
+
+        def test_between_lambda_body_alias_or(self):
+            self.assertEqual(
+                self._expr("x between lambda y : a and b as al or r"),
+                ast.Or(
+                    exprs=[
+                        ast.Alias(
+                            alias="al",
+                            expr=ast.BetweenExpr(
+                                expr=ast.Field(chain=["x"]),
+                                low=ast.Lambda(args=["y"], expr=ast.Field(chain=["a"])),
+                                high=ast.Field(chain=["b"]),
+                            ),
+                        ),
+                        ast.Field(chain=["r"]),
+                    ]
+                ),
+            )
+
+        def test_between_named_arg_high_alias_or(self):
+            self.assertEqual(
+                self._expr("x between low and n := high as al or r"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.Field(chain=["low"]),
+                    high=ast.NamedArgument(
+                        name="n",
+                        value=ast.Or(
+                            exprs=[ast.Alias(alias="al", expr=ast.Field(chain=["high"])), ast.Field(chain=["r"])]
+                        ),
+                    ),
+                ),
+            )
+
+        # --- allstar :: TestAllStarBetweenBodyOuterMinBp (3 tests) ---
+        def test_ternary_else_between_alias_floats_out(self):
+            self.assertEqual(
+                self._expr("x ? a : b between c and d as al"),
+                ast.Alias(
+                    alias="al",
+                    expr=ast.Call(
+                        name="if",
+                        args=[
+                            ast.Field(chain=["x"]),
+                            ast.Field(chain=["a"]),
+                            ast.BetweenExpr(
+                                expr=ast.Field(chain=["b"]), low=ast.Field(chain=["c"]), high=ast.Field(chain=["d"])
+                            ),
+                        ],
+                    ),
+                ),
+            )
+
+        def test_top_level_between_alias_still_absorbs(self):
+            self.assertEqual(
+                self._expr("x between c and d as al"),
+                ast.Alias(
+                    alias="al",
+                    expr=ast.BetweenExpr(
+                        expr=ast.Field(chain=["x"]), low=ast.Field(chain=["c"]), high=ast.Field(chain=["d"])
+                    ),
+                ),
+            )
+
+        def test_ternary_else_between_alias_or(self):
+            self.assertEqual(
+                self._expr("x ? a : b between c and d as al or z"),
+                ast.Or(
+                    exprs=[
+                        ast.Alias(
+                            alias="al",
+                            expr=ast.Call(
+                                name="if",
+                                args=[
+                                    ast.Field(chain=["x"]),
+                                    ast.Field(chain=["a"]),
+                                    ast.BetweenExpr(
+                                        expr=ast.Field(chain=["b"]),
+                                        low=ast.Field(chain=["c"]),
+                                        high=ast.Field(chain=["d"]),
+                                    ),
+                                ],
+                            ),
+                        ),
+                        ast.Field(chain=["z"]),
+                    ]
+                ),
+            )
+
+        # --- allstar :: TestAllStarHardSetOpKeywords (3 tests) ---
+        def test_intersect_after_comma_terminates_limit_by(self):
+            self.assertEqual(
+                self._select("select x from t limit 5 by a, intersect (select 1)"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(
+                        select=[ast.Field(chain=["x"])],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["t"])),
+                        limit_by=ast.LimitByExpr(n=ast.Constant(value=5), exprs=[ast.Field(chain=["a"])]),
+                    ),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(select=[ast.Constant(value=1)]), set_operator="INTERSECT"
+                        )
+                    ],
+                ),
+            )
+
+        def test_union_after_comma_extends_limit_by(self):
+            self.assertEqual(
+                self._select("select x from t limit 5 by a, union (select 1)"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["x"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["t"])),
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Constant(value=5),
+                        exprs=[
+                            ast.Field(chain=["a"]),
+                            ast.Call(name="union", args=[ast.SelectQuery(select=[ast.Constant(value=1)])]),
+                        ],
+                    ),
+                ),
+            )
+
+        def test_except_after_comma_terminates_limit_by(self):
+            self.assertEqual(
+                self._select("select x from t limit 5 by a, except (select 1)"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(
+                        select=[ast.Field(chain=["x"])],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["t"])),
+                        limit_by=ast.LimitByExpr(n=ast.Constant(value=5), exprs=[ast.Field(chain=["a"])]),
+                    ),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            select_query=ast.SelectQuery(select=[ast.Constant(value=1)]), set_operator="EXCEPT"
+                        )
+                    ],
+                ),
+            )
+
+        # --- allstar :: TestAllStarColumnsOverPostfix (4 tests) ---
+        def test_columns_over_named_window(self):
+            self.assertEqual(
+                self._expr("columns(*) over hour"),
+                ast.WindowFunction(name="columns", exprs=[ast.Field(chain=["*"])], over_identifier="hour"),
+            )
+
+        def test_columns_over_window_expr(self):
+            self.assertEqual(
+                self._expr("columns(*) over (order by x)"),
+                ast.WindowFunction(
+                    name="columns",
+                    exprs=[ast.Field(chain=["*"])],
+                    over_expr=ast.WindowExpr(order_by=[ast.OrderExpr(expr=ast.Field(chain=["x"]))]),
+                ),
+            )
+
+        def test_columns_plain_still_columns_expr(self):
+            self.assertEqual(self._expr("columns(*)"), ast.ColumnsExpr(columns=[ast.Field(chain=["*"])]))
+
+        def test_columns_with_regex_over_window(self):
+            self.assertEqual(
+                self._expr("columns('x') over hour"),
+                ast.WindowFunction(name="columns", exprs=[ast.Constant(value="x")], over_identifier="hour"),
+            )
+
+        # --- allstar :: TestAllStarCaseAsFunctionFallback (4 tests) ---
+        def test_case_as_fn_one_arg(self):
+            self.assertEqual(self._expr("case(1)"), ast.Call(name="case", args=[ast.Constant(value=1)]))
+
+        def test_case_as_fn_multiple_args(self):
+            self.assertEqual(
+                self._expr("case(1, 2)"),
+                ast.Call(name="case", args=[ast.Constant(value=1), ast.Constant(value=2)]),
+            )
+
+        def test_case_as_fn_with_postfix(self):
+            self.assertEqual(
+                self._expr("case(1) + 2"),
+                ast.ArithmeticOperation(
+                    left=ast.Call(name="case", args=[ast.Constant(value=1)]), right=ast.Constant(value=2), op="+"
+                ),
+            )
+
+        def test_case_expr_still_works(self):
+            self.assertEqual(
+                self._expr("case x when 1 then 2 else 3 end"),
+                ast.Call(
+                    name="transform",
+                    args=[
+                        ast.Field(chain=["x"]),
+                        ast.Array(exprs=[ast.Constant(value=1)]),
+                        ast.Array(exprs=[ast.Constant(value=2)]),
+                        ast.Constant(value=3),
+                    ],
+                ),
+            )
+
+        # --- allstar :: TestAllStarLimitPercentTrailingOrderBy (4 tests) ---
+        def test_limit_percent_then_order_by_paren_wrapped(self):
+            self.assertEqual(
+                self._select("(select 1 limit 1 % order by 2 with fill to 3)"),
+                ast.SelectQuery(select=[ast.Constant(value=1)], limit=ast.Constant(value=1), limit_percent=True),
+            )
+
+        def test_limit_percent_then_order_by_bare(self):
+            self.assertEqual(
+                self._select("select 1 limit 1 % order by 2 with fill to 3"),
+                ast.SelectQuery(select=[ast.Constant(value=1)], limit=ast.Constant(value=1), limit_percent=True),
+            )
+
+        def test_limit_modulo_then_order_by_drops(self):
+            self.assertEqual(
+                self._select("select 1 from t limit * columns('a') % offset * columns('b') order by 1"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["t"])),
+                    limit=ast.ArithmeticOperation(
+                        left=ast.ArithmeticOperation(
+                            left=ast.SpreadExpr(expr=ast.ColumnsExpr(regex="a")),
+                            right=ast.Field(chain=["offset"]),
+                            op="%",
+                        ),
+                        right=ast.ColumnsExpr(regex="b"),
+                        op="*",
+                    ),
+                ),
+            )
+
+        def test_limit_percent_then_order_by_nulls_first(self):
+            self.assertEqual(
+                self._select("(select 1 limit 1 % order by 2 nulls last)"),
+                ast.SelectQuery(select=[ast.Constant(value=1)], limit=ast.Constant(value=1), limit_percent=True),
+            )
+
+        # --- allstar :: TestAllStarLimitByExprsBoundary (3 tests) ---
+        def test_limit_by_bails_on_limit_call_with_ties(self):
+            self.assertEqual(
+                self._select("select 1 limit 5 by a, limit (1) with ties"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit=ast.Constant(value=1),
+                    limit_by=ast.LimitByExpr(n=ast.Constant(value=5), exprs=[ast.Field(chain=["a"])]),
+                    limit_with_ties=True,
+                ),
+            )
+
+        def test_limit_by_bails_with_ties_then_outer_limit(self):
+            self.assertEqual(
+                self._select("select 1 limit 5 by a, limit (1) with ties limit 10"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit=ast.Constant(value=10),
+                    limit_by=ast.LimitByExpr(n=ast.Constant(value=5), exprs=[ast.Field(chain=["a"])]),
+                    limit_with_ties=True,
+                ),
+            )
+
+        def test_limit_by_extends_through_limit_arith(self):
+            self.assertEqual(
+                self._select("select x from t limit 5 by a, limit * columns('c')"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["x"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["t"])),
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Constant(value=5),
+                        exprs=[
+                            ast.Field(chain=["a"]),
+                            ast.ArithmeticOperation(
+                                left=ast.Field(chain=["limit"]), right=ast.ColumnsExpr(regex="c"), op="*"
+                            ),
+                        ],
+                    ),
+                ),
+            )
+
+        # --- allstar :: TestAllStarBetweenIsDistinctIsNullHoist (6 tests) ---
+        def test_between_alias_is_distinct_from(self):
+            self.assertEqual(
+                self._expr("x between A and B as al is distinct from C"),
+                ast.IsDistinctFrom(
+                    left=ast.Alias(
+                        alias="al",
+                        expr=ast.BetweenExpr(
+                            expr=ast.Field(chain=["x"]), low=ast.Field(chain=["A"]), high=ast.Field(chain=["B"])
+                        ),
+                    ),
+                    right=ast.Field(chain=["C"]),
+                ),
+            )
+
+        def test_between_alias_is_not_distinct_from(self):
+            self.assertEqual(
+                self._expr("x between A and B as al is not distinct from C"),
+                ast.IsDistinctFrom(
+                    left=ast.Alias(
+                        alias="al",
+                        expr=ast.BetweenExpr(
+                            expr=ast.Field(chain=["x"]), low=ast.Field(chain=["A"]), high=ast.Field(chain=["B"])
+                        ),
+                    ),
+                    right=ast.Field(chain=["C"]),
+                    negated=True,
+                ),
+            )
+
+        def test_between_alias_is_null(self):
+            self.assertEqual(
+                self._expr("x between A and B as al is null"),
+                ast.CompareOperation(
+                    left=ast.Alias(
+                        alias="al",
+                        expr=ast.BetweenExpr(
+                            expr=ast.Field(chain=["x"]), low=ast.Field(chain=["A"]), high=ast.Field(chain=["B"])
+                        ),
+                    ),
+                    right=ast.Constant(value=None),
+                    op="==",
+                    is_null_comparison_style=True,
+                ),
+            )
+
+        def test_between_alias_is_not_null(self):
+            self.assertEqual(
+                self._expr("x between A and B as al is not null"),
+                ast.CompareOperation(
+                    left=ast.Alias(
+                        alias="al",
+                        expr=ast.BetweenExpr(
+                            expr=ast.Field(chain=["x"]), low=ast.Field(chain=["A"]), high=ast.Field(chain=["B"])
+                        ),
+                    ),
+                    right=ast.Constant(value=None),
+                    op="!=",
+                    is_null_comparison_style=True,
+                ),
+            )
+
+        def test_between_no_alias_is_distinct_stays_inside(self):
+            self.assertEqual(
+                self._expr("x between A and B is distinct from C"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.Field(chain=["A"]),
+                    high=ast.IsDistinctFrom(left=ast.Field(chain=["B"]), right=ast.Field(chain=["C"])),
+                ),
+            )
+
+        def test_between_complex_alias_is_distinct(self):
+            self.assertEqual(
+                self._expr("x between {} as a ?? {} and y() over w as al is distinct from z"),
+                ast.IsDistinctFrom(
+                    left=ast.Alias(
+                        alias="al",
+                        expr=ast.BetweenExpr(
+                            expr=ast.Field(chain=["x"]),
+                            low=ast.Call(
+                                name="ifNull", args=[ast.Alias(alias="a", expr=ast.Dict(items=[])), ast.Dict(items=[])]
+                            ),
+                            high=ast.WindowFunction(name="y", over_identifier="w"),
+                        ),
+                    ),
+                    right=ast.Field(chain=["z"]),
+                ),
+            )
+
+        # --- allstar :: TestAllStarBetweenArrayAccessHoist (4 tests) ---
+        def test_between_alias_nullish_property(self):
+            self.assertEqual(
+                self._expr("x between 1 and 2 as al ?. minute"),
+                ast.ArrayAccess(
+                    array=ast.Alias(
+                        alias="al",
+                        expr=ast.BetweenExpr(
+                            expr=ast.Field(chain=["x"]), low=ast.Constant(value=1), high=ast.Constant(value=2)
+                        ),
+                    ),
+                    property=ast.Constant(value="minute"),
+                    nullish=True,
+                ),
+            )
+
+        def test_between_alias_subscript(self):
+            self.assertEqual(
+                self._expr("x between 1 and 2 as al [0]"),
+                ast.ArrayAccess(
+                    array=ast.Alias(
+                        alias="al",
+                        expr=ast.BetweenExpr(
+                            expr=ast.Field(chain=["x"]), low=ast.Constant(value=1), high=ast.Constant(value=2)
+                        ),
+                    ),
+                    property=ast.Constant(value=0),
+                ),
+            )
+
+        def test_between_alias_dot_property(self):
+            self.assertEqual(
+                self._expr("x between 1 and 2 as al . minute"),
+                ast.ArrayAccess(
+                    array=ast.Alias(
+                        alias="al",
+                        expr=ast.BetweenExpr(
+                            expr=ast.Field(chain=["x"]), low=ast.Constant(value=1), high=ast.Constant(value=2)
+                        ),
+                    ),
+                    property=ast.Constant(value="minute"),
+                ),
+            )
+
+        def test_between_lambda_or_alias_property_access(self):
+            self.assertEqual(
+                self._expr("x between lambda y : 1 and 2 or 3 as al ?. minute"),
+                ast.ArrayAccess(
+                    array=ast.Alias(
+                        alias="al",
+                        expr=ast.BetweenExpr(
+                            expr=ast.Field(chain=["x"]),
+                            low=ast.Lambda(args=["y"], expr=ast.Constant(value=1)),
+                            high=ast.Or(exprs=[ast.Constant(value=2), ast.Constant(value=3)]),
+                        ),
+                    ),
+                    property=ast.Constant(value="minute"),
+                    nullish=True,
+                ),
+            )
+
+        # --- allstar :: TestAllStarCaseScrutineeSpeculation (4 tests) ---
+        def test_case_when_mul_then_call_then_when(self):
+            self.assertEqual(
+                self._expr("case when * then(1)() when 2 then 3 end"),
+                ast.Call(
+                    name="transform",
+                    args=[
+                        ast.ArithmeticOperation(
+                            left=ast.Field(chain=["when"]),
+                            right=ast.Call(name="then", args=[], params=[ast.Constant(value=1)]),
+                            op="*",
+                        ),
+                        ast.Array(exprs=[ast.Constant(value=2)]),
+                        ast.Array(exprs=[]),
+                        ast.Constant(value=3),
+                    ],
+                ),
+            )
+
+        def test_case_when_complex_then_then_when(self):
+            self.assertEqual(
+                self._expr("case when * then ((*)())() when 1 then 2 end"),
+                ast.Call(
+                    name="transform",
+                    args=[
+                        ast.ArithmeticOperation(
+                            left=ast.Field(chain=["when"]),
+                            right=ast.Call(
+                                name="then", args=[], params=[ast.ExprCall(expr=ast.Field(chain=["*"]), args=[])]
+                            ),
+                            op="*",
+                        ),
+                        ast.Array(exprs=[ast.Constant(value=1)]),
+                        ast.Array(exprs=[]),
+                        ast.Constant(value=2),
+                    ],
+                ),
+            )
+
+        def test_case_when_call_postfix_no_scrutinee(self):
+            self.assertEqual(
+                self._expr("case when (1)() then 2 when 3 then 4 end"),
+                ast.Call(
+                    name="multiIf",
+                    args=[
+                        ast.ExprCall(expr=ast.Constant(value=1), args=[]),
+                        ast.Constant(value=2),
+                        ast.Constant(value=3),
+                        ast.Constant(value=4),
+                    ],
+                ),
+            )
+
+        def test_case_when_plain_no_scrutinee(self):
+            self.assertEqual(
+                self._expr("case when 1 then 2 when 3 then 4 end"),
+                ast.Call(
+                    name="multiIf",
+                    args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3), ast.Constant(value=4)],
+                ),
+            )
+
+        # --- allstar :: TestAllStarColumnExprListBoundary (2 tests) ---
+        def test_group_by_bails_on_limit_call_with_trailing_by(self):
+            self.assertEqual(
+                self._select("select 1 group by a, LIMIT (1) by (2)"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    group_by=[ast.Field(chain=["a"])],
+                    limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Constant(value=2)]),
+                ),
+            )
+
+        def test_group_by_extends_through_qualify_arith_then_using_sample(self):
+            self.assertEqual(
+                self._select("select 1 group by a, qualify * columns('') using sample 0.1"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    group_by=[
+                        ast.Field(chain=["a"]),
+                        ast.ArithmeticOperation(
+                            left=ast.Field(chain=["qualify"]), right=ast.ColumnsExpr(regex=""), op="*"
+                        ),
+                    ],
+                ),
+            )
+
+        # --- allstar :: TestAllStarNotParenSelectSetStmt (5 tests) ---
+        def test_not_paren_subquery_with_limit_is_not_prefix(self):
+            self.assertEqual(
+                self._expr("not ((select 1) limit 1)"),
+                ast.Not(expr=ast.SelectQuery(select=[ast.Constant(value=1)], limit=ast.Constant(value=1))),
+            )
+
+        def test_not_paren_subquery_with_limit_ignore_nulls(self):
+            self.assertEqual(
+                self._expr("not ((select 1) limit 1) ignore nulls"),
+                ast.Not(expr=ast.SelectQuery(select=[ast.Constant(value=1)], limit=ast.Constant(value=1))),
+            )
+
+        def test_not_paren_subquery_with_offset_is_not_prefix(self):
+            self.assertEqual(
+                self._expr("not ((select 1) offset 1)"),
+                ast.Not(expr=ast.SelectQuery(select=[ast.Constant(value=1)], offset=ast.Constant(value=1))),
+            )
+
+        def test_not_paren_subquery_with_order_by_is_call(self):
+            self.assertEqual(
+                self._expr("not ((select 1) order by 1)"),
+                ast.Call(
+                    name="not",
+                    args=[ast.SelectQuery(select=[ast.Constant(value=1)])],
+                    order_by=[ast.OrderExpr(expr=ast.Constant(value=1))],
+                ),
+            )
+
+        def test_not_paren_subquery_no_trailing_is_call(self):
+            self.assertEqual(
+                self._expr("not ((select 1))"),
+                ast.Call(name="not", args=[ast.SelectQuery(select=[ast.Constant(value=1)])]),
+            )
+
+        # --- allstar :: TestAllStarLimitModuloThenByTwoLevelSpeculation (3 tests) ---
+        def test_limit_modulo_extends_into_limit_by(self):
+            self.assertEqual(
+                self._select("select 1 limit {} % order by 2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    limit_by=ast.LimitByExpr(
+                        n=ast.ArithmeticOperation(left=ast.Dict(items=[]), right=ast.Field(chain=["order"]), op="%"),
+                        exprs=[ast.Constant(value=2)],
+                    ),
+                ),
+            )
+
+        def test_limit_modulo_with_fill_keeps_percent(self):
+            self.assertEqual(
+                self._select("select 1 limit {} % order by 2 with fill to 3"),
+                ast.SelectQuery(select=[ast.Constant(value=1)], limit=ast.Dict(items=[]), limit_percent=True),
+            )
+
+        def test_limit_modulo_qualify_then_by(self):
+            self.assertEqual(
+                self._select("select 1 qualify 1 limit {} % order by 2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    qualify=ast.Constant(value=1),
+                    limit_by=ast.LimitByExpr(
+                        n=ast.ArithmeticOperation(left=ast.Dict(items=[]), right=ast.Field(chain=["order"]), op="%"),
+                        exprs=[ast.Constant(value=2)],
+                    ),
+                ),
+            )
+
     return TestParser
