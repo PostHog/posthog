@@ -227,30 +227,40 @@ def bench(
     oracle: str,
     candidate: str,
 ) -> int:
-    print(f"\n{label}  (N={n} per row, oracle={oracle}, candidate={candidate})")
-    print(f"{'query':<22} {'chars':>6} {'oracle(us)':>12} {'candidate(us)':>14} {'oracle/cand':>12}")
-    print("-" * 70)
+    # Some rows have per-query iteration overrides (slow cpp queries
+    # would otherwise burn minutes), so make that explicit in the
+    # header — a reader correlating header `N` to a row's µs needs to
+    # know the row may have used a different N.
+    overrides_in_use = {name: N_PER_QUERY[name] for name in queries if name in N_PER_QUERY}
+    override_note = f", overrides: {overrides_in_use}" if overrides_in_use else ""
+    print(f"\n{label}  (N={n} per row, oracle={oracle}, candidate={candidate}{override_note})")
+    print(f"{'query':<30} {'chars':>6} {'oracle(us)':>12} {'candidate(us)':>14} {'oracle/cand':>12}")
+    print("-" * 78)
 
     oracle_total, cand_total, comparable = 0.0, 0.0, 0
     for name, q in queries.items():
         nq = N_PER_QUERY.get(name, n)
+        # Annotate the row name when its N differs from the header so a
+        # reader doesn't have to cross-reference the override map to
+        # interpret the µs value.
+        row_label = name if nq == n else f"{name} [N={nq}]"
         try:
             oracle_us = run(lambda q=q: parse_fn(q, backend=oracle), nq)
         except Exception as e:
-            print(f"{name:<22} {len(q):>6} {'ERROR':>12} {'-':>14} {'-':>12}  ({oracle}: {e})")
+            print(f"{row_label:<30} {len(q):>6} {'ERROR':>12} {'-':>14} {'-':>12}  ({oracle}: {e})")
             continue
         try:
             cand_us = run(lambda q=q: parse_fn(q, backend=candidate), nq)
         except Exception as e:
-            print(f"{name:<22} {len(q):>6} {oracle_us:>12.3f} {'(skip)':>14} {'-':>12}  ({candidate}: {e})")
+            print(f"{row_label:<30} {len(q):>6} {oracle_us:>12.3f} {'(skip)':>14} {'-':>12}  ({candidate}: {e})")
             continue
         ratio = oracle_us / cand_us if cand_us > 0 else float("nan")
-        print(f"{name:<22} {len(q):>6} {oracle_us:>12.3f} {cand_us:>14.3f} {ratio:>11.1f}x")
+        print(f"{row_label:<30} {len(q):>6} {oracle_us:>12.3f} {cand_us:>14.3f} {ratio:>11.1f}x")
         oracle_total += oracle_us
         cand_total += cand_us
         comparable += 1
 
-    print("-" * 70)
+    print("-" * 78)
     if comparable:
         # The time columns ARE arithmetic means of per-row times.
         # The ratio column is the ratio of those means
@@ -261,7 +271,7 @@ def bench(
         # absolute times, that mean would over-weight cheap rows.
         overall = oracle_total / cand_total if cand_total > 0 else float("nan")
         print(
-            f"{'mean (sum-weighted)':<22} {'':>6} {oracle_total / comparable:>12.3f} "
+            f"{'mean (sum-weighted)':<30} {'':>6} {oracle_total / comparable:>12.3f} "
             f"{cand_total / comparable:>14.3f} {overall:>11.1f}x  ({comparable}/{len(queries)} comparable)"
         )
     return comparable
@@ -295,15 +305,19 @@ def main() -> int:
         )
         return 2
 
-    # Sanity-probe both backends so a typo in `--candidate` or a
-    # missing backend in the environment fails immediately with a
-    # readable error, rather than tripping the per-row `except` on
-    # every query and silently reporting zero comparable rows.
-    for label, backend in (("oracle", args.oracle), ("candidate", args.candidate)):
-        err = _probe_backend("expr", backend)
-        if err is not None:
-            print(f"ERROR: {label} backend {backend!r} unavailable: {err}")
-            return 2
+    # Sanity-probe both rules on both backends so a typo, a missing
+    # backend, or a backend with partial rule coverage (e.g. expr only,
+    # no select) fails immediately with a readable error rather than
+    # tripping the per-row `except` on every query and silently
+    # reporting zero comparable rows. We bench parse_expr AND
+    # parse_select below, so probing only one rule would miss the
+    # partial-implementation case entirely.
+    for rule in ("expr", "select"):
+        for label, backend in (("oracle", args.oracle), ("candidate", args.candidate)):
+            err = _probe_backend(rule, backend)
+            if err is not None:
+                print(f"ERROR: {label} backend {backend!r} unavailable for rule {rule!r}: {err}")
+                return 2
 
     comparable = 0
     comparable += bench("parse_expr", parse_expr, EXPR_QUERIES, N_EXPR, args.oracle, args.candidate)
