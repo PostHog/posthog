@@ -249,9 +249,16 @@ def bench(
 
     print("-" * 70)
     if comparable:
+        # The time columns ARE arithmetic means of per-row times.
+        # The ratio column is the ratio of those means
+        # (equivalently `sum(oracle) / sum(cand)`), which weights each
+        # row by absolute time spent — the right metric for an
+        # "overall speedup" reading. Note this is NOT the arithmetic
+        # mean of per-row ratios; on a corpus with vastly different
+        # absolute times, that mean would over-weight cheap rows.
         overall = oracle_total / cand_total if cand_total > 0 else float("nan")
         print(
-            f"{'mean':<22} {'':>6} {oracle_total / comparable:>12.3f} "
+            f"{'mean (sum-weighted)':<22} {'':>6} {oracle_total / comparable:>12.3f} "
             f"{cand_total / comparable:>14.3f} {overall:>11.1f}x  ({comparable}/{len(queries)} comparable)"
         )
     return comparable
