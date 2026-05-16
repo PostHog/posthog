@@ -393,9 +393,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "ThrowStatement";
     if (!is_internal) addPositionInfo(json, ctx);
-    // The grammar requires an expression (`throwStmt: THROW expression
-    // SEMICOLON?`), so it is always present — a bare `throw` is a parse
-    // error, not a ThrowStatement with a null expr.
+    // Grammar requires the expression (`throwStmt: THROW expression SEMICOLON?`) — a bare `throw` is a parse error.
     json["expr"] = visitAsJSON(ctx->expression());
     return json;
   }
@@ -2828,23 +2826,13 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       text.erase(0, 1);
     }
 
-    // Detect hex literals (possibly negative) so they skip the float branch below: hex
-    // digits include 'e', so "0xfe" would otherwise route through stod and return a
-    // double (e.g. 254.0). C++17 stod even accepts hex-float syntax, which hides the
-    // bug at small magnitudes but rounds large values incorrectly near 2^53. Routing
-    // hex through the integer branch keeps the result as exact int64_t.
+    // Hex: route through the integer branch — `stod` would parse "0xfe" as a double and lose precision near 2^53.
     bool is_hex = (text.compare(0, 2, "0x") == 0) ||
                   (text.size() > 2 && text[0] == '-' && text.compare(1, 2, "0x") == 0);
-    // Binary literals (`0b<digits>`) come in via the BINARY_LITERAL lexer
-    // token. They contain no other letters or symbols so they can't be
-    // confused with floats — just strip the `0b` prefix and parse base 2.
+    // Binary (`0b…`, BINARY_LITERAL token): strip prefix, parse base 2.
     bool is_binary = (text.compare(0, 2, "0b") == 0) ||
                      (text.size() > 2 && text[0] == '-' && text.compare(1, 2, "0b") == 0);
-    // `0o<digits>` is the Postgres-16 octal-literal shape. We lex it as
-    // a real number-shaped token (OCTAL_PREFIX_LITERAL) so we can throw
-    // a clear error here in every position rather than leaving the user
-    // with a generic parser-level "no viable alternative". Both
-    // ClickHouse and pre-pg16 Postgres reject this; HogQL follows suit.
+    // `0o…` (Postgres-16 octal, OCTAL_PREFIX_LITERAL token): unsupported, rejected below.
     bool is_postgres_octal = (text.compare(0, 2, "0o") == 0) ||
                              (text.size() > 2 && text[0] == '-' && text.compare(1, 2, "0o") == 0);
     if (is_postgres_octal) {
@@ -2854,13 +2842,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     }
 
     if (text.find("inf") != string::npos || text.find("nan") != string::npos) {
-      // Handle special number cases (infinity and NaN).
-      // The INF lexer token matches both `inf` and `infinity` (case-
-      // insensitive); ClickHouse-style `SELECT Infinity` is valid and
-      // should produce the same float-infinity constant. Postgres
-      // rejects `Infinity` as a number literal but we follow ClickHouse.
-      // Mark these with value_type="number" so the deserializer knows
-      // to convert them.
+      // INF token matches both `inf` and `infinity`. value_type="number" tells the deserializer to convert.
       if (!text.compare("-inf") || !text.compare("-infinity")) {
         json["value"] = "-Infinity";
       } else if (!text.compare("inf") || !text.compare("infinity")) {
@@ -2878,8 +2860,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       }
       return json;
     } else if (is_binary) {
-      // Strip the `0b` / `-0b` prefix and parse base 2. Lexer guarantees
-      // the remaining chars are all 0/1.
+      // Strip the `0b` / `-0b` prefix and parse base 2.
       string digits = (text[0] == '-') ? text.substr(3) : text.substr(2);
       try {
         int64_t value = static_cast<int64_t>(stoll(digits, nullptr, 2));
@@ -2891,15 +2872,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       return json;
     } else {
       try {
-        // Both ClickHouse and Postgres ignore a leading '0' on a non-hex
-        // integer literal — "017" → 17, "09" → 9 — so we must NOT let
-        // strtoll's base-0 auto-detect interpret those as octal. The
-        // earlier base-0 path produced two wrong outcomes on octal-shaped
-        // text: valid-octal inputs ("017") came back as base-8 (15), and
-        // inputs with non-octal digits ("09") returned a partial parse
-        // (strtoll stops at the bad digit, so "09" → 0). Force base 16
-        // for hex via the `is_hex` guard above, and base 10 for everything
-        // else so leading zeros are silently dropped.
+        // base 10 (not strtoll base 0): leading zeros are no-ops, never octal — "017" → 17, "09" → 9.
         int base = is_hex ? 16 : 10;
         json["value"] = static_cast<int64_t>(stoll(text, nullptr, base));  // Integer
       } catch (const std::out_of_range&) {

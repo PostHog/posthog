@@ -93,23 +93,9 @@ def parser_test_factory(backend: HogQLParserBackend):
                 # or silently returns a double (C++) instead of an int64.
                 ("hex_with_e_digit", "0xfe", 254),
                 ("hex_negative_with_e_digit", "-0xae", -174),
-                # Catches the C++ structural bug specifically: stod handles hex floats,
-                # so "0xfe" → 254.0 compares equal to 254 by coincidence. Near 2^60 the
-                # double mantissa is 8 bits short, so this value rounds to 0x1000000000000000
-                # as a double — different from the exact int64 by 14, and Python int/float
-                # equality is exact (no implicit conversion) so the test catches it.
+                # Near 2^60 the double mantissa is 8 bits short, so a stod-based hex parse rounds wrong.
                 ("hex_breaks_double_precision", "0x100000000000000e", 0x100000000000000E),
-                # Leading-zero integer literals: in both ClickHouse and Postgres,
-                # a leading 0 on a non-hex integer literal is silently ignored,
-                # so "017" → 17 (decimal), NOT 15 (octal). Previous PostHog
-                # parsers reached the wrong answer in three different ways:
-                #   - Python `int("017", 8)` does parse as octal (15) — wrong vs CH/PG.
-                #   - Python `int("09", 8)` raises ValueError outright.
-                #   - C++ stoll(text, nullptr, 0) auto-detects radix from prefix:
-                #     "017" → 15 (octal), and "09" → 0 (strtoll stops at the
-                #     first non-octal digit and returns the partial parse).
-                # The fix is to drop octal interpretation entirely: leading
-                # zeros are no-ops, the value is always decimal.
+                # Leading zeros are no-ops, never octal — "017" → 17, "09" → 9 — matching ClickHouse/Postgres.
                 ("leading_zero_017_decimal", "017", 17),
                 ("leading_zero_negative_017_decimal", "-017", -17),
                 ("leading_zero_signed_017_decimal", "+017", 17),
@@ -120,16 +106,9 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ("leading_zero_08", "08", 8),
                 ("leading_zero_099", "099", 99),
                 ("leading_zero_negative_09", "-09", -9),
-                # +inf: grammar admits `(PLUS | DASH)? INF`, but visitor only matched
-                # "inf" and "-inf", so "+inf" fell through to NaN.
+                # `+inf` once fell through to NaN — visitor only matched "inf" / "-inf".
                 ("positive_inf", "+inf", float("inf")),
-                # ClickHouse-style spellings: the INF lexer rule matches
-                # both `inf` and `infinity` (case-insensitive). Both
-                # visitors used to only match the short `"inf"` text, so
-                # `Infinity` came back as NaN (C++) or raised ValueError
-                # (Python). ClickHouse accepts all of these; Postgres
-                # rejects bare `Infinity` as a number literal but we
-                # follow ClickHouse here.
+                # `infinity` spelling (INF token matches it too) — accepted, matching ClickHouse.
                 ("infinity_lowercase", "infinity", float("inf")),
                 ("infinity_titlecase", "Infinity", float("inf")),
                 ("infinity_uppercase", "INFINITY", float("inf")),
@@ -141,20 +120,12 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(self._expr(expr), ast.Constant(value=expected))
 
         def test_select_columns_leading_zero_literals(self):
-            """A narrow regression: SELECT 9, 09, 011, 017, 018 should
-            resolve to 9, 9, 11, 17, 18. Both ClickHouse and Postgres
-            treat a leading 0 on an integer literal as a no-op — neither
-            recognises octal at all — so the parser must do the same
-            rather than re-interpreting "017" as 15. The end-to-end
-            SELECT form catches the bug at the same level a user writes
-            it, and exercises the visitor against a multi-column tuple
-            of constants rather than a single bare expression."""
+            # Leading zeros are no-ops in SELECT-column position too.
             select = cast(ast.SelectQuery, self._select("SELECT 9, 09, 011, 017, 018"))
             self.assertEqual([cast(ast.Constant, c).value for c in select.select], [9, 9, 11, 17, 18])
 
         @parameterized.expand(
             [
-                # Bare integer expressions across the digit budget.
                 ("binary_zero", "0b0", 0),
                 ("binary_one", "0b1", 1),
                 ("binary_two_bit", "0b10", 2),
@@ -165,21 +136,11 @@ def parser_test_factory(backend: HogQLParserBackend):
             ]
         )
         def test_binary_literals(self, _name: str, expr: str, expected: int):
-            """`0b<binary-digits>` is a real lexer token (BINARY_LITERAL).
-            ClickHouse supports binary integer literals natively, so HogQL
-            does too — they work in every position a number can appear
-            (bare expression, signed, inside arithmetic, in WHERE, etc.).
-            See `test_select_binary_literals_in_select` for end-to-end
-            coverage of the SELECT-column path, which is what the old
-            visitor wedge could and couldn't reach."""
+            # `0b<binary-digits>` is a real lexer token; ClickHouse parses binary literals natively.
             self.assertEqual(self._expr(expr), ast.Constant(value=expected))
 
         def test_select_binary_literals_in_select(self):
-            """End-to-end: a multi-column SELECT with bare, signed, and
-            in-arithmetic binary literals all resolve to integers. Before
-            BINARY_LITERAL became a real lexer token, the lexer split
-            `0b1010` into DECIMAL `0` + IDENTIFIER `b1010`, which made
-            this query silently parse as `SELECT 0 AS b1010, ...`."""
+            # Before BINARY_LITERAL was a token, `0b1010` split into `0` + IDENTIFIER `b1010`.
             select = cast(ast.SelectQuery, self._select("SELECT 0b1010, 0b11 + 1, 0b0"))
             values = []
             for c in select.select:
@@ -200,8 +161,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
 
         def test_binary_literal_in_where(self):
-            """Binary literals work in WHERE — the column-only visitor
-            wedge couldn't reach this, but a real lexer token does."""
+            # Binary literals work in every position a number can — including WHERE.
             select = cast(ast.SelectQuery, self._select("SELECT 1 FROM events WHERE id = 0b1010"))
             assert select.where is not None
             where = cast(ast.CompareOperation, select.where)
@@ -213,23 +173,12 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ("octal_uppercase_o", "SELECT 0O11"),
                 ("octal_in_arithmetic", "SELECT 0o11 + 1"),
                 ("octal_in_where", "SELECT 1 FROM events WHERE id = 0o11"),
-                # `0o9` is even-more-invalid (9 isn't an octal digit) but
-                # the visitor doesn't distinguish — it rejects any
-                # OCTAL_PREFIX_LITERAL, valid octal digits or not.
-                ("octal_invalid_digit", "SELECT 0o9"),
+                ("octal_invalid_digit", "SELECT 0o9"),  # rejected regardless of digit validity
                 ("octal_signed", "SELECT -0o11"),
             ]
         )
         def test_postgres_octal_literals_rejected(self, _name: str, query: str):
-            """`0o<digits>` lexes as OCTAL_PREFIX_LITERAL (a real
-            number-shaped token), participates in `numberLiteral`, and
-            then `visitNumberLiteral` throws a clear error. ClickHouse
-            rejects this shape as an unknown column ("Missing columns:
-            '0o11'"), pre-pg16 Postgres rejected it as a syntax error,
-            and pg16 added it as octal — HogQL deliberately follows
-            ClickHouse / pre-pg16 PG. Valid octal-shaped decimal text
-            like `017` is lexed as OCTAL_LITERAL and parses as 17 (per
-            `test_signed_radix_number_literals`)."""
+            # `0o<digits>` lexes as OCTAL_PREFIX_LITERAL and visitNumberLiteral throws — matches ClickHouse / pre-pg16 PG.
             with self.assertRaises((ExposedHogQLError, SyntaxError)):
                 self._select(query)
 
@@ -241,11 +190,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             ]
         )
         def test_malformed_binary_literals_rejected(self, _name: str, query: str):
-            """`0b<non-binary-digit>` lexes as MALFORMED_BINARY_LITERAL,
-            which isn't referenced by any parser rule — so the parser
-            surfaces a uniform syntax error. The fallback is what stops
-            `0b22` from quietly re-tokenising as `0` + IDENTIFIER `b22`
-            and parsing as `SELECT 0 AS b22`."""
+            # `0b<non-binary-digit>` lexes as MALFORMED_BINARY_LITERAL, unreferenced by any rule, so the parser rejects it.
             with self.assertRaises((ExposedHogQLError, SyntaxError)):
                 self._select(query)
 
@@ -2300,22 +2245,13 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
 
         def test_select_set_level_limit_offset_divergences(self):
-            # Two Python-vs-C++ parser divergences in how a set-statement-level
-            # LIMIT/OFFSET clause is applied to its initial query. C++ was
-            # already correct in both cases; Python is fixed here to match.
-
-            # 1. A paren-wrapped set operation carrying a trailing `LIMIT a, b`
-            # — the limit/offset belong on the SelectSetQuery. Python only
-            # applied them when the initial query was a plain SelectQuery, so
-            # it silently dropped both here (limit=None, offset=None).
+            # Set-level LIMIT/OFFSET on a SelectSetQuery initial query — Python dropped both. C++ was already correct.
             parsed = self._select("((select 1) intersect (select 2)) limit 3, 4")
             assert isinstance(parsed, ast.SelectSetQuery)
             self.assertEqual(parsed.limit, ast.Constant(value=3))
             self.assertEqual(parsed.offset, ast.Constant(value=4))
 
-            # 2. A bare outer `LIMIT n` on a query that already has an OFFSET
-            # must not reset that offset. Python unconditionally assigned the
-            # outer offset (None for a bare `LIMIT`), clobbering the inner 5.
+            # A bare outer `LIMIT n` must not clobber an existing inner OFFSET.
             parsed = self._select("(select 1 offset 5) limit 3")
             assert isinstance(parsed, ast.SelectQuery)
             self.assertEqual(parsed.limit, ast.Constant(value=3))
@@ -3721,12 +3657,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
 
         def test_program_bare_throw_rejected(self):
-            # The grammar requires an expression after `throw`
-            # (`throwStmt: THROW expression SEMICOLON?`), so a bare `throw`
-            # is a syntax error in both parser backends. Hog has no
-            # bare-throw / implicit re-throw — re-raising inside a catch
-            # block is done explicitly with `throw <error>`, and the VM
-            # only accepts genuine Error objects anyway.
+            # `throwStmt` requires an expression — Hog has no bare-throw / implicit re-throw.
             with self.assertRaises((ExposedHogQLError, SyntaxError)):
                 self._program("throw")
             with self.assertRaises((ExposedHogQLError, SyntaxError)):
