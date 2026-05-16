@@ -210,11 +210,7 @@ def task_visibility_q(user_id: int | None) -> Q:
       a system-picked `created_by` so the agent can mint an OAuth token, but
       they are not personal — any team member should be able to view them.
     """
-    return (
-        Q(created_by_id=user_id)
-        | Q(created_by__isnull=True)
-        | Q(origin_product=Task.OriginProduct.SIGNAL_REPORT)
-    )
+    return Q(created_by_id=user_id) | Q(created_by__isnull=True) | Q(origin_product=Task.OriginProduct.SIGNAL_REPORT)
 
 
 def task_run_visibility_q(user_id: int | None) -> Q:
