@@ -72,6 +72,9 @@ func (c *Client) CaptureAIGeneration(ctx context.Context, user *auth.User, produ
 	if usage.TotalCostUSD > 0 {
 		props["$ai_total_cost_usd"] = usage.TotalCostUSD
 	}
+	if usage.TimeToFirstToken > 0 {
+		props["$ai_time_to_first_token"] = usage.TimeToFirstToken
+	}
 	if user != nil && user.TeamID != nil {
 		props["team_id"] = *user.TeamID
 	}
@@ -81,6 +84,7 @@ func (c *Client) CaptureAIGeneration(ctx context.Context, user *auth.User, produ
 	for k, v := range flags {
 		props["$feature/"+k] = v
 	}
+	props = truncateForCapture(props)
 	payload := Event{DistinctID: distinctID, Event: "$ai_generation", Properties: props, APIKey: c.settings.PostHogProjectToken, Timestamp: time.Now().UTC().Format(time.RFC3339Nano)}
 	if user != nil && user.TeamID != nil {
 		payload.Groups = map[string]any{"project": *user.TeamID}
@@ -108,9 +112,10 @@ func (c *Client) capture(payload Event) {
 }
 
 type Usage struct {
-	InputTokens  int
-	OutputTokens int
-	TotalCostUSD float64
+	InputTokens      int
+	OutputTokens     int
+	TotalCostUSD     float64
+	TimeToFirstToken float64
 }
 
 func sanitizeBinary(value any) any {
@@ -132,4 +137,36 @@ func sanitizeBinary(value any) any {
 	default:
 		return value
 	}
+}
+
+const maxCaptureSize = 15 * 1024 * 1024
+const minFieldSizeToTruncate = 10 * 1024
+const truncationMarker = "[truncated: content too large for capture]"
+
+func truncateForCapture(properties map[string]any) map[string]any {
+	if jsonSize(properties) <= maxCaptureSize {
+		return properties
+	}
+	result := map[string]any{}
+	for k, v := range properties {
+		result[k] = v
+	}
+	for _, field := range []string{"$ai_output_choices", "$ai_input"} {
+		if jsonSize(result[field]) < minFieldSizeToTruncate {
+			continue
+		}
+		result[field] = truncationMarker
+		if jsonSize(result) <= maxCaptureSize {
+			break
+		}
+	}
+	return result
+}
+
+func jsonSize(value any) int {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return 0
+	}
+	return len(payload)
 }

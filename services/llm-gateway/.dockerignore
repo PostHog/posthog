@@ -1,0 +1,13 @@
+.git
+.venv
+__pycache__
+.pytest_cache
+.ruff_cache
+.coverage
+junit.xml
+benchmarks
+tests
+src
+uv.lock
+pyproject.toml
+*.pyc

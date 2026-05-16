@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,33 +22,39 @@ import (
 	ph "github.com/posthog/posthog/services/llm-gateway/internal/posthog"
 	"github.com/posthog/posthog/services/llm-gateway/internal/products"
 	"github.com/posthog/posthog/services/llm-gateway/internal/ratelimit"
+	"github.com/posthog/posthog/services/llm-gateway/internal/services"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/cors"
 )
 
 type App struct {
-	settings *config.Settings
-	db       *pgxpool.Pool
-	redis    *redis.Client
-	auth     *auth.Service
-	limiter  *ratelimit.Runner
-	llm      *llm.Client
-	posthog  *ph.Client
-	mux      *http.ServeMux
+	settings     *config.Settings
+	db           *pgxpool.Pool
+	redis        *redis.Client
+	auth         *auth.Service
+	limiter      *ratelimit.Runner
+	llm          *llm.Client
+	posthog      *ph.Client
+	planResolver *services.PlanResolver
+	mux          *http.ServeMux
 }
 
 type requestState struct {
-	id         string
-	product    string
-	user       *auth.User
-	model      string
-	provider   string
-	endUserID  string
-	properties map[string]any
-	flags      map[string]any
-	traceID    string
-	stream     bool
+	id               string
+	product          string
+	user             *auth.User
+	model            string
+	provider         string
+	endUserID        string
+	properties       map[string]any
+	flags            map[string]any
+	traceID          string
+	stream           bool
+	input            any
+	planInfo         services.PlanInfo
+	timeToFirstToken float64
+	streamOutput     any
 }
 
 func New(settings *config.Settings) (*App, error) {
@@ -73,7 +78,7 @@ func New(settings *config.Settings) (*App, error) {
 		}
 		return nil, err
 	}
-	app := &App{settings: settings, db: db, redis: redisClient, llm: llmClient, posthog: ph.New(settings)}
+	app := &App{settings: settings, db: db, redis: redisClient, llm: llmClient, posthog: ph.New(settings), planResolver: services.NewPlanResolver(redisClient, settings)}
 	app.auth = auth.New(db, settings)
 	app.limiter = ratelimit.New(redisClient, settings)
 	app.routes()
@@ -132,9 +137,9 @@ func (a *App) requestMiddleware(next http.Handler) http.Handler {
 			requestID = uuid.NewString()[:8]
 		}
 		start := time.Now()
+		w.Header().Set("x-request-id", requestID)
 		rw := &responseWriter{ResponseWriter: w, status: 200}
 		next.ServeHTTP(rw, r.WithContext(context.WithValue(r.Context(), stateKey{}, &requestState{id: requestID})))
-		rw.Header().Set("x-request-id", requestID)
 		if r.URL.Path != "/_liveness" && r.URL.Path != "/_readiness" && r.URL.Path != "/metrics" {
 			log.Printf("request method=%s path=%s status=%d duration_ms=%.2f", r.Method, r.URL.Path, rw.status, float64(time.Since(start).Microseconds())/1000)
 		}
@@ -158,230 +163,10 @@ func (w *responseWriter) WriteHeader(status int) {
 	w.ResponseWriter.WriteHeader(status)
 }
 
-func (a *App) root(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]string{"service": "llm-gateway", "status": "running"})
-}
-func (a *App) liveness(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]string{"status": "alive"})
-}
-func (a *App) readiness(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-	defer cancel()
-	if err := a.db.Ping(ctx); err != nil {
-		writeJSON(w, 503, map[string]string{"detail": "Database not ready"})
-		return
+func (w *responseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
 	}
-	writeJSON(w, 200, map[string]string{"status": "ready"})
-}
-
-func (a *App) chatCompletions(w http.ResponseWriter, r *http.Request) {
-	raw, req, ok := a.prepareJSONRequest(w, r, "chat_completions", []string{"model", "messages"})
-	if !ok {
-		return
-	}
-	provider, parsedModel := llm.ProviderFromModel(req.model, schemas.OpenAI)
-	req.provider = string(provider)
-	start := time.Now()
-	metrics.ConcurrentRequests.WithLabelValues(req.provider, req.model, req.product).Inc()
-	defer metrics.ConcurrentRequests.WithLabelValues(req.provider, req.model, req.product).Dec()
-	if req.stream {
-		stream, errs, err := a.llm.ChatCompletionStream(r.Context(), raw, parsedModel, provider, r.Header)
-		if err != nil {
-			a.writeProviderError(w, err, req, "chat_completions", start, true)
-			return
-		}
-		a.writeStream(w, stream, errs, req, "chat_completions", start)
-		return
-	}
-	resp, err := a.llm.ChatCompletion(r.Context(), raw, parsedModel, provider, false, r.Header)
-	if err != nil {
-		a.writeProviderError(w, err, req, "chat_completions", start, false)
-		return
-	}
-	a.afterSuccess(r.Context(), req, "chat_completions", start, false, resp)
-	writeJSON(w, 200, resp.Body)
-}
-
-func (a *App) responses(w http.ResponseWriter, r *http.Request) {
-	raw, req, ok := a.prepareJSONRequest(w, r, "responses", []string{"model", "input"})
-	if !ok {
-		return
-	}
-	start := time.Now()
-	metrics.ConcurrentRequests.WithLabelValues("openai", req.model, req.product).Inc()
-	defer metrics.ConcurrentRequests.WithLabelValues("openai", req.model, req.product).Dec()
-	if req.stream {
-		stream, errs, err := a.llm.ResponsesStream(r.Context(), raw, req.model, r.Header)
-		if err != nil {
-			a.writeProviderError(w, err, req, "responses", start, true)
-			return
-		}
-		a.writeStream(w, stream, errs, req, "responses", start)
-		return
-	}
-	resp, err := a.llm.Responses(r.Context(), raw, req.model, false, r.Header)
-	if err != nil {
-		a.writeProviderError(w, err, req, "responses", start, false)
-		return
-	}
-	req.provider = "openai"
-	a.afterSuccess(r.Context(), req, "responses", start, false, resp)
-	writeJSON(w, 200, resp.Body)
-}
-
-func (a *App) anthropicMessages(w http.ResponseWriter, r *http.Request) {
-	raw, req, ok := a.prepareJSONRequest(w, r, "anthropic_messages", []string{"model", "messages"})
-	if !ok {
-		return
-	}
-	provider, valid := providerFromHeaders(r)
-	if !valid {
-		writeError(w, 400, "Expected one of: anthropic, bedrock", "invalid_request_error", nil)
-		return
-	}
-	if provider == "bedrock" {
-		writeError(w, 503, "Bedrock provider is not configured in this Go gateway path", "configuration_error", nil)
-		return
-	}
-	req.provider = "anthropic"
-	start := time.Now()
-	resp, err := a.llm.AnthropicMessagesDirect(r.Context(), raw, req.stream, r.Header)
-	if err != nil {
-		a.writeProviderError(w, err, req, "anthropic_messages", start, req.stream)
-		return
-	}
-	defer resp.Body.Close()
-	for k, values := range resp.Header {
-		if strings.EqualFold(k, "content-length") {
-			continue
-		}
-		for _, value := range values {
-			w.Header().Add(k, value)
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-	if req.stream {
-		_, _ = io.Copy(w, resp.Body)
-		if resp.StatusCode >= 400 {
-			metrics.RequestCount.WithLabelValues("anthropic_messages", "anthropic", req.model, strconv.Itoa(resp.StatusCode), req.user.AuthMethod, req.product).Inc()
-			metrics.RequestLatency.WithLabelValues("anthropic_messages", "anthropic", "true", req.product).Observe(time.Since(start).Seconds())
-			return
-		}
-		a.afterSuccess(context.Background(), req, "anthropic_messages", start, true, &llm.Response{})
-		return
-	}
-	parsed, body, err := llm.DecodeBody(resp)
-	if err != nil {
-		return
-	}
-	if resp.StatusCode >= 400 {
-		if parsed != nil {
-			_, _ = w.Write(body)
-		}
-		metrics.RequestCount.WithLabelValues("anthropic_messages", "anthropic", req.model, strconv.Itoa(resp.StatusCode), req.user.AuthMethod, req.product).Inc()
-		return
-	}
-	response := &llm.Response{Body: parsed, Usage: usageFromAnthropic(parsed), RawChoices: extract(parsed, "content")}
-	a.afterSuccess(r.Context(), req, "anthropic_messages", start, false, response)
-	_, _ = w.Write(body)
-}
-
-func (a *App) countTokens(w http.ResponseWriter, r *http.Request) {
-	raw, req, ok := a.prepareJSONRequest(w, r, "anthropic_count_tokens", []string{"model", "messages"})
-	if !ok {
-		return
-	}
-	provider, valid := providerFromHeaders(r)
-	if !valid {
-		writeError(w, 400, "Expected one of: anthropic, bedrock", "invalid_request_error", nil)
-		return
-	}
-	if provider == "bedrock" {
-		writeError(w, 503, "Bedrock token counting not configured", "configuration_error", nil)
-		return
-	}
-	start := time.Now()
-	resp, err := a.llm.CountTokens(r.Context(), raw)
-	if err != nil {
-		a.writeProviderError(w, err, req, "anthropic_count_tokens", start, false)
-		return
-	}
-	metrics.RequestCount.WithLabelValues("anthropic_count_tokens", "anthropic", req.model, "200", req.user.AuthMethod, req.product).Inc()
-	metrics.RequestLatency.WithLabelValues("anthropic_count_tokens", "anthropic", "false", req.product).Observe(time.Since(start).Seconds())
-	writeJSON(w, 200, resp.Body)
-}
-
-func (a *App) transcriptions(w http.ResponseWriter, r *http.Request) {
-	req, ok := a.authenticateOnly(w, r)
-	if !ok {
-		return
-	}
-	if err := r.ParseMultipartForm(26 << 20); err != nil {
-		writeError(w, 400, "Invalid multipart form", "invalid_request_error", nil)
-		return
-	}
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		writeError(w, 400, "File must have a filename", "invalid_request_error", nil)
-		return
-	}
-	defer file.Close()
-	content, err := io.ReadAll(io.LimitReader(file, 25*1024*1024+1))
-	if err != nil {
-		writeError(w, 400, "Could not read file", "invalid_request_error", nil)
-		return
-	}
-	if len(content) > 25*1024*1024 {
-		writeError(w, 413, "File size exceeds maximum allowed size of 25MB", "invalid_request_error", nil)
-		return
-	}
-	model := formValue(r.MultipartForm, "model", "gpt-4o-transcribe")
-	req.model = llm.EnsureOpenAIPrefix(model)
-	req.provider = "openai"
-	if allowed, msg := products.CheckAccess(a.settings, req.product, req.user, model, "openai"); !allowed {
-		writeJSON(w, 403, msg)
-		return
-	}
-	start := time.Now()
-	resp, err := a.llm.Transcription(r.Context(), header.Filename, header.Header.Get("Content-Type"), content, req.model, formValue(r.MultipartForm, "language", ""))
-	if err != nil {
-		a.writeProviderError(w, err, req, "audio_transcriptions", start, false)
-		return
-	}
-	a.afterSuccess(r.Context(), req, "audio_transcriptions", start, false, resp)
-	writeJSON(w, 200, resp.Body)
-}
-
-func (a *App) usage(w http.ResponseWriter, r *http.Request) {
-	req, ok := a.authenticateOnly(w, r)
-	if !ok {
-		return
-	}
-	product := products.ResolveAlias(r.PathValue("product"))
-	burst, sustained := a.limiter.Usage(r.Context(), req.user, product)
-	writeJSON(w, 200, map[string]any{"product": product, "user_id": req.user.UserID, "burst": costStatus(burst), "sustained": costStatus(sustained), "is_rate_limited": burst.Exceeded || sustained.Exceeded})
-}
-
-func (a *App) invalidatePlanCache(w http.ResponseWriter, r *http.Request) {
-	_, ok := a.authenticateOnly(w, r)
-	if !ok {
-		return
-	}
-	if r.PathValue("product") != "posthog_code" {
-		writeJSON(w, 404, map[string]string{"detail": "Plan cache not available for this product"})
-		return
-	}
-	writeJSON(w, 200, map[string]bool{"ok": true})
-}
-
-func (a *App) models(w http.ResponseWriter, r *http.Request) {
-	product := products.ResolveAlias(pathProduct(r))
-	if err := products.Validate(product); err != nil {
-		writeJSON(w, 400, map[string]string{"detail": err.Error()})
-		return
-	}
-	models := availableModels(product)
-	writeJSON(w, 200, map[string]any{"object": "list", "data": models, "models": models})
 }
 
 func (a *App) prepareJSONRequest(w http.ResponseWriter, r *http.Request, endpoint string, required []string) ([]byte, *requestState, bool) {
@@ -431,15 +216,20 @@ func (a *App) prepareJSONRequest(w http.ResponseWriter, r *http.Request, endpoin
 		provider = string(parsedProvider)
 	}
 	if allowed, msg := products.CheckAccess(a.settings, req.product, req.user, model, provider); !allowed {
-		writeJSON(w, 403, msg)
+		writeError(w, 403, msg, "permission_error", nil)
 		return nil, nil, false
 	}
+	sanitizedBody, _ := llm.SanitizeJSON(raw, nil)
+	var captureInput any
+	_ = json.Unmarshal(sanitizedBody, &captureInput)
+	req.input = captureInput
 	req.model = model
 	req.provider = provider
 	req.stream, _ = body["stream"].(bool)
 	req.endUserID = endUserID(body, req.user)
 	req.traceID = traceID(body)
-	result := a.limiter.Check(r.Context(), req.user, req.product, req.endUserID)
+	req.planInfo = a.planResolver.Resolve(r.Context(), req.user.UserID, req.product, r.Header.Get("Authorization"))
+	result := a.limiter.Check(r.Context(), req.user, req.product, req.endUserID, req.planInfo)
 	if !result.Allowed {
 		metrics.RateLimitExceeded.WithLabelValues(result.Detail).Inc()
 		writeJSONWithHeaders(w, result.StatusCode, map[string]any{"error": map[string]any{"message": "Rate limit exceeded", "type": "rate_limit_error", "reason": result.Detail}}, map[string]string{"Retry-After": strconv.Itoa(result.RetryAfter)})
@@ -479,7 +269,7 @@ func (a *App) afterSuccess(ctx context.Context, req *requestState, endpoint stri
 	metrics.LLMRequests.WithLabelValues(req.provider, req.model, req.product, strconv.FormatBool(streaming)).Inc()
 	metrics.CallbackSuccess.WithLabelValues("prometheus").Inc()
 	metrics.CallbackSuccess.WithLabelValues("rate_limit").Inc()
-	usage := ph.Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens}
+	usage := ph.Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens, TimeToFirstToken: req.timeToFirstToken}
 	if usage.InputTokens > 0 {
 		metrics.TokensInput.WithLabelValues(req.provider, req.model, req.product).Add(float64(usage.InputTokens))
 	}
@@ -497,8 +287,15 @@ func (a *App) afterSuccess(ctx context.Context, req *requestState, endpoint stri
 	usage.TotalCostUSD = cost
 	metrics.CostRecorded.WithLabelValues(req.provider, req.model, req.product).Add(cost)
 	metrics.CostUSD.WithLabelValues(req.provider, req.model, req.product).Add(cost)
-	a.limiter.RecordCost(ctx, req.user, req.product, req.endUserID, cost)
-	a.posthog.CaptureAIGeneration(ctx, req.user, req.product, req.provider, req.model, nil, resp.RawChoices, usage, latency, streaming, req.endUserID, req.properties, req.flags, req.traceID, false, "")
+	a.limiter.RecordCost(ctx, req.user, req.product, req.endUserID, cost, req.planInfo)
+	output := resp.RawChoices
+	if output == nil {
+		output = req.streamOutput
+	}
+	if output == nil {
+		output = resp.Body
+	}
+	a.posthog.CaptureAIGeneration(ctx, req.user, req.product, req.provider, req.model, captureInput(req), output, usage, latency, streaming, req.endUserID, req.properties, req.flags, req.traceID, false, "")
 }
 
 func (a *App) writeProviderError(w http.ResponseWriter, err error, req *requestState, endpoint string, start time.Time, streaming bool) {
@@ -516,7 +313,7 @@ func (a *App) writeProviderError(w http.ResponseWriter, err error, req *requestS
 	metrics.ProviderErrors.WithLabelValues(req.provider, errType, req.product).Inc()
 	metrics.RequestCount.WithLabelValues(endpoint, req.provider, req.model, strconv.Itoa(status), req.user.AuthMethod, req.product).Inc()
 	metrics.RequestLatency.WithLabelValues(endpoint, req.provider, strconv.FormatBool(streaming), req.product).Observe(time.Since(start).Seconds())
-	a.posthog.CaptureAIGeneration(context.Background(), req.user, req.product, req.provider, req.model, nil, nil, ph.Usage{}, time.Since(start).Seconds(), streaming, req.endUserID, req.properties, req.flags, req.traceID, true, message)
+	a.posthog.CaptureAIGeneration(context.Background(), req.user, req.product, req.provider, req.model, captureInput(req), nil, ph.Usage{}, time.Since(start).Seconds(), streaming, req.endUserID, req.properties, req.flags, req.traceID, true, message)
 	writeError(w, status, message, errType, code)
 }
 
@@ -529,10 +326,15 @@ func (a *App) writeStream(w http.ResponseWriter, stream <-chan llm.StreamChunk, 
 	defer metrics.ActiveStreams.WithLabelValues(req.provider, req.model, req.product).Dec()
 	usage := llm.Usage{}
 	first := true
+	streamOutput := []any{}
 	for chunk := range stream {
 		if first {
-			metrics.LLMTimeToFirstToken.WithLabelValues(req.provider, req.model, req.product).Observe(time.Since(start).Seconds())
+			req.timeToFirstToken = time.Since(start).Seconds()
+			metrics.LLMTimeToFirstToken.WithLabelValues(req.provider, req.model, req.product).Observe(req.timeToFirstToken)
 			first = false
+		}
+		if len(chunk.Data) > 0 {
+			streamOutput = append(streamOutput, string(chunk.Data))
 		}
 		if chunk.Usage.InputTokens > 0 {
 			usage.InputTokens = chunk.Usage.InputTokens
@@ -548,11 +350,36 @@ func (a *App) writeStream(w http.ResponseWriter, stream <-chan llm.StreamChunk, 
 	select {
 	case err := <-errs:
 		if err != nil {
-			log.Printf("stream_error: %v", err)
+			a.writeStreamError(req, endpoint, start, err)
+			return
 		}
 	default:
 	}
+	req.streamOutput = streamOutput
 	a.afterSuccess(context.Background(), req, endpoint, start, true, &llm.Response{Usage: usage})
+}
+
+func (a *App) writeStreamError(req *requestState, endpoint string, start time.Time, err error) {
+	metrics.ProviderErrors.WithLabelValues(req.provider, errorType(err), req.product).Inc()
+	metrics.RequestCount.WithLabelValues(endpoint, req.provider, req.model, strconv.Itoa(statusCode(err)), req.user.AuthMethod, req.product).Inc()
+	metrics.RequestLatency.WithLabelValues(endpoint, req.provider, "true", req.product).Observe(time.Since(start).Seconds())
+	a.posthog.CaptureAIGeneration(context.Background(), req.user, req.product, req.provider, req.model, captureInput(req), nil, ph.Usage{}, time.Since(start).Seconds(), true, req.endUserID, req.properties, req.flags, req.traceID, true, err.Error())
+}
+
+func statusCode(err error) int {
+	var providerErr *llm.ProviderError
+	if errors.As(err, &providerErr) && providerErr.StatusCode > 0 {
+		return providerErr.StatusCode
+	}
+	return 500
+}
+
+func errorType(err error) string {
+	var providerErr *llm.ProviderError
+	if errors.As(err, &providerErr) && providerErr.Type != "" {
+		return providerErr.Type
+	}
+	return "internal_error"
 }
 
 func redisFromSettings(ctx context.Context, settings *config.Settings) *redis.Client {
@@ -659,6 +486,16 @@ func extract(value any, key string) any {
 	}
 	return nil
 }
+
+func captureInput(req *requestState) any {
+	if messages := extract(req.input, "messages"); messages != nil {
+		return messages
+	}
+	if input := extract(req.input, "input"); input != nil {
+		return input
+	}
+	return req.input
+}
 func usageFromAnthropic(value any) llm.Usage {
 	usage, _ := extract(value, "usage").(map[string]any)
 	return llm.Usage{InputTokens: intNumber(usage["input_tokens"]), OutputTokens: intNumber(usage["output_tokens"])}
@@ -693,40 +530,4 @@ func estimateCost(model string, provider string, inputTokens int, outputTokens i
 		}
 	}
 	return 0
-}
-func costStatus(status ratelimit.Status) map[string]any {
-	usedPercent := 0.0
-	if status.LimitUSD > 0 {
-		usedPercent = status.UsedUSD / status.LimitUSD * 100
-		if usedPercent > 100 {
-			usedPercent = 100
-		}
-	}
-	return map[string]any{"used_percent": usedPercent, "resets_in_seconds": status.ResetsInSeconds, "exceeded": status.Exceeded}
-}
-func formValue(form *multipart.Form, key string, fallback string) string {
-	if form == nil {
-		return fallback
-	}
-	if values := form.Value[key]; len(values) > 0 {
-		return values[0]
-	}
-	return fallback
-}
-
-func availableModels(product string) []map[string]any {
-	ids := []string{"gpt-4.1-mini", "gpt-4.1-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.3-codex", "gpt-5.4", "gpt-5.5", "claude-haiku-4-5", "claude-sonnet-4-5", "claude-sonnet-4-6", "claude-opus-4-5", "claude-opus-4-6", "claude-opus-4-7"}
-	cfg := products.Products[products.ResolveAlias(product)]
-	if cfg.AllowedModels != nil {
-		ids = cfg.AllowedModels
-	}
-	result := make([]map[string]any, 0, len(ids))
-	for _, id := range ids {
-		provider := "openai"
-		if strings.HasPrefix(id, "claude") {
-			provider = "anthropic"
-		}
-		result = append(result, map[string]any{"id": id, "slug": id, "display_name": id, "object": "model", "created": 1669766400, "owned_by": provider, "context_window": 200000, "supports_streaming": true, "supports_vision": true, "supported_reasoning_levels": []string{}, "shell_type": "default", "visibility": "list", "supported_in_api": true, "priority": 0, "base_instructions": "", "supports_reasoning_summaries": false, "support_verbosity": false, "truncation_policy": map[string]any{"mode": "bytes", "limit": 10000}, "supports_parallel_tool_calls": true, "experimental_supported_tools": []string{}})
-	}
-	return result
 }

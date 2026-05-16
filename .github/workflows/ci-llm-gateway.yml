@@ -71,6 +71,9 @@ jobs:
             - name: Run tests
               run: go test ./...
 
+            - name: Run vet
+              run: go vet ./...
+
     # Single required status check for branch protection. Add future LLM
     # services test jobs to `needs` here rather than reconfiguring GitHub.
     llm_services_tests:

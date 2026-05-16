@@ -83,8 +83,14 @@ func CheckAccess(settings *config.Settings, product string, user *auth.User, mod
 				break
 			}
 		}
-		if provider == "bedrock" && !matched && strings.Contains(normalized, "anthropic.claude") {
-			matched = true
+		if provider == "bedrock" && !matched {
+			for _, allowed := range cfg.AllowedModels {
+				allowedLower := strings.ToLower(allowed)
+				if strings.Contains(normalized, "."+allowedLower) || strings.Contains(normalized, ":"+allowedLower) || strings.Contains(normalized, "/"+allowedLower) {
+					matched = true
+					break
+				}
+			}
 		}
 		if !matched {
 			return false, fmt.Sprintf("Model '%s' not allowed for product '%s'", model, product)

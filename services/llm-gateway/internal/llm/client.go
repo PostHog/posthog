@@ -112,6 +112,37 @@ func (a *Account) GetConfigForProvider(provider schemas.ModelProvider) (*schemas
 	return &schemas.ProviderConfig{NetworkConfig: network, ConcurrencyAndBufferSize: schemas.DefaultConcurrencyAndBufferSize, SendBackRawResponse: true}, nil
 }
 
+var anthropicToBedrockModel = map[string]map[string]string{
+	"claude-opus-4-5":            {"us": "us.anthropic.claude-opus-4-5-20251101-v1:0", "eu": "eu.anthropic.claude-opus-4-5-20251101-v1:0"},
+	"claude-opus-4-5-20251101":   {"us": "us.anthropic.claude-opus-4-5-20251101-v1:0", "eu": "eu.anthropic.claude-opus-4-5-20251101-v1:0"},
+	"claude-opus-4-6":            {"us": "us.anthropic.claude-opus-4-6-v1", "eu": "eu.anthropic.claude-opus-4-6-v1"},
+	"claude-opus-4-7":            {"us": "us.anthropic.claude-opus-4-7-v1", "eu": "eu.anthropic.claude-opus-4-7-v1"},
+	"claude-sonnet-4-5":          {"us": "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "eu": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"},
+	"claude-sonnet-4-5-20250929": {"us": "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "eu": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"},
+	"claude-sonnet-4-6":          {"us": "us.anthropic.claude-sonnet-4-6", "eu": "eu.anthropic.claude-sonnet-4-6"},
+	"claude-haiku-4-5":           {"us": "us.anthropic.claude-haiku-4-5-20251001-v1:0", "eu": "eu.anthropic.claude-haiku-4-5-20251001-v1:0"},
+	"claude-haiku-4-5-20251001":  {"us": "us.anthropic.claude-haiku-4-5-20251001-v1:0", "eu": "eu.anthropic.claude-haiku-4-5-20251001-v1:0"},
+}
+
+func MapToBedrockModel(model string, region string) (string, error) {
+	if strings.HasPrefix(model, "anthropic.") || strings.HasPrefix(model, "global.anthropic.") || strings.HasPrefix(model, "us.anthropic.") || strings.HasPrefix(model, "eu.anthropic.") {
+		return model, nil
+	}
+	regionMap, ok := anthropicToBedrockModel[model]
+	if !ok {
+		return "", &ProviderError{StatusCode: 400, Message: fmt.Sprintf("No Bedrock mapping for model '%s'", model), Type: "invalid_request_error"}
+	}
+	geo := "us"
+	if strings.HasPrefix(region, "eu-") {
+		geo = "eu"
+	}
+	mapped, ok := regionMap[geo]
+	if !ok {
+		mapped = regionMap["us"]
+	}
+	return mapped, nil
+}
+
 func ProviderFromModel(model string, fallback schemas.ModelProvider) (schemas.ModelProvider, string) {
 	provider, parsed := schemas.ParseModelString(model, fallback)
 	return provider, parsed
@@ -133,8 +164,12 @@ func (c *Client) ChatCompletion(ctx context.Context, raw []byte, model string, p
 	if provider == schemas.OpenAI {
 		providerModel = NormalizeOpenAIModel(model)
 	}
+	input, err := chatInputFromRaw(sanitized)
+	if err != nil {
+		return nil, err
+	}
 	bctx := bifrostContext(ctx, c.settings.RequestTimeout, headers)
-	req := &schemas.BifrostChatRequest{Provider: provider, Model: providerModel, RawRequestBody: sanitized}
+	req := &schemas.BifrostChatRequest{Provider: provider, Model: providerModel, Input: input, RawRequestBody: sanitized}
 	if streaming {
 		return nil, errors.New("streaming requires ChatCompletionStream")
 	}
@@ -160,8 +195,12 @@ func (c *Client) ChatCompletionStream(ctx context.Context, raw []byte, model str
 	if provider == schemas.OpenAI {
 		providerModel = NormalizeOpenAIModel(model)
 	}
+	input, err := chatInputFromRaw(sanitized)
+	if err != nil {
+		return nil, nil, err
+	}
 	bctx := bifrostContext(ctx, c.settings.StreamingTimeout, headers)
-	stream, bfErr := c.bifrost.ChatCompletionStreamRequest(bctx, &schemas.BifrostChatRequest{Provider: provider, Model: providerModel, RawRequestBody: sanitized})
+	stream, bfErr := c.bifrost.ChatCompletionStreamRequest(bctx, &schemas.BifrostChatRequest{Provider: provider, Model: providerModel, Input: input, RawRequestBody: sanitized})
 	if bfErr != nil {
 		return nil, nil, convertBifrostError(bfErr)
 	}
@@ -235,12 +274,114 @@ func (c *Client) ResponsesStream(ctx context.Context, raw []byte, model string, 
 				errs <- convertBifrostError(chunk.BifrostError)
 				return
 			}
+			usage := Usage{}
+			if chunk.BifrostResponsesStreamResponse != nil && chunk.BifrostResponsesStreamResponse.Response != nil && chunk.BifrostResponsesStreamResponse.Response.Usage != nil {
+				usage.InputTokens = chunk.BifrostResponsesStreamResponse.Response.Usage.InputTokens
+				usage.OutputTokens = chunk.BifrostResponsesStreamResponse.Response.Usage.OutputTokens
+			}
 			data, err := json.Marshal(chunk)
 			if err != nil {
 				errs <- err
 				return
 			}
-			out <- StreamChunk{Data: append([]byte("data: "), append(data, []byte("\n\n")...)...)}
+			out <- StreamChunk{Data: append([]byte("data: "), append(data, []byte("\n\n")...)...), Usage: usage}
+		}
+		out <- StreamChunk{Data: []byte("data: [DONE]\n\n")}
+	}()
+	return out, errs, nil
+}
+
+func (c *Client) AnthropicMessages(ctx context.Context, raw []byte, model string, provider schemas.ModelProvider, headers http.Header) (*Response, error) {
+	overlay := map[string]any{"stream": false}
+	if provider == schemas.Bedrock {
+		mapped, err := MapToBedrockModel(model, c.settings.BedrockRegionName)
+		if err != nil {
+			return nil, err
+		}
+		model = mapped
+		overlay["model"] = mapped
+	}
+	sanitized, err := SanitizeJSON(raw, overlay)
+	if err != nil {
+		return nil, err
+	}
+	if provider == schemas.Bedrock {
+		sanitized, err = StripServerSideTools(sanitized)
+		if err != nil {
+			return nil, err
+		}
+	}
+	input, err := chatInputFromRaw(sanitized)
+	if err != nil {
+		return nil, err
+	}
+	bctx := bifrostContext(ctx, c.settings.RequestTimeout, headers)
+	resp, bfErr := c.bifrost.ChatCompletionRequest(bctx, &schemas.BifrostChatRequest{Provider: provider, Model: model, Input: input, RawRequestBody: sanitized})
+	if bfErr != nil {
+		return nil, convertBifrostError(bfErr)
+	}
+	body := responseBody(resp.ExtraFields.RawResponse, resp)
+	usage := Usage{}
+	if resp.Usage != nil {
+		usage.InputTokens = resp.Usage.PromptTokens
+		usage.OutputTokens = resp.Usage.CompletionTokens
+	}
+	if usage.InputTokens == 0 || usage.OutputTokens == 0 {
+		usage = usageFromBody(body)
+	}
+	return &Response{Body: body, Usage: usage, RawChoices: extract(body, "content")}, nil
+}
+
+func (c *Client) AnthropicMessagesStream(ctx context.Context, raw []byte, model string, provider schemas.ModelProvider, headers http.Header) (<-chan StreamChunk, <-chan error, error) {
+	overlay := map[string]any{"stream": true}
+	if provider == schemas.Bedrock {
+		mapped, err := MapToBedrockModel(model, c.settings.BedrockRegionName)
+		if err != nil {
+			return nil, nil, err
+		}
+		model = mapped
+		overlay["model"] = mapped
+	}
+	sanitized, err := SanitizeJSON(raw, overlay)
+	if err != nil {
+		return nil, nil, err
+	}
+	if provider == schemas.Bedrock {
+		sanitized, err = StripServerSideTools(sanitized)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	input, err := chatInputFromRaw(sanitized)
+	if err != nil {
+		return nil, nil, err
+	}
+	bctx := bifrostContext(ctx, c.settings.StreamingTimeout, headers)
+	stream, bfErr := c.bifrost.ChatCompletionStreamRequest(bctx, &schemas.BifrostChatRequest{Provider: provider, Model: model, Input: input, RawRequestBody: sanitized})
+	if bfErr != nil {
+		return nil, nil, convertBifrostError(bfErr)
+	}
+	out := make(chan StreamChunk)
+	errs := make(chan error, 1)
+	go func() {
+		defer close(out)
+		defer close(errs)
+		for chunk := range stream {
+			if chunk.BifrostError != nil {
+				errs <- convertBifrostError(chunk.BifrostError)
+				return
+			}
+			usage := Usage{}
+			if chunk.BifrostChatResponse != nil && chunk.BifrostChatResponse.Usage != nil {
+				usage.InputTokens = chunk.BifrostChatResponse.Usage.PromptTokens
+				usage.OutputTokens = chunk.BifrostChatResponse.Usage.CompletionTokens
+			}
+			data, err := json.Marshal(chunk)
+			if err != nil {
+				errs <- err
+				return
+			}
+			out <- StreamChunk{Data: append([]byte("data: "), append(data, []byte("\n\n")...)...), Usage: usage}
 		}
 		out <- StreamChunk{Data: []byte("data: [DONE]\n\n")}
 	}()
@@ -266,6 +407,41 @@ func (c *Client) AnthropicMessagesDirect(ctx context.Context, raw []byte, stream
 		req.Header.Set("anthropic-beta", beta)
 	}
 	return c.httpClient.Do(req)
+}
+
+func (c *Client) CountTokensBifrost(ctx context.Context, raw []byte, model string, provider schemas.ModelProvider) (*Response, error) {
+	overlay := map[string]any{}
+	if provider == schemas.Bedrock {
+		mapped, err := MapToBedrockModel(model, c.settings.BedrockRegionName)
+		if err != nil {
+			return nil, err
+		}
+		model = mapped
+		overlay["model"] = mapped
+	}
+	sanitized, err := SanitizeJSON(raw, overlay)
+	if err != nil {
+		return nil, err
+	}
+	if provider == schemas.Bedrock {
+		sanitized, err = StripServerSideTools(sanitized)
+		if err != nil {
+			return nil, err
+		}
+	}
+	chatInput, err := chatInputFromRaw(sanitized)
+	if err != nil {
+		return nil, err
+	}
+	input := make([]schemas.ResponsesMessage, 0, len(chatInput))
+	for _, message := range chatInput {
+		input = append(input, message.ToResponsesMessages()...)
+	}
+	resp, bfErr := c.bifrost.CountTokensRequest(bifrostContext(ctx, c.settings.RequestTimeout, http.Header{}), &schemas.BifrostResponsesRequest{Provider: provider, Model: model, Input: input, RawRequestBody: sanitized})
+	if bfErr != nil {
+		return nil, convertBifrostError(bfErr)
+	}
+	return &Response{Body: resp, Usage: Usage{InputTokens: resp.InputTokens}}, nil
 }
 
 func (c *Client) CountTokens(ctx context.Context, raw []byte) (*Response, error) {
@@ -344,6 +520,52 @@ func (c *Client) Transcription(ctx context.Context, fileName string, contentType
 	return &Response{Body: parsed}, nil
 }
 
+func StripServerSideTools(raw []byte) ([]byte, error) {
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, err
+	}
+	tools, ok := body["tools"].([]any)
+	if !ok {
+		return raw, nil
+	}
+	supported := make([]any, 0, len(tools))
+	for _, tool := range tools {
+		toolMap, ok := tool.(map[string]any)
+		if !ok {
+			continue
+		}
+		toolType, _ := toolMap["type"].(string)
+		if toolType == "" || toolType == "custom" || toolType == "function" {
+			supported = append(supported, tool)
+		}
+	}
+	if len(supported) == 0 {
+		delete(body, "tools")
+	} else {
+		body["tools"] = supported
+	}
+	return json.Marshal(body)
+}
+
+func chatInputFromRaw(raw []byte) ([]schemas.ChatMessage, error) {
+	var body struct {
+		Messages []schemas.ChatMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, err
+	}
+	if body.Messages == nil {
+		return nil, &ProviderError{StatusCode: 422, Message: "messages is required", Type: "invalid_request_error"}
+	}
+	return body.Messages, nil
+}
+
+func usageFromBody(body any) Usage {
+	usageObject, _ := extract(body, "usage").(map[string]any)
+	return Usage{InputTokens: intNumber(usageObject["input_tokens"]), OutputTokens: intNumber(usageObject["output_tokens"])}
+}
+
 func EnsureOpenAIPrefix(model string) string {
 	if strings.HasPrefix(model, "openai/") {
 		return model
@@ -368,7 +590,7 @@ func SanitizeJSON(raw []byte, overlay map[string]any) ([]byte, error) {
 }
 
 func sanitize(value any) any {
-	forbidden := map[string]bool{"api_key": true, "api_base": true, "base_url": true, "api_version": true, "organization": true, "model_list": true, "fallbacks": true, "custom_llm_provider": true}
+	forbidden := map[string]bool{"api_key": true, "api_base": true, "base_url": true, "api_version": true, "organization": true, "model_list": true, "fallbacks": true, "custom_llm_provider": true, "provider": true, "use_bedrock_fallback": true}
 	switch typed := value.(type) {
 	case map[string]any:
 		out := map[string]any{}
