@@ -14,7 +14,8 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
@@ -1191,6 +1192,33 @@ export const notebookLogic = kea<notebookLogicType>([
                 actions.setLocalContent(JSON.parse(base64Decode(hashParams['🦔'])))
             }
         },
+    })),
+
+    beforeUnload((logic) => ({
+        enabled: (newLocation?: CombinedLocation) => {
+            // Only guard real, server-backed notebooks that the current user can edit.
+            // Scratchpad/canvas/templates are local-only, shared views are read-only.
+            if (
+                logic.values.mode !== 'notebook' ||
+                logic.values.isLocalOnly ||
+                logic.values.isShared ||
+                !logic.values.isEditable
+            ) {
+                return false
+            }
+            // syncStatus is `unsaved` while there is local content not yet on the server,
+            // and `saving` while a save is in flight (including the 409 retry loop in
+            // collab mode). Either way, leaving now risks dropping changes.
+            if (logic.values.syncStatus !== 'unsaved' && logic.values.syncStatus !== 'saving') {
+                return false
+            }
+            // Ignore in-page URL updates (side panel, hash params, comment selection, ...).
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+            return true
+        },
+        message: 'Leave notebook?\nChanges you made may not be saved.',
     })),
 
     afterMount(({ props }) => {
