@@ -131,6 +131,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=frozenset({"gpt-4.1-mini"}),
         allow_api_keys=True,
     ),
+    "workflows": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=None,
+        allow_api_keys=True,
+    ),
 }
 
 
