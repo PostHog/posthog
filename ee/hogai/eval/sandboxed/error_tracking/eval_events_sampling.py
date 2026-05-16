@@ -58,10 +58,12 @@ def _events_case(
 async def eval_events_sampling(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases = [
         # One example, modest verbosity — the prompt only asks for "an example",
-        # so cranking limit > 3 or asking for raw is wasteful.
+        # so cranking limit > 3 or asking for raw is wasteful. Issue described
+        # by symptom (team-invite TypeError) because searchQuery doesn't match
+        # the PSQL-only issue name.
         _events_case(
             name="events_default_limit_low",
-            prompt="Get me an example exception event for the 'Team invite rejected' issue.",
+            prompt="Get me an example exception event for the team-invite TypeError.",
             target_issue_name="Team invite rejected",
             events_args={"limit": "<=3", "verbosity": "summary_or_stack"},
         ),
@@ -69,8 +71,8 @@ async def eval_events_sampling(sandboxed_demo_data, pytestconfig, posthog_client
         _events_case(
             name="events_raw_when_asked",
             prompt=(
-                "Pull the raw exception payload for one event in the "
-                "'Checkout API timeout' issue — I want the full untruncated data."
+                "Pull the raw exception payload for one event of the checkout "
+                "TimeoutError — I want the full untruncated data."
             ),
             target_issue_name="Checkout API timeout",
             events_args={"limit": "<=3", "verbosity": "raw"},
@@ -80,8 +82,8 @@ async def eval_events_sampling(sandboxed_demo_data, pytestconfig, posthog_client
         _events_case(
             name="events_search_filter",
             prompt=(
-                "Find an event for the 'File preview render failure' issue where "
-                "the URL contained `/files/`."
+                "Find an event for the PDF preview RenderError where the URL "
+                "contained `/files/`."
             ),
             target_issue_name="File preview render failure",
             events_args={"searchQuery": "/files/"},
@@ -89,7 +91,7 @@ async def eval_events_sampling(sandboxed_demo_data, pytestconfig, posthog_client
         # Multi-example ask — limit should be at least 3 but not maxed out.
         _events_case(
             name="events_three_examples",
-            prompt="Show me three different exception events for 'Checkout API timeout'.",
+            prompt="Show me three different exception events for the checkout TimeoutError.",
             target_issue_name="Checkout API timeout",
             events_args={"limit": "between_2_and_5"},
         ),

@@ -74,11 +74,15 @@ async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client
     cases = [
         # Detail-only — impact numbers + a glance at the issue. Should not
         # trigger the heavier events tool or fan out to session recordings.
+        # Phrased as a discoverable symptom (TimeoutError on the checkout
+        # flow) rather than the PSQL-only issue name; searchQuery on the
+        # list tool matches event $exception_types / $exception_values, not
+        # ErrorTrackingIssue.name.
         _drilldown_case(
             name="drilldown_checkout_timeout_impact",
             prompt=(
                 "Tell me the impact (users / sessions / occurrences) of the "
-                "'Checkout API timeout' error in the last 14 days."
+                "checkout TimeoutError in the last 14 days."
             ),
             target_issue_name="Checkout API timeout",
             forbids_events=True,
@@ -91,7 +95,7 @@ async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client
             name="drilldown_pdf_preview_show_examples",
             prompt=(
                 "Show me an example exception event with stack trace for the "
-                "'File preview render failure' issue."
+                "PDF preview RenderError."
             ),
             target_issue_name="File preview render failure",
             requires_events=True,
@@ -103,8 +107,9 @@ async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client
         _drilldown_case(
             name="drilldown_typeerror_session_replay",
             prompt=(
-                "Find a session recording where a user hit the 'Team invite "
-                "rejected' error so I can see what they were doing right before "
+                "Find a session recording where a user hit the team-invite "
+                "TypeError (\"Cannot read properties of undefined (reading "
+                "'email')\") so I can see what they were doing right before "
                 "it happened."
             ),
             target_issue_name="Team invite rejected",
