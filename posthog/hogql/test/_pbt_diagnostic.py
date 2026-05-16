@@ -417,10 +417,16 @@ def main() -> int:
     candidate = args.candidate
 
     # Sanity-probe the backends so we fail fast with a clear error
-    # rather than mid-run with cryptic Hypothesis output.
+    # rather than mid-run with cryptic Hypothesis output. Call the
+    # parser directly here — `_try_parse` swallows BaseHogQLError
+    # (legitimate rejections) AND would also let the test pass for an
+    # invalid backend name that raises `KeyError`, defeating the probe.
+    probe_fn = parse_expr if args.rule == "expr" else parse_select
     for label, backend in (("oracle", oracle), ("candidate", candidate)):
         try:
-            _try_parse("1", args.rule, backend)
+            probe_fn("1", backend=backend)  # type: ignore[arg-type]
+        except BaseHogQLError:
+            pass  # rejecting `"1"` would be surprising but isn't a backend failure
         except Exception as e:
             print(f"ERROR: {label} backend {backend!r} unavailable: {e}")
             return 1
@@ -433,8 +439,10 @@ def main() -> int:
     strategy = base_strategy.flatmap(_apply_jiggle) if args.jiggle else base_strategy
 
     # Stream JSONL during the run rather than collecting everything in
-    # memory. `jsonl_file` is None when --write-divergences isn't set.
-    jsonl_file = open(args.write_divergences, "w") if args.write_divergences else None
+    # memory. Opened in the try-block below so the strategy
+    # construction and decorator application above have no chance to
+    # leak the handle.
+    jsonl_file: Any = None
     jsonl_count = 0
 
     def write_record(rec: dict, shape_for_shrink: DivergenceShape | None) -> None:
@@ -503,6 +511,8 @@ def main() -> int:
         )
 
     try:
+        if args.write_divergences:
+            jsonl_file = open(args.write_divergences, "w")  # noqa: SIM115 — see finally
         run()
     except Exception:
         traceback.print_exc()
@@ -543,7 +553,10 @@ def main() -> int:
                 )
 
     # ---- candidate_reject categorization + samples ------------------------
-    if reject_buckets and (args.print_rejects or args.shrink_failures):
+    # The category summary always prints (parity with the ast_mismatch
+    # category table); per-query samples stay gated behind `--print-rejects`
+    # to keep the default output short.
+    if reject_buckets:
         total = sum(len(v) for v in reject_buckets.values())
         print()
         print(f"=== candidate_reject categories ({total} total) ===")
