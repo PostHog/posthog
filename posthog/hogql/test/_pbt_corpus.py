@@ -51,7 +51,13 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
 
-from posthog.hogql.test._pbt_diagnostic import DivergenceShape, _ast_mismatch_shape, _probe_backend, _shape_for
+from posthog.hogql.test._pbt_diagnostic import (
+    DivergenceShape,
+    _ast_mismatch_shape,
+    _probe_backend,
+    _shape_for,
+    _try_parse,
+)
 
 
 def _shape_from_divergence(rec: dict) -> DivergenceShape:
@@ -133,9 +139,12 @@ def cmd_extract(args: argparse.Namespace) -> int:
 
 def cmd_check(args: argparse.Namespace) -> int:
     """Replay the corpus, classifying each entry as still-diverges /
-    fixed / regressed. Exit 0 iff no regressions."""
+    fixed / regressed / oracle-rejects. Exit 0 iff there are neither
+    regressions nor oracle-reject entries (an oracle that now rejects
+    a recorded query means the comparison baseline has shifted, so a
+    bare "0 regressions" verdict can no longer be trusted)."""
     counts: Counter[str] = Counter()
-    sample: dict[str, list[str]] = {"fixed": [], "regressed": [], "still_diverges": []}
+    sample: dict[str, list[str]] = {"fixed": [], "regressed": [], "still_diverges": [], "oracle_rejects": []}
     # Sanity-probe each (oracle, candidate, rule) tuple we'll use the
     # first time we see it. `_shape_for` -> `_try_parse` swallows the
     # `KeyError` raised by an invalid backend name silently, which
@@ -161,6 +170,22 @@ def cmd_check(args: argparse.Namespace) -> int:
                         print(f"ERROR: {label} backend {backend!r} unavailable for rule {rule!r}: {err}")
                         return 2
                 probed.add((oracle, candidate, rule))
+            # `_shape_for` returns None for TWO distinct cases: oracle
+            # and candidate agree (genuinely fixed), OR the oracle now
+            # rejects the query. Every corpus entry was recorded
+            # *because* the oracle accepted it, so an oracle rejection
+            # is a behaviour change in the oracle itself — classifying
+            # it as "fixed" would let a regressed oracle masquerade as
+            # a clean run. Check the oracle independently first and
+            # bucket those separately. (The startup probe only checks
+            # the oracle is reachable via a trivial `"1"` parse — it
+            # can't catch a per-query behaviour change.)
+            o_ok, _ = _try_parse(entry["query"], rule, oracle)
+            if not o_ok:
+                counts["oracle_rejects"] += 1
+                if len(sample["oracle_rejects"]) < args.max_samples:
+                    sample["oracle_rejects"].append(entry["query"])
+                continue
             shape = _shape_for(entry["query"], entry["rule"], oracle, candidate)
             if shape is None:
                 counts["fixed"] += 1
@@ -182,13 +207,20 @@ def cmd_check(args: argparse.Namespace) -> int:
     print(f"=== Corpus check ({sum(counts.values())} entries) ===")
     for k, v in counts.most_common():
         print(f"  {k:20s} {v}")
-    for label in ("fixed", "regressed", "still_diverges"):
+    for label in ("fixed", "regressed", "still_diverges", "oracle_rejects"):
         if sample[label]:
             print()
             print(f"--- {label} (showing up to {args.max_samples}) ---")
             for q in sample[label]:
                 print(f"  {q}")
-    return 0 if counts["regressed"] == 0 else 1
+    if counts["oracle_rejects"]:
+        print(
+            f"\nWARNING: the oracle now rejects {counts['oracle_rejects']} corpus "
+            f"{'entry' if counts['oracle_rejects'] == 1 else 'entries'} it previously "
+            f"accepted — the comparison baseline has shifted. Regenerate the corpus "
+            f"against the current oracle before trusting the fixed/regressed counts."
+        )
+    return 0 if counts["regressed"] == 0 and counts["oracle_rejects"] == 0 else 1
 
 
 def main() -> int:
