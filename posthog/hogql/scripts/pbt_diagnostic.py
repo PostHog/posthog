@@ -424,15 +424,17 @@ def main() -> int:
         print()
         print(f"=== candidate_crash categories ({total} total — non-HogQL exceptions) ===")
         sorted_crash_buckets = sorted(crash_buckets.items(), key=lambda kv: -len(kv[1]))
-        for sig, queries in sorted_crash_buckets:
-            print(f"  [{len(queries):3d}] {sig}")
+        # Distinct loop names from the reject block above: crash buckets hold
+        # bare query strings, reject buckets hold (query, shrunk) pairs.
+        for crash_sig, crash_queries in sorted_crash_buckets:
+            print(f"  [{len(crash_queries):3d}] {crash_sig}")
         if args.print_rejects:
             print()
             print(f"=== Sample candidate_crashes (up to {args.max_mismatch_samples} per category) ===")
-            for sig, queries in sorted_crash_buckets:
-                print(f"\n--- {sig} ({len(queries)} total) ---")
-                for query in queries[: args.max_mismatch_samples]:
-                    print(f"  query: {query!r}")
+            for crash_sig, crash_queries in sorted_crash_buckets:
+                print(f"\n--- {crash_sig} ({len(crash_queries)} total) ---")
+                for crash_query in crash_queries[: args.max_mismatch_samples]:
+                    print(f"  query: {crash_query!r}")
 
     if args.write_divergences:
         print()
