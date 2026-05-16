@@ -486,8 +486,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ReturnStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
 
     def visitThrowStmt(self, ctx: HogQLParser.ThrowStmtContext):
-        expression = ctx.expression()
-        return ast.ThrowStatement(expr=self.visit(expression) if expression else None)
+        return ast.ThrowStatement(expr=self.visit(ctx.expression()))
 
     def visitCatchBlock(self, ctx: HogQLParser.CatchBlockContext):
         return (
@@ -627,9 +626,27 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 else:
                     limit = self.visit(exprs[0]) if exprs else None
                     offset = None
-                if isinstance(initial_query, ast.SelectQuery):
+                # Apply the set-stmt-level limit/offset on top of the
+                # initial query. Two correctness rules, both fixing a
+                # Python-vs-C++ divergence (C++ already did this):
+                #   1. Only override `offset` when the outer clause
+                #      actually specified one — otherwise a trailing
+                #      bare `LIMIT n` on a query that already has an
+                #      OFFSET (e.g. `(select 1 offset 5) limit 3`)
+                #      clobbers that offset to None, which C++ keeps.
+                #   2. Apply to a SelectSetQuery initial too — a
+                #      paren-wrapped set with a trailing `LIMIT a, b`
+                #      (e.g. `((select 1) intersect (select 2)) limit 3, 4`)
+                #      is a valid shape; the limit/offset belong on the
+                #      SelectSetQuery, which Python previously dropped.
+                if isinstance(initial_query, (ast.SelectQuery, ast.SelectSetQuery)):
                     initial_query.limit = limit
-                    initial_query.offset = offset
+                    if offset is not None:
+                        initial_query.offset = offset
+                    if limit_clause.PERCENT():
+                        initial_query.limit_percent = True
+                    if limit_clause.TIES():
+                        initial_query.limit_with_ties = True
                     return initial_query
             return initial_query
 

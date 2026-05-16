@@ -124,7 +124,7 @@ class ReturnStatement(Statement):
 
 @dataclass(kw_only=True, slots=True)
 class ThrowStatement(Statement):
-    expr: Optional[Expr]
+    expr: Expr
 
 
 @dataclass(kw_only=True, slots=True)

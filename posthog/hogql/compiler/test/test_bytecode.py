@@ -2,7 +2,7 @@ import pytest
 from posthog.test.base import BaseTest
 
 from posthog.hogql.compiler.bytecode import create_bytecode, execute_hog, to_bytecode
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, SyntaxError
 from posthog.hogql.parser import parse_program
 
 from common.hogvm.python.operation import (
@@ -563,17 +563,13 @@ class TestBytecode(BaseTest):
         )
 
     def test_bytecode_bare_throw(self):
-        # A bare `throw` (no expression) parses cleanly — the grammar marks
-        # the expression optional (`throwStmt: THROW expression? SEMICOLON?`)
-        # and both parser backends produce `ThrowStatement(expr=None)`. It
-        # has no runtime meaning though, so compiling one must fail with a
-        # clear QueryError rather than crash on the missing expression.
-        with self.assertRaises(QueryError) as e:
+        # A bare `throw` (no expression) is a syntax error — the grammar
+        # requires an expression (`throwStmt: THROW expression SEMICOLON?`).
+        # It is rejected at parse time, before any bytecode is generated.
+        with self.assertRaises(SyntaxError):
             execute_hog("throw", team=self.team)
-        self.assertEqual(str(e.exception), "THROW requires an expression")
 
-        # A `throw` WITH an expression still compiles — the compiler only
-        # rejects the bare form, not throwing in general.
+        # A `throw` WITH an expression still compiles fine.
         create_bytecode(parse_program("throw Error('boom')"))
 
     def test_bytecode_execute(self):
