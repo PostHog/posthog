@@ -246,6 +246,25 @@ def _normalize_error(msg: str) -> str:
     return _GOT_RE.sub("got <X>", msg)[:120]
 
 
+def _probe_backend(rule: str, backend: str) -> str | None:
+    """Sanity-probe a backend by parsing `"1"` directly through the
+    parser entry point. Returns None on success, or a human-readable
+    error message describing why the backend is unavailable. Bypasses
+    `_try_parse` deliberately — `_try_parse` swallows `BaseHogQLError`
+    (legitimate rejections) AND would also let an invalid backend name
+    raising `KeyError` through silently, which defeats the probe."""
+    probe_fn = parse_expr if rule == "expr" else parse_select
+    try:
+        probe_fn("1", backend=backend)  # type: ignore[arg-type]
+    except BaseHogQLError:
+        # Rejecting `"1"` would be surprising but isn't a backend
+        # failure — `_try_parse` would also classify this as a reject.
+        return None
+    except Exception as e:
+        return str(e)
+    return None
+
+
 def _shape_for(
     query: str,
     rule: str,
@@ -415,18 +434,11 @@ def main() -> int:
     candidate = args.candidate
 
     # Sanity-probe the backends so we fail fast with a clear error
-    # rather than mid-run with cryptic Hypothesis output. Call the
-    # parser directly here — `_try_parse` swallows BaseHogQLError
-    # (legitimate rejections) AND would also let the test pass for an
-    # invalid backend name that raises `KeyError`, defeating the probe.
-    probe_fn = parse_expr if args.rule == "expr" else parse_select
+    # rather than mid-run with cryptic Hypothesis output.
     for label, backend in (("oracle", oracle), ("candidate", candidate)):
-        try:
-            probe_fn("1", backend=backend)  # type: ignore[arg-type]
-        except BaseHogQLError:
-            pass  # rejecting `"1"` would be surprising but isn't a backend failure
-        except Exception as e:
-            print(f"ERROR: {label} backend {backend!r} unavailable: {e}")
+        err = _probe_backend(args.rule, backend)
+        if err is not None:
+            print(f"ERROR: {label} backend {backend!r} unavailable: {err}")
             return 1
 
     counts: Counter[str] = Counter()
