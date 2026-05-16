@@ -2273,6 +2273,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return !objectsEqual(currentCleaned, originalFeatureFlag)
             },
         ],
+        isFormDirty: [
+            (s) => [s.originalFeatureFlag, s.hasUnsavedChanges, s.featureFlagChanged],
+            (originalFeatureFlag, hasUnsavedChanges, featureFlagChanged): boolean =>
+                // Existing flags compare against server state; new flags fall back to the
+                // form-defaults check from kea-forms (NEW_FLAG would otherwise always read dirty).
+                originalFeatureFlag ? hasUnsavedChanges : featureFlagChanged,
+        ],
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
         flagType: [
             (s) => [s.featureFlag],
@@ -2620,9 +2627,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (method === 'PUSH') {
                 // Don't wipe the user's in-progress edits if a navigation slips through
                 // (e.g. the beforeUnload prompt was shown and cancelled, but the route still
-                // reaches this handler). Mirrors the dirty check used by `beforeUnload` below.
-                const isDirty = values.originalFeatureFlag ? values.hasUnsavedChanges : values.featureFlagChanged
-                if (isDirty) {
+                // reaches this handler).
+                if (values.isFormDirty) {
                     return
                 }
                 if (props.id) {
@@ -2660,14 +2666,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
     beforeUnload((logic) => ({
         enabled: (newLocation?: CombinedLocation) => {
-            // For existing flags, compare against server state to avoid false positives.
-            // featureFlagChanged (from kea-forms) compares against form defaults (NEW_FLAG),
-            // which is always true for loaded flags.
-            const isDirty = logic.values.originalFeatureFlag
-                ? logic.values.hasUnsavedChanges
-                : logic.values.featureFlagChanged
-
-            if (!isDirty) {
+            if (!logic.values.isFormDirty) {
                 return false
             }
 
