@@ -114,6 +114,9 @@ describe('llmTaggerLogic', () => {
                     tags: [{ name: '', description: '' }],
                     min_tags: 0,
                     max_tags: null,
+                    tag_source: 'static',
+                    tag_source_url: null,
+                    tag_source_prompt: null,
                 },
                 model_configuration: null,
             })
@@ -384,6 +387,103 @@ describe('llmTaggerLogic', () => {
                 const errors = await submitAndGetErrors()
                 expect(errors.name).toBeUndefined()
                 expect(errors.tagger_config.prompt).toBeUndefined()
+                expect(errors.tagger_config.tags).toBeUndefined()
+            })
+        })
+
+        describe('LLM tagger with dynamic tag source', () => {
+            beforeEach(() => {
+                logic = llmTaggerLogic({ id: 'new' })
+                logic.mount()
+                logic.actions.setTaggerFormValues({
+                    name: 'Dynamic Tagger',
+                    tagger_config: {
+                        prompt: 'Tag this',
+                        tags: [],
+                        min_tags: 0,
+                        max_tags: null,
+                        tag_source: 'dynamic',
+                        tag_source_url: null,
+                        tag_source_prompt: null,
+                    },
+                })
+            })
+
+            it('skips static-tags validation when dynamic', async () => {
+                const errors = await submitAndGetErrors()
+                expect(errors.tagger_config.tags).toBeUndefined()
+            })
+
+            it('requires tag_source_url', async () => {
+                const errors = await submitAndGetErrors()
+                expect(errors.tagger_config.tag_source_url).toBe('URL is required')
+            })
+
+            it('rejects an invalid URL', async () => {
+                logic.actions.setTaggerFormValues({
+                    tagger_config: {
+                        prompt: 'Tag this',
+                        tags: [],
+                        min_tags: 0,
+                        max_tags: null,
+                        tag_source: 'dynamic',
+                        tag_source_url: 'not a url',
+                        tag_source_prompt: 'Extract tags',
+                    },
+                })
+                const errors = await submitAndGetErrors()
+                expect(errors.tagger_config.tag_source_url).toBe('Enter a valid URL')
+            })
+
+            it('rejects a non-http(s) URL', async () => {
+                logic.actions.setTaggerFormValues({
+                    tagger_config: {
+                        prompt: 'Tag this',
+                        tags: [],
+                        min_tags: 0,
+                        max_tags: null,
+                        tag_source: 'dynamic',
+                        tag_source_url: 'ftp://example.com/page',
+                        tag_source_prompt: 'Extract tags',
+                    },
+                })
+                const errors = await submitAndGetErrors()
+                expect(errors.tagger_config.tag_source_url).toBe('URL must start with http:// or https://')
+            })
+
+            it('requires tag_source_prompt', async () => {
+                logic.actions.setTaggerFormValues({
+                    tagger_config: {
+                        prompt: 'Tag this',
+                        tags: [],
+                        min_tags: 0,
+                        max_tags: null,
+                        tag_source: 'dynamic',
+                        tag_source_url: 'https://posthog.com/handbook',
+                        tag_source_prompt: null,
+                    },
+                })
+                const errors = await submitAndGetErrors()
+                expect(errors.tagger_config.tag_source_prompt).toBe('Extraction prompt is required')
+            })
+
+            it('clears errors with a valid dynamic configuration', async () => {
+                logic.actions.setTaggerFormValues({
+                    tagger_config: {
+                        prompt: 'Tag this',
+                        tags: [],
+                        min_tags: 0,
+                        max_tags: null,
+                        tag_source: 'dynamic',
+                        tag_source_url: 'https://posthog.com/handbook/engineering/feature-ownership',
+                        tag_source_prompt: 'Extract one tag per owner',
+                    },
+                })
+                const errors = await submitAndGetErrors()
+                expect(errors.name).toBeUndefined()
+                expect(errors.tagger_config.prompt).toBeUndefined()
+                expect(errors.tagger_config.tag_source_url).toBeUndefined()
+                expect(errors.tagger_config.tag_source_prompt).toBeUndefined()
                 expect(errors.tagger_config.tags).toBeUndefined()
             })
         })

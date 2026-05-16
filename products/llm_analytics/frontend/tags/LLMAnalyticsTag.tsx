@@ -5,6 +5,7 @@ import { IconArrowLeft, IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
+    LemonSegmentedButton,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
@@ -97,6 +98,134 @@ function TagDefinitionsEditor({ id }: { id: string }): JSX.Element {
                     />
                 </div>
             ))}
+        </div>
+    )
+}
+
+function TagSourceSection({ id }: { id: string }): JSX.Element {
+    const { taggerForm } = useValues(llmTaggerLogic({ id }))
+    const { setTaggerFormValues } = useActions(llmTaggerLogic({ id }))
+
+    const config = taggerForm.tagger_config
+    const tagSource: 'static' | 'dynamic' =
+        'tag_source' in config && config.tag_source === 'dynamic' ? 'dynamic' : 'static'
+    const tagSourceUrl = ('tag_source_url' in config && config.tag_source_url) || ''
+    const tagSourcePrompt = ('tag_source_prompt' in config && config.tag_source_prompt) || ''
+
+    return (
+        <div className="space-y-4">
+            <div>
+                <label className="font-semibold">Tag source</label>
+                <p className="text-muted text-sm mb-2">
+                    Define a fixed tag list, or generate the tag vocabulary at run time from a public URL (e.g. a
+                    handbook page).
+                </p>
+                <LemonSegmentedButton
+                    value={tagSource}
+                    onChange={(value) =>
+                        setTaggerFormValues({
+                            tagger_config: {
+                                ...config,
+                                tag_source: value,
+                            },
+                        })
+                    }
+                    options={[
+                        { value: 'static', label: 'Static list' },
+                        { value: 'dynamic', label: 'Generate from URL' },
+                    ]}
+                    fullWidth
+                />
+            </div>
+
+            {tagSource === 'static' ? (
+                <TagDefinitionsEditor id={id} />
+            ) : (
+                <>
+                    <div>
+                        <label className="font-semibold">Source URL</label>
+                        <p className="text-muted text-sm mb-1">
+                            The page is fetched and converted to markdown, then the LLM extracts a tag list from it
+                            using the prompt below.
+                        </p>
+                        <LemonInput
+                            type="url"
+                            placeholder="https://posthog.com/handbook/engineering/feature-ownership"
+                            value={tagSourceUrl}
+                            onChange={(value) =>
+                                setTaggerFormValues({
+                                    tagger_config: {
+                                        ...config,
+                                        tag_source_url: value || null,
+                                    },
+                                })
+                            }
+                        />
+                    </div>
+                    <div>
+                        <label className="font-semibold">Extraction prompt</label>
+                        <p className="text-muted text-sm mb-1">
+                            Instructions for the LLM on how to derive tags from the fetched content.
+                        </p>
+                        <LemonTextArea
+                            placeholder="e.g. Extract one tag per team listed on this page. Use the team's short name as the tag name and a one-sentence description."
+                            value={tagSourcePrompt}
+                            onChange={(value) =>
+                                setTaggerFormValues({
+                                    tagger_config: {
+                                        ...config,
+                                        tag_source_prompt: value || null,
+                                    },
+                                })
+                            }
+                            minRows={3}
+                        />
+                    </div>
+                </>
+            )}
+
+            <div className="flex gap-4 items-start">
+                <div>
+                    <label className="font-semibold">Min tags</label>
+                    <LemonInput
+                        type="number"
+                        min={0}
+                        value={'min_tags' in config ? config.min_tags : 0}
+                        onChange={(value) =>
+                            setTaggerFormValues({
+                                tagger_config: {
+                                    ...config,
+                                    min_tags: value ?? 0,
+                                },
+                            })
+                        }
+                        size="small"
+                        className="w-24"
+                    />
+                </div>
+                <div>
+                    <label className="font-semibold">Max tags</label>
+                    <LemonInput
+                        type="number"
+                        min={1}
+                        value={'max_tags' in config ? (config.max_tags ?? undefined) : undefined}
+                        onChange={(value) =>
+                            setTaggerFormValues({
+                                tagger_config: {
+                                    ...config,
+                                    max_tags: value ?? null,
+                                },
+                            })
+                        }
+                        size="small"
+                        className="w-24"
+                        placeholder="No limit"
+                    />
+                </div>
+                {tagSource === 'dynamic' && (
+                    <p className="text-muted text-xs mt-6">Bounds apply to the LLM-derived tag list at run time.</p>
+                )}
+            </div>
         </div>
     )
 }
@@ -439,6 +568,9 @@ function LLMAnalyticsTaggerForm({ id }: { id: string }): JSX.Element {
                                                 tags: taggerForm.tagger_config.tags,
                                                 min_tags: 0,
                                                 max_tags: null,
+                                                tag_source: 'static',
+                                                tag_source_url: null,
+                                                tag_source_prompt: null,
                                             },
                                         })
                                     }
@@ -513,57 +645,7 @@ function LLMAnalyticsTaggerForm({ id }: { id: string }): JSX.Element {
                             </div>
                         )}
 
-                        {taggerForm.tagger_type !== 'hog' && <TagDefinitionsEditor id={id} />}
-
-                        {taggerForm.tagger_type !== 'hog' && (
-                            <div className="flex gap-4">
-                                <div>
-                                    <label className="font-semibold">Min tags</label>
-                                    <LemonInput
-                                        type="number"
-                                        min={0}
-                                        value={
-                                            'min_tags' in taggerForm.tagger_config
-                                                ? taggerForm.tagger_config.min_tags
-                                                : 0
-                                        }
-                                        onChange={(value) =>
-                                            setTaggerFormValues({
-                                                tagger_config: {
-                                                    ...taggerForm.tagger_config,
-                                                    min_tags: value ?? 0,
-                                                },
-                                            })
-                                        }
-                                        size="small"
-                                        className="w-24"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="font-semibold">Max tags</label>
-                                    <LemonInput
-                                        type="number"
-                                        min={1}
-                                        value={
-                                            'max_tags' in taggerForm.tagger_config
-                                                ? (taggerForm.tagger_config.max_tags ?? undefined)
-                                                : undefined
-                                        }
-                                        onChange={(value) =>
-                                            setTaggerFormValues({
-                                                tagger_config: {
-                                                    ...taggerForm.tagger_config,
-                                                    max_tags: value ?? null,
-                                                },
-                                            })
-                                        }
-                                        size="small"
-                                        className="w-24"
-                                        placeholder="No limit"
-                                    />
-                                </div>
-                            </div>
-                        )}
+                        {taggerForm.tagger_type !== 'hog' && <TagSourceSection id={id} />}
                     </div>
 
                     {/* Model Configuration (LLM only) */}
