@@ -40,13 +40,14 @@ django.setup()
 from posthog.hogql.parser import clear_parse_caches, parse_expr, parse_select
 from posthog.hogql.test._pbt_diagnostic import _probe_backend
 
-N_EXPR = 1_000
-N_SELECT = 1_000
+DEFAULT_N = 1_000  # iterations per row; override with --n
 
-# Per-query iteration overrides for queries cpp parses too slowly for
+# Per-query iteration ceilings for queries cpp parses too slowly for
 # the default N. Total wall-clock per row should stay well under a
 # minute; cpp can be ~250ms+ on `pathological_deep` so 1000 iterations
-# would burn 4+ minutes before the candidate row even starts.
+# would burn 4+ minutes before the candidate row even starts. Applied
+# as `min(override, n)` so they only ever LOWER the count — a small
+# `--n` (e.g. a 50-iteration sanity check) is never raised back up.
 N_PER_QUERY: dict[str, int] = {
     "pathological_deep": 100,
 }
@@ -231,7 +232,12 @@ def bench(
     # would otherwise burn minutes), so make that explicit in the
     # header — a reader correlating header `N` to a row's µs needs to
     # know the row may have used a different N.
-    overrides_in_use = {name: N_PER_QUERY[name] for name in queries if name in N_PER_QUERY}
+    # Show only overrides that actually take effect at this `n` — with a
+    # small `--n` the `min(override, n)` ceiling collapses to `n`, so the
+    # override is a no-op and listing it would mislead.
+    overrides_in_use = {
+        name: min(N_PER_QUERY[name], n) for name in queries if name in N_PER_QUERY and N_PER_QUERY[name] < n
+    }
     override_note = f", overrides: {overrides_in_use}" if overrides_in_use else ""
     print(f"\n{label}  (N={n} per row, oracle={oracle}, candidate={candidate}{override_note})")
     print(f"{'query':<30} {'chars':>6} {'oracle(us)':>12} {'candidate(us)':>14} {'oracle/cand':>12}")
@@ -239,7 +245,7 @@ def bench(
 
     oracle_total, cand_total, comparable = 0.0, 0.0, 0
     for name, q in queries.items():
-        nq = N_PER_QUERY.get(name, n)
+        nq = min(N_PER_QUERY.get(name, n), n)
         # Annotate the row name when its N differs from the header so a
         # reader doesn't have to cross-reference the override map to
         # interpret the µs value.
@@ -271,8 +277,9 @@ def bench(
         # absolute times, that mean would over-weight cheap rows.
         overall = oracle_total / cand_total if cand_total > 0 else float("nan")
         print(
-            f"{'mean (sum-weighted)':<30} {'':>6} {oracle_total / comparable:>12.3f} "
-            f"{cand_total / comparable:>14.3f} {overall:>11.1f}x  ({comparable}/{len(queries)} comparable)"
+            f"{'mean (per-call µs)':<30} {'':>6} {oracle_total / comparable:>12.3f} "
+            f"{cand_total / comparable:>14.3f} {overall:>11.1f}x  "
+            f"(ratio sum-weighted; {comparable}/{len(queries)} comparable)"
         )
     return comparable
 
@@ -296,7 +303,20 @@ def main() -> int:
             "other backend available in your environment."
         ),
     )
+    parser.add_argument(
+        "--n",
+        type=int,
+        default=DEFAULT_N,
+        help=(
+            f"Iterations per row (default: {DEFAULT_N}). Lower it for a quick "
+            f"sanity check during grinding, e.g. --n 50. Per-query ceilings in "
+            f"N_PER_QUERY still apply as min(ceiling, --n)."
+        ),
+    )
     args = parser.parse_args()
+    if args.n < 1:
+        print("ERROR: --n must be at least 1")
+        return 2
     if not args.candidate:
         print(
             "ERROR: --candidate is required (no default). The Python "
@@ -320,8 +340,8 @@ def main() -> int:
                 return 2
 
     comparable = 0
-    comparable += bench("parse_expr", parse_expr, EXPR_QUERIES, N_EXPR, args.oracle, args.candidate)
-    comparable += bench("parse_select", parse_select, SELECT_QUERIES, N_SELECT, args.oracle, args.candidate)
+    comparable += bench("parse_expr", parse_expr, EXPR_QUERIES, args.n, args.oracle, args.candidate)
+    comparable += bench("parse_select", parse_select, SELECT_QUERIES, args.n, args.oracle, args.candidate)
     if comparable == 0:
         print(
             f"\nERROR: zero comparable rows — candidate {args.candidate!r} "
