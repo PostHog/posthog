@@ -3,6 +3,7 @@ from datetime import timedelta
 
 import structlog
 import temporalio
+import posthoganalytics
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
@@ -48,6 +49,13 @@ class SignalReportDeletionWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: SignalReportDeletionWorkflowInputs) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", inputs.team_id)
+            posthoganalytics.tag("report_id", inputs.report_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(inputs)
+
+    async def _run_impl(self, inputs: SignalReportDeletionWorkflowInputs) -> None:
         # Bind team_id + report_id so all logs flow to the log_entries sink (the Temporal
         # structlog renderer skips producing when team_id isn't in the event dict).
         log = logger.bind(team_id=inputs.team_id, report_id=inputs.report_id)

@@ -7,6 +7,7 @@ import {
     type Transport,
 } from '@/lib/request-properties'
 import { getRegionFromRequest } from '@/lib/routing'
+import { sanitizeHeaderValue } from '@/lib/utils'
 
 import type { HonoCtx } from './types'
 
@@ -24,7 +25,23 @@ export async function authenticateAndParse(
         return { error: tokenError }
     }
     const clientInfo = await extractClientInfoFromBody(c.req.raw)
-    return { props: parseRequestProperties(c.req.raw, clientInfo, transport) }
+    const props = parseRequestProperties(c.req.raw, clientInfo, transport)
+
+    // Fields the CF worker extracts in index.ts that the shared parser doesn't
+    // handle yet. Assigned at runtime so the Hono MCP server can read them via
+    // its own extended type.
+    const mcpSessionId = sanitizeHeaderValue(c.req.header('mcp-session-id') || undefined)
+    const mcpConversationId = sanitizeHeaderValue(c.req.header('mcp-conversation-id') || undefined)
+    const url = new URL(c.req.url)
+    const viaSseRedirect = url.searchParams.get('_deprecated') === 'sse'
+
+    Object.assign(props, {
+        ...(mcpSessionId ? { mcpSessionId } : {}),
+        ...(mcpConversationId ? { mcpConversationId } : {}),
+        ...(viaSseRedirect ? { viaSseRedirect: true } : {}),
+    })
+
+    return { props }
 }
 
 // Error / response shaping ---------------------------------------------------

@@ -65,6 +65,7 @@ export {
 } from './context-menu'
 export {
     Dialog,
+    DialogBody,
     DialogClose,
     DialogContent,
     DialogDescription,
@@ -178,7 +179,14 @@ export {
     MenubarSubContent,
 } from './menubar'
 export { Popover, PopoverContent, PopoverTrigger } from './popover'
-export { Progress } from './progress'
+export {
+    Progress,
+    ProgressIndicator,
+    ProgressLabel,
+    ProgressTrack,
+    ProgressValue,
+    progressIndicatorVariants,
+} from './progress'
 export { RadioGroup, RadioGroupItem, RadioIndicator } from './radio-group'
 export { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './resizable'
 export { ScrollArea, ScrollBar, scrollShadowsCss, SCROLL_SHADOWS_STYLE_ID } from './scroll-area'

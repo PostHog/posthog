@@ -56,6 +56,7 @@ vi.mock('@/lib/client-detection', async () => {
                 constructor(_opts: any) {}
                 isCodingAgent() { return false }
                 isPostHogCodeConsumer() { return false }
+                isVibeCodingClient() { return false }
                 get capabilities() { return { supportsInstructions: true } }
             },
             isCodingAgentClient: vi.fn(() => false),
@@ -130,6 +131,7 @@ vi.mock('@/tools/exec', async () => {
     try { return await vi.importActual('@/tools/exec') } catch {
         return {
             createExecTool: vi.fn(() => ({ name: 'posthog', handler: vi.fn() })),
+            createExecInnerToolCallResolver: vi.fn(() => () => undefined),
         }
     }
 })

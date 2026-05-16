@@ -174,8 +174,11 @@ export interface StylesConfig {
      * array — when multiple are given they are combined with `:is()`
      * so any of them activates dark mode.
      *
-     * Default: `['.dark', '[theme="dark"]']` (both `.dark` class and
-     * `theme="dark"` attribute work out of the box).
+     * Default: `['.dark', '[theme="dark"]', '[data-theme="dark"]']`. The
+     * three flavours cover Tailwind's `.dark` class convention, the bare
+     * `theme="dark"` attribute, and the `data-theme="dark"` attribute used
+     * by libraries that follow the HTML `data-*` convention (notably
+     * `@modelcontextprotocol/ext-apps` SDK's `applyDocumentTheme()`).
      */
     darkSelector?: string | string[]
 }
@@ -246,7 +249,7 @@ assertThemeDerivedSyncedWithColors(semanticColors)
 
 /** Normalize darkSelector option into a single CSS selector string. */
 function resolveDarkSelector(raw?: string | string[]): string {
-    const defaults = ['.dark', '[theme="dark"]']
+    const defaults = ['.dark', '[theme="dark"]', '[data-theme="dark"]']
     const selectors = raw === undefined ? defaults : typeof raw === 'string' ? [raw] : raw
     return selectors.length === 1 ? selectors[0] : `:is(${selectors.join(', ')})`
 }

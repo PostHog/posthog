@@ -34,6 +34,8 @@ export const optOutListLogic = kea<optOutListLogicType>([
         setCurrentPage: (page: number) => ({ page }),
         loadNextPage: true,
         loadPreviousPage: true,
+        setShowAddOptOutModal: (show: boolean) => ({ show }),
+        setNewOptOutIdentifier: (identifier: string) => ({ identifier }),
     }),
     reducers({
         personsModalOpen: [
@@ -75,8 +77,37 @@ export const optOutListLogic = kea<optOutListLogicType>([
                 loadPreviousPageSuccess: (state) => Math.max(1, state - 1),
             },
         ],
+        showAddOptOutModal: [
+            false,
+            {
+                setShowAddOptOutModal: (_, { show }) => show,
+                addOptOutSuccess: () => false,
+            },
+        ],
+        newOptOutIdentifier: [
+            '',
+            {
+                setNewOptOutIdentifier: (_, { identifier }) => identifier,
+                addOptOutSuccess: () => '',
+                setShowAddOptOutModal: (state, { show }) => (show ? state : ''),
+            },
+        ],
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
+        addOptOut: {
+            __default: null as OptOutEntry | null,
+            addOptOut: async (identifier: string): Promise<OptOutEntry> => {
+                try {
+                    const result = await api.messaging.addOptOut(identifier, props.category?.key)
+                    lemonToast.success(`${identifier} added to opt-out list`)
+                    actions.loadOptOutPersons()
+                    return result
+                } catch (e) {
+                    lemonToast.error('Failed to add opt-out')
+                    throw e
+                }
+            },
+        },
         optOutPersons: {
             __default: { count: 0, next: null, previous: null, results: [] } as PaginatedOptOuts,
             loadOptOutPersons: async (): Promise<PaginatedOptOuts> => {

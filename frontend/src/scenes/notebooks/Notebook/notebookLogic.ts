@@ -212,6 +212,10 @@ export const notebookLogic = kea<notebookLogicType>([
             insightShortId,
             insertionPosition,
         }),
+        addExperimentToNotebook: (experimentId: number, insertionPosition: number | null = null) => ({
+            experimentId,
+            insertionPosition,
+        }),
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTableOfContents: (tableOfContents: TableOfContentData) => ({ tableOfContents }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
@@ -774,6 +778,17 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
 
+        experimentIdsInNotebook: [
+            (s) => [s.content],
+            (content): number[] => {
+                if (!content) {
+                    return []
+                }
+                const experimentNodes = content?.content?.filter((node) => node.type === NotebookNodeType.Experiment)
+                return experimentNodes?.map((node) => node?.attrs?.id).filter(Boolean) as number[]
+            },
+        ],
+
         personUUIDFromCanvasOverride: [
             () => [(_, props) => props],
             (props: NotebookLogicProps): string | null => {
@@ -879,6 +894,48 @@ export const notebookLogic = kea<notebookLogicType>([
                 lemonToast.success('Insight added to notebook')
             } else {
                 lemonToast.warning('Could not add insight to notebook')
+            }
+        },
+        addExperimentToNotebook: async ({ experimentId, insertionPosition }) => {
+            const content = {
+                type: NotebookNodeType.Experiment,
+                attrs: {
+                    id: experimentId,
+                },
+            }
+
+            let inserted = false
+
+            if (insertionPosition !== null && values.editor) {
+                try {
+                    values.editor.insertContentAt(insertionPosition, content)
+                    inserted = true
+                } catch (e) {
+                    console.warn('Failed to insert at position, appending to end instead', e)
+                }
+            }
+
+            if (!inserted) {
+                const result = await runWhenEditorIsReady(
+                    () => !!values.editor && (values.isLocalOnly || !!values.notebook),
+                    () => {
+                        let pos = 0
+                        let nextNode = values.editor?.nextNode(pos)
+                        while (nextNode) {
+                            pos = nextNode.position
+                            nextNode = values.editor?.nextNode(pos)
+                        }
+                        values.editor?.insertContentAfterNode(pos, content)
+                        return true
+                    }
+                )
+                inserted = result === true
+            }
+
+            if (inserted) {
+                lemonToast.success('Experiment added to notebook')
+            } else {
+                lemonToast.warning('Could not add experiment to notebook')
             }
         },
         setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {

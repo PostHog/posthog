@@ -10,7 +10,7 @@ from products.visual_review.backend.diff import THUMB_HEIGHT, THUMB_WIDTH, Compa
 from products.visual_review.backend.diffing import _store_thumbnail
 from products.visual_review.backend.facade.enums import RunType, SnapshotResult
 from products.visual_review.backend.models import Artifact, Repo, Run, RunSnapshot
-from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
 
 def _make_png(width: int = 800, height: int = 600, color: tuple[int, ...] = (200, 100, 50, 255)) -> bytes:
@@ -153,7 +153,7 @@ class TestStoreThumbnail:
 
 
 @pytest.mark.django_db(databases=list(PRODUCT_DATABASES))
-class TestThumbnailEndpoint(APIBaseTest):
+class TestThumbnailEndpoint(VisualReviewTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
     THUMB_HASH = "thumb_hash_abc"
     IDENTIFIER = "button--primary"

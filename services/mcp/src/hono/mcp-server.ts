@@ -27,7 +27,7 @@ import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
-import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
+import { createExecInnerToolCallResolver, createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type Env, type State, type Tool } from '@/tools/types'
 
@@ -45,6 +45,32 @@ import { initDurationSeconds, toolCallDurationSeconds, toolCallsTotal } from './
 export type { RequestProperties }
 
 const instructionsFormatter = new InstructionsFormatter()
+const POSTHOG_MCP_ANALYTICS_FLAG = 'mcp-posthog-analytics-sdk'
+type McpAnalyticsProvider = 'posthog_mcp_analytics' | 'mcpcat'
+type PostHogMcpAnalyticsFlagResult = {
+    enabled: boolean
+    errorName?: string
+    errorMessage?: string
+}
+
+// Extended request properties for the Hono runtime. The CF worker defines
+// these fields inline in its own RequestProperties; we extend the shared
+// base type so the Hono server can read/write them without modifying the
+// shared module.
+type HonoRequestProperties = RequestProperties & {
+    mcpSessionId?: string
+    mcpConversationId?: string
+    viaSseRedirect?: boolean
+    mcpAnalyticsProvider?: McpAnalyticsProvider
+    mcpAnalyticsFlagKey?: string
+    mcpAnalyticsFlagEnabled?: boolean
+    mcpAnalyticsFlagErrorName?: string
+    mcpAnalyticsFlagErrorMessage?: string
+    posthogMcpAnalyticsInitAction?: 'initialized' | 'skipped' | 'failed'
+    posthogMcpAnalyticsInitReason?: string
+    posthogMcpAnalyticsInitErrorName?: string
+    posthogMcpAnalyticsInitErrorMessage?: string
+}
 
 // Guidelines are generated at build time; optional import so tests and
 // unbundled dev runs don't explode when the file is absent.
@@ -60,7 +86,7 @@ try {
 export class HonoMcpServer {
     server: McpServer
 
-    private props: RequestProperties
+    private props: HonoRequestProperties
 
     private _cache: RedisCache<State> | undefined
 
@@ -89,7 +115,7 @@ export class HonoMcpServer {
         )
     }
 
-    get requestProperties(): RequestProperties {
+    get requestProperties(): HonoRequestProperties {
         return this.props
     }
 
@@ -241,6 +267,10 @@ export class HonoMcpServer {
                     ...(this.mcpProtocolVersion ? { mcp_protocol_version: this.mcpProtocolVersion } : {}),
                     ...(this.props.mcpConsumer ? { mcp_consumer: this.props.mcpConsumer } : {}),
                     ...(this.props.transport ? { mcp_transport: this.props.transport } : {}),
+                    ...(this.props.mcpSessionId ? { mcp_session_id: this.props.mcpSessionId } : {}),
+                    ...(this.props.mcpConversationId
+                        ? { mcp_conversation_id: this.props.mcpConversationId }
+                        : {}),
                     ...(this.mcpMode ? { mcp_mode: this.mcpMode } : {}),
                     ...(this.mcpVersion !== undefined ? { mcp_version: this.mcpVersion } : {}),
                     mcp_runtime: 'hono',
@@ -411,10 +441,13 @@ export class HonoMcpServer {
 
         await this.resolveClientInfo()
 
+        // Start feature flag resolution in parallel with cache seeding
         const flagPromise = this.resolveVersionFlag()
         const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
         const singleExecPromise = this.resolveSingleExecFlag()
+        const posthogMcpAnalyticsFlagPromise = this.resolvePostHogMcpAnalyticsFlag()
 
+        // Seed cache with header-provided IDs before any fetches
         if (organizationId) {
             await this.cache.set('orgId', organizationId)
         }
@@ -425,18 +458,27 @@ export class HonoMcpServer {
         }
 
         const context = await this.getContext()
+        // Sticky session: skip default resolution if a previous init for this
+        // userHash already picked a project (cache survives across requests).
+        // Without this guard, switching the active org in the user's browser
+        // would silently reshuffle an established session — `users/@me`
+        // returns whatever team the browser currently has selected, and
+        // setDefaultOrganizationAndProject would overwrite the cache with it.
+        // Headers always win because they were applied to the cache above.
         if (!cachedProjectId) {
             cachedProjectId = await this.cache.get('projectId')
         }
 
+        // Initialize org and project
         if (!cachedProjectId) {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        const [flagVersion, toolFeatureFlags, singleExecFlagOn] = await Promise.all([
+        const [flagVersion, toolFeatureFlags, singleExecFlagOn, posthogMcpAnalyticsFlag] = await Promise.all([
             flagPromise,
             toolFlagsPromise,
             singleExecPromise,
+            posthogMcpAnalyticsFlagPromise,
             // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
             context.stateManager.getApiKey(),
         ])
@@ -458,6 +500,7 @@ export class HonoMcpServer {
             clientVersion,
         })
 
+        // Fetch group types and metadata in parallel (cache is now seeded)
         const resolvedProjectId = projectId || (await this.cache.get('projectId'))
         const [groupTypes, metadata] = await Promise.all([
             (async () => {
@@ -472,6 +515,8 @@ export class HonoMcpServer {
             context.stateManager.getEnvironmentPrompt(),
         ])
 
+        // When project ID is provided, both switch tools are removed (project implies org).
+        // When only organization ID is provided, only switch-organization is removed.
         const excludeTools: string[] = []
         if (projectId) {
             excludeTools.push('switch-organization', 'switch-project')
@@ -479,6 +524,8 @@ export class HonoMcpServer {
             excludeTools.push('switch-organization')
         }
 
+        // Fetch tools up-front so we can build the query tool catalog (and the
+        // CLI exec tool's domain list) before constructing the system prompt.
         const { getToolsFromContext } = await import('@/tools')
         const allTools = await getToolsFromContext(context, {
             features,
@@ -489,6 +536,9 @@ export class HonoMcpServer {
             featureFlags: toolFeatureFlags,
         })
 
+        // OAuth introspection ran above (we awaited `getApiKey()` before constructing
+        // `clientProfile`), so update the ApiClient with the verified OAuth client
+        // name for header forwarding.
         if (oauthClientName && this._api) {
             this._api.config.oauthClientName = oauthClientName
         }
@@ -532,12 +582,14 @@ export class HonoMcpServer {
 
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
+        // Register prompts and resources
         await Promise.all([
             registerPrompts(this.server),
             registerResources(this.server, context),
             registerUiAppResources(this.server, context),
         ])
 
+        // execute-sql is v2-only. Swap its description with the rich SQL prompt.
         if (version === 2) {
             const sqlTool = allTools.find((t) => t.name === 'execute-sql')
             if (sqlTool) {
@@ -545,7 +597,11 @@ export class HonoMcpServer {
             }
         }
 
+        // In single-exec mode, register one "posthog" tool that wraps all tools
+        // behind a CLI-like interface. Otherwise, register each tool individually.
         if (useSingleExec) {
+            // When the client honors the `instructions` field, env-context is already
+            // delivered there — strip it from the command-parameter description.
             const commandReference = instructionsFormatter.buildExecCommandReference(instructionsContext, {
                 stripEnvContext: supportsInstructions,
             })
@@ -578,26 +634,51 @@ export class HonoMcpServer {
             }
         }
 
-        await initMcpCatObservability(this.server, {
+        const mcpAnalyticsIdentity = {
             getDistinctId: () => this.getDistinctId(),
             getSessionUuid: async () =>
                 this.props.sessionId ? this.sessionManager.getSessionUuid(this.props.sessionId) : undefined,
             getMcpClientName: async () => this.mcpClientName,
             getMcpClientVersion: async () => this.mcpClientVersion,
             getMcpProtocolVersion: async () => this.mcpProtocolVersion,
+            // Prefer the cached region (set on init after detection) so we don't miss it
+            // when the inbound request didn't include the `region` hint.
             getRegion: async () => (await this.cache.get('region')) ?? this.props.region,
             getAnalyticsContext: async () => this.getAnalyticsContextSafe(await this.getContext()),
             getClientUserAgent: async () => this.props.clientUserAgent,
+            // Server-resolved version (may differ from the client-reported one because of
+            // the `mcp-version-2` feature flag), so observability events line up with ours.
             getMcpVersion: async () => version,
             getOAuthClientName: async () => (await this.cache.get('clientName')) || undefined,
             getReadOnly: async () => readOnly,
             getTransport: async () => this.props.transport,
             getMcpConsumer: async () => this.props.mcpConsumer,
             getMcpMode: async () => this.mcpMode,
+            getMcpSessionId: async () => this.props.mcpSessionId,
+            getMcpConversationId: async () => this.props.mcpConversationId,
+        }
+
+        Object.assign(this.props, {
+            mcpAnalyticsProvider: 'mcpcat' satisfies McpAnalyticsProvider,
+            mcpAnalyticsFlagKey: POSTHOG_MCP_ANALYTICS_FLAG,
+            mcpAnalyticsFlagEnabled: posthogMcpAnalyticsFlag.enabled,
+            ...(posthogMcpAnalyticsFlag.errorName
+                ? { mcpAnalyticsFlagErrorName: posthogMcpAnalyticsFlag.errorName }
+                : {}),
+            ...(posthogMcpAnalyticsFlag.errorMessage
+                ? { mcpAnalyticsFlagErrorMessage: posthogMcpAnalyticsFlag.errorMessage }
+                : {}),
         })
+
+        // The Hono runtime always uses mcpcat for observability. The
+        // @posthog/mcp-analytics SDK depends on cloudflare:workers env and is
+        // skipped here — its flag is still resolved above for analytics parity.
+        await initMcpCatObservability(this.server, mcpAnalyticsIdentity)
 
         const initDurationMs = this.props.requestStartTime ? Date.now() - this.props.requestStartTime : undefined
 
+        // Resolve analytics context from the already-primed cache (getEnvironmentPrompt
+        // above populated `cachedProject`/`cachedOrg`), so this is effectively free here.
         const analyticsContext = await this.getAnalyticsContextSafe(context)
 
         void this.trackEvent(
@@ -607,6 +688,7 @@ export class HonoMcpServer {
                 has_organization_id: !!organizationId,
                 has_project_id: !!projectId,
                 read_only: !!readOnly,
+                via_sse_redirect: !!this.props.viaSseRedirect,
                 ...(mode ? { mcp_mode_explicit: mode } : {}),
                 ...(initDurationMs !== undefined ? { init_duration_ms: initDurationMs } : {}),
             },
@@ -614,6 +696,12 @@ export class HonoMcpServer {
         )
     }
 
+    /**
+     * Decide single-exec mode and the protocol version for this connection,
+     * stashing both on the instance so `trackEvent` and observability identity
+     * provider can emit `mcp_mode` / `mcp_version` on every downstream event
+     * without re-deriving them.
+     */
     private resolveModeAndVersion(args: {
         mode: McpMode | undefined
         singleExecFlagOn: boolean
@@ -652,6 +740,19 @@ export class HonoMcpServer {
             return !!(await isFeatureFlagEnabled('mcp-single-exec-tool', distinctId))
         } catch {
             return false
+        }
+    }
+
+    private async resolvePostHogMcpAnalyticsFlag(): Promise<PostHogMcpAnalyticsFlagResult> {
+        try {
+            const distinctId = await this.getDistinctId()
+            return { enabled: !!(await isFeatureFlagEnabled(POSTHOG_MCP_ANALYTICS_FLAG, distinctId)) }
+        } catch (error) {
+            return {
+                enabled: false,
+                errorName: error instanceof Error ? error.name : 'UnknownError',
+                errorMessage: error instanceof Error ? error.message : String(error),
+            }
         }
     }
 

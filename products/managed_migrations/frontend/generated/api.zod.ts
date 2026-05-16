@@ -12,30 +12,34 @@ import * as zod from 'zod'
 /**
  * Create a new managed migration/batch import.
  */
-export const ManagedMigrationsCreateBody = /* @__PURE__ */ zod.object({}).describe('Serializer for BatchImport model')
+export const ManagedMigrationsCreateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Serializer for BatchImport model')
 
 /**
  * Viewset for BatchImport model
  */
-export const ManagedMigrationsUpdateBody = /* @__PURE__ */ zod.object({}).describe('Serializer for BatchImport model')
+export const ManagedMigrationsUpdateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Serializer for BatchImport model')
 
 /**
  * Viewset for BatchImport model
  */
 export const ManagedMigrationsPartialUpdateBody = /* @__PURE__ */ zod
-    .object({})
+    .looseObject({})
     .describe('Serializer for BatchImport model')
 
 /**
  * Pause a running batch import.
  */
 export const ManagedMigrationsPauseCreateBody = /* @__PURE__ */ zod
-    .object({})
+    .looseObject({})
     .describe('Serializer for BatchImport model')
 
 /**
  * Resume a paused batch import.
  */
 export const ManagedMigrationsResumeCreateBody = /* @__PURE__ */ zod
-    .object({})
+    .looseObject({})
     .describe('Serializer for BatchImport model')

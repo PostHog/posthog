@@ -291,7 +291,9 @@ export function TagList({ tags, onMoreClick }: TagListProps): JSX.Element {
             ))}
             {tags.length > 4 && (
                 <Tooltip title={tags.slice(4).join(', ')}>
-                    <LemonTag onClick={onMoreClick}>+{tags.length - 4} more</LemonTag>
+                    <LemonTag onClick={onMoreClick} forceClickable>
+                        +{tags.length - 4} more
+                    </LemonTag>
                 </Tooltip>
             )}
         </span>
@@ -318,7 +320,9 @@ export function TagListWithRestrictions({ tags, onMoreClick }: TagListWithRestri
                         .map((tag) => tag.name)
                         .join(', ')}
                 >
-                    <LemonTag onClick={onMoreClick}>+{tags.length - 4} more</LemonTag>
+                    <LemonTag onClick={onMoreClick} forceClickable>
+                        +{tags.length - 4} more
+                    </LemonTag>
                 </Tooltip>
             )}
         </span>

@@ -5,6 +5,8 @@ from django.utils import timezone
 from celery import shared_task
 from structlog import get_logger
 
+from posthog.scoping_audit import skip_team_scope_audit
+
 from products.endpoints.backend.metrics import ENDPOINT_MATERIALIZATION_EVENT_TOTAL
 from products.endpoints.backend.models import EndpointVersion
 
@@ -14,6 +16,7 @@ STALE_THRESHOLD_DAYS = 30
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def deactivate_stale_materializations() -> None:
     """
     Deactivate materializations for endpoint versions that haven't been executed in over 30 days.

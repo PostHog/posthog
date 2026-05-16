@@ -36,14 +36,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -63,7 +59,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface ApprovalPolicyApi {
@@ -158,7 +154,7 @@ export interface ChangeRequestApi {
     readonly intent_display: unknown
     readonly policy_snapshot: unknown
     readonly validation_status: ValidationStatusEnumApi
-    readonly validation_errors: unknown | null
+    readonly validation_errors: unknown
     /** @nullable */
     readonly validated_at: string | null
     readonly state: ChangeRequestStateEnumApi
@@ -171,7 +167,7 @@ export interface ChangeRequestApi {
     /** @nullable */
     readonly applied_at: string | null
     readonly apply_error: string
-    readonly result_data: unknown | null
+    readonly result_data: unknown
     readonly approvals: readonly ChangeRequestApiApprovalsItem[]
     /** Check if current user can approve this change request. */
     readonly can_approve: boolean
@@ -246,7 +242,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: EffectiveMembershipLevelEnumApi | null
+    readonly membership_level: EffectiveMembershipLevelEnumApi
     readonly plugins_access_level: PluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -268,9 +264,9 @@ export interface OrganizationApi {
     is_ai_data_processing_approved?: boolean | null
     /** Default statistical method for new experiments in this organization.
 
-* `bayesian` - Bayesian
-* `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi | null
+  * `bayesian` - Bayesian
+  * `frequentist` - Frequentist */
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -320,7 +316,7 @@ export interface PatchedOrganizationApi {
     logo_media_id?: string | null
     readonly created_at?: string
     readonly updated_at?: string
-    readonly membership_level?: EffectiveMembershipLevelEnumApi | null
+    readonly membership_level?: EffectiveMembershipLevelEnumApi
     readonly plugins_access_level?: PluginsAccessLevelEnumApi
     readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
@@ -342,9 +338,9 @@ export interface PatchedOrganizationApi {
     is_ai_data_processing_approved?: boolean | null
     /** Default statistical method for new experiments in this organization.
 
-* `bayesian` - Bayesian
-* `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi | null
+  * `bayesian` - Bayesian
+  * `frequentist` - Frequentist */
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -539,6 +535,12 @@ export interface ActivityLogApi {
     user: UserBasicApi
     /** is the date of this log item newer than the user's bookmark */
     readonly unread: boolean
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    team_id?: number | null
     /** @nullable */
     organization_id?: string | null
     /** @nullable */
@@ -559,7 +561,7 @@ export interface ActivityLogApi {
     item_id?: string | null
     /** @maxLength 79 */
     scope: string
-    detail?: unknown | null
+    detail?: unknown
     created_at?: string
 }
 
@@ -616,7 +618,7 @@ export interface CommentApi {
     readonly completed_by: UserBasicApi | null
     /** @nullable */
     content?: string | null
-    rich_content?: unknown | null
+    rich_content?: unknown
     readonly version: number
     readonly created_at: string
     /**
@@ -624,7 +626,7 @@ export interface CommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown | null
+    item_context?: unknown
     /** @maxLength 79 */
     scope: string
     /**
@@ -657,7 +659,7 @@ export interface PatchedCommentApi {
     readonly completed_by?: UserBasicApi | null
     /** @nullable */
     content?: string | null
-    rich_content?: unknown | null
+    rich_content?: unknown
     readonly version?: number
     readonly created_at?: string
     /**
@@ -665,7 +667,7 @@ export interface PatchedCommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown | null
+    item_context?: unknown
     /** @maxLength 79 */
     scope?: string
     /**
@@ -1085,15 +1087,34 @@ export const ActivityLogListScopesItem = {
 } as const
 
 export type AdvancedActivityLogsListParams = {
+    /**
+     * Filter by activity types (e.g. "created", "updated", "deleted").
+     */
     activities?: string[]
+    /**
+     * Filter by API clients that generated the activity (from x-posthog-client header).
+     */
     clients?: string[]
+    /**
+     * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
+     */
     detail_filters?: string
+    /**
+     * Upper bound on `created_at` (inclusive), ISO-8601.
+     */
     end_date?: string
+    /**
+     * Reserved for future HogQL-based filtering.
+     */
     hogql_filter?: string
     /**
+     * When set, filters rows authored by the system (no user).
      * @nullable
      */
     is_system?: boolean | null
+    /**
+     * Filter by the `item_id` of the affected resource(s).
+     */
     item_ids?: string[]
     /**
      * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
@@ -1106,11 +1127,28 @@ export type AdvancedActivityLogsListParams = {
      * @maximum 1000
      */
     page_size?: number
+    /**
+     * Filter by activity scopes (e.g. "FeatureFlag", "Insight").
+     */
     scopes?: string[]
+    /**
+     * Free-text search across the `detail` JSON column.
+     */
     search_text?: string
+    /**
+     * Lower bound on `created_at` (inclusive), ISO-8601.
+     */
     start_date?: string
+    /**
+     * Filter by project (team) IDs. Only honored on the organization-scoped endpoint; ignored on the project-scoped endpoint.
+     */
+    team_ids?: number[]
+    /**
+     * Filter by users who performed the activity (user UUIDs).
+     */
     users?: string[]
     /**
+     * When set, filters rows where the actor was impersonating another user.
      * @nullable
      */
     was_impersonated?: boolean | null

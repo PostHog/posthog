@@ -176,6 +176,9 @@ export class CyclotronJobQueuePostgresV2 {
                     await job.reschedule({
                         state: stateBuffer,
                         scheduledAt: result.invocation.queueScheduledAt?.toJSDate(),
+                        distinctId: extractDistinctId(result.invocation),
+                        personId: extractPersonId(result.invocation),
+                        actionId: extractActionId(result.invocation),
                     })
                 }
             })
@@ -232,6 +235,7 @@ function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2J
     const state = serializeState(invocation)
     cdpJobSizeKb.labels('postgres-v2').observe(state.length / 1024)
     cdpJobSizeCompressedKb.labels('postgres-v2').observe(state.length / 1024)
+
     return {
         id: invocation.id,
         teamId: invocation.teamId,
@@ -241,7 +245,32 @@ function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2J
         scheduled: invocation.queueScheduledAt?.toJSDate() ?? new Date(),
         parentRunId: invocation.parentRunId ?? null,
         state,
+        distinctId: extractDistinctId(invocation),
+        personId: extractPersonId(invocation),
+        actionId: extractActionId(invocation),
     }
+}
+
+type LookupColumnSource = {
+    person?: { id?: string }
+    state?: {
+        event?: { distinct_id?: string }
+        personId?: string
+        currentAction?: { id?: string }
+    } | null
+}
+
+export function extractDistinctId(invocation: CyclotronJobInvocation): string | null {
+    return (invocation as LookupColumnSource).state?.event?.distinct_id || null
+}
+
+export function extractPersonId(invocation: CyclotronJobInvocation): string | null {
+    const inv = invocation as LookupColumnSource
+    return inv.person?.id || inv.state?.personId || null
+}
+
+export function extractActionId(invocation: CyclotronJobInvocation): string | null {
+    return (invocation as LookupColumnSource).state?.currentAction?.id || null
 }
 
 function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {

@@ -461,10 +461,6 @@ class TaskRunSetOutputRequestSerializer(serializers.Serializer):
     )
 
 
-class ErrorResponseSerializer(serializers.Serializer):
-    error = serializers.CharField(help_text="Error message")
-
-
 class TaskRunErrorResponseSerializer(serializers.Serializer):
     detail = serializers.CharField(required=False, help_text="Human-readable validation error")
     error = serializers.CharField(required=False, help_text="Human-readable error message")

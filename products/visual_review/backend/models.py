@@ -6,6 +6,8 @@ import uuid
 
 from django.db import models
 
+from posthog.models.scoping.product_mixin import ProductTeamModel
+
 from .facade.enums import (
     ActorType,
     ClassificationReason,
@@ -19,7 +21,7 @@ from .facade.enums import (
 )
 
 
-class Repo(models.Model):
+class Repo(ProductTeamModel):
     """
     A visual review repo tied to a GitHub repository.
 
@@ -27,10 +29,8 @@ class Repo(models.Model):
     repo_full_name is kept for API calls and display, auto-updated on rename detection.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    # References posthog.Team in the main database — no FK constraint because
-    # this model lives in a separate product database.
-    team_id = models.BigIntegerField(db_index=True)
 
     # GitHub identity: numeric ID is stable, full_name is for API calls + display
     repo_external_id = models.BigIntegerField()
@@ -79,17 +79,16 @@ class Repo(models.Model):
         return kid, secret_hex
 
 
-class Artifact(models.Model):
+class Artifact(ProductTeamModel):
     """
     Content-addressed image storage.
 
     Same hash = same artifact. Deduplicated across all runs in a repo.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="artifacts")
-    # Denormalized from repo.team_id for direct team scoping.
-    team_id = models.BigIntegerField(db_index=True)
 
     content_hash = models.CharField(max_length=128, db_index=True)
     storage_path = models.CharField(max_length=1024)
@@ -111,17 +110,16 @@ class Artifact(models.Model):
         return f"{self.content_hash[:12]}..."
 
 
-class Run(models.Model):
+class Run(ProductTeamModel):
     """
     A visual test run from CI.
 
     Created when CI posts a manifest. Tracks status through diff processing.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="runs")
-    # Denormalized from repo.team_id for direct team scoping.
-    team_id = models.BigIntegerField(db_index=True)
 
     status = models.CharField(max_length=20, choices=[(s.value, s.value) for s in RunStatus], default=RunStatus.PENDING)
     run_type = models.CharField(max_length=64, default=RunType.OTHER)
@@ -185,17 +183,16 @@ class Run(models.Model):
         return f"Run {self.id} ({self.status})"
 
 
-class RunSnapshot(models.Model):
+class RunSnapshot(ProductTeamModel):
     """
     A single snapshot within a run.
 
     Links current captured image to baseline. Stores diff results.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="snapshots")
-    # Denormalized from run.team_id for direct team scoping.
-    team_id = models.BigIntegerField(db_index=True)
 
     identifier = models.CharField(max_length=512)
 
@@ -300,7 +297,7 @@ class RunSnapshot(models.Model):
         return f"{self.identifier} ({self.result})"
 
 
-class ToleratedHash(models.Model):
+class ToleratedHash(ProductTeamModel):
     """
     Previously seen alternate hashes that were determined acceptable for a
     specific baseline and snapshot identifier, allowing future runs to skip
@@ -311,9 +308,9 @@ class ToleratedHash(models.Model):
     baseline_hash no longer matches.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="tolerated_hashes")
-    team_id = models.BigIntegerField(db_index=True)
 
     identifier = models.CharField(max_length=512)
     baseline_hash = models.CharField(max_length=128)
@@ -348,7 +345,7 @@ class ToleratedHash(models.Model):
         return f"{self.identifier} {self.alternate_hash[:12]}... ({self.reason})"
 
 
-class QuarantinedIdentifier(models.Model):
+class QuarantinedIdentifier(ProductTeamModel):
     """
     Tracks quarantine events for snapshot identifiers.
 
@@ -363,9 +360,9 @@ class QuarantinedIdentifier(models.Model):
     runs remain stable even if quarantine policy changes later.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="quarantined_identifiers")
-    team_id = models.BigIntegerField(db_index=True)
 
     identifier = models.CharField(max_length=512)
     run_type = models.CharField(max_length=64)
