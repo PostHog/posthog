@@ -538,12 +538,20 @@ def main() -> int:
             shrunk,
         )
 
+    # `run()` can fail outright — a Hypothesis `FailedHealthCheck`, a
+    # backend import error surfacing mid-run, an unopenable
+    # `--write-divergences` path. We still print whatever summary we
+    # have, but track the failure so the exit code reflects it: tooling
+    # that invokes the diagnostic non-interactively must not read a
+    # crashed run as success.
+    run_ok = True
     try:
         if args.write_divergences:
             jsonl_file = open(args.write_divergences, "w")  # noqa: SIM115 — see finally
         run()
     except Exception:
         traceback.print_exc()
+        run_ok = False
     finally:
         if jsonl_file is not None:
             jsonl_file.close()
@@ -595,7 +603,7 @@ def main() -> int:
         print()
         print(f"=== Wrote {jsonl_count} divergence records to {args.write_divergences} ===")
 
-    return 0
+    return 0 if run_ok else 1
 
 
 if __name__ == "__main__":
