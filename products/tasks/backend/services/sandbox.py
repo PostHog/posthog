@@ -224,11 +224,16 @@ class SandboxBase(ABC):
         reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
+        claude_code_config_json: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
         The sandbox URL and token should be obtained via get_connect_credentials()
         before calling this method.
+
+        ``claude_code_config_json`` (when set) is forwarded verbatim as the
+        agent-server ``--claudeCodeConfig`` argument. It must already be JSON
+        conforming to ``packages/agent``'s ``claudeCodeConfigSchema``.
         """
         ...
 

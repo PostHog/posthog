@@ -430,6 +430,10 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 team=self.team,
                 is_new_conversation=is_new_conversation,
                 repository=serializer.validated_data.get("repository"),
+                ui_context=serializer.validated_data.get("ui_context"),
+                billing_context=serializer.validated_data.get("billing_context"),
+                contextual_tools=serializer.validated_data.get("contextual_tools"),
+                agent_mode=serializer.validated_data.get("agent_mode"),
             )
 
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs

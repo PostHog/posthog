@@ -197,6 +197,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 reasoning_effort=ctx.reasoning_effort,
                 mcp_configs=mcp_configs or None,
                 allowed_domains=ctx.allowed_domains,
+                claude_code_config_json=ctx.claude_code_config_json,
             )
 
             # Mark startup-time token issuance so follow-ups within the next

@@ -638,6 +638,7 @@ class DockerSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
+        claude_code_config_json: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -650,10 +651,11 @@ class DockerSandbox(SandboxBase):
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
+        config_flag = f" --claudeCodeConfig {shlex.quote(claude_code_config_json)}" if claude_code_config_json else ""
         server_cmd = (
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
+            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{config_flag}"
         )
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
@@ -694,6 +696,7 @@ class DockerSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
+        claude_code_config_json: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -733,6 +736,7 @@ class DockerSandbox(SandboxBase):
             reasoning_effort,
             mcp_servers_arg,
             allowed_domains=allowed_domains,
+            claude_code_config_json=claude_code_config_json,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -765,6 +769,7 @@ class DockerSandbox(SandboxBase):
                 reasoning_effort=reasoning_effort,
                 mcp_servers_arg=mcp_servers_arg,
                 allowed_domains=allowed_domains,
+                claude_code_config_json=claude_code_config_json,
             )
             if self._launch_and_check(command):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")

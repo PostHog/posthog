@@ -1,6 +1,5 @@
 import enum
 import json
-import uuid
 import asyncio
 from collections.abc import AsyncGenerator, Callable
 from typing import Any
@@ -11,10 +10,9 @@ from django.http import StreamingHttpResponse
 import structlog
 from asgiref.sync import async_to_sync as asgi_async_to_sync
 from django_redis import get_redis_connection
-from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions
 
-from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
+from posthog.schema import AgentMode, AssistantEventType, MaxBillingContext, MaxUIContext
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -26,24 +24,99 @@ from products.tasks.backend.temporal.client import execute_task_processing_workf
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 
 from ee.hogai.api.serializers import ConversationMinimalSerializer
+from ee.hogai.sandbox.agent_runtime_config import build_posthog_ai_claude_code_config
+from ee.hogai.sandbox.context_builder import build_sandbox_system_reminder_sync
+from ee.hogai.sandbox.legacy_history import format_legacy_history_for_sandbox
 from ee.hogai.sandbox.mapping import get_sandbox_mapping, set_sandbox_mapping
-from ee.hogai.sandbox.types import (
-    ACP_METHOD_SESSION_UPDATE,
-    ACP_NOTIFICATION_TYPE,
-    ACP_SESSION_UPDATE_AGENT_MESSAGE_CHUNK,
-    ACPNotification,
-    ACPSessionUpdateParams,
-    SandboxSeedEvent,
-    is_turn_complete,
-)
+from ee.hogai.sandbox.turn_builder import SandboxTurnBuilder, build_human_message
+from ee.hogai.sandbox.types import ACP_NOTIFICATION_TYPE, SandboxSeedEvent, is_turn_complete
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
-from ee.models.assistant import Conversation
+from ee.models.assistant import Conversation, CoreMemory
 
 logger = structlog.get_logger(__name__)
 
 SANDBOX_TURN_IDLE_TIMEOUT = 60  # seconds of silence before ending the per-turn stream (safety fallback)
 SANDBOX_STREAM_TTL = 3600  # seconds before the Redis stream key expires
+
+
+def _build_first_turn_payload(
+    *,
+    content: str,
+    user: User,
+    team: Team,
+    conversation: Conversation,
+    ui_context: MaxUIContext | dict | None,
+    billing_context: MaxBillingContext | dict | None,
+    contextual_tools: dict[str, Any] | None,
+    agent_mode: AgentMode | str | None,
+    is_existing_conversation: bool,
+) -> str:
+    """Build the user-message text for the first turn of a sandbox run.
+
+    Concatenates (in order):
+
+    1. A ``<system_reminder>`` block with dynamic context — what the user is
+       viewing, billing state, contextual tools, selected mode, core memory.
+       Identity / persona text lives in the system prompt via
+       ``--claudeCodeConfig`` and is intentionally *not* repeated here.
+    2. A formatted transcript of any prior LangGraph conversation history (only
+       when the user is continuing an existing non-sandbox conversation).
+    3. The user's new message.
+    """
+    parts: list[str] = []
+
+    core_memory = CoreMemory.objects.filter(team=team).first()
+    reminder = build_sandbox_system_reminder_sync(
+        team=team,
+        user=user,
+        ui_context=ui_context,
+        billing_context=billing_context,
+        contextual_tools=contextual_tools,
+        agent_mode=agent_mode,
+        core_memory=core_memory,
+        include_identity=True,
+    )
+    if reminder:
+        parts.append(reminder)
+
+    if is_existing_conversation:
+        legacy = format_legacy_history_for_sandbox(conversation)
+        if legacy:
+            parts.append(legacy)
+
+    parts.append(content)
+    return "\n\n".join(parts)
+
+
+def _build_followup_payload(
+    *,
+    content: str,
+    user: User,
+    team: Team,
+    ui_context: MaxUIContext | dict | None,
+    billing_context: MaxBillingContext | dict | None,
+    contextual_tools: dict[str, Any] | None,
+    agent_mode: AgentMode | str | None,
+) -> str:
+    """Build the user-message text for a follow-up turn in an existing run.
+
+    Identity and core memory are already in the running session, so the reminder
+    here is dynamic-only (UI / billing / tools / mode).
+    """
+    reminder = build_sandbox_system_reminder_sync(
+        team=team,
+        user=user,
+        ui_context=ui_context,
+        billing_context=billing_context,
+        contextual_tools=contextual_tools,
+        agent_mode=agent_mode,
+        core_memory=None,
+        include_identity=False,
+    )
+    if reminder:
+        return f"{reminder}\n\n{content}"
+    return content
 
 
 def handle_sandbox_message(
@@ -53,6 +126,11 @@ def handle_sandbox_message(
     user: User,
     team: Team,
     is_new_conversation: bool,
+    repository: str | None = None,
+    ui_context: MaxUIContext | dict | None = None,
+    billing_context: MaxBillingContext | dict | None = None,
+    contextual_tools: dict[str, Any] | None = None,
+    agent_mode: AgentMode | str | None = None,
 ) -> StreamingHttpResponse:
     """Handle a sandbox-mode message: create/resume a task run and stream events back."""
     if not settings.DEBUG and not has_sandbox_mode_feature_flag(team, user):
@@ -61,6 +139,9 @@ def handle_sandbox_message(
     if is_new_conversation:
         conversation.title = content[:80]
         conversation.save(update_fields=["title"])
+
+    conversation.status = Conversation.Status.IN_PROGRESS
+    conversation.save(update_fields=["status", "updated_at"])
 
     mapping = get_sandbox_mapping(conversation_id)
 
@@ -88,14 +169,29 @@ def handle_sandbox_message(
                 raise exceptions.ValidationError("Sandbox session has ended and no snapshot is available.")
 
             task = task_run.task
-            new_run = task.create_run(
-                mode="interactive",
-                extra_state={
-                    "snapshot_external_id": snapshot_ext_id,
-                    "resume_from_run_id": str(task_run.id),
-                    "pending_user_message": content,
-                },
+            # Inject the system_reminder into the pending message so the agent gets
+            # dynamic context on the first turn of the resumed sandbox too.
+            resume_payload_text = _build_followup_payload(
+                content=content,
+                user=user,
+                team=team,
+                ui_context=ui_context,
+                billing_context=billing_context,
+                contextual_tools=contextual_tools,
+                agent_mode=agent_mode,
             )
+            resumed_state: dict[str, Any] = {
+                "snapshot_external_id": snapshot_ext_id,
+                "resume_from_run_id": str(task_run.id),
+                "pending_user_message": resume_payload_text,
+            }
+            # Propagate the claude_code_config so the resumed sandbox keeps the
+            # PostHog AI system prompt (Code-tasks runs don't set this key and
+            # therefore retain default behavior).
+            prior_config = (task_run.state or {}).get("claude_code_config_json")
+            if prior_config:
+                resumed_state["claude_code_config_json"] = prior_config
+            new_run = task.create_run(mode="interactive", extra_state=resumed_state)
             run_id = str(new_run.id)
 
             conversation.sandbox_run_id = new_run.id
@@ -124,13 +220,24 @@ def handle_sandbox_message(
                 lambda: _sandbox_stream(conv_data, run_id, start_id, conversation_id, content, team_id=team.id)
             )
 
-        # Signal the Temporal workflow to send the follow-up message
+        # Signal the Temporal workflow to send the follow-up message.
+        # Prepend the per-turn system_reminder so the agent always sees current
+        # UI / billing / mode state when responding to the next user turn.
+        followup_payload = _build_followup_payload(
+            content=content,
+            user=user,
+            team=team,
+            ui_context=ui_context,
+            billing_context=billing_context,
+            contextual_tools=contextual_tools,
+            agent_mode=agent_mode,
+        )
         try:
             client = sync_connect()
             handle = client.get_workflow_handle(task_run.workflow_id)
 
             async def _send_signal():
-                await handle.signal(ProcessTaskWorkflow.send_followup_message, content)
+                await handle.signal(ProcessTaskWorkflow.send_followup_message, followup_payload)
 
             asgi_async_to_sync(_send_signal)()
         except Exception as e:
@@ -140,18 +247,32 @@ def handle_sandbox_message(
                 error=str(e),
             )
     else:
-        # First message: create task + run
-        # TODO(@tatoalo): hardcoding repo for now, already built repo selection wiring
+        # First message: create task + run with PostHog AI system prompt
+        # (via --claudeCodeConfig) plus a system_reminder block carrying
+        # dynamic per-turn context.
+        first_turn_text = _build_first_turn_payload(
+            content=content,
+            user=user,
+            team=team,
+            conversation=conversation,
+            ui_context=ui_context,
+            billing_context=billing_context,
+            contextual_tools=contextual_tools,
+            agent_mode=agent_mode,
+            is_existing_conversation=not is_new_conversation,
+        )
+        claude_code_config_json = json.dumps(build_posthog_ai_claude_code_config())
         try:
             task = Task.create_and_run(
                 team=team,
                 title=content[:80],
-                description=content,
+                description=first_turn_text,
                 origin_product=Task.OriginProduct.USER_CREATED,
                 user_id=user.pk,
-                repository="posthog/posthog",
+                repository=repository,
                 create_pr=False,
                 mode="interactive",
+                extra_state={"claude_code_config_json": claude_code_config_json},
                 start_workflow=True,
             )
         except ValueError:
@@ -294,7 +415,7 @@ async def _sandbox_stream(
             await event_queue.put(_Sentinel.END)
 
     reader_task = asyncio.create_task(_reader())
-    agent_text_chunks: list[str] = []
+    turn_builder = SandboxTurnBuilder()
 
     try:
         event_count = 0
@@ -325,8 +446,9 @@ async def _sandbox_stream(
             event_count += 1
             saw_data = True
 
-            # Accumulate agent text for message persistence
-            _accumulate_agent_text(event, agent_text_chunks)
+            # Accumulate structured messages (assistant text, reasoning, tool
+            # calls) for persistence to Conversation.messages_json at end of turn.
+            turn_builder.feed(event)
 
             if event_count <= 3:
                 logger.info(
@@ -353,51 +475,44 @@ async def _sandbox_stream(
         except asyncio.CancelledError:
             pass
 
-        # Persist messages after the turn completes
+        # Persist messages after the turn completes.
         if conversation_id:
-            agent_text = "".join(agent_text_chunks)
-            await _persist_sandbox_turn(conversation_id, user_content, agent_text, team_id=team_id)
-
-
-def _accumulate_agent_text(event: dict, chunks: list[str]) -> None:
-    """Extract agent message text from session/update notifications."""
-    if event.get("type") != ACP_NOTIFICATION_TYPE:
-        return
-    raw_notification = event.get("notification")
-    if not isinstance(raw_notification, dict):
-        return
-    try:
-        notification = ACPNotification.model_validate(raw_notification)
-    except PydanticValidationError:
-        return
-    if notification.method != ACP_METHOD_SESSION_UPDATE:
-        return
-    if not isinstance(notification.params, ACPSessionUpdateParams):
-        return
-    update = notification.params.update
-    if update is None or update.sessionUpdate != ACP_SESSION_UPDATE_AGENT_MESSAGE_CHUNK:
-        return
-    if update.content and update.content.type == "text" and update.content.text:
-        chunks.append(update.content.text)
+            turn_messages = turn_builder.finalize()
+            await _persist_sandbox_turn(conversation_id, user_content, turn_messages, team_id=team_id)
 
 
 async def _persist_sandbox_turn(
-    conversation_id: str, user_content: str | None, agent_text: str, team_id: int | None = None
+    conversation_id: str,
+    user_content: str | None,
+    turn_messages: list[dict[str, Any]],
+    team_id: int | None = None,
 ) -> None:
-    """Persist user and agent messages on the Conversation after a sandbox turn."""
+    """Persist the user message and the structured agent turn on the Conversation.
+
+    ``turn_messages`` is the list produced by :class:`SandboxTurnBuilder` —
+    typically an ``AssistantMessage`` (with any ``tool_calls`` attached),
+    interleaved ``ReasoningMessage`` entries, and trailing
+    ``AssistantToolCallMessage`` records carrying tool output.
+
+    The conversation's status is always reset to ``IDLE`` so a persistence
+    failure can't leave the row stuck IN_PROGRESS.
+    """
+    lookup: dict[str, Any] = {"id": conversation_id}
+    if team_id is not None:
+        lookup["team_id"] = team_id
+
     try:
-        lookup: dict[str, Any] = {"id": conversation_id}
-        if team_id is not None:
-            lookup["team_id"] = team_id
         conversation = await Conversation.objects.aget(**lookup)
-        messages: list[dict[str, Any]] = conversation.messages_json or []
+        messages: list[dict[str, Any]] = list(conversation.messages_json or [])
         if user_content:
-            messages.append(HumanMessage(content=user_content, id=str(uuid.uuid4())).model_dump(exclude_none=True))
-        if agent_text:
-            messages.append(
-                AssistantMessage(content=agent_text, id=f"sandbox-{uuid.uuid4()}").model_dump(exclude_none=True)
-            )
+            messages.append(build_human_message(user_content))
+        messages.extend(turn_messages)
         conversation.messages_json = messages
-        await conversation.asave(update_fields=["messages_json"])
+        conversation.status = Conversation.Status.IDLE
+        await conversation.asave(update_fields=["messages_json", "status"])
     except Exception as e:
         logger.warning("persist_sandbox_turn_failed", conversation_id=conversation_id, error=str(e))
+        try:
+            await Conversation.objects.filter(**lookup).aupdate(status=Conversation.Status.IDLE)
+        except Exception:
+            logger.exception("persist_sandbox_turn_status_reset_failed", conversation_id=conversation_id)

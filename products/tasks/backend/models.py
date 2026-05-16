@@ -287,6 +287,7 @@ class Task(DeletedMetaFields, models.Model):
         interaction_origin: str | None = None,
         model: str | None = None,
         initial_permission_mode: str | None = None,
+        extra_state: dict | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -367,31 +368,31 @@ class Task(DeletedMetaFields, models.Model):
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
-        extra_state: dict[str, str] = {}
+        run_state: dict = dict(extra_state) if extra_state else {}
         if slack_thread_url:
-            extra_state["slack_thread_url"] = slack_thread_url
+            run_state["slack_thread_url"] = slack_thread_url
         if interaction_origin:
-            extra_state["interaction_origin"] = interaction_origin
+            run_state["interaction_origin"] = interaction_origin
         elif slack_thread_context:
-            extra_state["interaction_origin"] = "slack"
+            run_state["interaction_origin"] = "slack"
         if origin_product == Task.OriginProduct.SIGNAL_REPORT:
-            extra_state["run_source"] = RunSource.SIGNAL_REPORT.value
-            extra_state["pr_authorship_mode"] = PrAuthorshipMode.BOT.value
+            run_state["run_source"] = RunSource.SIGNAL_REPORT.value
+            run_state["pr_authorship_mode"] = PrAuthorshipMode.BOT.value
         elif origin_product in (Task.OriginProduct.USER_CREATED, Task.OriginProduct.SLACK):
-            extra_state["pr_authorship_mode"] = (
+            run_state["pr_authorship_mode"] = (
                 PrAuthorshipMode.USER.value if github_user_integration is not None else PrAuthorshipMode.BOT.value
             )
 
         if sandbox_env is not None:
-            extra_state["sandbox_environment_id"] = str(sandbox_env.id)
+            run_state["sandbox_environment_id"] = str(sandbox_env.id)
 
         if model:
-            extra_state["model"] = model
+            run_state["model"] = model
 
         if initial_permission_mode:
-            extra_state["initial_permission_mode"] = initial_permission_mode
+            run_state["initial_permission_mode"] = initial_permission_mode
 
-        task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
+        task_run = task.create_run(mode=mode, extra_state=run_state or None, branch=branch)
 
         if start_workflow:
             execute_task_processing_workflow(

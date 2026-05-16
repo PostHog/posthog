@@ -94,6 +94,17 @@ class TaskProcessingContext:
         return value if isinstance(value, str) else None
 
     @property
+    def claude_code_config_json(self) -> str | None:
+        """JSON payload for the agent-server ``--claudeCodeConfig`` flag.
+
+        Populated by PostHog AI sandbox conversations (see
+        ``ee/hogai/sandbox/agent_runtime_config.py``). Code tasks leave it unset
+        and run with the agent-server's default Claude Code preset.
+        """
+        value = (self.state or {}).get("claude_code_config_json")
+        return value if isinstance(value, str) and value else None
+
+    @property
     def run_source(self) -> str | None:
         value = (self.state or {}).get("run_source")
         return value if isinstance(value, str) else None
