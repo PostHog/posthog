@@ -146,6 +146,11 @@ export type CommonConfig = BaseServerConfig & {
 
     // Shared services
     SITE_URL: string
+    // PostHog LLM gateway — used by built-in workflow / CDP actions that need an LLM call
+    // (e.g. template-posthog-llm-classify). Resolved server-side so users don't have to
+    // configure URLs or mint personal API keys for built-in nodes.
+    LLM_GATEWAY_URL: string
+    LLM_GATEWAY_API_KEY: string
     ENCRYPTION_SALT_KEYS: string
     CAPTURE_INTERNAL_URL: string
     CAPTURE_CONFIG_REDIS_HOST: string | null
@@ -308,6 +313,11 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Shared services
         SITE_URL: isDevEnv() ? 'http://localhost:8000' : '',
+        // Local dev points at the in-tree services/llm-gateway uvicorn (port 3308).
+        // Prod / cloud sets LLM_GATEWAY_URL + LLM_GATEWAY_API_KEY via env to point at
+        // gateway.us / gateway.eu and the shared internal-service key.
+        LLM_GATEWAY_URL: isDevEnv() ? 'http://localhost:3308' : '',
+        LLM_GATEWAY_API_KEY: '',
         ENCRYPTION_SALT_KEYS: isDevEnv() || isTestEnv() ? '00beef0000beef0000beef0000beef00' : '',
         CAPTURE_INTERNAL_URL: isProdEnv()
             ? 'http://capture.posthog.svc.cluster.local:3000/capture'

@@ -51,6 +51,8 @@ export interface HogExecutorConfig {
 export interface HogExecutorAsyncContext {
     teamManager: TeamManager
     siteUrl: string
+    llmGatewayUrl: string
+    llmGatewayApiKey: string
 }
 
 const cdpHttpRequests = new Counter({

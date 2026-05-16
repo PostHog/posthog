@@ -489,7 +489,12 @@ export function createHogTransformerService(
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
         },
-        { teamManager: deps.teamManager, siteUrl: config.SITE_URL },
+        {
+            teamManager: deps.teamManager,
+            siteUrl: config.SITE_URL,
+            llmGatewayUrl: config.LLM_GATEWAY_URL,
+            llmGatewayApiKey: config.LLM_GATEWAY_API_KEY,
+        },
         hogInputsService,
         emailService,
         recipientTokensService
