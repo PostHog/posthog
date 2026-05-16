@@ -168,9 +168,28 @@ FLOATING_LITERAL
     | DOT DECIMAL_LITERAL E (PLUS | DASH)? DEC_DIGIT+
     | DECIMAL_LITERAL E (PLUS | DASH)? DEC_DIGIT+
     ;
+// Binary integer literals (Postgres-style `0b1010`). Declared before
+// the other integer-literal tokens so that on length ties ANTLR's
+// declaration-order tiebreaker prefers BINARY over MALFORMED_BINARY_LITERAL
+// below (which matches the same span on a valid shape like `0b1010` and
+// would otherwise win arbitrarily).
+BINARY_LITERAL: '0' B BIN_DIGIT+;
 OCTAL_LITERAL: '0' OCT_DIGIT+;
 DECIMAL_LITERAL: DEC_DIGIT+;
 HEXADECIMAL_LITERAL: '0' X HEX_DIGIT+;
+// Postgres-16+ octal-literal syntax `0o<digits>`. HogQL deliberately
+// does NOT support this — ClickHouse rejects it as an unknown column,
+// and pre-pg16 Postgres rejected it as a syntax error. We lex it as a
+// real number-shaped token so the visitor can throw a clear error
+// pointing at the offending literal in every position (WHERE,
+// arithmetic, alias, …), rather than leaving the user with a generic
+// "no viable alternative" parse error. The visitor in `visitNumberLiteral`
+// always raises on this token.
+OCTAL_PREFIX_LITERAL: '0' [oO] DEC_DIGIT+;
+// Catch malformed binary shapes (`0b22`, `0bA`-like with leading digits)
+// that BINARY_LITERAL above didn't consume — without this fallback they'd
+// re-tokenise as `0` + IDENTIFIER and silently mis-alias.
+MALFORMED_BINARY_LITERAL: '0' [bB] DEC_DIGIT+;
 
 // It's important that quote-symbol is a single character.
 STRING_LITERAL: QUOTE_SINGLE ( ~([\\']) | ESCAPE_CHAR_COMMON | BACKSLASH QUOTE_SINGLE | (QUOTE_SINGLE QUOTE_SINGLE) )* QUOTE_SINGLE;
@@ -206,6 +225,7 @@ fragment Y: [yY];
 fragment Z: [zZ];
 
 fragment LETTER: [a-zA-Z];
+fragment BIN_DIGIT: [01];
 fragment OCT_DIGIT: [0-7];
 fragment DEC_DIGIT: [0-9];
 fragment HEX_DIGIT: [0-9a-fA-F];

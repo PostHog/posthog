@@ -1839,12 +1839,40 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         # "0xfe" would otherwise route through float() and raise ValueError.
         if abs_text.startswith("0x"):
             return ast.Constant(value=sign * int(abs_text, 16))
-        if "." in abs_text or "e" in abs_text or abs_text == "inf" or abs_text == "nan":
+        # Binary (`0b<binary-digits>`) is a real lexer token thanks to
+        # BINARY_LITERAL — strip the `0b` prefix and parse base 2.
+        if abs_text.startswith("0b"):
+            return ast.Constant(value=sign * int(abs_text[2:], 2))
+        # `0o<digits>` is a real lexer token (OCTAL_PREFIX_LITERAL) so we
+        # can throw a meaningful error here rather than leaving the user
+        # with a generic parser-level "no viable alternative". Postgres
+        # 16+ adopted this syntax; ClickHouse and pre-pg16 Postgres both
+        # reject it, and HogQL deliberately follows suit. The single
+        # leading-`0` octal form (`017`) flows through OCTAL_LITERAL and
+        # is parsed as decimal — matching ClickHouse/Postgres — so the
+        # user doesn't lose access to literals; they just have to write
+        # them in decimal or hex.
+        if abs_text.startswith("0o"):
+            raise SyntaxError(
+                f"HogQL does not support `0o`-prefixed octal integer literals; got {text!r}. "
+                f"Use a plain decimal literal instead."
+            )
+        # `inf` / `infinity` (ClickHouse-style) and `nan` both reach here as
+        # whole-token text from the INF / NAN_SQL lexer rules. `float()`
+        # accepts both `"infinity"` and `"-infinity"` natively, so we just
+        # need to recognise both spellings here. Postgres rejects bare
+        # `Infinity` as a number literal but ClickHouse accepts it; HogQL
+        # follows ClickHouse.
+        if "." in abs_text or "e" in abs_text or abs_text == "inf" or abs_text == "infinity" or abs_text == "nan":
             return ast.Constant(value=float(text))
-        # Octal literals (leading '0' followed by more digits) must use base 8.
-        if len(abs_text) > 1 and abs_text[0] == "0":
-            return ast.Constant(value=sign * int(abs_text, 8))
-        return ast.Constant(value=sign * int(abs_text))
+        # Leading zeros on non-hex/binary integer literals are no-ops:
+        # both ClickHouse and Postgres ignore them entirely, so "017" → 17
+        # and "09" → 9. We deliberately do NOT recognise octal — the
+        # grammar's OCTAL_LITERAL token exists for historical reasons
+        # but should always be interpreted as decimal here. `int(_, 10)`
+        # silently drops a leading "0" even on shapes like "099" that
+        # would error under `int(_, 8)`.
+        return ast.Constant(value=sign * int(abs_text, 10))
 
     def visitLiteral(self, ctx: HogQLParser.LiteralContext):
         if ctx.NULL_SQL():

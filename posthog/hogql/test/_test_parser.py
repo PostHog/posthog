@@ -99,18 +99,155 @@ def parser_test_factory(backend: HogQLParserBackend):
                 # as a double — different from the exact int64 by 14, and Python int/float
                 # equality is exact (no implicit conversion) so the test catches it.
                 ("hex_breaks_double_precision", "0x100000000000000e", 0x100000000000000E),
-                # Octal: OCTAL_LITERAL tokens were being parsed as base-10 integers,
-                # e.g. "017" → 17 instead of 15.
-                ("octal_positive", "017", 15),
-                ("octal_negative", "-017", -15),
-                ("octal_positive_sign", "+017", 15),
+                # Leading-zero integer literals: in both ClickHouse and Postgres,
+                # a leading 0 on a non-hex integer literal is silently ignored,
+                # so "017" → 17 (decimal), NOT 15 (octal). Previous PostHog
+                # parsers reached the wrong answer in three different ways:
+                #   - Python `int("017", 8)` does parse as octal (15) — wrong vs CH/PG.
+                #   - Python `int("09", 8)` raises ValueError outright.
+                #   - C++ stoll(text, nullptr, 0) auto-detects radix from prefix:
+                #     "017" → 15 (octal), and "09" → 0 (strtoll stops at the
+                #     first non-octal digit and returns the partial parse).
+                # The fix is to drop octal interpretation entirely: leading
+                # zeros are no-ops, the value is always decimal.
+                ("leading_zero_017_decimal", "017", 17),
+                ("leading_zero_negative_017_decimal", "-017", -17),
+                ("leading_zero_signed_017_decimal", "+017", 17),
+                ("leading_zero_011", "011", 11),
+                ("leading_zero_018", "018", 18),
+                ("leading_zero_09", "09", 9),
+                ("leading_zero_019", "019", 19),
+                ("leading_zero_08", "08", 8),
+                ("leading_zero_099", "099", 99),
+                ("leading_zero_negative_09", "-09", -9),
                 # +inf: grammar admits `(PLUS | DASH)? INF`, but visitor only matched
                 # "inf" and "-inf", so "+inf" fell through to NaN.
                 ("positive_inf", "+inf", float("inf")),
+                # ClickHouse-style spellings: the INF lexer rule matches
+                # both `inf` and `infinity` (case-insensitive). Both
+                # visitors used to only match the short `"inf"` text, so
+                # `Infinity` came back as NaN (C++) or raised ValueError
+                # (Python). ClickHouse accepts all of these; Postgres
+                # rejects bare `Infinity` as a number literal but we
+                # follow ClickHouse here.
+                ("infinity_lowercase", "infinity", float("inf")),
+                ("infinity_titlecase", "Infinity", float("inf")),
+                ("infinity_uppercase", "INFINITY", float("inf")),
+                ("infinity_negative", "-Infinity", float("-inf")),
+                ("infinity_positive_sign", "+Infinity", float("inf")),
             ]
         )
         def test_signed_radix_number_literals(self, _name: str, expr: str, expected: int | float):
             self.assertEqual(self._expr(expr), ast.Constant(value=expected))
+
+        def test_select_columns_leading_zero_literals(self):
+            """A narrow regression: SELECT 9, 09, 011, 017, 018 should
+            resolve to 9, 9, 11, 17, 18. Both ClickHouse and Postgres
+            treat a leading 0 on an integer literal as a no-op — neither
+            recognises octal at all — so the parser must do the same
+            rather than re-interpreting "017" as 15. The end-to-end
+            SELECT form catches the bug at the same level a user writes
+            it, and exercises the visitor against a multi-column tuple
+            of constants rather than a single bare expression."""
+            select = cast(ast.SelectQuery, self._select("SELECT 9, 09, 011, 017, 018"))
+            self.assertEqual([cast(ast.Constant, c).value for c in select.select], [9, 9, 11, 17, 18])
+
+        @parameterized.expand(
+            [
+                # Bare integer expressions across the digit budget.
+                ("binary_zero", "0b0", 0),
+                ("binary_one", "0b1", 1),
+                ("binary_two_bit", "0b10", 2),
+                ("binary_byte", "0b1010", 10),
+                ("binary_uppercase_prefix", "0B11", 3),
+                ("binary_negative", "-0b1010", -10),
+                ("binary_positive_sign", "+0b11", 3),
+            ]
+        )
+        def test_binary_literals(self, _name: str, expr: str, expected: int):
+            """`0b<binary-digits>` is a real lexer token (BINARY_LITERAL).
+            ClickHouse supports binary integer literals natively, so HogQL
+            does too — they work in every position a number can appear
+            (bare expression, signed, inside arithmetic, in WHERE, etc.).
+            See `test_select_binary_literals_in_select` for end-to-end
+            coverage of the SELECT-column path, which is what the old
+            visitor wedge could and couldn't reach."""
+            self.assertEqual(self._expr(expr), ast.Constant(value=expected))
+
+        def test_select_binary_literals_in_select(self):
+            """End-to-end: a multi-column SELECT with bare, signed, and
+            in-arithmetic binary literals all resolve to integers. Before
+            BINARY_LITERAL became a real lexer token, the lexer split
+            `0b1010` into DECIMAL `0` + IDENTIFIER `b1010`, which made
+            this query silently parse as `SELECT 0 AS b1010, ...`."""
+            select = cast(ast.SelectQuery, self._select("SELECT 0b1010, 0b11 + 1, 0b0"))
+            values = []
+            for c in select.select:
+                if isinstance(c, ast.Constant):
+                    values.append(c.value)
+                else:
+                    values.append(c)  # arithmetic expr stays
+            self.assertEqual(values[0], 10)
+            self.assertEqual(values[2], 0)
+            # 0b11 + 1: 3 + 1 = 4, expressed as an ArithmeticOperation.
+            self.assertEqual(
+                values[1],
+                ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Add,
+                    left=ast.Constant(value=3),
+                    right=ast.Constant(value=1),
+                ),
+            )
+
+        def test_binary_literal_in_where(self):
+            """Binary literals work in WHERE — the column-only visitor
+            wedge couldn't reach this, but a real lexer token does."""
+            select = cast(ast.SelectQuery, self._select("SELECT 1 FROM events WHERE id = 0b1010"))
+            assert select.where is not None
+            where = cast(ast.CompareOperation, select.where)
+            self.assertEqual(cast(ast.Constant, where.right).value, 10)
+
+        @parameterized.expand(
+            [
+                ("octal_lowercase_o", "SELECT 0o11"),
+                ("octal_uppercase_o", "SELECT 0O11"),
+                ("octal_in_arithmetic", "SELECT 0o11 + 1"),
+                ("octal_in_where", "SELECT 1 FROM events WHERE id = 0o11"),
+                # `0o9` is even-more-invalid (9 isn't an octal digit) but
+                # the visitor doesn't distinguish — it rejects any
+                # OCTAL_PREFIX_LITERAL, valid octal digits or not.
+                ("octal_invalid_digit", "SELECT 0o9"),
+                ("octal_signed", "SELECT -0o11"),
+            ]
+        )
+        def test_postgres_octal_literals_rejected(self, _name: str, query: str):
+            """`0o<digits>` lexes as OCTAL_PREFIX_LITERAL (a real
+            number-shaped token), participates in `numberLiteral`, and
+            then `visitNumberLiteral` throws a clear error. ClickHouse
+            rejects this shape as an unknown column ("Missing columns:
+            '0o11'"), pre-pg16 Postgres rejected it as a syntax error,
+            and pg16 added it as octal — HogQL deliberately follows
+            ClickHouse / pre-pg16 PG. Valid octal-shaped decimal text
+            like `017` is lexed as OCTAL_LITERAL and parses as 17 (per
+            `test_signed_radix_number_literals`)."""
+            with self.assertRaises((ExposedHogQLError, SyntaxError)):
+                self._select(query)
+
+        @parameterized.expand(
+            [
+                ("invalid_digit_2", "SELECT 0b22"),
+                ("invalid_digit_9", "SELECT 0b9"),
+                ("partial_invalid", "SELECT 0b102"),
+            ]
+        )
+        def test_malformed_binary_literals_rejected(self, _name: str, query: str):
+            """`0b<non-binary-digit>` lexes as MALFORMED_BINARY_LITERAL,
+            which isn't referenced by any parser rule — so the parser
+            surfaces a uniform syntax error. The fallback is what stops
+            `0b22` from quietly re-tokenising as `0` + IDENTIFIER `b22`
+            and parsing as `SELECT 0 AS b22`."""
+            with self.assertRaises((ExposedHogQLError, SyntaxError)):
+                self._select(query)
 
         def test_booleans(self):
             self.assertEqual(self._expr("true"), ast.Constant(value=True))
