@@ -343,22 +343,20 @@ def _shrink_query(
 
 def _print_failure_sample(
     query: str,
+    shrunk: str | None,
     rule: str,
     oracle: str,
     candidate: str,
-    target_shape: DivergenceShape,
     *,
-    shrink: bool,
     diff_steps: list | None = None,
 ) -> None:
-    """Print one sample failure for either ast_mismatch (with diff path)
-    or candidate_reject (no diff path). If `shrink` is set, reduce the
-    query and print the shrunk form with a length hint. For
-    ast_mismatch samples, pass `diff_steps` so the diff path renders
-    against the original — or, when shrunk, against a freshly-parsed
-    pair from the reduced query for fidelity."""
-    shrunk = _shrink_query(query, rule, oracle, candidate, target_shape) if shrink else query
-    if shrink and shrunk != query:
+    """Print one sample failure. The caller pre-computes the shrunken
+    form (None if shrinking is off) — both this print path and the
+    JSONL writer pull from the same pre-shrunk string so they never
+    disagree on the minimal repro. For ast_mismatch samples, pass
+    `diff_steps` so the diff path renders against the original; when
+    a shrunk query is present, re-parse it for a fresh diff path."""
+    if shrunk is not None and shrunk != query:
         print(f"  query (shrunk {len(query)} -> {len(shrunk)}): {shrunk!r}")
         if diff_steps is not None:
             _, o_s = _try_parse(shrunk, rule, oracle)
@@ -432,8 +430,16 @@ def main() -> int:
             return 1
 
     counts: Counter[str] = Counter()
-    mismatch_buckets: dict[tuple[str, str], list[tuple[str, list]]] = {}
-    reject_buckets: dict[str, list[str]] = {}
+    # Buckets store `(query, shrunk_or_none, steps_for_mismatch)`. We
+    # shrink ONCE per failure (in `run()` below) and reuse the result
+    # both for the JSONL writer and the summary print loop — otherwise
+    # the two paths would shrink independently and could land on
+    # different minima of the same divergence (greedy deletion picks
+    # the first viable reduction at each step, so order matters), and
+    # a user cross-referencing the two outputs would see two
+    # different "minimal" repros for the same bug.
+    mismatch_buckets: dict[tuple[str, str], list[tuple[str, str | None, list]]] = {}
+    reject_buckets: dict[str, list[tuple[str, str | None]]] = {}
 
     base_strategy = expr_strategy() if args.rule == "expr" else select_strategy()
     strategy = base_strategy.flatmap(_apply_jiggle) if args.jiggle else base_strategy
@@ -445,12 +451,12 @@ def main() -> int:
     jsonl_file: Any = None
     jsonl_count = 0
 
-    def write_record(rec: dict, shape_for_shrink: DivergenceShape | None) -> None:
+    def write_record(rec: dict, shrunk: str | None) -> None:
         nonlocal jsonl_count
         if jsonl_file is None:
             return
-        if args.shrink_failures and shape_for_shrink is not None:
-            rec["query_shrunk"] = _shrink_query(rec["query"], args.rule, oracle, candidate, shape_for_shrink)
+        if shrunk is not None:
+            rec["query_shrunk"] = shrunk
         if "diff_path" in rec:
             rec["diff_path"] = [list(s) if isinstance(s, tuple) else s for s in rec["diff_path"]]
         jsonl_file.write(json.dumps(rec) + "\n")
@@ -474,7 +480,9 @@ def main() -> int:
         if not c_ok:
             counts["candidate_reject"] += 1
             sig = _reject_error(query, args.rule, candidate)
-            reject_buckets.setdefault(sig, []).append(query)
+            shape = DivergenceShape(kind="candidate_reject", reject_signature=sig)
+            shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
+            reject_buckets.setdefault(sig, []).append((query, shrunk))
             write_record(
                 {
                     "kind": "candidate_reject",
@@ -484,7 +492,7 @@ def main() -> int:
                     "query": query,
                     "reject_signature": sig,
                 },
-                DivergenceShape(kind="candidate_reject", reject_signature=sig),
+                shrunk,
             )
             return
 
@@ -495,7 +503,9 @@ def main() -> int:
         counts["ast_mismatch"] += 1
         bucket = (_node_type(o_ast), _node_type(c_ast))
         steps = _diff_path(o_ast, c_ast)
-        mismatch_buckets.setdefault(bucket, []).append((query, steps))
+        shape = _ast_mismatch_shape(bucket, steps)
+        shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
+        mismatch_buckets.setdefault(bucket, []).append((query, shrunk, steps))
         write_record(
             {
                 "kind": "ast_mismatch",
@@ -507,7 +517,7 @@ def main() -> int:
                 "candidate_root": bucket[1],
                 "diff_path": steps,
             },
-            _ast_mismatch_shape(bucket, steps),
+            shrunk,
         )
 
     try:
@@ -541,16 +551,8 @@ def main() -> int:
         print(f"=== Sample mismatches (up to {args.max_mismatch_samples} per category) ===")
         for (o_t, c_t), examples in sorted_mismatch_buckets:
             print(f"\n--- {o_t} vs {c_t} ({len(examples)} total) ---")
-            for query, steps in examples[: args.max_mismatch_samples]:
-                _print_failure_sample(
-                    query,
-                    args.rule,
-                    oracle,
-                    candidate,
-                    _ast_mismatch_shape((o_t, c_t), steps),
-                    shrink=args.shrink_failures,
-                    diff_steps=steps,
-                )
+            for query, shrunk, steps in examples[: args.max_mismatch_samples]:
+                _print_failure_sample(query, shrunk, args.rule, oracle, candidate, diff_steps=steps)
 
     # ---- candidate_reject categorization + samples ------------------------
     # The category summary always prints (parity with the ast_mismatch
@@ -568,9 +570,8 @@ def main() -> int:
             print(f"=== Sample candidate_rejects (up to {args.max_mismatch_samples} per category) ===")
             for sig, queries in sorted_reject_buckets:
                 print(f"\n--- {sig} ({len(queries)} total) ---")
-                shape = DivergenceShape(kind="candidate_reject", reject_signature=sig)
-                for query in queries[: args.max_mismatch_samples]:
-                    _print_failure_sample(query, args.rule, oracle, candidate, shape, shrink=args.shrink_failures)
+                for query, shrunk in queries[: args.max_mismatch_samples]:
+                    _print_failure_sample(query, shrunk, args.rule, oracle, candidate)
 
     if args.write_divergences:
         print()

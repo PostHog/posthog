@@ -84,16 +84,10 @@ def _shape_from_corpus_entry(entry: dict) -> DivergenceShape:
     return DivergenceShape(kind="candidate_reject", reject_signature=entry.get("expected_reject_signature"))
 
 
-def _bucket_key(shape: DivergenceShape) -> tuple:
-    """Hashable identity for a divergence shape, used to dedup
-    divergences in the extract pass."""
-    if shape.kind == "ast_mismatch":
-        return ("ast_mismatch", shape.root_pair, shape.terminal_kind, shape.terminal_types)
-    return ("candidate_reject", shape.reject_signature)
-
-
 def cmd_extract(args: argparse.Namespace) -> int:
-    seen: dict[tuple, dict] = {}
+    # `DivergenceShape` is a frozen dataclass so it's hashable on its
+    # own fields — use the shape directly as the dedup key.
+    seen: dict[DivergenceShape, dict] = {}
     skipped_no_shrunk = 0
     with open(args.src) as f:
         for line in f:
@@ -102,8 +96,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
                 skipped_no_shrunk += 1
                 continue
             shape = _shape_from_divergence(rec)
-            key = _bucket_key(shape)
-            if key in seen:
+            if shape in seen:
                 continue
             # Prefer the shrunken query if available.
             entry = {
@@ -123,7 +116,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
                     entry["expected_terminal_candidate"] = shape.terminal_types[1]
             else:
                 entry["expected_reject_signature"] = shape.reject_signature
-            seen[key] = entry
+            seen[shape] = entry
 
     with open(args.dst, "w") as f:
         for entry in seen.values():
