@@ -447,7 +447,7 @@ def main() -> int:
     # the `KeyError` a typoed `--candidate` raises.
     for label, backend in (("oracle", args.oracle), ("candidate", args.candidate)):
         try:
-            parse_select("SELECT 1", backend=backend)  # type: ignore[arg-type]
+            parse_select("SELECT 1", backend=backend)
         except BaseHogQLError:
             pass  # rejecting `SELECT 1` would be surprising but isn't a backend failure
         except Exception as e:
