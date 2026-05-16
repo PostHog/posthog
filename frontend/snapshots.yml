@@ -1452,6 +1452,22 @@ snapshots:
         hash: v1.k794b7964.5d0d328d83dd60bee58184c0c33ec821333a741e828d9912c45804c2f608a7d4.fE4t8YqdB3Ohnsxul2QTfJ_too7TAUNk0rZgr7Ll1Es
     exporter-funnels--funnel-top-to-bottom-insight-no-results--light:
         hash: v1.k794b7964.9225d8fd25066264d4b17b2f2e1eaf912252f71215ef01f66375d816baa65b5b.rnlYKUzVzsDLlpiLMAhUCDJTh_3kbaraSu98rjmdmEc
+    exporter-interview--default--medium--dark:
+        hash: v1.k794b7964.7c4eb178ea47aecef441a210979fd749a5393e612c3116c5aea81fcfa5fd01fc.QmSK8ISG9yruiBWiU6f7Ef706DTEvpTqDx8hJWJ53kM
+    exporter-interview--default--medium--light:
+        hash: v1.k794b7964.d4ce02ae0b66a073a445985d229f3a24b71c5c8a42f6f39c32d0d6186d0dc568.Kg9QjtCPGiRvNuXeoz6FMKRgD8zs9zu3ldBS7i87T6Y
+    exporter-interview--default--narrow--dark:
+        hash: v1.k794b7964.4534dd934dd7b596d5e0f7eae452809f6bab2c212703d5d81fd2265ef0a56201.GD7KsJkH1LDNFyjIkcP8iKkBnJ610NYUk34quRnzHP0
+    exporter-interview--default--narrow--light:
+        hash: v1.k794b7964.0b5b45f4dded145fc0caee559eae27bc48e351ace5755c66ceb3539a2148b81a.TrV6E4VwY1GTujrD620T6jE5gF2WTqHCDIXi6P4925w
+    exporter-interview--default--superwide--dark:
+        hash: v1.k794b7964.e2b7be92c8dda676881b79c1ebee852fdf0da4ae9308538300626d76aa4808ec.XsZFx-0VpczPh1ok3v9MJ4vMq4NOenahTfn2DmpGaLQ
+    exporter-interview--default--superwide--light:
+        hash: v1.k794b7964.a3938a530517fe018b35ea523063fea3dfb21eb8751b5c7fe580b98a3f1e45ca.A05A4GLE7zM2g_QYoLZFK3YZJVv9jRkSXosLC8poJfo
+    exporter-interview--default--wide--dark:
+        hash: v1.k794b7964.7822c8871f1bb27bde31297394f0e8dc9cc6d80066d44d2b9d21f393816becb4.WbD1ja7-iBct5bq_yiSjKd1LVvCuhpDcsKcbK9acD80
+    exporter-interview--default--wide--light:
+        hash: v1.k794b7964.fe86239bbd8dc4e4556a9c0b7d69f46c5c43b700f0a7476d868fb0a47e61188a.PQPuSD0pjKnAog9H8u-XRvGiao8qVi3fNEIFSAkcr-E
     exporter-other--event-table-insight--dark:
         hash: v1.k794b7964.cdefc1d85f5f375fb9b15ecb4b6a371e98175c5ae136d57dd3b6d204096457c2.IRs92pwVTJ7WYExLWPu1he-krTNZ8WtsG9Rwgm6qYrs
     exporter-other--event-table-insight--light:
