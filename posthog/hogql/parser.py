@@ -626,19 +626,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 else:
                     limit = self.visit(exprs[0]) if exprs else None
                     offset = None
-                # Apply the set-stmt-level limit/offset on top of the
-                # initial query. Two correctness rules, both fixing a
-                # Python-vs-C++ divergence (C++ already did this):
-                #   1. Only override `offset` when the outer clause
-                #      actually specified one — otherwise a trailing
-                #      bare `LIMIT n` on a query that already has an
-                #      OFFSET (e.g. `(select 1 offset 5) limit 3`)
-                #      clobbers that offset to None, which C++ keeps.
-                #   2. Apply to a SelectSetQuery initial too — a
-                #      paren-wrapped set with a trailing `LIMIT a, b`
-                #      (e.g. `((select 1) intersect (select 2)) limit 3, 4`)
-                #      is a valid shape; the limit/offset belong on the
-                #      SelectSetQuery, which Python previously dropped.
+                # Apply set-level limit/offset to the initial query —
+                # SelectSetQuery too (not just SelectQuery), and don't
+                # let a bare `LIMIT n` clobber an existing offset. Both
+                # match C++.
                 if isinstance(initial_query, (ast.SelectQuery, ast.SelectSetQuery)):
                     initial_query.limit = limit
                     if offset is not None:
@@ -1850,43 +1841,22 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if abs_text.startswith("-"):
             sign = -1
             abs_text = abs_text[1:]
-        # Hex must be dispatched BEFORE the float guard: hex digits include 'e', so
-        # "0xfe" would otherwise route through float() and raise ValueError.
+        # Hex before the float guard: hex digits include 'e', so "0xfe" would route through float().
         if abs_text.startswith("0x"):
             return ast.Constant(value=sign * int(abs_text, 16))
-        # Binary (`0b<binary-digits>`) is a real lexer token thanks to
-        # BINARY_LITERAL — strip the `0b` prefix and parse base 2.
+        # `0b…` is the BINARY_LITERAL lexer token; strip the prefix, parse base 2.
         if abs_text.startswith("0b"):
             return ast.Constant(value=sign * int(abs_text[2:], 2))
-        # `0o<digits>` is a real lexer token (OCTAL_PREFIX_LITERAL) so we
-        # can throw a meaningful error here rather than leaving the user
-        # with a generic parser-level "no viable alternative". Postgres
-        # 16+ adopted this syntax; ClickHouse and pre-pg16 Postgres both
-        # reject it, and HogQL deliberately follows suit. The single
-        # leading-`0` octal form (`017`) flows through OCTAL_LITERAL and
-        # is parsed as decimal — matching ClickHouse/Postgres — so the
-        # user doesn't lose access to literals; they just have to write
-        # them in decimal or hex.
+        # `0o…` (OCTAL_PREFIX_LITERAL): rejected — ClickHouse and pre-pg16 Postgres reject it too.
         if abs_text.startswith("0o"):
             raise SyntaxError(
                 f"HogQL does not support `0o`-prefixed octal integer literals; got {text!r}. "
                 f"Use a plain decimal literal instead."
             )
-        # `inf` / `infinity` (ClickHouse-style) and `nan` both reach here as
-        # whole-token text from the INF / NAN_SQL lexer rules. `float()`
-        # accepts both `"infinity"` and `"-infinity"` natively, so we just
-        # need to recognise both spellings here. Postgres rejects bare
-        # `Infinity` as a number literal but ClickHouse accepts it; HogQL
-        # follows ClickHouse.
+        # INF/NAN_SQL tokens: `float()` handles both "inf"/"infinity" spellings.
         if "." in abs_text or "e" in abs_text or abs_text == "inf" or abs_text == "infinity" or abs_text == "nan":
             return ast.Constant(value=float(text))
-        # Leading zeros on non-hex/binary integer literals are no-ops:
-        # both ClickHouse and Postgres ignore them entirely, so "017" → 17
-        # and "09" → 9. We deliberately do NOT recognise octal — the
-        # grammar's OCTAL_LITERAL token exists for historical reasons
-        # but should always be interpreted as decimal here. `int(_, 10)`
-        # silently drops a leading "0" even on shapes like "099" that
-        # would error under `int(_, 8)`.
+        # Leading zeros are no-ops, never octal — "017" → 17, "09" → 9 — matching ClickHouse/Postgres.
         return ast.Constant(value=sign * int(abs_text, 10))
 
     def visitLiteral(self, ctx: HogQLParser.LiteralContext):
