@@ -54,6 +54,9 @@ const DEFAULT_TAGGER_CONFIG: TaggerConfig = {
     tags: [{ name: '', description: '' }],
     min_tags: 0,
     max_tags: null,
+    tag_source: 'static',
+    tag_source_url: null,
+    tag_source_prompt: null,
 }
 
 const DEFAULT_CONDITION: TaggerConditionSet = {
@@ -232,41 +235,92 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
     forms(({ props }) => ({
         taggerForm: {
             defaults: DEFAULT_FORM,
-            errors: (values: TaggerForm) => ({
-                name: !values.name ? 'Name is required' : undefined,
-                tagger_config:
-                    values.tagger_type === 'hog'
-                        ? {
-                              source: !('source' in values.tagger_config && values.tagger_config.source?.trim())
-                                  ? 'Hog source code is required'
+            errors: (values: TaggerForm) => {
+                if (values.tagger_type === 'hog') {
+                    return {
+                        name: !values.name ? 'Name is required' : undefined,
+                        tagger_config: {
+                            source: !('source' in values.tagger_config && values.tagger_config.source?.trim())
+                                ? 'Hog source code is required'
+                                : undefined,
+                        },
+                    }
+                }
+                // LLM tagger — branch on tag_source. Missing tag_source (legacy taggers)
+                // behaves like 'static' so existing forms stay valid.
+                const tagSource = ('tag_source' in values.tagger_config && values.tagger_config.tag_source) || 'static'
+                const promptError = !('prompt' in values.tagger_config && values.tagger_config.prompt)
+                    ? 'Prompt is required'
+                    : undefined
+                if (tagSource === 'dynamic') {
+                    const url = ('tag_source_url' in values.tagger_config && values.tagger_config.tag_source_url) || ''
+                    const extractionPrompt =
+                        ('tag_source_prompt' in values.tagger_config && values.tagger_config.tag_source_prompt) || ''
+                    let urlError: string | undefined
+                    if (!url.trim()) {
+                        urlError = 'URL is required'
+                    } else {
+                        try {
+                            const parsed = new URL(url)
+                            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                                urlError = 'URL must start with http:// or https://'
+                            }
+                        } catch {
+                            urlError = 'Enter a valid URL'
+                        }
+                    }
+                    return {
+                        name: !values.name ? 'Name is required' : undefined,
+                        tagger_config: {
+                            prompt: promptError,
+                            tag_source_url: urlError,
+                            tag_source_prompt: !extractionPrompt.trim() ? 'Extraction prompt is required' : undefined,
+                        },
+                    }
+                }
+                return {
+                    name: !values.name ? 'Name is required' : undefined,
+                    tagger_config: {
+                        prompt: promptError,
+                        // kea-forms expects per-tag errors as an array matching tags[]. The
+                        // array type does not allow `undefined` slots, so use `{}` for
+                        // tags with no error. Synthesize a single-entry error for the
+                        // empty-tags case so the form stays invalid (the UI guardrail
+                        // blocks reaching this state, but a programmatic removeTag could).
+                        tags:
+                            values.tagger_config.tags.length === 0
+                                ? [{ name: 'At least one tag is required' }]
+                                : values.tagger_config.tags.some((t) => !t.name.trim())
+                                  ? values.tagger_config.tags.map((t) =>
+                                        !t.name.trim() ? { name: 'All tags must have a name' } : {}
+                                    )
                                   : undefined,
-                          }
-                        : {
-                              prompt: !('prompt' in values.tagger_config && values.tagger_config.prompt)
-                                  ? 'Prompt is required'
-                                  : undefined,
-                              // kea-forms expects per-tag errors as an array matching tags[]. The
-                              // array type does not allow `undefined` slots, so use `{}` for
-                              // tags with no error. Synthesize a single-entry error for the
-                              // empty-tags case so the form stays invalid (the UI guardrail
-                              // blocks reaching this state, but a programmatic removeTag could).
-                              tags:
-                                  values.tagger_config.tags.length === 0
-                                      ? [{ name: 'At least one tag is required' }]
-                                      : values.tagger_config.tags.some((t) => !t.name.trim())
-                                        ? values.tagger_config.tags.map((t) =>
-                                              !t.name.trim() ? { name: 'All tags must have a name' } : {}
-                                          )
-                                        : undefined,
-                          },
-            }),
+                    },
+                }
+            },
             submit: async (values: TaggerForm) => {
+                const isDynamic =
+                    values.tagger_type === 'llm' &&
+                    'tag_source' in values.tagger_config &&
+                    values.tagger_config.tag_source === 'dynamic'
                 const payload = {
                     ...values,
-                    tagger_config: {
-                        ...values.tagger_config,
-                        tags: values.tagger_config.tags.filter((t) => t.name.trim()),
-                    },
+                    tagger_config: isDynamic
+                        ? {
+                              // Dynamic mode: tag list is derived at runtime, so don't persist
+                              // any half-typed static tags alongside it.
+                              ...values.tagger_config,
+                              tags: [],
+                          }
+                        : {
+                              ...values.tagger_config,
+                              tags: values.tagger_config.tags.filter((t) => t.name.trim()),
+                              // Static (or hog) mode: clear the dynamic fields so we don't
+                              // leave dead URL/prompt config on the saved tagger.
+                              ...(values.tagger_type === 'llm'
+                                  ? { tag_source_url: null, tag_source_prompt: null }
+                                  : {}),
+                          },
                 }
 
                 if (props.id === 'new') {

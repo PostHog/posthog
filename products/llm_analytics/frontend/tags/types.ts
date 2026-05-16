@@ -35,11 +35,18 @@ export interface TagDefinition {
 
 export type TaggerType = 'llm' | 'hog'
 
+export type TagSource = 'static' | 'dynamic'
+
 export interface LLMTaggerConfig {
     prompt: string
     tags: TagDefinition[]
     min_tags: number
     max_tags: number | null
+    // Optional on the type so taggers persisted before the dynamic-tag flow shipped
+    // still parse. UI defaults a missing value to 'static'.
+    tag_source?: TagSource
+    tag_source_url?: string | null
+    tag_source_prompt?: string | null
 }
 
 export interface HogTaggerConfig {
