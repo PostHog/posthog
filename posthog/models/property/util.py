@@ -988,9 +988,10 @@ _ALLOWED_ISSUE_FILTER_KEYS = {"name", "status", "issue_description", "first_seen
 
 
 def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFilter):
-    # Allowlist prevents ORM relationship traversal via Django's __ notation
+    # Allowlist prevents ORM relationship traversal via Django's __ notation.
+    # Raise DRF ValidationError so callers get a 400 instead of an unhandled 500.
     if property.key not in _ALLOWED_ISSUE_FILTER_KEYS:
-        raise ValueError(f"Unsupported error tracking filter key: {property.key}")
+        raise exceptions.ValidationError(f"Unsupported error tracking filter key: {property.key}")
 
     operator = property.operator
     value = property.value
