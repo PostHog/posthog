@@ -12,7 +12,15 @@ from django.core import mail
 from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 
-from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, EmailMessage, _send_email, sanitize_email_properties
+from posthog.email import (
+    CUSTOMER_IO_TEMPLATE_ID_MAP,
+    SMTP_CONNECTION_TIMEOUT_SECONDS,
+    EmailMessage,
+    _send_email,
+    _send_via_smtp,
+    _validate_smtp_settings,
+    sanitize_email_properties,
+)
 from posthog.models import Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.messaging import MessagingRecord
@@ -322,3 +330,78 @@ class TestEmail(BaseTest):
 
             # Raw email should remain unchanged
             self.assertEqual(message.to[0]["raw_email"], "test@example.com")
+
+    def test_validate_smtp_settings_accepts_valid_combinations(self) -> None:
+        # port 465 with implicit TLS
+        self.assertIsNone(_validate_smtp_settings(port=465, use_tls=False, use_ssl=True))
+        # port 587 with STARTTLS
+        self.assertIsNone(_validate_smtp_settings(port=587, use_tls=True, use_ssl=False))
+        # port 25 plaintext
+        self.assertIsNone(_validate_smtp_settings(port=25, use_tls=False, use_ssl=False))
+
+    def test_validate_smtp_settings_rejects_mutually_exclusive_flags(self) -> None:
+        err = _validate_smtp_settings(port=465, use_tls=True, use_ssl=True)
+        assert err is not None
+        self.assertIn("mutually exclusive", err)
+
+    def test_validate_smtp_settings_rejects_port_465_with_starttls(self) -> None:
+        # The exact misconfiguration from posthog/posthog#57936.
+        err = _validate_smtp_settings(port=465, use_tls=True, use_ssl=False)
+        assert err is not None
+        self.assertIn("EMAIL_PORT=465", err)
+        self.assertIn("implicit TLS", err)
+
+    def test_validate_smtp_settings_rejects_port_587_with_implicit_tls(self) -> None:
+        err = _validate_smtp_settings(port=587, use_tls=False, use_ssl=True)
+        assert err is not None
+        self.assertIn("EMAIL_PORT=587", err)
+        self.assertIn("STARTTLS", err)
+
+    @patch("posthog.email.import_string")
+    def test_send_via_smtp_raises_on_port_465_with_starttls(self, mock_import_string: MagicMock) -> None:
+        backend = MagicMock()
+        mock_import_string.return_value = MagicMock(return_value=backend)
+
+        with (
+            override_instance_config("EMAIL_HOST", "smtp.example.com"),
+            override_instance_config("EMAIL_PORT", 465),
+            override_instance_config("EMAIL_USE_TLS", True),
+            override_instance_config("EMAIL_USE_SSL", False),
+        ):
+            _send_via_smtp(
+                to=[{"raw_email": "user@example.com", "recipient": "user@example.com"}],
+                campaign_key="test_validate_smtp",
+                subject="hi",
+                txt_body="hi",
+                html_body="<p>hi</p>",
+                headers={},
+            )
+
+        # Connection construction must never happen for an invalid combo —
+        # otherwise the request hangs on connection.open() instead of failing fast.
+        backend.open.assert_not_called()
+
+    @patch("posthog.email.import_string")
+    def test_send_via_smtp_passes_timeout_to_backend(self, mock_import_string: MagicMock) -> None:
+        klass = MagicMock()
+        mock_import_string.return_value = klass
+
+        with (
+            override_instance_config("EMAIL_HOST", "smtp.example.com"),
+            override_instance_config("EMAIL_PORT", 587),
+            override_instance_config("EMAIL_USE_TLS", True),
+            override_instance_config("EMAIL_USE_SSL", False),
+        ):
+            _send_via_smtp(
+                to=[{"raw_email": "timeout-check@example.com", "recipient": "timeout-check@example.com"}],
+                campaign_key="test_smtp_timeout",
+                subject="hi",
+                txt_body="hi",
+                html_body="<p>hi</p>",
+                headers={},
+            )
+
+        # Whatever else changes, the backend must be constructed with an
+        # explicit timeout so smtplib doesn't fall back to the OS default.
+        _, kwargs = klass.call_args
+        self.assertEqual(kwargs["timeout"], SMTP_CONNECTION_TIMEOUT_SECONDS)

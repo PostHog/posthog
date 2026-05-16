@@ -58,6 +58,34 @@ def is_smtp_email_service_available() -> bool:
     return bool(get_instance_setting("EMAIL_HOST"))
 
 
+# Hard cap on SMTP socket waits. Without an explicit timeout, smtplib falls back
+# to the OS default — typically minutes — so a misconfigured host + port (e.g.
+# port 465 with EMAIL_USE_TLS=True, where the server expects implicit TLS
+# from the first byte) hangs the request that triggered the send.
+SMTP_CONNECTION_TIMEOUT_SECONDS = 10
+
+
+def _validate_smtp_settings(port: int, use_tls: bool, use_ssl: bool) -> Optional[str]:
+    """
+    Returns a human-readable error string when the SMTP encryption settings are
+    inconsistent with the chosen port. Returns None when the combination is valid.
+    """
+    if use_tls and use_ssl:
+        return "EMAIL_USE_TLS and EMAIL_USE_SSL are mutually exclusive — set exactly one."
+    if port == 465 and use_tls and not use_ssl:
+        return (
+            "EMAIL_PORT=465 expects implicit TLS (SMTPS) — set EMAIL_USE_SSL=true and "
+            "EMAIL_USE_TLS=false. EMAIL_USE_TLS opens a plain socket and waits for STARTTLS, "
+            "which port 465 never offers, so the connection hangs."
+        )
+    if port == 587 and use_ssl and not use_tls:
+        return (
+            "EMAIL_PORT=587 expects STARTTLS — set EMAIL_USE_TLS=true and EMAIL_USE_SSL=false. "
+            "EMAIL_USE_SSL initiates implicit TLS, which port 587 typically rejects."
+        )
+    return None
+
+
 def is_email_available(with_absolute_urls: bool = False) -> bool:
     """
     Returns whether email services are available on this instance (i.e. settings are in place).
@@ -236,14 +264,23 @@ def _send_via_smtp(
 
         connection = None
         try:
+            port = get_instance_setting("EMAIL_PORT")
+            use_tls = get_instance_setting("EMAIL_USE_TLS")
+            use_ssl = get_instance_setting("EMAIL_USE_SSL")
+
+            config_error = _validate_smtp_settings(port, use_tls, use_ssl)
+            if config_error:
+                raise ValueError(f"Invalid SMTP configuration: {config_error}")
+
             klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
             connection = klass(
                 host=get_instance_setting("EMAIL_HOST"),
-                port=get_instance_setting("EMAIL_PORT"),
+                port=port,
                 username=get_instance_setting("EMAIL_HOST_USER"),
                 password=get_instance_setting("EMAIL_HOST_PASSWORD"),
-                use_tls=get_instance_setting("EMAIL_USE_TLS"),
-                use_ssl=get_instance_setting("EMAIL_USE_SSL"),
+                use_tls=use_tls,
+                use_ssl=use_ssl,
+                timeout=SMTP_CONNECTION_TIMEOUT_SECONDS,
             )
             connection.open()
             connection.send_messages(messages)
