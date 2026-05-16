@@ -136,26 +136,31 @@ def cmd_check(args: argparse.Namespace) -> int:
     fixed / regressed. Exit 0 iff no regressions."""
     counts: Counter[str] = Counter()
     sample: dict[str, list[str]] = {"fixed": [], "regressed": [], "still_diverges": []}
-    # Sanity-probe each (oracle, candidate) pair we'll use the first
-    # time we see it. `_shape_for` -> `_try_parse` swallows the
+    # Sanity-probe each (oracle, candidate, rule) tuple we'll use the
+    # first time we see it. `_shape_for` -> `_try_parse` swallows the
     # `KeyError` raised by an invalid backend name silently, which
     # would classify every corpus entry as "fixed" with no error.
     # Probing lazily inside the loop catches both `--oracle` /
     # `--candidate` typos AND corpus files referring to backends that
-    # were removed since the corpus was generated.
-    probed: set[tuple[str, str]] = set()
+    # were removed since the corpus was generated. The `rule` is part
+    # of the key because a backend with partial coverage (e.g. expr
+    # only, no select) needs to be caught for EACH rule the corpus
+    # uses — otherwise the first entry's rule probes successfully and
+    # the unprobed rule's entries all silently misclassify.
+    probed: set[tuple[str, str, str]] = set()
     with open(args.corpus) as f:
         for line in f:
             entry = json.loads(line)
             oracle = args.oracle or entry["oracle"]
             candidate = args.candidate or entry["candidate"]
-            if (oracle, candidate) not in probed:
+            rule = entry["rule"]
+            if (oracle, candidate, rule) not in probed:
                 for label, backend in (("oracle", oracle), ("candidate", candidate)):
-                    err = _probe_backend(entry["rule"], backend)
+                    err = _probe_backend(rule, backend)
                     if err is not None:
-                        print(f"ERROR: {label} backend {backend!r} unavailable: {err}")
+                        print(f"ERROR: {label} backend {backend!r} unavailable for rule {rule!r}: {err}")
                         return 2
-                probed.add((oracle, candidate))
+                probed.add((oracle, candidate, rule))
             shape = _shape_for(entry["query"], entry["rule"], oracle, candidate)
             if shape is None:
                 counts["fixed"] += 1
