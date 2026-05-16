@@ -5648,16 +5648,16 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ast.Call(name="columns", args=[], filter_expr=ast.Constant(value=1)),
             )
 
-        def test_infinity_keyword_is_nan(self):
-            # NaN can't be checked with ==, so unwrap and use math.isnan.
-            parsed = self._expr("infinity")
-            self.assertIsInstance(parsed, ast.Constant)
-            self.assertTrue(math.isnan(cast(ast.Constant, parsed).value))
+        def test_infinity_keyword_parses_as_inf(self):
+            # The INF lexer rule matches `inf` and `infinity` (case-insensitive),
+            # matching ClickHouse / Postgres which both treat `infinity` as a
+            # synonym for +Infinity. Earlier cpp behaviour collapsed anything
+            # other than exact `inf` / `-inf` to NaN — that was a quirk of the
+            # number-literal visitor, not the intended grammar semantics.
+            self.assertEqual(self._expr("infinity"), ast.Constant(value=float("inf")))
 
-        def test_negative_infinity_is_nan(self):
-            parsed = self._expr("-infinity")
-            self.assertIsInstance(parsed, ast.Constant)
-            self.assertTrue(math.isnan(cast(ast.Constant, parsed).value))
+        def test_negative_infinity_keyword_parses_as_neg_inf(self):
+            self.assertEqual(self._expr("-infinity"), ast.Constant(value=float("-inf")))
 
         def test_order_by_in_call_then_postfix_call(self):
             self.assertEqual(
@@ -5971,11 +5971,18 @@ def parser_test_factory(backend: HogQLParserBackend):
         def test_octal_with_tuple_access(self):
             self.assertEqual(self._expr("017.5"), ast.TupleAccess(tuple=ast.Constant(value=15), index=5))
 
-        def test_octal_partial_prefix(self):
-            self.assertEqual(self._expr("019"), ast.Constant(value=1))
+        def test_leading_zero_with_non_octal_digit_parses_as_decimal(self):
+            # `019` has digit `9`, which the OCTAL_LITERAL lexer rule rejects,
+            # so it's tokenised as DECIMAL_LITERAL and the value is 19. The
+            # earlier cpp behaviour silently truncated to the longest valid
+            # octal prefix (returning 1), which was a `stoll(..., 0)` quirk —
+            # the lexer's choice of token kind is the right discriminator.
+            self.assertEqual(self._expr("019"), ast.Constant(value=19))
 
-        def test_octal_invalid_digit(self):
-            self.assertEqual(self._expr("08"), ast.Constant(value=0))
+        def test_leading_zero_with_eight_parses_as_decimal(self):
+            # Same shape as above with digit `8`. Was 0 under cpp's truncation
+            # bug; should be 8.
+            self.assertEqual(self._expr("08"), ast.Constant(value=8))
 
         def test_hex_with_tuple_access(self):
             self.assertEqual(self._expr("0xc.518790"), ast.TupleAccess(tuple=ast.Constant(value=12), index=518790))

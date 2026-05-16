@@ -629,9 +629,25 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 else:
                     limit = self.visit(exprs[0]) if exprs else None
                     offset = None
-                if isinstance(initial_query, ast.SelectQuery):
+                # Apply the set-stmt-level limit/offset on top of the
+                # initial query. The two correctness rules:
+                #   1. Only override `offset` when the outer clause
+                #      specified one — otherwise the trailing `LIMIT n`
+                #      in a chain like `LIMIT 3 OFFSET 2 LIMIT 7` would
+                #      clobber the inner OFFSET (which cpp preserves).
+                #   2. Apply to both SelectQuery and SelectSetQuery
+                #      initials — a paren-wrapped set with a trailing
+                #      `LIMIT a, b` is a valid shape (e.g. `({1}
+                #      intersect by name {2}) limit 3, 4`) and the
+                #      limit/offset belong on the SelectSetQuery.
+                if isinstance(initial_query, (ast.SelectQuery, ast.SelectSetQuery)):
                     initial_query.limit = limit
-                    initial_query.offset = offset
+                    if offset is not None:
+                        initial_query.offset = offset
+                    if limit_clause.PERCENT():
+                        initial_query.limit_percent = True
+                    if limit_clause.TIES():
+                        initial_query.limit_with_ties = True
                     return initial_query
             return initial_query
 
@@ -1839,10 +1855,17 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         # "0xfe" would otherwise route through float() and raise ValueError.
         if abs_text.startswith("0x"):
             return ast.Constant(value=sign * int(abs_text, 16))
-        if "." in abs_text or "e" in abs_text or abs_text == "inf" or abs_text == "nan":
+        # `infinity` is matched by the INF lexer rule (`I N F | I N F I N I T Y`)
+        # alongside `inf`, and ClickHouse/Postgres both accept it as a synonym
+        # for +/-Infinity. Python's `float()` accepts both spellings.
+        if "." in abs_text or "e" in abs_text or abs_text in ("inf", "infinity", "nan"):
             return ast.Constant(value=float(text))
-        # Octal literals (leading '0' followed by more digits) must use base 8.
-        if len(abs_text) > 1 and abs_text[0] == "0":
+        # Octal literals are dispatched by the OCTAL_LITERAL token (digits 0-7
+        # after a leading '0'). A leading-zero number with a non-octal digit
+        # like `08` or `019` is matched as DECIMAL_LITERAL by the lexer
+        # (OCTAL_LITERAL requires every digit be octal), so we must NOT
+        # interpret it as octal here.
+        if ctx.OCTAL_LITERAL() is not None:
             return ast.Constant(value=sign * int(abs_text, 8))
         return ast.Constant(value=sign * int(abs_text))
 

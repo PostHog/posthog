@@ -2834,11 +2834,12 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
                   (text.size() > 2 && text[0] == '-' && text.compare(1, 2, "0x") == 0);
 
     if (text.find("inf") != string::npos || text.find("nan") != string::npos) {
-      // Handle special number cases (infinity and NaN)
-      // Mark these with value_type="number" so the deserializer knows to convert them
-      if (!text.compare("-inf")) {
+      // The INF lexer rule matches both `inf` and `infinity` (case-insensitive),
+      // and ClickHouse / Postgres both accept `infinity` as a synonym for +inf.
+      // Anything else containing "inf" or "nan" (e.g. literal "nan") is NaN.
+      if (text == "-inf" || text == "-infinity") {
         json["value"] = "-Infinity";
-      } else if (!text.compare("inf")) {
+      } else if (text == "inf" || text == "infinity") {
         json["value"] = "Infinity";
       } else {
         json["value"] = "NaN";
@@ -2853,10 +2854,20 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       }
       return json;
     } else {
+      // Dispatch radix by token kind, NOT by string prefix. `stoll(text, 0, 0)`
+      // would silently truncate `08` / `019` to their longest valid octal prefix
+      // (returning 0 / 1), even though the lexer matched those as DECIMAL_LITERAL
+      // because they contain non-octal digits. Honour the lexer's choice:
+      // OCTAL_LITERAL → base 8, HEXADECIMAL_LITERAL → base 16, everything else
+      // (DECIMAL_LITERAL, signed forms) → base 10.
+      int base = 10;
+      if (ctx->HEXADECIMAL_LITERAL() != nullptr) {
+        base = 16;
+      } else if (ctx->OCTAL_LITERAL() != nullptr) {
+        base = 8;
+      }
       try {
-        // Base 0: auto-detect radix from prefix (0x → hex, leading 0 → octal, else decimal),
-        // so HEXADECIMAL_LITERAL / OCTAL_LITERAL tokens aren't silently truncated to 0.
-        json["value"] = static_cast<int64_t>(stoll(text, nullptr, 0));  // Integer
+        json["value"] = static_cast<int64_t>(stoll(text, nullptr, base));  // Integer
       } catch (const std::out_of_range&) {
         try {
           json["value"] = Json(stod(text));  // Too large for int64, use float
