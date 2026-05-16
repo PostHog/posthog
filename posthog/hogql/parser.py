@@ -466,7 +466,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitVarDecl(self, ctx: HogQLParser.VarDeclContext):
         return ast.VariableDeclaration(
-            name=ctx.identifier().getText(),
+            name=self.visit(ctx.identifier()),
             expr=self.visit(ctx.expression()) if ctx.expression() else None,
         )
 
@@ -487,9 +487,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitThrowStmt(self, ctx: HogQLParser.ThrowStmtContext):
         expression = ctx.expression()
-        if expression is None:
-            raise SyntaxError("THROW requires an expression")
-        return ast.ThrowStatement(expr=self.visit(expression))
+        return ast.ThrowStatement(expr=self.visit(expression) if expression else None)
 
     def visitCatchBlock(self, ctx: HogQLParser.CatchBlockContext):
         return (
@@ -519,8 +517,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.WhileStatement(expr=self.visit(ctx.expression()), body=self.visit(statement))
 
     def visitForInStmt(self, ctx: HogQLParser.ForInStmtContext):
-        first_identifier = ctx.identifier(0).getText()
-        second_identifier = ctx.identifier(1).getText() if ctx.identifier(1) else None
+        first_identifier = self.visit(ctx.identifier(0))
+        second_identifier = self.visit(ctx.identifier(1)) if ctx.identifier(1) else None
         return ast.ForInStatement(
             valueVar=second_identifier if second_identifier is not None else first_identifier,
             keyVar=first_identifier if second_identifier is not None else None,
@@ -541,7 +539,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitFuncStmt(self, ctx: HogQLParser.FuncStmtContext):
         return ast.Function(
-            name=ctx.identifier().getText(),
+            name=self.visit(ctx.identifier()),
             params=self.visit(ctx.identifierList()) if ctx.identifierList() else [],
             body=self.visit(ctx.block()),
         )
@@ -554,7 +552,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return (self.visit(k), self.visit(v))
 
     def visitIdentifierList(self, ctx: HogQLParser.IdentifierListContext):
-        return [ident.getText() for ident in ctx.nestedIdentifier()]
+        return [".".join(self.visit(nested)) for nested in ctx.nestedIdentifier()]
 
     def visitEmptyStmt(self, ctx: HogQLParser.EmptyStmtContext):
         return ast.ExprStatement(expr=None)
