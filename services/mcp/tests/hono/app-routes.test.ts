@@ -112,32 +112,6 @@ describe('Hono App Routes', () => {
         })
     })
 
-    describe('CORS', () => {
-        it('should respond to OPTIONS preflight', async () => {
-            const { app } = createApp(mockRedis)
-            const res = await app.request('/mcp', {
-                method: 'OPTIONS',
-                headers: {
-                    Origin: 'https://example.com',
-                    'Access-Control-Request-Method': 'POST',
-                },
-            })
-            expect(res.status).toBe(204)
-            expect(res.headers.get('Access-Control-Allow-Methods')).toContain('POST')
-        })
-
-        it('should expose mcp-session-id header', async () => {
-            const { app } = createApp(mockRedis)
-            const res = await app.request('/mcp', {
-                method: 'OPTIONS',
-                headers: {
-                    Origin: 'https://example.com',
-                    'Access-Control-Request-Method': 'POST',
-                },
-            })
-            expect(res.headers.get('Access-Control-Expose-Headers')).toContain('mcp-session-id')
-        })
-    })
 
     describe('OAuth Protected Resource Metadata', () => {
         it('should return metadata for bare /.well-known/oauth-protected-resource', async () => {

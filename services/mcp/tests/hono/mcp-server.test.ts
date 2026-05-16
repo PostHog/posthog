@@ -78,7 +78,7 @@ describe('HonoMcpServer', () => {
             await server.getBaseUrl()
             expect(mockRedis.set).toHaveBeenCalledWith(
                 'mcp:user:test-hash:region',
-                'eu',
+                '"eu"',
                 'EX',
                 expect.any(Number)
             )

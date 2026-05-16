@@ -53,11 +53,11 @@ vi.mock('@/lib/client-detection', async () => {
     } catch {
         return {
             MCPClientProfile: class MCPClientProfile {
-                constructor(_opts: any) {}
-                isCodingAgent() { return false }
-                isPostHogCodeConsumer() { return false }
-                isVibeCodingClient() { return false }
-                get capabilities() { return { supportsInstructions: true } }
+                constructor() {}
+                isCodingAgent(): boolean { return false }
+                isPostHogCodeConsumer(): boolean { return false }
+                isVibeCodingClient(): boolean { return false }
+                get capabilities(): { supportsInstructions: boolean } { return { supportsInstructions: true } }
             },
             isCodingAgentClient: vi.fn(() => false),
             CODING_AGENT_CLIENT_NAME_FRAGMENTS: [],

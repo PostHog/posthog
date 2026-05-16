@@ -95,22 +95,21 @@ describe('Hono Constants', () => {
 
     describe('getEnv', () => {
         it('should return env vars from process.env', () => {
-            process.env.INKEEP_API_KEY = 'test-key'
+            process.env.POSTHOG_ANALYTICS_API_KEY = 'test-key'
             const env = getEnv()
-            expect(env.INKEEP_API_KEY).toBe('test-key')
+            expect(env.POSTHOG_ANALYTICS_API_KEY).toBe('test-key')
         })
 
         it('should return undefined for unset env vars', () => {
-            delete process.env.INKEEP_API_KEY
+            delete process.env.POSTHOG_ANALYTICS_API_KEY
             delete process.env.POSTHOG_API_BASE_URL
             const env = getEnv()
-            expect(env.INKEEP_API_KEY).toBeUndefined()
+            expect(env.POSTHOG_ANALYTICS_API_KEY).toBeUndefined()
             expect(env.POSTHOG_API_BASE_URL).toBeUndefined()
         })
 
         it('should return all expected fields', () => {
             const env = getEnv()
-            expect(env).toHaveProperty('INKEEP_API_KEY')
             expect(env).toHaveProperty('POSTHOG_API_BASE_URL')
             expect(env).toHaveProperty('MCP_APPS_BASE_URL')
             expect(env).toHaveProperty('POSTHOG_MCP_APPS_ANALYTICS_BASE_URL')
