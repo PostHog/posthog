@@ -6,7 +6,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 import structlog
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from posthog.models.utils import UUIDTModel
 
@@ -16,6 +16,11 @@ logger = structlog.get_logger(__name__)
 class TaggerType(models.TextChoices):
     LLM = "llm", "LLM"
     HOG = "hog", "Hog"
+
+
+class TagSource(models.TextChoices):
+    STATIC = "static", "Static"
+    DYNAMIC = "dynamic", "Dynamic"
 
 
 class TagDefinition(BaseModel):
@@ -36,9 +41,25 @@ class LLMTaggerConfig(BaseModel):
     """Configuration for LLM-based taggers."""
 
     prompt: str = Field(..., min_length=1, description="Prompt instructing the LLM how to tag generations")
-    tags: list[TagDefinition] = Field(..., min_length=1, description="Available tags")
+    # tags is required when tag_source == 'static' and optional when 'dynamic' — the
+    # dynamic flow populates the working tag set at runtime from a URL. Default to []
+    # so a dynamic tagger can save without first writing throwaway static tags.
+    tags: list[TagDefinition] = Field(default_factory=list, description="Available tags (static mode)")
     min_tags: int = Field(default=0, ge=0, description="Minimum tags to apply")
     max_tags: int | None = Field(default=None, ge=1, description="Maximum tags to apply (null = no limit)")
+
+    tag_source: str = Field(
+        default=TagSource.STATIC.value,
+        description="Where the tag vocabulary comes from: 'static' (use the tags list) or 'dynamic' (fetch tag_source_url and derive tags at runtime)",
+    )
+    tag_source_url: str | None = Field(
+        default=None,
+        description="URL to fetch the source document from when tag_source == 'dynamic'",
+    )
+    tag_source_prompt: str | None = Field(
+        default=None,
+        description="Prompt that tells the LLM how to extract tag definitions from the fetched URL content",
+    )
 
     @field_validator("prompt")
     @classmethod
@@ -55,13 +76,43 @@ class LLMTaggerConfig(BaseModel):
             raise ValueError("Tag names must be unique")
         return v
 
+    @field_validator("tag_source")
+    @classmethod
+    def validate_tag_source(cls, v: str) -> str:
+        valid = {choice.value for choice in TagSource}
+        if v not in valid:
+            raise ValueError(f"tag_source must be one of {sorted(valid)}")
+        return v
+
+    @field_validator("tag_source_url")
+    @classmethod
+    def validate_tag_source_url(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return None
+        # Reuse pydantic HttpUrl for shape validation but store as plain str so we
+        # don't churn JSON serialization downstream.
+        HttpUrl(v)
+        return v
+
     @model_validator(mode="after")
     def validate_tag_count_bounds(self) -> "LLMTaggerConfig":
-        if self.max_tags is not None:
-            if self.min_tags > self.max_tags:
+        if self.tag_source == TagSource.STATIC.value:
+            if not self.tags:
+                raise ValueError("tags is required when tag_source is 'static'")
+            if self.max_tags is not None:
+                if self.min_tags > self.max_tags:
+                    raise ValueError("min_tags cannot be greater than max_tags")
+                if self.max_tags > len(self.tags):
+                    raise ValueError("max_tags cannot exceed the number of defined tags")
+        else:
+            # Dynamic mode: tag list is derived at runtime, so max_tags can't be
+            # bounded against len(tags). Only enforce min <= max.
+            if self.max_tags is not None and self.min_tags > self.max_tags:
                 raise ValueError("min_tags cannot be greater than max_tags")
-            if self.max_tags > len(self.tags):
-                raise ValueError("max_tags cannot exceed the number of defined tags")
+            if not self.tag_source_url:
+                raise ValueError("tag_source_url is required when tag_source is 'dynamic'")
+            if not self.tag_source_prompt or not self.tag_source_prompt.strip():
+                raise ValueError("tag_source_prompt is required when tag_source is 'dynamic'")
         return self
 
 
@@ -187,3 +238,25 @@ def tagger_saved(sender, instance, created, **kwargs):
     # Defer the workers notification until the surrounding transaction commits.
     # Otherwise a rolled-back create would tell workers to reload a tagger that never existed.
     transaction.on_commit(lambda: reload_taggers_on_workers(team_id=instance.team_id, tagger_ids=[str(instance.id)]))
+
+    # Invalidate the dynamic-tag cache so URL/prompt edits take effect on the next
+    # tagger run instead of waiting for the 24h TTL. Synchronous Redis call here
+    # (the API process saving the tagger) — the workflow uses the async client.
+    transaction.on_commit(lambda: _invalidate_dynamic_tag_cache(str(instance.id)))
+
+
+def _invalidate_dynamic_tag_cache(tagger_id: str) -> None:
+    """Delete the dynamic-tag Redis cache entry for ``tagger_id``.
+
+    Mirrors the key built by ``posthog.temporal.llm_analytics.dynamic_tags.cache_key``.
+    Done in-process via the sync Redis client because this runs in the request path,
+    not inside a Temporal activity.
+    """
+    try:
+        from posthog.redis import get_client
+        from posthog.temporal.llm_analytics.dynamic_tags import cache_key
+
+        get_client().delete(cache_key(tagger_id))
+    except Exception:
+        # A cache-bust failure isn't fatal — the worst case is staleness up to the TTL.
+        logger.warning("Failed to invalidate dynamic-tag cache on tagger save", tagger_id=tagger_id, exc_info=True)

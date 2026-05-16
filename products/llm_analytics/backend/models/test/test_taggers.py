@@ -79,6 +79,91 @@ class TestLLMTaggerConfig(BaseTest):
         )
         assert config.max_tags is None
 
+    def test_tag_source_defaults_to_static(self):
+        config = LLMTaggerConfig(
+            prompt="Test",
+            tags=[TagDefinition(name="a")],
+        )
+        assert config.tag_source == "static"
+        assert config.tag_source_url is None
+        assert config.tag_source_prompt is None
+
+    def test_dynamic_tag_source_requires_url_and_prompt(self):
+        with self.assertRaises(Exception):
+            LLMTaggerConfig(
+                prompt="Tag this",
+                tags=[],
+                tag_source="dynamic",
+            )
+
+    def test_dynamic_tag_source_requires_url(self):
+        with self.assertRaises(Exception):
+            LLMTaggerConfig(
+                prompt="Tag this",
+                tags=[],
+                tag_source="dynamic",
+                tag_source_prompt="extract owners",
+            )
+
+    def test_dynamic_tag_source_requires_prompt(self):
+        with self.assertRaises(Exception):
+            LLMTaggerConfig(
+                prompt="Tag this",
+                tags=[],
+                tag_source="dynamic",
+                tag_source_url="https://example.com/owners",
+            )
+
+    def test_dynamic_tag_source_allows_empty_tags(self):
+        config = LLMTaggerConfig(
+            prompt="Tag this support ticket with the right owner",
+            tags=[],
+            tag_source="dynamic",
+            tag_source_url="https://posthog.com/handbook/engineering/feature-ownership",
+            tag_source_prompt="Extract the list of feature owners from this page.",
+        )
+        assert config.tag_source == "dynamic"
+        assert config.tags == []
+
+    def test_static_tag_source_requires_tags(self):
+        with self.assertRaises(Exception):
+            LLMTaggerConfig(
+                prompt="Tag this",
+                tags=[],
+                tag_source="static",
+            )
+
+    def test_invalid_tag_source_value_rejected(self):
+        with self.assertRaises(Exception):
+            LLMTaggerConfig(
+                prompt="Tag this",
+                tags=[TagDefinition(name="a")],
+                tag_source="bogus",
+            )
+
+    def test_dynamic_tag_source_rejects_non_http_url(self):
+        with self.assertRaises(Exception):
+            LLMTaggerConfig(
+                prompt="Tag this",
+                tags=[],
+                tag_source="dynamic",
+                tag_source_url="not-a-url",
+                tag_source_prompt="extract owners",
+            )
+
+    def test_dynamic_tag_source_allows_max_tags_above_static_count(self):
+        # In dynamic mode the static tag list might be empty but max_tags can still
+        # be set to bound the final classification call's selections.
+        config = LLMTaggerConfig(
+            prompt="Tag this",
+            tags=[],
+            tag_source="dynamic",
+            tag_source_url="https://example.com/owners",
+            tag_source_prompt="extract owners",
+            max_tags=10,
+        )
+        assert config.max_tags == 10
+
 
 class TestTaggerModel(BaseTest):
     def _make_tagger_config(self, **overrides):

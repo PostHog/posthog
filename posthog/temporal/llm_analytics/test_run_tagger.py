@@ -316,6 +316,143 @@ class TestRunTaggerWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
+    async def test_execute_tagger_dynamic_source_uses_resolved_tags(self, setup_data):
+        """Dynamic-source tagger must use tags returned by resolve_dynamic_tags, not the static tag list."""
+        from posthog.temporal.llm_analytics.dynamic_tags import DynamicTagResult
+
+        tagger_obj = setup_data["tagger"]
+        team = setup_data["team"]
+
+        tagger = {
+            "id": str(tagger_obj.id),
+            "name": "Dynamic Tagger",
+            "tagger_config": {
+                "prompt": "Pick the right owner.",
+                "tags": [],
+                "tag_source": "dynamic",
+                "tag_source_url": "https://example.com/owners",
+                "tag_source_prompt": "Extract feature owners.",
+            },
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "Billing question"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "..."}],
+            },
+        )
+
+        resolved = DynamicTagResult(
+            tags=[{"name": "alice", "description": "billing"}, {"name": "bob", "description": "analytics"}],
+            extraction_llm_used=True,
+            extraction_input_tokens=70,
+            extraction_output_tokens=12,
+        )
+
+        with patch(
+            "posthog.temporal.llm_analytics.run_tagger.resolve_dynamic_tags", return_value=resolved
+        ) as mock_resolve:
+            with patch("posthog.temporal.llm_analytics.run_tagger.Client") as mock_client_class:
+                mock_client = MagicMock()
+                mock_client_class.return_value = mock_client
+
+                mock_response = MagicMock()
+                mock_response.parsed = TagResult(tags=["alice"], reasoning="Billing → Alice")
+                mock_response.usage = MagicMock(input_tokens=200, output_tokens=10, total_tokens=210)
+                mock_client.complete.return_value = mock_response
+
+                with patch("posthog.temporal.llm_analytics.run_tagger.EvaluationConfig") as mock_eval_config:
+                    mock_config = MagicMock()
+                    mock_config.trial_evals_used = 0
+                    mock_config.trial_eval_limit = 100
+                    mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
+
+                    result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
+
+        assert result["tags"] == ["alice"]
+        assert result["extraction_llm_used"] is True
+        assert result["extraction_input_tokens"] == 70
+        assert result["extraction_output_tokens"] == 12
+        # The classification call sees the resolved tags, not the static (empty) list
+        mock_resolve.assert_called_once()
+        _, kwargs = mock_resolve.call_args
+        assert kwargs["tag_source_url"] == "https://example.com/owners"
+        assert kwargs["tag_source_prompt"] == "Extract feature owners."
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_tagger_dynamic_source_skip_reason_surfaces_as_application_error(self, setup_data):
+        """A skip_reason from resolve_dynamic_tags must surface as a non-retryable ApplicationError."""
+        from posthog.temporal.llm_analytics.dynamic_tags import DynamicTagResult
+
+        tagger_obj = setup_data["tagger"]
+        team = setup_data["team"]
+
+        tagger = {
+            "id": str(tagger_obj.id),
+            "name": "Dynamic Tagger",
+            "tagger_config": {
+                "prompt": "Tag this.",
+                "tags": [],
+                "tag_source": "dynamic",
+                "tag_source_url": "https://broken.example",
+                "tag_source_prompt": "extract",
+            },
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        skip = DynamicTagResult(skip_reason="tag_source_fetch_failed", skip_message="network down")
+
+        with patch("posthog.temporal.llm_analytics.run_tagger.resolve_dynamic_tags", return_value=skip):
+            with patch("posthog.temporal.llm_analytics.run_tagger.EvaluationConfig") as mock_eval_config:
+                mock_config = MagicMock()
+                mock_config.trial_evals_used = 0
+                mock_config.trial_eval_limit = 100
+                mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
+
+                with pytest.raises(ApplicationError) as excinfo:
+                    await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
+
+        assert excinfo.value.non_retryable is True
+        assert excinfo.value.details[0]["error_type"] == "tag_source_fetch_failed"
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_tagger_dynamic_source_requires_url_and_prompt(self, setup_data):
+        tagger_obj = setup_data["tagger"]
+        team = setup_data["team"]
+
+        tagger = {
+            "id": str(tagger_obj.id),
+            "name": "Misconfigured Tagger",
+            "tagger_config": {
+                "prompt": "Tag this.",
+                "tags": [],
+                "tag_source": "dynamic",
+                # tag_source_url and tag_source_prompt deliberately missing
+            },
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        with patch("posthog.temporal.llm_analytics.run_tagger.EvaluationConfig") as mock_eval_config:
+            mock_config = MagicMock()
+            mock_config.trial_evals_used = 0
+            mock_config.trial_eval_limit = 100
+            mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
+
+            with pytest.raises(ApplicationError) as excinfo:
+                await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
+
+        assert excinfo.value.details[0]["error_type"] == "tag_source_misconfigured"
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
     async def test_execute_tagger_no_tags_defined(self, setup_data):
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
