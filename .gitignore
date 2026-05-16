@@ -205,6 +205,6 @@ products/signals/backend/github_issues/
 .pnpm-store
 
 # Local-only HogQL log-corpus dumps (downloaded from Metabase by
-# posthog/hogql/test/_log_corpus_diagnostic.py — contains
+# posthog/hogql/scripts/log_corpus_diagnostic.py — contains
 # redacted production queries; not for git).
-posthog/hogql/test/.local/
+posthog/hogql/scripts/.local/

@@ -1,9 +1,9 @@
 """Regression corpus tool for parser-parity divergences.
 
-Companion to `_pbt_diagnostic.py`. Two subcommands:
+Companion to `pbt_diagnostic.py`. Two subcommands:
 
   extract  Read a divergences JSONL (produced by
-           `_pbt_diagnostic.py --write-divergences`) and write a
+           `pbt_diagnostic.py --write-divergences`) and write a
            deduplicated corpus — one entry per
            (kind, oracle_root, candidate_root, terminal_diff_or_signature)
            bucket. The first occurrence of each bucket wins; we trust
@@ -22,17 +22,17 @@ unless overridden via `--oracle` / `--candidate`.
 Typical workflow:
 
     # 1. Grind the PBT, persist divergences, shrink them.
-    python posthog/hogql/test/_pbt_diagnostic.py --n 5000 \\
+    python posthog/hogql/scripts/pbt_diagnostic.py --n 5000 \\
         --shrink-failures --write-divergences /tmp/divergences.jsonl
 
     # 2. Extract a deduplicated regression corpus.
-    python posthog/hogql/test/_pbt_corpus.py extract \\
+    python posthog/hogql/scripts/pbt_corpus.py extract \\
         --from /tmp/divergences.jsonl \\
-        --to posthog/hogql/test/_pbt_regression_corpus.jsonl
+        --to /tmp/pbt_regression_corpus.jsonl
 
     # 3. After making a fix, replay the corpus to see what changed.
-    python posthog/hogql/test/_pbt_corpus.py check \\
-        --corpus posthog/hogql/test/_pbt_regression_corpus.jsonl
+    python posthog/hogql/scripts/pbt_corpus.py check \\
+        --corpus /tmp/pbt_regression_corpus.jsonl
 """
 
 # ruff: noqa: T201 (CLI script — print is the report channel)
@@ -51,13 +51,8 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
 
-from posthog.hogql.test._pbt_diagnostic import (
-    DivergenceShape,
-    _ast_mismatch_shape,
-    _probe_backend,
-    _shape_for,
-    _try_parse,
-)
+from posthog.hogql.scripts._diagnostic_common import DivergenceShape, _ast_mismatch_shape, _probe_backend, _shape_for
+from posthog.hogql.test.test_parser_grammar_pbt import _try_parse
 
 
 def _shape_from_divergence(rec: dict) -> DivergenceShape:

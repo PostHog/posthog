@@ -15,7 +15,7 @@ bench timings line up with parity numbers from the same workload.
 Run from repo root:
 
     CANDIDATE_BACKEND=<some-fast-backend> \\
-        PYTHONPATH=. python posthog/hogql/test/bench/parser_bench.py
+        PYTHONPATH=. python posthog/hogql/scripts/parser_bench.py
 
 Queries the candidate can't parse are flagged and the row is skipped.
 For comparable queries the script reports per-call microseconds and a
@@ -38,7 +38,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
 
 from posthog.hogql.parser import clear_parse_caches, parse_expr, parse_select
-from posthog.hogql.test._pbt_diagnostic import _probe_backend
+from posthog.hogql.scripts._diagnostic_common import _probe_backend
 
 DEFAULT_N = 1_000  # iterations per row; override with --n
 
