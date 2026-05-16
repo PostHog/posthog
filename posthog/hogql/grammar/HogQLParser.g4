@@ -29,7 +29,7 @@ statement      : returnStmt
                ;
 
 returnStmt     : RETURN expression? SEMICOLON?;
-throwStmt      : THROW expression? SEMICOLON?;
+throwStmt      : THROW expression SEMICOLON?;
 catchBlock     : CATCH (LPAREN catchVar=identifier (COLON catchType=identifier)? RPAREN)? catchStmt=block;
 tryCatchStmt   : TRY tryStmt=block catchBlock* (FINALLY finallyStmt=block)?;
 ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;

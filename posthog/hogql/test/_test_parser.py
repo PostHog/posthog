@@ -2299,6 +2299,28 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_set_level_limit_offset_divergences(self):
+            # Two Python-vs-C++ parser divergences in how a set-statement-level
+            # LIMIT/OFFSET clause is applied to its initial query. C++ was
+            # already correct in both cases; Python is fixed here to match.
+
+            # 1. A paren-wrapped set operation carrying a trailing `LIMIT a, b`
+            # — the limit/offset belong on the SelectSetQuery. Python only
+            # applied them when the initial query was a plain SelectQuery, so
+            # it silently dropped both here (limit=None, offset=None).
+            parsed = self._select("((select 1) intersect (select 2)) limit 3, 4")
+            assert isinstance(parsed, ast.SelectSetQuery)
+            self.assertEqual(parsed.limit, ast.Constant(value=3))
+            self.assertEqual(parsed.offset, ast.Constant(value=4))
+
+            # 2. A bare outer `LIMIT n` on a query that already has an OFFSET
+            # must not reset that offset. Python unconditionally assigned the
+            # outer offset (None for a bare `LIMIT`), clobbering the inner 5.
+            parsed = self._select("(select 1 offset 5) limit 3")
+            assert isinstance(parsed, ast.SelectQuery)
+            self.assertEqual(parsed.limit, ast.Constant(value=3))
+            self.assertEqual(parsed.offset, ast.Constant(value=5))
+
         def test_select_placeholders(self):
             self.assertEqual(
                 self._select("select 1 where 1 == {hogql_val_1}"),
@@ -3698,17 +3720,17 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
-        def test_program_throw_without_expression(self):
-            # The grammar marks the throw expression optional, so a bare throw parses,
-            # matching the cpp parser.
-            self.assertEqual(
-                self._program("throw"),
-                Program(declarations=[ast.ThrowStatement(expr=None)]),
-            )
-            self.assertEqual(
-                self._program("throw;"),
-                Program(declarations=[ast.ThrowStatement(expr=None)]),
-            )
+        def test_program_bare_throw_rejected(self):
+            # The grammar requires an expression after `throw`
+            # (`throwStmt: THROW expression SEMICOLON?`), so a bare `throw`
+            # is a syntax error in both parser backends. Hog has no
+            # bare-throw / implicit re-throw — re-raising inside a catch
+            # block is done explicitly with `throw <error>`, and the VM
+            # only accepts genuine Error objects anyway.
+            with self.assertRaises((ExposedHogQLError, SyntaxError)):
+                self._program("throw")
+            with self.assertRaises((ExposedHogQLError, SyntaxError)):
+                self._program("throw;")
 
         def test_program_array(self):
             code = "let a := [1, 2, 3];"

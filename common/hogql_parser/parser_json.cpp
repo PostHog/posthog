@@ -393,7 +393,10 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "ThrowStatement";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = visitAsJSONOrNull(ctx->expression());
+    // The grammar requires an expression (`throwStmt: THROW expression
+    // SEMICOLON?`), so it is always present — a bare `throw` is a parse
+    // error, not a ThrowStatement with a null expr.
+    json["expr"] = visitAsJSON(ctx->expression());
     return json;
   }
 
