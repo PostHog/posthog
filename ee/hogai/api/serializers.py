@@ -2,11 +2,14 @@ from typing import Any
 
 import pydantic
 from asgiref.sync import async_to_sync
+from drf_spectacular.utils import extend_schema_field
 from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
+
+from products.tasks.backend.models import Task
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent import AssistantGraph
@@ -60,6 +63,9 @@ class ConversationSerializer(ConversationMinimalSerializer):
             "agent_mode",
             "is_sandbox",
             "pending_approvals",
+            "sandbox_task_id",
+            "sandbox_run_id",
+            "sandbox_repository",
         ]
         read_only_fields = fields
 
@@ -68,10 +74,12 @@ class ConversationSerializer(ConversationMinimalSerializer):
     agent_mode = serializers.SerializerMethodField()
     is_sandbox = serializers.SerializerMethodField()
     pending_approvals = serializers.SerializerMethodField()
+    sandbox_repository = serializers.SerializerMethodField()
 
     def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
         if conversation.messages_json is not None:
-            return conversation.messages_json
+            # Filter out internal _meta sentinel entries used for signal source tracking
+            return [m for m in conversation.messages_json if not (isinstance(m, dict) and "_meta" in m)]
 
         state, _, _ = self._get_cached_state(conversation)
         if state is None:
@@ -102,6 +110,20 @@ class ConversationSerializer(ConversationMinimalSerializer):
 
     def get_is_sandbox(self, conversation: Conversation) -> bool:
         return conversation.sandbox_task_id is not None
+
+    @extend_schema_field({"type": "string", "nullable": True})
+    def get_sandbox_repository(self, conversation: Conversation) -> str | None:
+        """GitHub slug (`owner/repo`) from the linked sandbox task, if any."""
+        task_id = conversation.sandbox_task_id
+        if task_id is None:
+            return None
+        repository = (
+            Task.objects.filter(id=task_id, team_id=conversation.team_id).values_list("repository", flat=True).first()
+        )
+        if not repository:
+            return None
+        normalized = repository.strip()
+        return normalized or None
 
     def get_pending_approvals(self, conversation: Conversation) -> list[dict[str, Any]]:
         """

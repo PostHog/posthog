@@ -6872,6 +6872,10 @@ export interface Conversation {
     is_internal?: boolean
     pending_approvals?: PendingApproval[]
     is_sandbox?: boolean
+    sandbox_task_id?: string | null
+    sandbox_run_id?: string | null
+    /** Linked sandbox task repository (`owner/repo`); read-only, from task row */
+    sandbox_repository?: string | null
 }
 
 export interface ConversationDetail extends Conversation {

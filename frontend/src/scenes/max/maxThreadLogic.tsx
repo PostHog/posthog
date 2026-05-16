@@ -28,6 +28,7 @@ import { uuid } from 'lib/utils'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -123,8 +124,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
 
         // Handle new messages post-mount; initial load in afterMount.
+        // Skip for sandbox conversations — session_logs is the source of truth there.
         if (
             !values.streamingActive &&
+            !props.conversation.is_sandbox &&
             props.conversation.messages &&
             props.conversation.messages.length > values.threadMessageCount
         ) {
@@ -156,6 +159,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['billingContext'],
             featureFlagLogic,
             ['featureFlags'],
+            preflightLogic,
+            ['isDev'],
             sceneLogic,
             ['sceneId'],
         ],
@@ -189,6 +194,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 contextual_tools?: Record<string, any>
                 ui_context?: any
                 resume_payload?: ResumePayload | null
+                repository?: string | null
             },
             generationAttempt: number,
             addToThread: boolean = true
@@ -249,6 +255,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setCancelLoading: (cancelLoading: boolean) => ({ cancelLoading }),
         setPendingApproval: (proposalId: string) => ({ proposalId }),
         clearPendingApproval: true,
+        setSelectedRepository: (repository: string | null) => ({ repository }),
+        setSandboxLogEntries: (entries: LogEntry[]) => ({ entries }),
         appendSandboxEntry: (entry: LogEntry) => ({ entry }),
         refreshSandboxEntries: true,
         resetSandboxEntries: true,
@@ -283,7 +291,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         threadRaw: [
-            updateMessagesWithCompletedStatus(props.conversation?.messages ?? []),
+            // For sandbox conversations, session_logs is the source of truth — don't
+            // hydrate from conversation.messages to avoid duplicating assistant content.
+            props.conversation?.is_sandbox ? [] : updateMessagesWithCompletedStatus(props.conversation?.messages ?? []),
             {
                 addMessage: (state, { message }) => [...state, message],
                 replaceMessage: (state, { message, index }) => [
@@ -558,10 +568,19 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
+        selectedRepository: [
+            null as string | null,
+            {
+                setSelectedRepository: (_, { repository }) => repository,
+                resetThread: () => null,
+            },
+        ],
+
         sandboxEntries: [
             [] as LogEntry[],
             {
                 appendSandboxEntry: (state, { entry }) => [...state, entry],
+                setSandboxLogEntries: (_, { entries }) => entries,
                 refreshSandboxEntries: (state) => [...state],
                 resetSandboxEntries: () => [],
                 setConversation: () => [],
@@ -629,7 +648,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             try {
                 cache.generationController = new AbortController()
-                actions.resetSandboxEntries()
+                // Note: don't reset sandboxEntries here — for sandbox conversations,
+                // session_logs is the source of truth for the entire history, and a
+                // new turn should append to (not replace) the loaded history.
+                // sandboxEntries is reset on `setConversation` and `resetThread`,
+                // which covers the legitimate "wipe" cases.
 
                 // Ensure we have valid data for the API call
                 const apiData: any = { ...streamData }
@@ -643,7 +666,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     apiData.agent_mode = agentMode
                 }
 
-                if (isSandbox) {
+                if (values.isSandboxEnabled) {
                     apiData.is_sandbox = true
                 }
 
@@ -844,7 +867,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props }) => ({
-        setConversation: ({ conversation }) => {
+        setConversation: async ({ conversation }) => {
             const nextConversationId = conversation?.id ?? null
             if (cache.lastConversationId !== nextConversationId) {
                 cache.lastConversationId = nextConversationId
@@ -868,6 +891,53 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.clearQueuedMessages()
             }
             // Note: pending approvals loading is handled in the reducer (pendingApprovalsData.setConversation)
+
+            if (
+                conversation?.is_sandbox &&
+                conversation.sandbox_task_id &&
+                conversation.sandbox_run_id &&
+                !values.streamingActive &&
+                cache.lastLoadedSandboxRunId !== conversation.sandbox_run_id
+            ) {
+                cache.lastLoadedSandboxRunId = conversation.sandbox_run_id
+                try {
+                    // Sandbox conversations may span multiple TaskRuns — each follow-up
+                    // turn that resumes from a snapshot creates a new run with its own
+                    // log file. Aggregate logs from all runs in chronological order so
+                    // the full history is visible, not just the latest turn.
+                    const runsResponse = await api.get(
+                        `api/projects/@current/tasks/${conversation.sandbox_task_id}/runs?limit=100`
+                    )
+                    const runs: Array<{ id: string; created_at: string }> = Array.isArray(runsResponse?.results)
+                        ? runsResponse.results
+                        : []
+                    const sortedRuns = runs.slice().sort((a, b) => a.created_at.localeCompare(b.created_at))
+                    const runIds = sortedRuns.length > 0 ? sortedRuns.map((r) => r.id) : [conversation.sandbox_run_id]
+
+                    const parsed: LogEntry[] = []
+                    const toolMap = new Map<string, LogEntry>()
+                    let idx = 0
+                    for (const runId of runIds) {
+                        const logEntries = await api.get(
+                            `api/projects/@current/tasks/${conversation.sandbox_task_id}/runs/${runId}/session_logs`
+                        )
+                        if (!Array.isArray(logEntries)) {
+                            continue
+                        }
+                        for (const raw of logEntries) {
+                            const entry = parseLogEvent(raw, `log-${idx++}`, toolMap)
+                            if (entry) {
+                                parsed.push(entry)
+                            }
+                        }
+                    }
+                    if (parsed.length > 0) {
+                        actions.setSandboxLogEntries(parsed)
+                    }
+                } catch {
+                    cache.lastLoadedSandboxRunId = null
+                }
+            }
         },
         enqueueQueuedMessage: async ({ content, contextualTools, uiContext, billingContext, agentMode }) => {
             if (!values.queueingEnabled || !values.conversation?.id) {
@@ -1107,6 +1177,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     conversation: values.conversation?.id || values.conversationId,
                     // Include auto-rejection payload if there was a pending approval
                     resume_payload: autoRejectPayload,
+                    repository:
+                        values.isSandboxEnabled && !values.shouldAttachSandboxRepository
+                            ? undefined
+                            : values.selectedRepository || undefined,
                 },
                 0,
                 addToThread
@@ -1151,6 +1225,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     content: null,
                     agent_mode: values.isSandboxMode ? null : values.agentMode,
                     is_sandbox: values.isSandboxMode || undefined,
+                    repository:
+                        values.isSandboxEnabled && !values.shouldAttachSandboxRepository
+                            ? undefined
+                            : values.selectedRepository || undefined,
                 },
                 0
             )
@@ -1183,7 +1261,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // (those which aren't included in the streaming response)
             actions.loadConversation(values.conversation.id)
 
-            const shouldConsumeSandboxQueue = values.isSandboxMode && values.queuedMessages.length > 0
+            const shouldConsumeSandboxQueue = values.isSandboxEnabled && values.queuedMessages.length > 0
 
             if (values.queueingEnabled && values.conversation?.id && !shouldConsumeSandboxQueue) {
                 actions.loadQueueData()
@@ -1223,7 +1301,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             // Keep conversation and thread in sync to avoid empty thread after history updates.
             actions.setConversation(conversation)
-            if (conversation.messages?.length && !values.threadRaw.length) {
+            // Skip for sandbox conversations — session_logs is the source of truth there.
+            if (conversation.messages?.length && !values.threadRaw.length && !conversation.is_sandbox) {
                 actions.setThread(updateMessagesWithCompletedStatus(conversation.messages))
             }
         },
@@ -1434,6 +1513,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 s.pendingApprovalsData,
                 s.resolvedApprovalStatuses,
                 s.currentThinkingMessage,
+                s.isSandboxEnabled,
             ],
             (
                 thread,
@@ -1441,7 +1521,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 toolCallUpdateMap,
                 pendingApprovalsData,
                 resolvedApprovalStatuses,
-                currentThinkingMessage
+                currentThinkingMessage,
+                isSandboxEnabled
             ): ThreadMessage[] => {
                 // Filter out messages that shouldn't be displayed
                 let processedThread: ThreadMessage[] = []
@@ -1500,6 +1581,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     // 1. There are tool calls in progress, OR
                     // 2. The last message is a streaming ASSISTANT message (no ID or it starts with 'temp-') - it will show its own thinking/content
                     // 3. There's a pending multi-question form - the form input handles the loading state
+                    // 4. Sandbox mode is enabled - SandboxSessionView shows its own "Setting up sandbox…" callout
                     // Note: Human messages should always trigger thinking loader, only assistant messages can be "streaming"
                     const lastMessageIsStreamingAssistant =
                         finalMessageSoFar &&
@@ -1507,7 +1589,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         (!finalMessageSoFar.id || finalMessageSoFar.id.startsWith('temp-'))
                     const hasPendingForm = threadEndsWithMultiQuestionForm(processedThread)
                     const shouldAddThinkingMessage =
-                        toolCallsInProgress.length === 0 && !lastMessageIsStreamingAssistant && !hasPendingForm
+                        toolCallsInProgress.length === 0 &&
+                        !lastMessageIsStreamingAssistant &&
+                        !hasPendingForm &&
+                        !isSandboxEnabled
 
                     if (shouldAddThinkingMessage) {
                         // Add thinking message to indicate processing
@@ -1716,6 +1801,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 conversation?.status !== ConversationStatus.InProgress,
         ],
 
+        isSandboxEnabled: [
+            (s) => [s.featureFlags, s.isDev],
+            (featureFlags, isDev): boolean => !!isDev || !!featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE],
+        ],
+
+        /** Sandbox: repo is bound when the task is created; only the first turn may send `repository`. */
+        shouldAttachSandboxRepository: [
+            (s) => [s.isSandboxEnabled, s.conversation, s.sandboxEntries],
+            (isSandboxEnabled, conversation, sandboxEntries): boolean =>
+                isSandboxEnabled && !conversation?.sandbox_task_id && sandboxEntries.length === 0,
+        ],
+
         showContextUI: [
             (s) => [s.conversation, s.featureFlags],
             (conversation, featureFlags) =>
@@ -1820,7 +1917,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
 
         // Ensure threadRaw is hydrated before streaming, so setThread doesn't overwrite stream tokens.
-        if (values.threadRaw.length === 0 && conversation.messages.length > 0) {
+        // Skip for sandbox conversations — session_logs is the source of truth there.
+        if (values.threadRaw.length === 0 && conversation.messages.length > 0 && !conversation.is_sandbox) {
             actions.setThread(updateMessagesWithCompletedStatus(conversation.messages))
         }
 
@@ -2139,8 +2237,12 @@ export async function onEventImplementation(
             return
         }
 
-        // For agent text messages, render as normal assistant messages in the thread
-        if (entry.type === 'agent') {
+        // For non-sandbox conversations that happen to use sandbox tooling (the legacy
+        // SandboxActivityPanel path), mirror agent text into threadRaw so the classic
+        // assistant bubble shows it. Sandbox conversations skip this: their thread is
+        // rendered entirely from sandboxEntries via SandboxSessionView, and writing here
+        // would create a duplicate streaming bubble in the classic thread.
+        if (entry.type === 'agent' && !values.isSandboxEnabled) {
             const lastMsg = values.threadRaw[values.threadRaw.length - 1]
             if (isAssistantMessage(lastMsg) && lastMsg.id?.startsWith('sandbox-')) {
                 // Append to existing streaming message

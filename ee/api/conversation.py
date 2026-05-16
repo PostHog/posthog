@@ -1,3 +1,4 @@
+import re
 import time
 import uuid
 import asyncio
@@ -57,11 +58,14 @@ from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, Que
 from ee.hogai.sandbox.executor import handle_sandbox_message
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
+from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types import PartialAssistantState
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
+
+REPOSITORY_SLUG_RE = re.compile(r"^[a-z0-9_.-]+/[a-z0-9_.-]+$")
 
 RESEARCH_RATE_LIMIT_MESSAGE = (
     "You've reached the usage limit for Research mode, which is currently in beta "
@@ -105,6 +109,16 @@ class MessageSerializer(MessageMinimalSerializer):
     session_id = serializers.CharField(required=False)
     agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
     is_sandbox = serializers.BooleanField(required=False, default=False)
+    repository = serializers.CharField(
+        required=False,
+        max_length=255,
+        allow_null=True,
+        allow_blank=True,
+        help_text=(
+            "GitHub repository (`owner/repo`) for sandbox code access. "
+            "Only applied on the first message when starting a new conversation."
+        ),
+    )
     resume_payload = serializers.JSONField(required=False, allow_null=True)
 
     def validate(self, attrs):
@@ -141,6 +155,15 @@ class MessageSerializer(MessageMinimalSerializer):
                 data["agent_mode"] = AgentMode(agent_mode)
             except ValueError:
                 raise serializers.ValidationError("Invalid agent mode.")
+        if repository := data.get("repository"):
+            repository = repository.lower()
+            if not REPOSITORY_SLUG_RE.match(repository):
+                raise serializers.ValidationError(
+                    {
+                        "repository": "Repository must be in 'owner/repo' format using only alphanumeric characters, hyphens, underscores, and dots."
+                    }
+                )
+            data["repository"] = repository
         return data
 
 
@@ -369,10 +392,6 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         is_idle = conversation.status == Conversation.Status.IDLE
         has_message = serializer.validated_data.get("message") is not None
         has_resume_payload = serializer.validated_data.get("resume_payload") is not None
-        is_sandbox = (
-            serializer.validated_data.get("is_sandbox", False)
-            or serializer.validated_data.get("agent_mode") == AgentMode.SANDBOX
-        )
 
         if conversation.type == Conversation.Type.DEEP_RESEARCH:
             if not is_new_conversation and is_idle and has_message and not has_resume_payload:
@@ -381,6 +400,10 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 is_research = False
             else:
                 is_research = True
+
+        is_sandbox = (
+            not is_research and (settings.DEBUG or has_sandbox_mode_feature_flag(self.team, cast(User, request.user)))
+        ) or serializer.validated_data.get("is_sandbox", False)
 
         if has_message and not is_idle and not is_sandbox:
             raise Conflict("Cannot resume streaming with a new message")
@@ -391,6 +414,14 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         is_impersonated = is_impersonated_session(request)
 
         if is_sandbox and has_message:
+            if not is_new_conversation:
+                repo = serializer.validated_data.get("repository")
+                if repo:
+                    raise exceptions.ValidationError(
+                        {
+                            "repository": "Repository can only be set when starting a new thread.",
+                        }
+                    )
             return handle_sandbox_message(
                 conversation=conversation,
                 conversation_id=str(conversation_id),
@@ -398,6 +429,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 user=cast(User, request.user),
                 team=self.team,
                 is_new_conversation=is_new_conversation,
+                repository=serializer.validated_data.get("repository"),
             )
 
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
@@ -571,6 +603,45 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if conversation.status == Conversation.Status.CANCELING:
             return Response(status=status.HTTP_204_NO_CONTENT)
 
+        if conversation.sandbox_task_id and conversation.sandbox_run_id:
+            return self._cancel_sandbox_conversation(conversation)
+
+        return self._cancel_langgraph_conversation(conversation)
+
+    def _cancel_sandbox_conversation(self, conversation):
+        from products.tasks.backend.models import TaskRun
+
+        try:
+            task_run = TaskRun.objects.get(id=conversation.sandbox_run_id, team_id=self.team_id)
+        except TaskRun.DoesNotExist:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        conversation.status = Conversation.Status.CANCELING
+        conversation.save(update_fields=["status", "updated_at"])
+
+        try:
+            from posthog.temporal.common.client import sync_connect
+
+            client = sync_connect()
+            handle = client.get_workflow_handle(task_run.workflow_id)
+
+            async def _cancel():
+                await handle.cancel()
+
+            asgi_async_to_sync(_cancel)()
+            # Cancel signal delivered — leave status as CANCELING.
+            # The streaming generator's _persist_sandbox_turn will reset to IDLE
+            # once the turn actually ends.
+        except Exception as e:
+            logger.warning("Failed to cancel sandbox workflow", conversation_id=conversation.id, error=str(e))
+            # Cancel failed — reset to IDLE since the workflow is still running
+            # and no cancellation is in progress.
+            conversation.status = Conversation.Status.IDLE
+            conversation.save(update_fields=["status", "updated_at"])
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _cancel_langgraph_conversation(self, conversation):
         async def cancel_workflow():
             agent_executor = AgentExecutor(conversation)
             await agent_executor.cancel_workflow()

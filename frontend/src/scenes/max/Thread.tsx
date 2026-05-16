@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { useLayoutEffect, useMemo, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import {
     IconBrain,
@@ -29,6 +29,8 @@ import {
     LemonDialog,
     LemonInput,
     LemonSkeleton,
+    LemonTag,
+    Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -40,7 +42,6 @@ import {
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { inStorybookTestRunner, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -67,7 +68,8 @@ import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-g
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { PendingApproval, Region } from '~/types'
 
-import { LogEntry } from 'products/tasks/frontend/lib/parse-logs'
+import { ToolCallEntry } from 'products/tasks/frontend/components/session/ToolCallEntry'
+import { LogEntry, ToolStatus } from 'products/tasks/frontend/lib/parse-logs'
 
 import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { ContextSummary } from './Context'
@@ -116,8 +118,8 @@ function isErrorMessage(message: ThreadMessage): boolean {
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, messagesLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, threadLoading, sandboxEntries } = useValues(maxThreadLogic)
-    const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
+    const { threadGrouped, streamingActive, threadLoading, sandboxEntries, isSandboxEnabled } =
+        useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
     const ticketPromptData = useMemo(
@@ -137,7 +139,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                 className
             )}
         >
-            {(conversationLoading || messagesLoading) && threadGrouped.length === 0 ? (
+            {(conversationLoading || messagesLoading) && threadGrouped.length === 0 && sandboxEntries.length === 0 ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />
                     <MessageGroupSkeleton groupType="ai" className="opacity-80" />
@@ -147,6 +149,12 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     <MessageGroupSkeleton groupType="ai" className="opacity-10" />
                     <MessageGroupSkeleton groupType="human" className="opacity-5" />
                 </>
+            ) : isSandboxEnabled && sandboxEntries.length > 0 ? (
+                // Sandbox conversations: session_logs is the single source of truth for the
+                // entire history. We render everything (incl. user bubbles) from sandboxEntries.
+                // A just-typed user message in threadRaw is briefly invisible until session_logs
+                // catches up — that's preferable to rendering it twice (classic + sandbox).
+                <SandboxSessionView entries={sandboxEntries} isStreaming={streamingActive} />
             ) : threadGrouped.length > 0 ? (
                 <>
                     {(() => {
@@ -231,7 +239,16 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                             isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
                                         />
                                     </TraceIdProvider>
-                                    {sandboxModeEnabled &&
+                                    {isSandboxEnabled &&
+                                        isLastInGroup &&
+                                        index === threadGrouped.length - 1 &&
+                                        sandboxEntries.length > 0 && (
+                                            <SandboxSessionView
+                                                entries={sandboxEntries}
+                                                isStreaming={streamingActive}
+                                            />
+                                        )}
+                                    {!isSandboxEnabled &&
                                         sandboxEntries.length > 0 &&
                                         isAssistantMessage(message) &&
                                         message.id?.startsWith('sandbox-') &&
@@ -348,6 +365,232 @@ function SandboxActivityPanel({ entries }: { entries: LogEntry[] }): JSX.Element
                     ))}
                 </div>
             )}
+        </div>
+    )
+}
+
+type SandboxStreamItem =
+    | { kind: 'text'; id: string; text: string }
+    | { kind: 'tool'; id: string; entry: LogEntry }
+    | { kind: 'thinking'; id: string; text: string }
+    | { kind: 'human'; id: string; text: string }
+
+/**
+ * Map raw sandbox log entries into a stream that mirrors classic PostHog AI:
+ * - `user` entries become human bubbles (sandbox conversations don't hydrate
+ *   classic threadRaw from history — session_logs is the source of truth).
+ * - Consecutive `agent` chunks coalesce into a single text bubble.
+ * - Consecutive `thinking` chunks coalesce into a single thinking disclosure.
+ * - `tool` entries become inline lines (no bubble).
+ * - Infrastructure logs (`console`, `system`, `raw`) go behind the collapsible
+ *   "Setting up sandbox…" callout.
+ */
+/**
+ * Strip server-injected context wrappers from a user message so only what the user
+ * actually typed shows in the human bubble. The sandbox executor (and signals research)
+ * prepend `<identity>`, `<posthog_context>`, and `<core_memory>` blocks to the first
+ * message — these are part of the prompt sent to the agent but not user-authored.
+ */
+function stripUserMessageWrappers(text: string): string {
+    return text.replace(/<(identity|posthog_context|core_memory)>[\s\S]*?<\/\1>\s*/g, '').trimStart()
+}
+
+function classifySandboxEntries(entries: LogEntry[]): { items: SandboxStreamItem[]; setupLogs: LogEntry[] } {
+    const items: SandboxStreamItem[] = []
+    const setupLogs: LogEntry[] = []
+
+    for (const entry of entries) {
+        switch (entry.type) {
+            case 'user':
+                items.push({
+                    kind: 'human',
+                    id: entry.id,
+                    text: stripUserMessageWrappers(entry.message ?? ''),
+                })
+                break
+            case 'agent': {
+                const last = items.at(-1)
+                if (last?.kind === 'text') {
+                    last.text += entry.message ?? ''
+                } else {
+                    items.push({ kind: 'text', id: entry.id, text: entry.message ?? '' })
+                }
+                break
+            }
+            case 'thinking': {
+                const last = items.at(-1)
+                if (last?.kind === 'thinking') {
+                    last.text += entry.message ?? ''
+                } else {
+                    items.push({ kind: 'thinking', id: entry.id, text: entry.message ?? '' })
+                }
+                break
+            }
+            case 'tool':
+                items.push({ kind: 'tool', id: entry.id, entry })
+                break
+            case 'console':
+            case 'system':
+            case 'raw':
+                setupLogs.push(entry)
+                break
+        }
+    }
+
+    return { items, setupLogs }
+}
+
+function SandboxSessionView({ entries, isStreaming }: { entries: LogEntry[]; isStreaming: boolean }): JSX.Element {
+    const { items, setupLogs } = useMemo(() => classifySandboxEntries(entries), [entries])
+
+    return (
+        <>
+            {setupLogs.length > 0 && <SandboxSetupLogs entries={setupLogs} completed={items.length > 0} />}
+            {items.map((item) => {
+                switch (item.kind) {
+                    case 'human':
+                        return (
+                            <MessageTemplate key={item.id} type="human">
+                                <MarkdownMessage content={item.text} id={item.id} />
+                            </MessageTemplate>
+                        )
+                    case 'text':
+                        return (
+                            <MessageTemplate key={item.id} type="ai">
+                                <MarkdownMessage content={item.text} id={item.id} />
+                            </MessageTemplate>
+                        )
+                    case 'tool':
+                        return <SandboxToolEntry key={item.id} entry={item.entry} />
+                    case 'thinking':
+                        return <SandboxThinkingEntry key={item.id} message={item.text} />
+                }
+            })}
+            {isStreaming && items.length > 0 && (
+                <div className="flex items-center gap-1 py-1 px-2">
+                    <Spinner className="text-sm" />
+                </div>
+            )}
+        </>
+    )
+}
+
+function SandboxToolEntry({ entry }: { entry: LogEntry }): JSX.Element {
+    const result = entry.toolResult
+    const meta = typeof result === 'object' && result !== null ? (result as any)._meta : undefined
+    const resourceUri = meta?.ui?.resourceUri as string | undefined
+
+    return (
+        <div className="px-2 py-1 w-fit">
+            <ToolCallEntry
+                toolName={entry.toolName || 'unknown'}
+                status={(entry.toolStatus as ToolStatus) || 'pending'}
+                args={entry.toolArgs}
+                result={!resourceUri ? entry.toolResult : undefined}
+            />
+            {resourceUri && entry.toolStatus === 'completed' && (
+                <McpUiAppEmbed resourceUri={resourceUri} data={result} />
+            )}
+        </div>
+    )
+}
+
+function SandboxSetupLogs({ entries, completed }: { entries: LogEntry[]; completed: boolean }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    const label = completed ? 'Sandbox set up' : 'Setting up sandbox…'
+
+    return (
+        <div className="px-2 py-1 w-fit">
+            <button
+                type="button"
+                onClick={() => setExpanded(!expanded)}
+                className="flex items-center gap-2 text-left rounded hover:bg-bg-light cursor-pointer"
+            >
+                <IconChevronRight
+                    className={cn('text-muted transition-transform', expanded && 'rotate-90')}
+                    fontSize="12"
+                />
+                {completed ? <IconCheck className="text-muted" fontSize="14" /> : <Spinner className="text-muted" />}
+                <code className="text-xs text-secondary">{label}</code>
+                <LemonTag type={completed ? 'success' : 'primary'} size="small">
+                    {completed ? 'Done' : 'Running'}
+                </LemonTag>
+            </button>
+            {expanded && (
+                <div className="ml-5 mt-1 rounded bg-bg-light p-2 overflow-hidden max-h-60 overflow-y-auto">
+                    {entries.map((entry) => (
+                        <div
+                            key={entry.id}
+                            className={cn(
+                                'py-0.5 text-xs font-mono',
+                                entry.level === 'error'
+                                    ? 'text-danger'
+                                    : entry.level === 'warn'
+                                      ? 'text-warning'
+                                      : 'text-muted'
+                            )}
+                        >
+                            {entry.message ?? entry.raw}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
+function SandboxThinkingEntry({ message }: { message: string }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+
+    return (
+        <div className="px-2 py-1 w-fit">
+            <button
+                type="button"
+                onClick={() => setExpanded(!expanded)}
+                className="flex items-center gap-2 text-left rounded hover:bg-bg-light cursor-pointer"
+            >
+                <IconChevronRight
+                    className={cn('text-muted transition-transform', expanded && 'rotate-90')}
+                    fontSize="12"
+                />
+                <IconBrain className="text-muted" fontSize="14" />
+                <span className="text-xs text-muted">Thinking</span>
+            </button>
+            {expanded && (
+                <div className="ml-5 mt-1 rounded bg-bg-light p-2 overflow-hidden">
+                    <div className="text-xs whitespace-pre-wrap text-muted max-h-60 overflow-y-auto">{message}</div>
+                </div>
+            )}
+        </div>
+    )
+}
+
+function McpUiAppEmbed({ resourceUri, data }: { resourceUri: string; data: unknown }): JSX.Element {
+    const iframeRef = useRef<HTMLIFrameElement>(null)
+    const [loaded, setLoaded] = useState(false)
+
+    // Extract app name from URI like "uri://mcp-app/query-results"
+    const appName = resourceUri.replace('uri://mcp-app/', '')
+    // MCP UI apps are served from the MCP server's static assets
+    const appUrl = `https://mcp.posthog.com/ui-apps/${appName}/index.html`
+
+    useEffect(() => {
+        if (loaded && iframeRef.current?.contentWindow && data) {
+            // Post the structuredContent to the iframe for rendering
+            iframeRef.current.contentWindow.postMessage({ type: 'mcp-tool-result', structuredContent: data }, '*')
+        }
+    }, [loaded, data])
+
+    return (
+        <div className="ml-5 mt-1 mb-2 rounded border overflow-hidden" style={{ height: '300px' }}>
+            <iframe
+                ref={iframeRef}
+                src={appUrl}
+                onLoad={() => setLoaded(true)}
+                className="w-full h-full border-0"
+                sandbox="allow-scripts allow-same-origin"
+                title={`MCP App: ${appName}`}
+            />
         </div>
     )
 }

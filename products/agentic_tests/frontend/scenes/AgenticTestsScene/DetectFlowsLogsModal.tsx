@@ -23,13 +23,15 @@ function LogEntryRow({ entry }: { entry: LogEntry }): JSX.Element | null {
             )
         case 'tool':
             return (
-                <ToolCallEntry
-                    toolName={entry.toolName || 'unknown'}
-                    status={entry.toolStatus || 'pending'}
-                    args={entry.toolArgs}
-                    result={entry.toolResult}
-                    timestamp={entry.timestamp}
-                />
+                <div className="py-2 w-full">
+                    <ToolCallEntry
+                        toolName={entry.toolName || 'unknown'}
+                        status={entry.toolStatus || 'pending'}
+                        args={entry.toolArgs}
+                        result={entry.toolResult}
+                        timestamp={entry.timestamp}
+                    />
+                </div>
             )
         case 'agent':
             return (

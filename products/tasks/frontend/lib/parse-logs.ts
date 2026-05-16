@@ -219,14 +219,9 @@ function parseACPNotification(
 
         switch (update.sessionUpdate) {
             case 'user_message_chunk':
-                if (update.content?.type === 'text' && update.content.text) {
-                    return {
-                        id,
-                        type: 'user',
-                        timestamp,
-                        message: update.content.text,
-                    }
-                }
+                // Skip — `session/prompt` is the canonical source for user messages.
+                // `user_message_chunk` is just the ACP protocol echoing the same content
+                // back, which would render as a duplicate user bubble.
                 return null
 
             case 'agent_message_chunk':

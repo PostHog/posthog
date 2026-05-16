@@ -44,17 +44,17 @@ export function ToolCallEntry({ toolName, status, args, result, timestamp }: Too
     )
 
     return (
-        <div className="py-2">
+        <>
             {hasContent ? (
                 <button
                     type="button"
                     onClick={() => setIsOpen(!isOpen)}
-                    className="flex items-center gap-2 w-full text-left rounded hover:bg-bg-light cursor-pointer"
+                    className="flex items-center gap-2 text-left rounded hover:bg-bg-light cursor-pointer"
                 >
                     {HeaderContent}
                 </button>
             ) : (
-                <div className="flex items-center gap-2 w-full text-left rounded">{HeaderContent}</div>
+                <div className="flex items-center gap-2 text-left rounded">{HeaderContent}</div>
             )}
 
             {isOpen && hasContent && (
@@ -77,6 +77,6 @@ export function ToolCallEntry({ toolName, status, args, result, timestamp }: Too
                     )}
                 </div>
             )}
-        </div>
+        </>
     )
 }
