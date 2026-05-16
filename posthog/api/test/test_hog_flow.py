@@ -1512,4 +1512,3 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         if expected_error:
             assert response.json()["detail"] == expected_error
-
