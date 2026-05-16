@@ -9,12 +9,13 @@ import { HogFlow, HogFlowAction } from '../../schema/hogflow'
 import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { HogFlowInvocationContext, HogFunctionInvocationGlobals } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { counterHogflowMatcherBytecodeError, counterParseError } from './metrics'
 
 type ParkedCandidate = {
     id: string
@@ -167,8 +168,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         filterGlobals: FilterGlobals,
         incomingEventName: string
     ): Promise<boolean> {
-        // `events` is populated by phase 2 of the wait-until-event RFC; for now the
-        // field is absent from the schema.
+        // TODO: drop the `as any` once the schema lands `events` on wait_until_condition
+        // (wait-until-event RFC, phase 2). Until then the field is allowed by the consumer
+        // but absent from the type so existing workflows that only have a condition still work.
         const events = (action.config as any).events as { filters?: any }[] | undefined
         for (const eventConfig of events ?? []) {
             if (await this.evaluateEventConfig(eventConfig, filterGlobals, incomingEventName, action.id)) {
@@ -183,6 +185,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         filterGlobals: FilterGlobals,
         incomingEventName: string
     ): Promise<boolean> {
+        // TODO: drop the `as any` once the schema lands `events` on `conversion`
+        // (wait-until-event RFC, phase 2). Same situation as wait_until_condition above.
         const conversionEvents = ((hogflow.conversion as any)?.events ?? []) as { filters?: any }[]
         const contextId = `${hogflow.id}/conversion`
         for (const eventConfig of conversionEvents) {
@@ -436,7 +440,11 @@ async function runBytecode(bytecode: unknown, filterGlobals: FilterGlobals, cont
         const result = await execHog(bytecode, { globals: filterGlobals })
         return result.execResult?.result === true
     } catch (err) {
-        logger.warn('Bytecode evaluation error', { contextId, err })
+        // A broken filter silently never matches and the workflow falls through to its
+        // timeout branch, which is usually the wrong outcome. Surface loudly so we notice.
+        logger.error('🔴', 'Bytecode evaluation error', { contextId, err })
+        captureException(err, { extra: { contextId } })
+        counterHogflowMatcherBytecodeError.inc()
         return false
     }
 }

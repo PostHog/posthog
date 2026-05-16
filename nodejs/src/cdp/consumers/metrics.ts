@@ -23,3 +23,8 @@ export const counterBatchHogFlowTriggerFailed = new Counter({
     help: 'A batch hog flow run failed during audience resolution and was skipped',
     labelNames: ['hog_flow_id', 'reason'],
 })
+
+export const counterHogflowMatcherBytecodeError = new Counter({
+    name: 'cdp_hogflow_matcher_bytecode_error',
+    help: 'A wait_until_condition or conversion-goal filter threw during evaluation. Filter is treated as non-matching, so the workflow falls through to its timeout branch.',
+})
