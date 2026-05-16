@@ -6,13 +6,16 @@ the leading underscore marks it as a private helper module.
 
 Holds the cross-script vocabulary:
 
+- **Parse** — `_safe_parse` parses a query and classifies the outcome
+  `ok` / `reject` / `crash`, never propagating a backend crash (a CLI
+  diagnostic buckets crashes rather than aborting the grind).
 - **AST diff path** — `_node_type` / `_diff_path` / `_format_diff_path`
   walk two ASTs together and pinpoint the first divergence.
 - **Divergence shape** — `DivergenceShape` / `_ast_mismatch_shape` /
   `_shape_for` reduce a divergence to a structural key two examples of
   the same bug compare equal under.
-- **Error normalisation** — `_normalize_error` / `_reject_error` strip
-  position-dependent payloads so same-cause rejects bucket together.
+- **Error normalisation** — `_normalize_error` strips position-dependent
+  payloads so same-cause rejects/crashes bucket together.
 - **Backend probe** — `_probe_backend` fails fast on an unusable
   `--oracle` / `--candidate`.
 
@@ -28,7 +31,7 @@ from typing import Any
 
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.test.test_parser_grammar_pbt import _try_parse
+from posthog.hogql.visitor import clear_locations
 
 # ---------------------------------------------------------------------------
 # AST diff path
@@ -187,22 +190,30 @@ def _normalize_error(msg: str) -> str:
     return _GOT_RE.sub("got <X>", msg)[:120]
 
 
-def _reject_error(query: str, rule: str, backend: str) -> str:
-    """Capture the candidate's reject error message, normalised. Only
-    called for queries `_try_parse` already returned `False` for — but
-    `_try_parse` swallows EVERY `Exception` subclass, not just
-    `BaseHogQLError`, so a backend-internal crash (`RuntimeError`,
-    `TypeError`, …) also reaches here. We normalise those into a
-    distinct `<ExcType>: …` signature rather than letting them
-    propagate."""
+def _safe_parse(query: str, rule: str, backend: str) -> tuple[str, Any, str | None]:
+    """Parse `query` for a diagnostic that must not abort mid-grind.
+    Returns `(status, ast_or_none, detail)`:
+
+    - `("ok", ast, None)` — parsed; AST is `clear_locations`-normalised
+      so callers can `==`-compare oracle vs candidate.
+    - `("reject", None, signature)` — `BaseHogQLError`; a legitimate
+      "not valid HogQL". `signature` is the normalised error message.
+    - `("crash", None, signature)` — any other exception
+      (`RecursionError`, a half-built backend's `RuntimeError`, …). The
+      pytest PBT's own `_try_parse` lets these propagate so pytest
+      records the failure; a CLI diagnostic instead buckets the crash
+      as a finding and keeps going. `signature` is `<ExcType>: …`.
+
+    `KeyboardInterrupt` / `SystemExit` are `BaseException`, not
+    `Exception` — a manual Ctrl-C still propagates past this handler."""
     parser_fn = parse_expr if rule == "expr" else parse_select
     try:
-        parser_fn(query, backend=backend)  # type: ignore[arg-type]
+        node = parser_fn(query, backend=backend)  # type: ignore[arg-type]
     except BaseHogQLError as e:
-        return _normalize_error(str(e))
+        return "reject", None, _normalize_error(str(e))
     except Exception as e:
-        return _normalize_error(f"{type(e).__name__}: {e}")
-    return "(unexpected: parse succeeded)"
+        return "crash", None, _normalize_error(f"{type(e).__name__}: {e}")
+    return "ok", clear_locations(node), None
 
 
 # ---------------------------------------------------------------------------
@@ -235,16 +246,18 @@ def _shape_for(
     candidate_backend: str,
 ) -> DivergenceShape | None:
     """Determine the divergence shape of `query`, or None if there's no
-    divergence between oracle and candidate."""
-    o_ok, o_ast = _try_parse(query, rule, oracle_backend)
-    if not o_ok:
-        return None  # oracle reject — not a divergence we care about
-    c_ok, c_ast = _try_parse(query, rule, candidate_backend)
-    if not c_ok:
-        return DivergenceShape(
-            kind="candidate_reject",
-            reject_signature=_reject_error(query, rule, candidate_backend),
-        )
+    divergence to track. Returns None when the oracle doesn't cleanly
+    accept (reject or crash — nothing to compare against) and when the
+    candidate crashes (a crash isn't a stable `DivergenceShape`, so the
+    shrinker simply won't reduce toward one)."""
+    o_status, o_ast, _ = _safe_parse(query, rule, oracle_backend)
+    if o_status != "ok":
+        return None
+    c_status, c_ast, c_detail = _safe_parse(query, rule, candidate_backend)
+    if c_status == "reject":
+        return DivergenceShape(kind="candidate_reject", reject_signature=c_detail)
+    if c_status == "crash":
+        return None
     if o_ast == c_ast:
         return None
     return _ast_mismatch_shape((_node_type(o_ast), _node_type(c_ast)), _diff_path(o_ast, c_ast))

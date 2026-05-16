@@ -54,6 +54,7 @@ import os
 import re
 import sys
 import json
+import signal
 import argparse
 import traceback
 import subprocess
@@ -515,7 +516,24 @@ def main() -> int:
     mismatch_buckets: Counter[tuple[str, str]] = Counter()
     oracle_reject_buckets: Counter[str] = Counter()
     failures: list[Failure] = []
+
+    # Flush partial results on Ctrl-C: a grind over thousands of
+    # queries takes minutes, and the failure file is the whole point
+    # of the run. A SIGINT sets a flag the loop checks at the next
+    # iteration boundary, so the summary + failure dump below still
+    # run against whatever was accumulated rather than being lost.
+    interrupted = False
+
+    def _on_sigint(_signum: int, _frame: object) -> None:
+        nonlocal interrupted
+        interrupted = True
+
+    prev_sigint = signal.signal(signal.SIGINT, _on_sigint)
+
     for i, (query, n_occ) in enumerate(rows):
+        if interrupted:
+            print(f"\nInterrupted at {i}/{len(rows)} — writing partial results…")
+            break
         if (i + 1) % 50 == 0:
             sys.stderr.write(
                 f"\r  {i + 1}/{len(rows)} processed (pass={counts['pass']} reject={counts['candidate_reject']} "
@@ -597,6 +615,7 @@ def main() -> int:
         if args.verbose:
             print(f"  MISMATCH (seen {n_occ}x): {bucket[0]} vs {bucket[1]}")
 
+    signal.signal(signal.SIGINT, prev_sigint)
     sys.stderr.write("\r" + " " * 110 + "\r")
 
     # 4. Summary.
@@ -645,7 +664,7 @@ def main() -> int:
         print()
         print(f"Wrote {len(failures)} failing queries to {_repo_relative(out_path)}")
 
-    return 0
+    return 130 if interrupted else 0
 
 
 if __name__ == "__main__":

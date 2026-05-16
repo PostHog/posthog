@@ -26,8 +26,12 @@ Distinct from the pytest PBT in five ways:
 5. **Reject categorization.** Group `candidate_reject` queries by the
    error message + leading-token signature so recurring shapes
    surface even though there's no AST to diff against.
+6. **Crash bucketing.** A query that makes a backend raise a non-HogQL
+   exception (`RecursionError`, a half-built parser's `RuntimeError`,
+   …) is bucketed as `candidate_crash` / `oracle_crash` and the grind
+   continues — surfacing the crash rather than aborting on it.
 
-The shared AST-diff / divergence-shape vocabulary lives in
+The shared parse / AST-diff / divergence-shape vocabulary lives in
 `_diagnostic_common.py` alongside this script.
 
 Typical usage:
@@ -73,11 +77,11 @@ from posthog.hogql.scripts._diagnostic_common import (
     _format_diff_path,
     _node_type,
     _probe_backend,
-    _reject_error,
+    _safe_parse,
     _shape_for,
 )
 from posthog.hogql.test._generated_grammar_strategies import expr_strategy, select_strategy
-from posthog.hogql.test.test_parser_grammar_pbt import _PBT_SETTINGS, _apply_jiggle, _try_parse
+from posthog.hogql.test.test_parser_grammar_pbt import _PBT_SETTINGS, _apply_jiggle
 
 # ---------------------------------------------------------------------------
 # Auto-shrinker
@@ -170,8 +174,8 @@ def _print_failure_sample(
     if shrunk is not None and shrunk != query:
         print(f"  query (shrunk {len(query)} -> {len(shrunk)}): {shrunk!r}")
         if diff_steps is not None:
-            _, o_s = _try_parse(shrunk, rule, oracle)
-            _, c_s = _try_parse(shrunk, rule, candidate)
+            _, o_s, _ = _safe_parse(shrunk, rule, oracle)
+            _, c_s, _ = _safe_parse(shrunk, rule, candidate)
             print(_format_diff_path(_diff_path(o_s, c_s)))
     else:
         print(f"  query: {query!r}")
@@ -244,6 +248,11 @@ def main() -> int:
     # different "minimal" repros for the same bug.
     mismatch_buckets: dict[tuple[str, str], list[tuple[str, str | None, list]]] = {}
     reject_buckets: dict[str, list[tuple[str, str | None]]] = {}
+    # A candidate that raises a non-HogQL exception (RecursionError, a
+    # half-built backend's RuntimeError, …) is a finding in its own
+    # right — `_safe_parse` catches it so one crashing query can't
+    # abort the whole grind. Keyed by normalised `<ExcType>: …`.
+    crash_buckets: dict[str, list[str]] = {}
 
     base_strategy = expr_strategy() if args.rule == "expr" else select_strategy()
     strategy = base_strategy.flatmap(_apply_jiggle) if args.jiggle else base_strategy
@@ -275,15 +284,21 @@ def main() -> int:
     def run(query: str) -> None:
         counts["total"] += 1
 
-        o_ok, o_ast = _try_parse(query, args.rule, oracle)
-        if not o_ok:
+        o_status, o_ast, _ = _safe_parse(query, args.rule, oracle)
+        if o_status == "reject":
             counts["oracle_reject"] += 1
             return
+        if o_status == "crash":
+            # The oracle (source of truth) crashing is its own kind of
+            # finding — count it, but with no oracle AST there's
+            # nothing to compare the candidate against, so stop here.
+            counts["oracle_crash"] += 1
+            return
 
-        c_ok, c_ast = _try_parse(query, args.rule, candidate)
-        if not c_ok:
+        c_status, c_ast, c_detail = _safe_parse(query, args.rule, candidate)
+        if c_status == "reject":
             counts["candidate_reject"] += 1
-            sig = _reject_error(query, args.rule, candidate)
+            sig = c_detail or "<no message>"
             shape = DivergenceShape(kind="candidate_reject", reject_signature=sig)
             shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
             reject_buckets.setdefault(sig, []).append((query, shrunk))
@@ -297,6 +312,24 @@ def main() -> int:
                     "reject_signature": sig,
                 },
                 shrunk,
+            )
+            return
+        if c_status == "crash":
+            # Not shrunk: a crash isn't a stable `DivergenceShape`, so
+            # `_shrink_query` can't reduce toward it. Recorded full.
+            counts["candidate_crash"] += 1
+            sig = c_detail or "<no message>"
+            crash_buckets.setdefault(sig, []).append(query)
+            write_record(
+                {
+                    "kind": "candidate_crash",
+                    "rule": args.rule,
+                    "oracle": oracle,
+                    "candidate": candidate,
+                    "query": query,
+                    "crash_signature": sig,
+                },
+                None,
             )
             return
 
@@ -384,6 +417,22 @@ def main() -> int:
                 print(f"\n--- {sig} ({len(queries)} total) ---")
                 for query, shrunk in queries[: args.max_mismatch_samples]:
                     _print_failure_sample(query, shrunk, args.rule, oracle, candidate)
+
+    # ---- candidate_crash categorization + samples -------------------------
+    if crash_buckets:
+        total = sum(len(v) for v in crash_buckets.values())
+        print()
+        print(f"=== candidate_crash categories ({total} total — non-HogQL exceptions) ===")
+        sorted_crash_buckets = sorted(crash_buckets.items(), key=lambda kv: -len(kv[1]))
+        for sig, queries in sorted_crash_buckets:
+            print(f"  [{len(queries):3d}] {sig}")
+        if args.print_rejects:
+            print()
+            print(f"=== Sample candidate_crashes (up to {args.max_mismatch_samples} per category) ===")
+            for sig, queries in sorted_crash_buckets:
+                print(f"\n--- {sig} ({len(queries)} total) ---")
+                for query in queries[: args.max_mismatch_samples]:
+                    print(f"  query: {query!r}")
 
     if args.write_divergences:
         print()
