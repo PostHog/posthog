@@ -81,7 +81,12 @@ describe('Hogflow Executor', () => {
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
             },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+            {
+                teamManager: hub.teamManager,
+                siteUrl: hub.SITE_URL,
+                llmGatewayUrl: hub.LLM_GATEWAY_URL,
+                llmGatewayApiKey: hub.LLM_GATEWAY_API_KEY,
+            },
             hogInputsService,
             emailService,
             recipientTokensService

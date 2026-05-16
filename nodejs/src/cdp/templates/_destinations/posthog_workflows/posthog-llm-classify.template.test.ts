@@ -10,39 +10,52 @@ describe('posthog-llm-classify template', () => {
 
     beforeEach(async () => {
         await tester.beforeEach()
+        // Gateway URL + auth are resolved server-side; deterministic test values so we can assert
+        // they're not leaking to user-facing inputs and are routed via the workflows product path.
+        tester.setHubConfig({
+            LLM_GATEWAY_URL: 'http://gateway.test',
+            LLM_GATEWAY_API_KEY: 'service-key',
+        })
         const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
     })
 
     const baseInputs = {
-        api_key: 'phx_test_key',
         model: 'gpt-5-mini',
-        system_prompt: 'You classify support tickets.',
-        user_content: 'My invoice is wrong',
-        user_distinct_id: 'distinct-id',
-        gateway_url: 'https://gateway.us.posthog.com/v1/chat/completions',
+        instructions: 'You classify support tickets.',
+        content: 'My invoice is wrong',
     }
 
-    it('builds a structured-output request when tags are provided', async () => {
+    it('does not expose gateway URL or API key as user-facing inputs', () => {
+        const keys = template.inputs_schema.map((field) => field.key)
+        expect(keys).not.toContain('api_key')
+        expect(keys).not.toContain('gateway_url')
+        expect(keys).not.toContain('user_distinct_id')
+        // The user-meaningful inputs the form should expose:
+        expect(keys).toEqual(expect.arrayContaining(['model', 'instructions', 'content', 'categories']))
+    })
+
+    it('builds a structured-output request when categories are provided', async () => {
         const response = await tester.invoke({
             ...baseInputs,
-            tags: 'billing, support, sales',
+            categories: 'billing, support, sales',
         })
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toBe(false)
 
         const params = response.invocation.queueParameters as Record<string, any>
-        expect(params.url).toBe('https://gateway.us.posthog.com/v1/chat/completions')
+        // Routed through the workflows product path on the configured gateway, with service auth
+        // — never the user-provided URL/key.
+        expect(params.url).toBe('http://gateway.test/workflows/v1/chat/completions')
         expect(params.method).toBe('POST')
         expect(params.headers).toEqual({
-            Authorization: 'Bearer phx_test_key',
+            Authorization: 'Bearer service-key',
             'Content-Type': 'application/json',
         })
 
         const body = parseJSON(params.body)
         expect(body.model).toBe('gpt-5-mini')
-        expect(body.user).toBe('distinct-id')
         expect(body.messages).toEqual([
             { role: 'system', content: 'You classify support tickets.' },
             { role: 'user', content: 'My invoice is wrong' },
@@ -61,7 +74,7 @@ describe('posthog-llm-classify template', () => {
     it('parses the structured-output content on successful response', async () => {
         const initial = await tester.invoke({
             ...baseInputs,
-            tags: 'billing, support, sales',
+            categories: 'billing, support, sales',
         })
 
         const response = await tester.invokeFetchResponse(initial.invocation, {
@@ -88,8 +101,8 @@ describe('posthog-llm-classify template', () => {
         })
     })
 
-    it('omits response_format and returns free-form content when tags are empty', async () => {
-        const initial = await tester.invoke({ ...baseInputs, tags: '' })
+    it('omits response_format and returns free-form content when categories are empty', async () => {
+        const initial = await tester.invoke({ ...baseInputs, categories: '' })
 
         const body = parseJSON((initial.invocation.queueParameters as Record<string, any>).body)
         expect(body.response_format).toBeUndefined()
@@ -106,38 +119,46 @@ describe('posthog-llm-classify template', () => {
         expect(response.execResult).toEqual({ content: 'free-form classification' })
     })
 
-    it('drops empty entries from the tag list', async () => {
+    it('drops empty entries from the categories list', async () => {
         const response = await tester.invoke({
             ...baseInputs,
             // Trailing comma + extra whitespace would otherwise produce empty enum values, which
             // OpenAI's structured-output validator rejects with an opaque 400.
-            tags: 'billing, , support,  ',
+            categories: 'billing, , support,  ',
         })
 
         const body = parseJSON((response.invocation.queueParameters as Record<string, any>).body)
         expect(body.response_format.json_schema.schema.properties.category.enum).toEqual(['billing', 'support'])
     })
 
-    it('throws when api_key is missing', async () => {
-        const response = await tester.invoke({ ...baseInputs, api_key: '' })
+    it('throws when content is missing', async () => {
+        const response = await tester.invoke({ ...baseInputs, content: '' })
 
-        expect(response.error).toMatch(/PostHog personal API key/)
+        expect(response.error).toMatch(/Content to classify is required/)
     })
 
-    it('throws when user_content is missing', async () => {
-        const response = await tester.invoke({ ...baseInputs, user_content: '' })
+    it('throws when model is missing', async () => {
+        const response = await tester.invoke({ ...baseInputs, model: '' })
 
-        expect(response.error).toMatch(/User content is required/)
+        expect(response.error).toMatch(/Model is required/)
+    })
+
+    it('throws when the gateway is not configured', async () => {
+        tester.setHubConfig({ LLM_GATEWAY_URL: '', LLM_GATEWAY_API_KEY: '' })
+
+        const response = await tester.invoke({ ...baseInputs, categories: 'a, b' })
+
+        expect(response.error).toMatch(/PostHog LLM gateway URL is not configured/)
     })
 
     it('throws on a gateway error response', async () => {
-        const initial = await tester.invoke({ ...baseInputs, tags: 'a, b' })
+        const initial = await tester.invoke({ ...baseInputs, categories: 'a, b' })
 
         const response = await tester.invokeFetchResponse(initial.invocation, {
             status: 401,
             body: { error: 'invalid api key' },
         })
 
-        expect(response.error).toMatch(/LLM gateway returned status 401/)
+        expect(response.error).toMatch(/LLM classification failed with status 401/)
     })
 })

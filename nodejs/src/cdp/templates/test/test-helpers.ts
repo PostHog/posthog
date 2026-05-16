@@ -186,6 +186,12 @@ export class TemplateTester {
         this.nativeExecutor = new NativeDestinationExecutorService(defaultConfig)
     }
 
+    setHubConfig(overrides: Partial<PluginsServerConfig>): void {
+        Object.assign(this.mockHub, overrides)
+        this.hogExecutor = this.createHogExecutor()
+        this.nativeExecutor = new NativeDestinationExecutorService(this.mockHub)
+    }
+
     private createHogExecutor(): HogExecutorService {
         const config = this.mockHub
         const hogInputsService = new HogInputsService(undefined as any, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
@@ -209,7 +215,12 @@ export class TemplateTester {
                 fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
             },
-            { teamManager: undefined as any, siteUrl: config.SITE_URL },
+            {
+                teamManager: undefined as any,
+                siteUrl: config.SITE_URL,
+                llmGatewayUrl: config.LLM_GATEWAY_URL,
+                llmGatewayApiKey: config.LLM_GATEWAY_API_KEY,
+            },
             hogInputsService,
             emailService,
             recipientTokensService

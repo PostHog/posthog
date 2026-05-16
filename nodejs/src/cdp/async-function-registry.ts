@@ -11,6 +11,8 @@ export type AsyncFunctionContext = {
     globals: HogFunctionInvocationGlobalsWithInputs
     teamManager: TeamManager
     siteUrl: string
+    llmGatewayUrl: string
+    llmGatewayApiKey: string
 }
 
 export type AsyncFunctionHandler = {
