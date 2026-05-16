@@ -32,12 +32,13 @@ export function KioskSetup(): JSX.Element {
         if (featureFlagKeyMissingValue) {
             return
         }
+        const trimmedFlagKey = featureFlagKey.trim() || null
         setFilters({
             visitedPage: visitedPage.trim() || null,
             dateFrom,
             minDurationSeconds,
-            featureFlagKey: featureFlagKey.trim() || null,
-            featureFlagValue: featureFlagValue.trim() || null,
+            featureFlagKey: trimmedFlagKey,
+            featureFlagValue: trimmedFlagKey ? featureFlagValue.trim() || null : null,
         })
         startPlayback()
     }

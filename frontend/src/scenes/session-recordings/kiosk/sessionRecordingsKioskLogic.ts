@@ -269,10 +269,8 @@ export const sessionRecordingsKioskLogic = kea<sessionRecordingsKioskLogicType>(
             if (values.filters.minDurationSeconds !== DEFAULT_FILTERS.minDurationSeconds) {
                 params.min_duration = String(values.filters.minDurationSeconds)
             }
-            if (values.filters.featureFlagKey) {
+            if (values.filters.featureFlagKey && values.filters.featureFlagValue) {
                 params.feature_flag = values.filters.featureFlagKey
-            }
-            if (values.filters.featureFlagValue) {
                 params.feature_flag_value = values.filters.featureFlagValue
             }
             return params
