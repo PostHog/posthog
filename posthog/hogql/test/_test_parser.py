@@ -1455,6 +1455,16 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_columns_quoted_exclude(self):
+            # Quoted identifiers inside an exclude list must be unquoted, matching the cpp parser.
+            self.assertEqual(
+                self._select('select * exclude ("first name") from customers'),
+                ast.SelectQuery(
+                    select=[ast.ColumnsExpr(all_columns=True, exclude=["first name"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["customers"])),
+                ),
+            )
+
         def test_ignore_nulls_expr(self):
             self.assertEqual(
                 self._expr("event IGNORE NULLS"),
@@ -3655,6 +3665,50 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ],
             )
             self.assertEqual(program, expected)
+
+        def test_program_quoted_identifiers(self):
+            # Quoted identifiers in name positions must be unquoted, matching the cpp parser.
+            self.assertEqual(
+                self._program('fn "my fn"("a b", "c d") { return 1; }'),
+                Program(
+                    declarations=[
+                        Function(
+                            name="my fn",
+                            params=["a b", "c d"],
+                            body=Block(declarations=[ast.ReturnStatement(expr=Constant(value=1))]),
+                        )
+                    ],
+                ),
+            )
+            self.assertEqual(
+                self._program('let "my var" := 1;'),
+                Program(declarations=[VariableDeclaration(name="my var", expr=Constant(value=1))]),
+            )
+            self.assertEqual(
+                self._program('for (let "key", "val" in [1]) {}'),
+                Program(
+                    declarations=[
+                        ast.ForInStatement(
+                            keyVar="key",
+                            valueVar="val",
+                            expr=ast.Array(exprs=[Constant(value=1)]),
+                            body=Block(declarations=[]),
+                        )
+                    ],
+                ),
+            )
+
+        def test_program_throw_without_expression(self):
+            # The grammar marks the throw expression optional, so a bare throw parses,
+            # matching the cpp parser.
+            self.assertEqual(
+                self._program("throw"),
+                Program(declarations=[ast.ThrowStatement(expr=None)]),
+            )
+            self.assertEqual(
+                self._program("throw;"),
+                Program(declarations=[ast.ThrowStatement(expr=None)]),
+            )
 
         def test_program_array(self):
             code = "let a := [1, 2, 3];"
