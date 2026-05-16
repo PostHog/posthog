@@ -68,7 +68,7 @@ class TestMonitorLens:
         assert lens.llm_response_schema is MonitorOutput
 
     def test_lens_from_db_raises_on_missing_prompt(self) -> None:
-        with pytest.raises(ValidationError, match="prompt"):
+        with pytest.raises(ApplicationError, match="prompt"):
             lens_from_db(_build_replay_lens(lens_config={}))
 
     def test_build_prompt_includes_team_name_user_intent_and_task(self) -> None:
@@ -140,7 +140,7 @@ class TestClassifierLens:
         assert lens.multi_label is True
 
     def test_lens_from_db_rejects_empty_tags(self) -> None:
-        with pytest.raises(ValidationError, match="tags"):
+        with pytest.raises(ApplicationError, match="tags"):
             lens_from_db(_build_replay_lens(lens_type=LensType.CLASSIFIER, lens_config={"prompt": "x", "tags": []}))
 
     def test_task_instruction_lists_vocabulary_and_choice_rule(self) -> None:
@@ -242,7 +242,7 @@ class TestScorerLens:
         assert lens.scale.label == "frustration"
 
     def test_lens_from_db_rejects_inverted_scale(self) -> None:
-        with pytest.raises(ValidationError, match="min"):
+        with pytest.raises(ApplicationError, match="min"):
             lens_from_db(
                 _build_replay_lens(
                     lens_type=LensType.SCORER,
@@ -311,7 +311,7 @@ class TestSummarizerLens:
         assert lens.length == "medium"
 
     def test_lens_from_db_rejects_invalid_length(self) -> None:
-        with pytest.raises(ValidationError, match="length"):
+        with pytest.raises(ApplicationError, match="length"):
             lens_from_db(
                 _build_replay_lens(lens_type=LensType.SUMMARIZER, lens_config={"prompt": "summarize", "length": "epic"})
             )

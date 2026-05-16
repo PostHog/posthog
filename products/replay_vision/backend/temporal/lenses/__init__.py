@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from pydantic import Field, TypeAdapter
+from pydantic import Field, TypeAdapter, ValidationError
 from temporalio.exceptions import ApplicationError
 
 from products.replay_vision.backend.models.replay_lens import ReplayLens
@@ -29,9 +29,12 @@ def lens_from_db(replay_lens: ReplayLens) -> AnyLens:
             non_retryable=True,
         )
     # Spread `lens_config` first so the trusted `ReplayLens` columns override anything that may have leaked into the JSON blob.
-    return _LENS_ADAPTER.validate_python(
-        {**config, "lens_type": replay_lens.lens_type, "emits_signals": replay_lens.emits_signals}
-    )
+    try:
+        return _LENS_ADAPTER.validate_python(
+            {**config, "lens_type": replay_lens.lens_type, "emits_signals": replay_lens.emits_signals}
+        )
+    except ValidationError as exc:
+        raise ApplicationError(f"ReplayLens.lens_config is invalid: {exc}", non_retryable=True) from exc
 
 
 __all__ = [
