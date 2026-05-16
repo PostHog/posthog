@@ -26,7 +26,12 @@ export function KioskSetup(): JSX.Element {
     const [featureFlagKey, setFeatureFlagKey] = useState(filters.featureFlagKey || '')
     const [featureFlagValue, setFeatureFlagValue] = useState(filters.featureFlagValue || '')
 
+    const featureFlagKeyMissingValue = !!featureFlagKey.trim() && !featureFlagValue.trim()
+
     const handleStart = (): void => {
+        if (featureFlagKeyMissingValue) {
+            return
+        }
         setFilters({
             visitedPage: visitedPage.trim() || null,
             dateFrom,
@@ -107,7 +112,14 @@ export function KioskSetup(): JSX.Element {
                     />
                 </div>
 
-                <LemonButton type="primary" fullWidth size="large" icon={<IconPlay />} onClick={handleStart}>
+                <LemonButton
+                    type="primary"
+                    fullWidth
+                    size="large"
+                    icon={<IconPlay />}
+                    onClick={handleStart}
+                    disabledReason={featureFlagKeyMissingValue ? 'Enter a feature flag value' : undefined}
+                >
                     Start kiosk
                 </LemonButton>
             </div>

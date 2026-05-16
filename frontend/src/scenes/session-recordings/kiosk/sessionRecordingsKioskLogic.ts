@@ -258,8 +258,8 @@ export const sessionRecordingsKioskLogic = kea<sessionRecordingsKioskLogicType>(
     })),
 
     actionToUrl(({ values }) => {
-        const filterParams = (): Record<string, string> => {
-            const params: Record<string, string> = {}
+        const filterParams = (extra: Record<string, string | number> = {}): Record<string, string | number> => {
+            const params: Record<string, string | number> = { ...extra }
             if (values.filters.visitedPage) {
                 params.visited_page = values.filters.visitedPage
             }
@@ -279,7 +279,7 @@ export const sessionRecordingsKioskLogic = kea<sessionRecordingsKioskLogicType>(
         }
         return {
             resetPlayback: () => [urls.replayKiosk(), filterParams(), undefined, { replace: true }],
-            startPlayback: () => [urls.replayKiosk(), { ...filterParams(), play: 1 }, undefined, { replace: true }],
+            startPlayback: () => [urls.replayKiosk(), filterParams({ play: 1 }), undefined, { replace: true }],
         }
     }),
 
