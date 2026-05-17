@@ -22,7 +22,14 @@ import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { DashboardTile, DashboardType, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    DashboardMode,
+    DashboardTile,
+    DashboardType,
+    InsightColor,
+    InsightShortId,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import _dashboardJson from './__mocks__/dashboard.json'
 
@@ -593,6 +600,65 @@ describe('dashboardLogic', () => {
                 }).toDispatchActions([
                     logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
                 ])
+            })
+        })
+
+        describe('beforeunload guard while in edit mode', () => {
+            const moveFirstTile = (): void => {
+                const firstTile = logic.values.dashboard!.tiles[0]
+                const currentLayouts = logic.values.layouts
+                const modifiedLayouts: any = {
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout: any) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                    ),
+                }
+                logic.actions.updateLayouts(modifiedLayouts)
+            }
+
+            const fireBeforeUnload = (): Event => {
+                const event = new Event('beforeunload', { cancelable: true })
+                window.dispatchEvent(event)
+                return event
+            }
+
+            it('prompts when leaving with unsaved layout changes', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, moveFirstTile)
+                    .toFinishAllListeners()
+                    .toMatchValues({ hasUnsavedLayoutChanges: true })
+
+                const event = fireBeforeUnload()
+                expect(event.defaultPrevented).toBe(true)
+            })
+
+            it('does not prompt when no unsaved layout changes exist', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                }).toFinishAllListeners()
+
+                const event = fireBeforeUnload()
+                expect(event.defaultPrevented).toBe(false)
+            })
+
+            it('removes the listener when leaving edit mode', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, moveFirstTile)
+                    .toFinishAllListeners()
+                    .toMatchValues({ hasUnsavedLayoutChanges: true })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                }).toFinishAllListeners()
+
+                const event = fireBeforeUnload()
+                expect(event.defaultPrevented).toBe(false)
             })
         })
     })

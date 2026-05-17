@@ -2349,6 +2349,26 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (mode !== DashboardMode.Edit) {
                 actions.setLayoutZoom(1)
             }
+
+            if (mode === DashboardMode.Edit) {
+                // Guard against tab close / navigation losing unsaved layout edits.
+                // pauseOnPageHidden: false so the listener survives a tab-hide and still fires on the close that follows.
+                cache.disposables.add(
+                    () => {
+                        const handleBeforeUnload = (e: BeforeUnloadEvent): void => {
+                            if (values.hasUnsavedLayoutChanges) {
+                                e.preventDefault()
+                            }
+                        }
+                        window.addEventListener('beforeunload', handleBeforeUnload)
+                        return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+                    },
+                    'beforeUnloadEditMode',
+                    { pauseOnPageHidden: false }
+                )
+            } else {
+                cache.disposables.dispose('beforeUnloadEditMode')
+            }
         },
         setAutoRefresh: () => {
             actions.resetInterval()
