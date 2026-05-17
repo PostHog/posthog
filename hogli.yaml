@@ -257,9 +257,12 @@ core:
         description: Full reset - wipe volumes, migrate, load demo data, sync flags
         prompt: true
     dev:api-key:
-        cmd: python manage.py setup_local_api_key
+        cmd: python manage.py setup_local_api_key --scopes "*" llm_gateway:read
         description: Creates a personal API key that's always the same, so you don't need
-            to manually create a new one every time you reset the stack.
+            to manually create a new one every time you reset the stack. Includes the
+            llm_gateway:read scope so LLM-backed dev paths (workflows LLM nodes, HogAI,
+            session summarization) work out of the box — the gateway requires this scope
+            explicitly and does not honor the wildcard for personal API keys.
         services:
             - postgresql
 health_checks:
