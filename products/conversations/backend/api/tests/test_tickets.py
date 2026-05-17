@@ -1217,7 +1217,7 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
             ("Email",),
         ]
     )
-    def test_email_fallback_matches_property_variant(self, prop_key, mock_on_commit):
+    def test_email_fallback_matches_property_variant(self, mock_on_commit, prop_key):
         email_addr = f"test-{prop_key}@example.com"
         _create_person(
             team=self.team,
