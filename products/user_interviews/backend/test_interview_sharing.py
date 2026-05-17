@@ -1,4 +1,6 @@
+import hmac
 import json
+import hashlib
 import datetime
 from typing import Any
 
@@ -571,11 +573,13 @@ class TestVapiWebhook(APIBaseTest):
         }
 
     def _signed_post(self, secret: str, payload: dict) -> Any:
+        body = json.dumps(payload)
+        signature = hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
         return self.client.post(
             "/api/user_interviews/vapi_webhook/",
-            data=json.dumps(payload),
+            data=body,
             content_type="application/json",
-            HTTP_X_VAPI_SECRET=secret,
+            HTTP_X_VAPI_SIGNATURE=signature,
         )
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
@@ -609,25 +613,16 @@ class TestVapiWebhook(APIBaseTest):
         response = self._signed_post("topsecret", self._end_of_call_payload("does-not-exist"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @parameterized.expand(
-        [
-            ("wrong_secret", "wrong"),
-            ("empty_secret", ""),
-            ("missing_header", None),
-        ]
-    )
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    def test_webhook_rejects_bad_or_missing_secret(self, _label: str, header_value: str | None):
+    def test_webhook_requires_valid_signature(self):
         share = self._create_share()
         self.client.logout()
-        body = json.dumps(self._end_of_call_payload(share.access_token))
-        url = "/api/user_interviews/vapi_webhook/"
-        if header_value is None:
-            response = self.client.post(url, data=body, content_type="application/json")
-        else:
-            response = self.client.post(
-                url, data=body, content_type="application/json", HTTP_X_VAPI_SECRET=header_value
-            )
+        response = self.client.post(
+            "/api/user_interviews/vapi_webhook/",
+            data=self._end_of_call_payload(share.access_token),
+            content_type="application/json",
+            HTTP_X_VAPI_SIGNATURE="wrong",
+        )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
