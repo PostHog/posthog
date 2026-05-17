@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconChevronDown, IconCopy, IconInfo, IconTrash } from '@posthog/icons'
+import { IconChevronDown, IconCopy, IconInfo, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -177,6 +177,7 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
         distinctId,
         primaryDistinctId,
         eventsQuery,
+        eventsQueryIsDirty,
         exceptionsQuery,
         surveyResponsesQuery,
     } = useValues(mountedPersonsLogic)
@@ -188,6 +189,7 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
         setSplitMergeModalShown,
         setDistinctId,
         setEventsQuery,
+        resetEventsQuery,
         setExceptionsQuery,
         setSurveyResponsesQuery,
     } = useActions(mountedPersonsLogic)
@@ -306,6 +308,19 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                                         tabId,
                                         dataNodeCollectionId: eventsQueryLogicKey,
                                     },
+                                    customActions: (
+                                        <LemonButton
+                                            key="reset-events-filters"
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconRefresh />}
+                                            onClick={() => resetEventsQuery()}
+                                            disabledReason={eventsQueryIsDirty ? undefined : 'No active filters'}
+                                            data-attr="person-events-reset-filters"
+                                        >
+                                            Reset all filters
+                                        </LemonButton>
+                                    ),
                                 }}
                             />
                         ),
