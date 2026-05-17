@@ -45,6 +45,7 @@ from products.replay_vision.backend.temporal.types import (
     CreateObservationOutput,
     EnsureSessionAssetInputs,
     EnsureSessionAssetOutput,
+    EventTable,
     FetchSessionEventsInputs,
     LensLlmInputs,
     MarkObservationFailedInputs,
@@ -328,11 +329,11 @@ class TestFetchSessionEventsActivity:
         assert stored is not None
         assert stored.session_id == "sess-1"
         assert stored.team_id == lens.team_id
-        assert stored.columns == ["event", "timestamp", "$session_id"]
+        assert stored.events.columns == ["event", "timestamp", "$session_id"]
         assert stored.session_start_time == start
         assert stored.session_end_time == end
         assert stored.duration_seconds == 300.0
-        assert stored.events == [["$pageview", "2026-05-12T10:00:00Z", "sess-1"]]
+        assert stored.events.rows == [["$pageview", "2026-05-12T10:00:00Z", "sess-1"]]
 
     @pytest.mark.asyncio
     async def test_paginates_through_get_events_until_short_page(self) -> None:
@@ -373,7 +374,7 @@ class TestFetchSessionEventsActivity:
         key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
         stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
         assert stored is not None
-        assert len(stored.events) == page_size + 1
+        assert len(stored.events.rows) == page_size + 1
 
     @pytest.mark.asyncio
     async def test_is_idempotent_when_redis_already_has_payload(self) -> None:
@@ -388,8 +389,7 @@ class TestFetchSessionEventsActivity:
             session_start_time=dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC),
             session_end_time=dt.datetime(2026, 5, 12, 10, 5, 0, tzinfo=dt.UTC),
             duration_seconds=300.0,
-            columns=["event"],
-            events=[["$pageview"]],
+            events=EventTable(columns=["event"], rows=[["$pageview"]]),
         )
         await store_data_in_redis(redis_client, key, existing.model_dump_json())
 

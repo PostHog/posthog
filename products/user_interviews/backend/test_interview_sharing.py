@@ -1,9 +1,8 @@
-import hmac
 import json
-import hashlib
 import datetime
 from typing import Any
 
+import unittest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -17,8 +16,15 @@ from rest_framework import status
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models.sharing_configuration import SharingConfiguration
 
+from products.user_interviews.backend.api import UserInterviewTopicSerializer
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
-from products.user_interviews.backend.webhooks import EMBEDDING_CONTENT_MAX_BYTES
+from products.user_interviews.backend.webhooks import (
+    DEFAULT_FIRST_MESSAGE_TEMPLATE,
+    EMBEDDING_CONTENT_MAX_BYTES,
+    FIRST_MESSAGE_PROMPT_NAME,
+    _build_first_message,
+    _resolve_first_message_template,
+)
 
 
 class _FeatureFlagEnabledMixin(APIBaseTest):
@@ -94,13 +100,185 @@ class TestGenerateInterviewLinks(_FeatureFlagEnabledMixin):
         self.assertIn("heavy user, churned last quarter", link["agent_context"])
         self.assertIn("Researching adoption of session replay", link["agent_context"])
 
-    def test_generate_links_rejects_topic_with_only_cohort(self):
-        topic = self._create_topic(
-            interviewee_emails=[],
-            interviewee_distinct_ids=[],
-            interviewee_cohort=123,
-        )
+    def test_generate_links_rejects_topic_with_no_identifiers(self):
+        topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
         response = self.client.post(self._generate_links_url(str(topic.id)))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestUserInterviewTopicCreate(_FeatureFlagEnabledMixin):
+    def _url(self) -> str:
+        return f"/api/environments/{self.team.id}/user_interview_topics/"
+
+    @parameterized.expand(
+        [
+            ("no_targeting", {}),
+            ("empty_lists", {"interviewee_emails": [], "interviewee_distinct_ids": []}),
+        ]
+    )
+    def test_rejects_topic_without_identifiers(self, _name: str, targeting: dict[str, Any]):
+        payload = {"topic": "Why people churn", **targeting}
+        response = self.client.post(self._url(), data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        body = response.json()
+        candidates = body.get("non_field_errors") or [body.get("detail", "")]
+        assert UserInterviewTopicSerializer.MISSING_TARGETING_ERROR in candidates, body
+
+    @parameterized.expand(
+        [
+            ("emails_only", {"interviewee_emails": ["alex@example.com"]}),
+            ("distinct_ids_only", {"interviewee_distinct_ids": ["distinct-abc"]}),
+            (
+                "both",
+                {"interviewee_emails": ["alex@example.com"], "interviewee_distinct_ids": ["distinct-abc"]},
+            ),
+        ]
+    )
+    def test_accepts_topic_with_identifiers(self, _name: str, targeting: dict[str, Any]):
+        payload = {"topic": "Why people churn", **targeting}
+        response = self.client.post(self._url(), data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+
+class TestUserInterviewTopicEdit(_FeatureFlagEnabledMixin):
+    def _topic(self, **overrides) -> UserInterviewTopic:
+        defaults: dict = {
+            "team": self.team,
+            "created_by": self.user,
+            "interviewee_emails": ["alex@example.com"],
+            "interviewee_distinct_ids": ["distinct-abc"],
+            "topic": "Adoption",
+            "agent_context": "ctx",
+            "questions": ["q1"],
+        }
+        defaults.update(overrides)
+        return UserInterviewTopic.objects.create(**defaults)
+
+    def _detail_url(self, topic_id: str) -> str:
+        return f"/api/environments/{self.team.id}/user_interview_topics/{topic_id}/"
+
+    def _add_url(self, topic_id: str) -> str:
+        return f"{self._detail_url(topic_id)}add_interviewee/"
+
+    def _remove_url(self, topic_id: str) -> str:
+        return f"{self._detail_url(topic_id)}remove_interviewee/"
+
+    @parameterized.expand(
+        [
+            ("plain_email", "jordan@example.com", "interviewee_emails"),
+            ("display_name_email", "Jordan Doe <jordan@example.com>", "interviewee_emails"),
+            ("distinct_id", "distinct-xyz", "interviewee_distinct_ids"),
+        ]
+    )
+    def test_add_interviewee_routes_to_correct_array(self, _name: str, identifier: str, expected_field: str):
+        topic = self._topic()
+        response = self.client.post(self._add_url(str(topic.id)), data={"identifier": identifier}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        topic.refresh_from_db()
+        assert identifier in getattr(topic, expected_field), (identifier, expected_field, response.json())
+
+    def test_add_interviewee_is_idempotent(self):
+        topic = self._topic(interviewee_emails=[])
+        first = self.client.post(self._add_url(str(topic.id)), data={"identifier": "alex@example.com"}, format="json")
+        second = self.client.post(self._add_url(str(topic.id)), data={"identifier": "alex@example.com"}, format="json")
+        self.assertEqual(first.status_code, status.HTTP_200_OK, first.content)
+        self.assertEqual(second.status_code, status.HTTP_200_OK, second.content)
+        topic.refresh_from_db()
+        assert topic.interviewee_emails == ["alex@example.com"], topic.interviewee_emails
+
+    def test_remove_interviewee_drops_from_both_arrays(self):
+        topic = self._topic(
+            interviewee_emails=["alex@example.com", "jordan@example.com"],
+            interviewee_distinct_ids=["distinct-abc"],
+        )
+        response = self.client.post(
+            self._remove_url(str(topic.id)), data={"identifier": "alex@example.com"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        topic.refresh_from_db()
+        assert topic.interviewee_emails == ["jordan@example.com"], topic.interviewee_emails
+        assert topic.interviewee_distinct_ids == ["distinct-abc"], topic.interviewee_distinct_ids
+
+    def test_remove_interviewee_disables_active_sharing_configurations(self):
+        topic = self._topic()
+        ic = IntervieweeContext.objects.create(
+            team=self.team,
+            topic=topic,
+            interviewee_identifier="alex@example.com",
+            agent_context="",
+            created_by=self.user,
+        )
+        share = SharingConfiguration.objects.create(team=self.team, interviewee_context=ic, enabled=True)
+        self.client.post(self._remove_url(str(topic.id)), data={"identifier": "alex@example.com"}, format="json")
+        share.refresh_from_db()
+        assert share.enabled is False
+
+    def test_remove_interviewee_is_noop_for_unknown_identifier(self):
+        topic = self._topic()
+        response = self.client.post(
+            self._remove_url(str(topic.id)), data={"identifier": "ghost@example.com"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        topic.refresh_from_db()
+        assert topic.interviewee_emails == ["alex@example.com"], topic.interviewee_emails
+
+    def test_partial_update_changes_topic_text(self):
+        topic = self._topic()
+        response = self.client.patch(self._detail_url(str(topic.id)), data={"topic": "New angle"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        topic.refresh_from_db()
+        assert topic.topic == "New angle"
+
+    def test_partial_update_rejects_clearing_all_targeting(self):
+        topic = self._topic()
+        response = self.client.patch(
+            self._detail_url(str(topic.id)),
+            data={"interviewee_emails": [], "interviewee_distinct_ids": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_partial_update_revokes_shares_for_removed_identifiers(self):
+        topic = self._topic(interviewee_emails=["alex@example.com", "jordan@example.com"])
+        ic = IntervieweeContext.objects.create(
+            team=self.team,
+            topic=topic,
+            interviewee_identifier="alex@example.com",
+            agent_context="",
+            created_by=self.user,
+        )
+        share = SharingConfiguration.objects.create(team=self.team, interviewee_context=ic, enabled=True)
+        response = self.client.patch(
+            self._detail_url(str(topic.id)),
+            data={"interviewee_emails": ["jordan@example.com"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        share.refresh_from_db()
+        assert share.enabled is False
+
+    def test_remove_interviewee_revokes_shares_even_when_identifier_already_absent(self):
+        topic = self._topic(interviewee_emails=["jordan@example.com"])
+        ic = IntervieweeContext.objects.create(
+            team=self.team,
+            topic=topic,
+            interviewee_identifier="alex@example.com",
+            agent_context="",
+            created_by=self.user,
+        )
+        share = SharingConfiguration.objects.create(team=self.team, interviewee_context=ic, enabled=True)
+        response = self.client.post(
+            self._remove_url(str(topic.id)), data={"identifier": "alex@example.com"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        share.refresh_from_db()
+        assert share.enabled is False
+
+    def test_add_interviewee_rejects_overlong_email_identifier(self):
+        topic = self._topic()
+        long_email = "a" * 250 + "@example.com"
+        assert len(long_email) > 254
+        response = self.client.post(self._add_url(str(topic.id)), data={"identifier": long_email}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
@@ -151,6 +329,116 @@ class TestInterviewPublicViewer(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
+class TestBuildFirstMessage(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("simple_name_and_topic", "Paul", "taxonomic filter search", ["Hey Paul!", "taxonomic filter search"]),
+            ("dotted_local_part", "Cory S", "session replay adoption", ["Hey Cory S!", "session replay adoption"]),
+            (
+                "name_with_trailing_topic_whitespace",
+                "Kim",
+                "  feature flag rollout  ",
+                ["Hey Kim!", "feature flag rollout"],
+            ),
+        ]
+    )
+    def test_includes_name_and_topic(self, _label: str, user_name: str, topic_text: str, expected_fragments: list[str]):
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name=user_name, topic_text=topic_text)
+        for fragment in expected_fragments:
+            assert fragment in message
+
+    @parameterized.expand([("empty", ""), ("whitespace_only", "   ")])
+    def test_falls_back_to_generic_topic_when_topic_empty(self, _label: str, topic_text: str):
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="Sam", topic_text=topic_text)
+        assert "Hey Sam!" in message
+        assert "your experience" in message
+
+    @parameterized.expand([("empty", ""), ("whitespace_only", "   ")])
+    def test_falls_back_to_generic_greeting_when_user_name_empty(self, _label: str, user_name: str):
+        message = _build_first_message(
+            DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name=user_name, topic_text="checkout funnel"
+        )
+        assert "Hey there!" in message
+        assert "Hey !" not in message
+
+    def test_collapses_internal_whitespace_in_topic(self):
+        message = _build_first_message(
+            DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="Sam", topic_text="multi\nline\n\ttopic"
+        )
+        assert "multi line topic" in message
+        assert "\n" not in message
+
+    def test_truncates_very_long_topic(self):
+        long_topic = "x" * 500
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="Sam", topic_text=long_topic)
+        assert "x" * 200 in message
+        assert "x" * 201 not in message
+
+    def test_uses_custom_template_when_provided(self):
+        custom = "Hi $user_name, today's topic: $topic_text."
+        message = _build_first_message(custom, user_name="Paul", topic_text="onboarding")
+        assert message == "Hi Paul, today's topic: onboarding."
+
+    def test_falls_back_to_default_when_custom_template_missing_placeholder(self):
+        broken = "Hi $nonsense, today is $missing_field."
+        message = _build_first_message(broken, user_name="Paul", topic_text="onboarding")
+        assert "Hey Paul!" in message
+        assert "onboarding" in message
+
+    def test_format_spec_in_template_is_treated_as_literal_text(self):
+        # string.Template has no format-spec syntax, so an attacker cannot use
+        # `{user_name:>10000000000}` to allocate gigabytes — `:` is just a character.
+        attempted = "Hi $user_name, padded: {user_name:>10000000000}"
+        message = _build_first_message(attempted, user_name="Paul", topic_text="onboarding")
+        assert "Hi Paul" in message
+        assert len(message) <= 1000
+
+    def test_falls_back_to_default_when_rendered_message_exceeds_cap(self):
+        huge = "Hi $user_name! " + ("x" * 2000)
+        message = _build_first_message(huge, user_name="Paul", topic_text="onboarding")
+        assert "Hey Paul!" in message
+        assert "onboarding" in message
+        assert len(message) <= 1000
+
+    def test_return_value_is_always_bounded_even_with_long_user_name(self):
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="x" * 5000, topic_text="onboarding")
+        assert len(message) <= 1000
+
+
+class TestResolveFirstMessageTemplate(APIBaseTest):
+    def test_returns_default_when_no_prompt_configured(self):
+        template = _resolve_first_message_template(self.team)
+        assert template == DEFAULT_FIRST_MESSAGE_TEMPLATE
+
+    def test_returns_team_override_when_prompt_published(self):
+        from posthog.models.llm_prompt import LLMPrompt
+
+        LLMPrompt.objects.create(
+            team=self.team,
+            name=FIRST_MESSAGE_PROMPT_NAME,
+            prompt="Hey $user_name! Quick chat about $topic_text?",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        template = _resolve_first_message_template(self.team)
+        assert template == "Hey $user_name! Quick chat about $topic_text?"
+
+    def test_returns_default_when_published_prompt_is_empty(self):
+        from posthog.models.llm_prompt import LLMPrompt
+
+        LLMPrompt.objects.create(
+            team=self.team,
+            name=FIRST_MESSAGE_PROMPT_NAME,
+            prompt="   ",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        template = _resolve_first_message_template(self.team)
+        assert template == DEFAULT_FIRST_MESSAGE_TEMPLATE
+
+
 class TestInterviewStartCall(APIBaseTest):
     def _create_share(self) -> SharingConfiguration:
         topic = UserInterviewTopic.objects.create(
@@ -185,6 +473,16 @@ class TestInterviewStartCall(APIBaseTest):
         self.assertIn("heavy user, churned last quarter", overrides["variableValues"]["agent_context"])
         self.assertEqual(overrides["metadata"]["sharing_access_token"], share.access_token)
         self.assertEqual(overrides["metadata"]["interviewee_identifier"], "alex@example.com")
+
+    @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
+    def test_returns_personalised_first_message(self):
+        share = self._create_share()
+        self.client.logout()
+        response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        first_message = response.json()["assistant_overrides"]["firstMessage"]
+        assert "Hey Alex!" in first_message
+        assert "Replay adoption" in first_message
 
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
     def test_rejects_disabled_share(self):
@@ -273,13 +571,11 @@ class TestVapiWebhook(APIBaseTest):
         }
 
     def _signed_post(self, secret: str, payload: dict) -> Any:
-        body = json.dumps(payload)
-        signature = hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
         return self.client.post(
             "/api/user_interviews/vapi_webhook/",
-            data=body,
+            data=json.dumps(payload),
             content_type="application/json",
-            HTTP_X_VAPI_SIGNATURE=signature,
+            HTTP_X_VAPI_SECRET=secret,
         )
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
@@ -313,16 +609,25 @@ class TestVapiWebhook(APIBaseTest):
         response = self._signed_post("topsecret", self._end_of_call_payload("does-not-exist"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @parameterized.expand(
+        [
+            ("wrong_secret", "wrong"),
+            ("empty_secret", ""),
+            ("missing_header", None),
+        ]
+    )
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    def test_webhook_requires_valid_signature(self):
+    def test_webhook_rejects_bad_or_missing_secret(self, _label: str, header_value: str | None):
         share = self._create_share()
         self.client.logout()
-        response = self.client.post(
-            "/api/user_interviews/vapi_webhook/",
-            data=self._end_of_call_payload(share.access_token),
-            content_type="application/json",
-            HTTP_X_VAPI_SIGNATURE="wrong",
-        )
+        body = json.dumps(self._end_of_call_payload(share.access_token))
+        url = "/api/user_interviews/vapi_webhook/"
+        if header_value is None:
+            response = self.client.post(url, data=body, content_type="application/json")
+        else:
+            response = self.client.post(
+                url, data=body, content_type="application/json", HTTP_X_VAPI_SECRET=header_value
+            )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
@@ -544,8 +849,8 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
             response = self.client.post(self._url(str(topic.id)), data={}, format="json")
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
-    def test_send_invites_400_when_topic_only_has_cohort(self):
-        topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[], interviewee_cohort=123)
+    def test_send_invites_400_when_topic_has_no_identifiers(self):
+        topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
         with patch("products.user_interviews.backend.api.is_email_available", return_value=True):
             response = self.client.post(self._url(str(topic.id)), data={}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
