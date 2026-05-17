@@ -6,8 +6,18 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { userInterviewTopicsRetrieve, userInterviewTopicsIntervieweesList, userInterviewsList } from './generated/api'
-import type { UserInterviewTopicApi, IntervieweeContextApi, UserInterviewApi } from './generated/api.schemas'
+import {
+    userInterviewTopicsGenerateLinksCreate,
+    userInterviewTopicsIntervieweesList,
+    userInterviewTopicsRetrieve,
+    userInterviewsList,
+} from './generated/api'
+import type {
+    IntervieweeContextApi,
+    InterviewLinkApi,
+    UserInterviewApi,
+    UserInterviewTopicApi,
+} from './generated/api.schemas'
 import type { userInterviewLogicType } from './userInterviewLogicType'
 
 export interface UserInterviewLogicProps {
@@ -54,11 +64,35 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
                 }
             },
         },
+        links: {
+            __default: [] as InterviewLinkApi[],
+            loadLinks: async (): Promise<InterviewLinkApi[]> => {
+                const projectId = String(teamLogic.values.currentTeamId)
+                const response = (await userInterviewTopicsGenerateLinksCreate(projectId, props.id)) as unknown as
+                    | InterviewLinkApi[]
+                    | { results?: InterviewLinkApi[] }
+                if (Array.isArray(response)) {
+                    return response
+                }
+                return response.results ?? []
+            },
+        },
     })),
     selectors(({ props }) => ({
         topicInterviews: [
             (s) => [s.interviews],
             (interviews): UserInterviewApi[] => interviews.filter((i) => i.topic === props.id),
+        ],
+        linkByIdentifier: [
+            (s) => [s.links],
+            (links): Record<string, string> =>
+                Object.fromEntries(links.map((link) => [link.interviewee_identifier, link.interview_url])),
+        ],
+        linkForIdentifier: [
+            (s) => [s.linkByIdentifier],
+            (linkByIdentifier): ((identifier: string) => string | undefined) =>
+                (identifier: string) =>
+                    linkByIdentifier[identifier],
         ],
         respondedIdentifiers: [
             (s) => [s.topicInterviews],
@@ -113,5 +147,6 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
         actions.loadTopic()
         actions.loadInterviewees()
         actions.loadInterviews()
+        actions.loadLinks()
     }),
 ])
