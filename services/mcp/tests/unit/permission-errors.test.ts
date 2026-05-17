@@ -74,6 +74,44 @@ describe('formatPermissionErrorMessage', () => {
         expect(text).toContain('GET https://us.posthog.com/api/users/@me/')
     })
 
+    it.each([
+        ['https://us.posthog.com/api/users/@me/', 'https://us.posthog.com/settings/user-api-keys'],
+        ['https://eu.posthog.com/api/users/@me/', 'https://eu.posthog.com/settings/user-api-keys'],
+        ['https://app.posthog.com/api/users/@me/', 'https://app.posthog.com/settings/user-api-keys'],
+        ['https://posthog.internal:8443/api/users/@me/', 'https://posthog.internal:8443/settings/user-api-keys'],
+    ])('links to the API keys settings page derived from %s', (apiUrl, expectedLink) => {
+        const error = new PostHogPermissionError({
+            detail: "API key missing required scope 'user:read'",
+            missingScope: 'user:read',
+            url: apiUrl,
+            method: 'GET',
+        })
+
+        expect(formatPermissionErrorMessage(error)).toContain(expectedLink)
+    })
+
+    it.each([
+        ['empty URL (DO RPC fallback)', ''],
+        ['malformed URL', 'not a url'],
+        ['opaque-scheme URL', 'javascript:alert(1)'],
+        ['data: URL', 'data:text/plain,oops'],
+    ])('falls back to prose without a bare path when origin is unsafe — %s', (_label, apiUrl) => {
+        const error = new PostHogPermissionError({
+            detail: "API key missing required scope 'user:read'",
+            missingScope: 'user:read',
+            url: apiUrl,
+            method: '',
+        })
+
+        const text = formatPermissionErrorMessage(error)
+
+        expect(text).toContain('User settings → Personal API keys in PostHog')
+        // No bare path or `null` origin should leak into the message.
+        expect(text).not.toMatch(/(^|[^/])\/settings\/user-api-keys/m)
+        expect(text).not.toContain('null/settings')
+        expect(text).not.toContain('https:///settings')
+    })
+
     it('falls back to generic remediation when no scope is parsed', () => {
         const error = new PostHogPermissionError({
             detail: 'team access denied',
@@ -85,6 +123,7 @@ describe('formatPermissionErrorMessage', () => {
 
         expect(text).toContain('PostHog API permission denied')
         expect(text).toContain('HTTP 403')
+        expect(text).toContain('https://us.posthog.com/settings/user-api-keys')
     })
 })
 

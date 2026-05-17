@@ -164,16 +164,47 @@ export function wrapError(message: string, cause: unknown): Error {
 }
 
 const PERSONAL_API_KEY_DOCS_URL = 'https://posthog.com/docs/api#how-to-authenticate-with-the-posthog-api'
+const PERSONAL_API_KEY_SETTINGS_PATH = '/settings/user-api-keys'
+
+const PERSONAL_API_KEY_SETTINGS_PROSE = 'User settings → Personal API keys in PostHog'
+
+/**
+ * Derive the PostHog app origin (e.g. `https://us.posthog.com`) from the API URL
+ * recorded on the error. Returns undefined when the URL is missing, unparsable,
+ * or uses a non-http(s) scheme (where `URL.origin` would render as the literal
+ * string "null"). `findPostHogPermissionError`'s message-pattern fallback
+ * constructs errors with `url: ''` after Cloudflare's DO RPC boundary strips it.
+ */
+function appOriginFromApiUrl(apiUrl: string | undefined): string | undefined {
+    if (!apiUrl) {
+        return undefined
+    }
+    try {
+        const parsed = new URL(apiUrl)
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return undefined
+        }
+        return parsed.origin
+    } catch {
+        return undefined
+    }
+}
 
 export function formatPermissionErrorMessage(error: PostHogPermissionError): string {
     const callTarget = error.method && error.url ? `${error.method} ${error.url}` : 'this MCP request'
+    const appOrigin = appOriginFromApiUrl(error.url)
+    const settingsLink = appOrigin ? `${appOrigin}${PERSONAL_API_KEY_SETTINGS_PATH}` : null
+    const openSettings = settingsLink ? `open ${settingsLink}` : `open ${PERSONAL_API_KEY_SETTINGS_PROSE}`
+    const manageSettings = settingsLink
+        ? `Manage your Personal API keys at ${settingsLink}.`
+        : `Manage your Personal API keys from ${PERSONAL_API_KEY_SETTINGS_PROSE}.`
     if (error.missingScope) {
         return [
             `Missing PostHog API scope: '${error.missingScope}'`,
             '',
             `Your Personal API key is missing the '${error.missingScope}' scope, which is required to call ${callTarget}.`,
             '',
-            `To fix: edit the Personal API key in PostHog (User settings → Personal API keys) and add the '${error.missingScope}' scope. Alternatively, select the "MCP Server" scope preset which includes every scope the MCP needs.`,
+            `To fix: ${openSettings}, edit the key, and add the '${error.missingScope}' scope. The "MCP Server" scope preset includes every scope the MCP needs.`,
             '',
             `See: ${PERSONAL_API_KEY_DOCS_URL}`,
         ].join('\n')
@@ -183,6 +214,8 @@ export function formatPermissionErrorMessage(error: PostHogPermissionError): str
         `PostHog API permission denied: ${error.detail}`,
         '',
         `The request to ${callTarget} was rejected with HTTP 403. Verify that your API key, OAuth token, and user account have access to this project.`,
+        '',
+        manageSettings,
     ].join('\n')
 }
 

@@ -1,6 +1,12 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import { getPostHogClient } from '@/lib/analytics'
-import { ErrorCode, MissingOrganizationContextError, MissingProjectContextError, wrapError } from '@/lib/errors'
+import {
+    ErrorCode,
+    MissingOrganizationContextError,
+    MissingProjectContextError,
+    PostHogPermissionError,
+    wrapError,
+} from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
@@ -10,10 +16,35 @@ import type { ScopedCache } from './cache/ScopedCache'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
+/**
+ * Cached-state fetchers whose `PostHogPermissionError` failures are stashed
+ * instead of captured to error tracking and surfaced lazily by
+ * `getOrgID` / `getProjectId`. Keep this aligned with the `opts.name` value
+ * passed by the corresponding `getCachedOrFetch*` helpers — the writer and
+ * reader sides of `_pendingPermissionErrors` use the same string.
+ */
+const PENDING_PERMISSION_KEYS = ['org', 'project'] as const
+type PendingPermissionKey = (typeof PENDING_PERMISSION_KEYS)[number]
+
+function isPendingPermissionKey(name: string): name is PendingPermissionKey {
+    return (PENDING_PERMISSION_KEYS as readonly string[]).includes(name)
+}
+
 export class StateManager {
     private _cache: ScopedCache<State>
     private _api: ApiClient
     private _user?: ApiUser
+    /**
+     * Missing-scope permission errors observed while warming the cached state
+     * (`org`, `project`). Only the missing-scope shape is stashed here — a
+     * key lacking `organization:read` or `project:read` is expected user
+     * state, not a bug, and the API tells us exactly which scope is missing.
+     * Other 403s (revoked access, policy denial) keep their telemetry via
+     * `_reportException`. Surfaced from `getOrgID` / `getProjectId` only when
+     * the resource is genuinely required and could not be resolved from any
+     * other source.
+     */
+    private _pendingPermissionErrors: Map<PendingPermissionKey, PostHogPermissionError> = new Map()
     constructor(cache: ScopedCache<State>, api: ApiClient) {
         this._cache = cache
         this._api = api
@@ -203,22 +234,52 @@ export class StateManager {
     async getOrgID(): Promise<string> {
         const orgId = await this._resolveOrganizationId()
         if (!orgId) {
+            // Caller genuinely needs an org id. If the reason we couldn't
+            // resolve it was a permission error — either on the org fetch
+            // directly, or on the project fetch we use to derive the org
+            // for team-scoped keys — surface *that* (with its missing scope)
+            // instead of the generic "no org selected" message. The latter
+            // sends the agent down a recovery path that won't actually fix
+            // the underlying scope gap.
+            const pending = this._pendingPermissionErrors.get('org') ?? this._pendingPermissionErrors.get('project')
+            if (pending) {
+                throw pending
+            }
             throw new MissingOrganizationContextError()
         }
         return orgId
     }
 
-    async getProjectId(): Promise<string> {
-        const projectId = await this._cache.get('projectId')
-
-        if (!projectId) {
-            const { organizationId, projectId: resolved } = await this.setDefaultOrganizationAndProject()
-            if (resolved === undefined) {
-                throw new MissingProjectContextError({ organizationId })
-            }
-            return resolved.toString()
+    /**
+     * Resolve a project id without throwing. Reads the cache, then falls back
+     * to `setDefaultOrganizationAndProject`. Returns the project id (as a
+     * string) and the organization id from the default-resolution step (used
+     * by `getProjectId` when building `MissingProjectContextError`).
+     */
+    private async _resolveProjectId(): Promise<{
+        projectId: string | undefined
+        organizationId: string | undefined
+    }> {
+        const cached = await this._cache.get('projectId')
+        if (cached) {
+            return { projectId: cached, organizationId: undefined }
         }
+        const { organizationId, projectId } = await this.setDefaultOrganizationAndProject()
+        return {
+            projectId: projectId !== undefined ? projectId.toString() : undefined,
+            organizationId,
+        }
+    }
 
+    async getProjectId(): Promise<string> {
+        const { projectId, organizationId } = await this._resolveProjectId()
+        if (!projectId) {
+            const pending = this._pendingPermissionErrors.get('project')
+            if (pending) {
+                throw pending
+            }
+            throw new MissingProjectContextError({ organizationId })
+        }
         return projectId
     }
 
@@ -253,8 +314,24 @@ export class StateManager {
                 this._cache.set(opts.cacheKey, data as State[D]),
                 this._cache.set(opts.fetchedAtKey, Date.now() as State[F]),
             ])
+            if (isPendingPermissionKey(opts.name)) {
+                this._pendingPermissionErrors.delete(opts.name)
+            }
             return data as State[D]
         } catch (error) {
+            if (error instanceof PostHogPermissionError && error.missingScope && isPendingPermissionKey(opts.name)) {
+                // Expected user state on a resource we surface lazily from
+                // `getOrgID` / `getProjectId`: the API told us exactly which
+                // scope is missing, so we have an actionable message to give
+                // the user. Stash for the lazy surface and skip exception
+                // capture so we stop dogpiling error tracking on every
+                // request. Other 403s (revoked access to a specific org or
+                // project, policy denial, backend error-format drift) still
+                // capture — they are not expected user state and warrant a
+                // signal in error tracking.
+                this._pendingPermissionErrors.set(opts.name, error)
+                return cached
+            }
             this._reportException(error, `get_or_fetch_${opts.name}`)
             return cached
         }

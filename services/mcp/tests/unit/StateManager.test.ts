@@ -2,9 +2,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
+import { PostHogPermissionError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
+
+const captureException = vi.fn()
+vi.mock('@/lib/analytics', () => ({
+    getPostHogClient: () => ({
+        captureException,
+        capture: vi.fn(),
+    }),
+    AnalyticsEvent: {},
+    isFeatureFlagEnabled: vi.fn().mockResolvedValue(false),
+}))
 
 describe('StateManager', () => {
     let stateManager: StateManager
@@ -30,6 +41,7 @@ describe('StateManager', () => {
         cache = new MemoryCache('test-user')
         await cache.clear()
         stateManager = new StateManager(cache, {} as ApiClient)
+        captureException.mockClear()
     })
 
     describe('getUser', () => {
@@ -425,6 +437,238 @@ describe('StateManager', () => {
             const result = await stateManager.getAnalyticsContext()
 
             expect(result).toEqual({})
+        })
+    })
+
+    describe('permission-error stash during cached state fetches', () => {
+        // Mirrors what the API client throws for a personal API key that lacks
+        // `organization:read` on `/api/organizations/{orgId}/`.
+        const orgPermissionError = new PostHogPermissionError({
+            detail: "API key missing required scope 'organization:read'",
+            missingScope: 'organization:read',
+            url: 'https://us.posthog.com/api/organizations/org-1/',
+            method: 'GET',
+        })
+        const projectPermissionError = new PostHogPermissionError({
+            detail: "API key missing required scope 'project:read'",
+            missingScope: 'project:read',
+            url: 'https://us.posthog.com/api/projects/456/',
+            method: 'GET',
+        })
+
+        it('stashes a PostHogPermissionError from the org fetcher without capturing it', async () => {
+            await cache.set('orgId', 'org-1')
+            ;(stateManager as any)._api = {
+                organizations: () => ({
+                    get: vi.fn().mockResolvedValue({ success: false, error: orgPermissionError }),
+                }),
+            }
+
+            const result = await stateManager.getCachedOrFetchOrg()
+
+            expect(result).toBeUndefined()
+            expect((stateManager as any)._pendingPermissionErrors.get('org')).toBe(orgPermissionError)
+            expect(captureException).not.toHaveBeenCalled()
+        })
+
+        it('stashes a PostHogPermissionError from the project fetcher without capturing it', async () => {
+            await cache.set('projectId', '456')
+            ;(stateManager as any)._api = {
+                projects: () => ({
+                    get: vi.fn().mockResolvedValue({ success: false, error: projectPermissionError }),
+                }),
+            }
+
+            const result = await stateManager.getCachedOrFetchProject()
+
+            expect(result).toBeUndefined()
+            expect((stateManager as any)._pendingPermissionErrors.get('project')).toBe(projectPermissionError)
+            expect(captureException).not.toHaveBeenCalled()
+        })
+
+        it('still captures non-permission errors to error tracking', async () => {
+            await cache.set('orgId', 'org-1')
+            const otherError = new Error('network blew up')
+            ;(stateManager as any)._api = {
+                organizations: () => ({
+                    get: vi.fn().mockResolvedValue({ success: false, error: otherError }),
+                }),
+            }
+
+            const result = await stateManager.getCachedOrFetchOrg()
+
+            expect(result).toBeUndefined()
+            expect((stateManager as any)._pendingPermissionErrors.has('org')).toBe(false)
+            expect(captureException).toHaveBeenCalledWith(otherError, undefined, {
+                tag: 'mcp',
+                team: 'posthog_ai',
+                context: 'get_or_fetch_org',
+            })
+        })
+
+        it('captures permission errors without a missingScope (e.g. revoked access) on org/project fetchers', async () => {
+            // Suppression is intentionally narrow: only `PostHogPermissionError`
+            // instances with a parsed `missingScope` are stashed and skipped.
+            // 403s without a missingScope — revoked access, policy denial,
+            // backend error-format drift — are not expected user state and
+            // should keep their telemetry signal.
+            const accessRevokedError = new PostHogPermissionError({
+                detail: 'API key does not have access to the requested organization: ID org-1.',
+                url: 'https://us.posthog.com/api/organizations/org-1/',
+                method: 'GET',
+            })
+            await cache.set('orgId', 'org-1')
+            ;(stateManager as any)._api = {
+                organizations: () => ({
+                    get: vi.fn().mockResolvedValue({ success: false, error: accessRevokedError }),
+                }),
+            }
+
+            const result = await stateManager.getCachedOrFetchOrg()
+
+            expect(result).toBeUndefined()
+            expect((stateManager as any)._pendingPermissionErrors.has('org')).toBe(false)
+            expect(captureException).toHaveBeenCalledWith(accessRevokedError, undefined, {
+                tag: 'mcp',
+                team: 'posthog_ai',
+                context: 'get_or_fetch_org',
+            })
+        })
+
+        it('clears the stash when a later fetch succeeds', async () => {
+            ;(stateManager as any)._pendingPermissionErrors.set('org', orgPermissionError)
+            await cache.set('orgId', 'org-1')
+            ;(stateManager as any)._api = {
+                organizations: () => ({
+                    get: vi.fn().mockResolvedValue({ success: true, data: { name: 'Org 1' } }),
+                }),
+            }
+
+            const result = await stateManager.getCachedOrFetchOrg()
+
+            expect(result).toEqual({ name: 'Org 1' })
+            expect((stateManager as any)._pendingPermissionErrors.has('org')).toBe(false)
+        })
+
+        it('captures permission errors from fetchers we do not surface lazily', async () => {
+            // `group_types` is not in PENDING_PERMISSION_KEYS — a permission
+            // error there should still be captured to error tracking, not
+            // silently swallowed by the same branch that catches `org`/`project`.
+            const groupTypesPermissionError = new PostHogPermissionError({
+                detail: "API key missing required scope 'group:read'",
+                missingScope: 'group:read',
+                url: 'https://us.posthog.com/api/projects/456/groups_types/',
+                method: 'GET',
+            })
+            ;(stateManager as any)._api = {
+                getGroupTypes: vi.fn().mockRejectedValue(groupTypesPermissionError),
+            }
+
+            const result = await stateManager.getOrFetchGroupTypes('456')
+
+            expect(result).toBeUndefined()
+            expect((stateManager as any)._pendingPermissionErrors.has('group_types')).toBe(false)
+            expect(captureException).toHaveBeenCalledWith(groupTypesPermissionError, undefined, {
+                tag: 'mcp',
+                team: 'posthog_ai',
+                context: 'get_or_fetch_group_types',
+            })
+        })
+    })
+
+    describe('getOrgID with a pending permission error', () => {
+        const orgPermissionError = new PostHogPermissionError({
+            detail: "API key missing required scope 'organization:read'",
+            missingScope: 'organization:read',
+            url: 'https://us.posthog.com/api/organizations/org-1/',
+            method: 'GET',
+        })
+
+        it('throws the stashed permission error when no org can be resolved from any source', async () => {
+            ;(stateManager as any)._pendingPermissionErrors.set('org', orgPermissionError)
+            vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
+                organizationId: undefined,
+                projectId: undefined,
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue(undefined)
+
+            await expect(stateManager.getOrgID()).rejects.toBe(orgPermissionError)
+        })
+
+        it('does not throw the stashed error when an org id is already cached', async () => {
+            ;(stateManager as any)._pendingPermissionErrors.set('org', orgPermissionError)
+            await cache.set('orgId', 'cached-org')
+
+            const result = await stateManager.getOrgID()
+
+            expect(result).toBe('cached-org')
+        })
+
+        it('does not throw the stashed error when an org is derivable from the cached project', async () => {
+            ;(stateManager as any)._pendingPermissionErrors.set('org', orgPermissionError)
+            vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
+                organizationId: undefined,
+                projectId: 456,
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                id: 456,
+                uuid: 'uuid-456',
+                name: 'My Project',
+                organization: 'derived-org',
+            } as any)
+
+            const result = await stateManager.getOrgID()
+
+            expect(result).toBe('derived-org')
+        })
+
+        it('surfaces a project-keyed permission error when the org derives via project and that fetch failed', async () => {
+            // `_resolveOrganizationId` falls back to `getCachedOrFetchProject` for
+            // team-scoped keys. If that fetch hit a permission error, only the
+            // `'project'` key is stashed. `getOrgID` should still surface a
+            // scope-specific message rather than the generic "no org selected".
+            const projectPermissionError = new PostHogPermissionError({
+                detail: "API key missing required scope 'project:read'",
+                missingScope: 'project:read',
+                url: 'https://us.posthog.com/api/projects/456/',
+                method: 'GET',
+            })
+            ;(stateManager as any)._pendingPermissionErrors.set('project', projectPermissionError)
+            vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
+                organizationId: undefined,
+                projectId: undefined,
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue(undefined)
+
+            await expect(stateManager.getOrgID()).rejects.toBe(projectPermissionError)
+        })
+    })
+
+    describe('getProjectId with a pending permission error', () => {
+        const projectPermissionError = new PostHogPermissionError({
+            detail: "API key missing required scope 'project:read'",
+            missingScope: 'project:read',
+            url: 'https://us.posthog.com/api/projects/456/',
+            method: 'GET',
+        })
+
+        it('throws the stashed permission error when no project can be resolved', async () => {
+            ;(stateManager as any)._pendingPermissionErrors.set('project', projectPermissionError)
+            vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
+                organizationId: 'org-only',
+                projectId: undefined,
+            })
+
+            await expect(stateManager.getProjectId()).rejects.toBe(projectPermissionError)
+        })
+
+        it('does not throw the stashed error when a project id is already cached', async () => {
+            ;(stateManager as any)._pendingPermissionErrors.set('project', projectPermissionError)
+            await cache.set('projectId', '999')
+
+            const result = await stateManager.getProjectId()
+
+            expect(result).toBe('999')
         })
     })
 })
