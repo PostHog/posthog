@@ -12,11 +12,16 @@ from posthog.models.user import User
 
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.custom_prompt_internals import (
+    AgentResponseFormatError,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     poll_for_turn,
 )
-from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
+from products.tasks.backend.services.custom_prompt_multi_turn_runner import (
+    _EMPTY_TURN_RETRY_NUDGE,
+    MultiTurnSession,
+    _build_format_retry_nudge,
+)
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_message_line,
@@ -260,6 +265,94 @@ class TestMultiTurnSessionRetry:
         assert followup_calls[1].args[1] == "please respond" + _EMPTY_TURN_RETRY_NUDGE
         # Offsets advanced past the recovered turn.
         assert session.log_lines_seen == 8
+
+    @pytest.mark.asyncio
+    async def test_retries_once_on_validation_error_with_corrective_nudge(self):
+        """When the agent returns JSON that doesn't satisfy the schema, send_followup
+        must send a corrective nudge and retry once before propagating the failure."""
+        session = self._make_session()
+        # First response is JSON but missing the required `value` field; the corrective
+        # retry succeeds with a well-formed object.
+        bad_response = json.dumps({"wrong_key": "missing required field"})
+        good_response = json.dumps({"value": "fixed"})
+
+        poll_mock = AsyncMock(
+            side_effect=[
+                (bad_response, None, 12, 7),
+                (good_response, None, 20, 10),
+            ]
+        )
+        with patch(
+            "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+            new=poll_mock,
+        ):
+            result = await session.send_followup("please respond", _Resp, label="unit")
+
+        assert result == _Resp(value="fixed")
+        # Signal sent twice: original + retry with corrective nudge appended
+        assert session._workflow_handle.signal.await_count == 2  # type: ignore[union-attr]
+        retry_call = session._workflow_handle.signal.await_args_list[1]  # type: ignore[union-attr]
+        retry_message = retry_call.args[1]
+        assert retry_message.startswith("please respond")
+        assert "Your previous response did not match the required JSON schema" in retry_message
+        # The validation error reason is fed back to the agent
+        assert "value" in retry_message  # the missing field name
+
+    @pytest.mark.asyncio
+    async def test_raises_format_error_after_two_consecutive_validation_failures(self):
+        """If both the original and retry attempts return invalid JSON, the typed
+        AgentResponseFormatError must propagate so callers can map it to a recoverable path."""
+        session = self._make_session()
+        bad_response = json.dumps({"wrong_key": "still missing required field"})
+
+        poll_mock = AsyncMock(
+            side_effect=[
+                (bad_response, None, 12, 7),
+                (bad_response, None, 20, 10),
+            ]
+        )
+        with patch(
+            "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+            new=poll_mock,
+        ):
+            with pytest.raises(AgentResponseFormatError):
+                await session.send_followup("x", _Resp, label="unit")
+
+        # Two signals sent — original + corrective retry
+        assert session._workflow_handle.signal.await_count == 2  # type: ignore[union-attr]
+
+    @pytest.mark.asyncio
+    async def test_validation_error_retry_after_empty_turn_recovery(self):
+        """Empty-turn recovery → schema validation failure on retry must bubble up the
+        typed format error rather than falling into an unbounded retry loop."""
+        session = self._make_session()
+        bad_response = json.dumps({"wrong_key": "after empty retry"})
+
+        poll_mock = AsyncMock(
+            side_effect=[
+                EmptyAgentTurnError("empty", total_lines=12, printed_lines=7),
+                (bad_response, None, 20, 10),
+            ]
+        )
+        with patch(
+            "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+            new=poll_mock,
+        ):
+            with pytest.raises(AgentResponseFormatError):
+                await session.send_followup("x", _Resp, label="unit")
+
+    def test_format_retry_nudge_contains_validation_error(self):
+        """The corrective nudge must include the underlying validation error so the
+        agent has enough context to re-emit a well-formed response."""
+        try:
+            _Resp.model_validate({"wrong_key": "boom"})
+        except Exception as e:
+            nudge = _build_format_retry_nudge(e)
+            assert "did not match the required JSON schema" in nudge
+            assert "Validation error" in nudge
+            assert "value" in nudge  # the missing field name from the validation error
+        else:
+            pytest.fail("expected _Resp.model_validate to raise on missing field")
 
     @pytest.mark.asyncio
     async def test_advances_offsets_from_error_before_retrying(self):

@@ -434,7 +434,10 @@ async def match_signal_to_report(
         if isinstance(result, MatchFound):
             matched = candidates_by_id.get(result.signal_id)
             if matched is None:
-                raise ValueError(f"signal_id {result.signal_id} not found in candidates")
+                raise ValueError(
+                    f"signal_id {result.signal_id} not found in candidates. "
+                    f"Pick a signal_id from the SEARCH RESULTS above, or set match_type=\"new\" if nothing fits."
+                )
             if result.query_index < 0 or result.query_index >= len(queries):
                 raise ValueError(f"query_index {result.query_index} out of range (0-{len(queries) - 1})")
             return ExistingReportMatch(
@@ -455,12 +458,34 @@ async def match_signal_to_report(
             ),
         )
 
-    return await call_llm(
-        system_prompt=MATCHING_SYSTEM_PROMPT,
-        user_prompt=user_prompt,
-        validate=validate,
-        temperature=0.2,
-    )
+    try:
+        return await call_llm(
+            system_prompt=MATCHING_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            validate=validate,
+            temperature=0.2,
+        )
+    except ValueError as e:
+        # call_llm exhausted retries because the LLM kept returning a
+        # signal_id outside the candidate set (or another validation issue
+        # the model couldn't correct). Fall back to a new report rather than
+        # failing the activity — the worst case is a group that should have
+        # merged stays separate, which is recoverable downstream.
+        logger.warning(
+            "match_signal_to_report: LLM exhausted retries; falling back to NewReportMatch",
+            error=str(e),
+            source_product=source_product,
+            source_type=source_type,
+        )
+        fallback_title = description.split("\n", 1)[0].strip()[:200] or "Untitled signal"
+        return NewReportMatch(
+            title=fallback_title,
+            summary=f"Fallback after grouping retries exhausted: {e}",
+            match_metadata=NoMatchMetadata(
+                reason=f"LLM matcher exhausted retries: {e}",
+                rejected_signal_ids=list(candidates_by_id.keys()),
+            ),
+        )
 
 
 @dataclass

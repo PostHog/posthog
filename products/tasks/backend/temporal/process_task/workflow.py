@@ -964,8 +964,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     artifact_ids=artifact_ids,
                 ),
                 start_to_close_timeout=timedelta(minutes=35),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                # A single transient sandbox failure or worker restart used to
+                # immediately fail the whole run. Allow a couple of retries so
+                # genuinely transient issues don't kill the multi-turn session.
+                retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
             )
+        except asyncio.CancelledError:
+            # Workflow cancellation must propagate — don't swallow it as a
+            # follow-up delivery failure, otherwise the run gets marked failed
+            # instead of cancelled.
+            raise
         except Exception as e:
             workflow.logger.warning(
                 "send_followup_to_sandbox_failed",

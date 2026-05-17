@@ -55,6 +55,18 @@ class EmptyAgentTurnError(RuntimeError):
         self.printed_lines = printed_lines
 
 
+class AgentResponseFormatError(RuntimeError):
+    """Raised when agent text could not be validated against the expected Pydantic model.
+
+    Carries the underlying ``validation_error`` so callers can feed it back to the agent
+    as a corrective nudge before retrying the turn.
+    """
+
+    def __init__(self, message: str, *, validation_error: Exception):
+        super().__init__(message)
+        self.validation_error = validation_error
+
+
 async def create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,

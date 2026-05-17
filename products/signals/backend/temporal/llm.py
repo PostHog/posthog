@@ -24,7 +24,7 @@ ANTHROPIC_THINKING_MODELS = {
     "claude-opus-4-0",
     "claude-3-7-sonnet-latest",
 }
-MAX_RETRIES = 3
+MAX_RETRIES = 5
 MAX_RESPONSE_TOKENS = 4096
 MAX_QUERY_TOKENS = 2048
 TIMEOUT = 100.0
