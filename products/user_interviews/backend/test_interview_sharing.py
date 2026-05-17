@@ -4,6 +4,7 @@ import hashlib
 import datetime
 from typing import Any
 
+import unittest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -19,7 +20,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.user_interviews.backend.api import UserInterviewTopicSerializer
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
-from products.user_interviews.backend.webhooks import EMBEDDING_CONTENT_MAX_BYTES
+from products.user_interviews.backend.webhooks import EMBEDDING_CONTENT_MAX_BYTES, _build_first_message
 
 
 class _FeatureFlagEnabledMixin(APIBaseTest):
@@ -324,6 +325,48 @@ class TestInterviewPublicViewer(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
+class TestBuildFirstMessage(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("simple_name_and_topic", "Paul", "taxonomic filter search", ["Hi Paul!", "taxonomic filter search"]),
+            ("dotted_local_part", "Cory S", "session replay adoption", ["Hi Cory S!", "session replay adoption"]),
+            (
+                "name_with_trailing_topic_whitespace",
+                "Kim",
+                "  feature flag rollout  ",
+                ["Hi Kim!", "feature flag rollout"],
+            ),
+        ]
+    )
+    def test_includes_name_and_topic(self, _label: str, user_name: str, topic_text: str, expected_fragments: list[str]):
+        message = _build_first_message(user_name=user_name, topic_text=topic_text)
+        for fragment in expected_fragments:
+            assert fragment in message
+
+    @parameterized.expand([("empty", ""), ("whitespace_only", "   ")])
+    def test_drops_topic_sentence_when_topic_empty(self, _label: str, topic_text: str):
+        message = _build_first_message(user_name="Sam", topic_text=topic_text)
+        assert "Hi Sam!" in message
+        assert "Today we're talking about" not in message
+
+    @parameterized.expand([("empty", ""), ("whitespace_only", "   ")])
+    def test_falls_back_to_generic_greeting_when_user_name_empty(self, _label: str, user_name: str):
+        message = _build_first_message(user_name=user_name, topic_text="checkout funnel")
+        assert "Hi there!" in message
+        assert "Hi !" not in message
+
+    def test_collapses_internal_whitespace_in_topic(self):
+        message = _build_first_message(user_name="Sam", topic_text="multi\nline\n\ttopic")
+        assert "multi line topic" in message
+        assert "\n" not in message
+
+    def test_truncates_very_long_topic(self):
+        long_topic = "x" * 500
+        message = _build_first_message(user_name="Sam", topic_text=long_topic)
+        assert "x" * 200 in message
+        assert "x" * 201 not in message
+
+
 class TestInterviewStartCall(APIBaseTest):
     def _create_share(self) -> SharingConfiguration:
         topic = UserInterviewTopic.objects.create(
@@ -358,6 +401,16 @@ class TestInterviewStartCall(APIBaseTest):
         self.assertIn("heavy user, churned last quarter", overrides["variableValues"]["agent_context"])
         self.assertEqual(overrides["metadata"]["sharing_access_token"], share.access_token)
         self.assertEqual(overrides["metadata"]["interviewee_identifier"], "alex@example.com")
+
+    @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
+    def test_returns_personalised_first_message(self):
+        share = self._create_share()
+        self.client.logout()
+        response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        first_message = response.json()["assistant_overrides"]["firstMessage"]
+        assert "Hi Alex!" in first_message
+        assert "Replay adoption" in first_message
 
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
     def test_rejects_disabled_share(self):

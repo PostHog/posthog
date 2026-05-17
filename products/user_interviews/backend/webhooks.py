@@ -129,6 +129,24 @@ def _public_sharing_disabled_for_org(sharing_config: SharingConfiguration) -> bo
     )
 
 
+_TOPIC_MAX_CHARS = 200
+
+
+def _normalise_topic(topic_text: str) -> str:
+    return " ".join(topic_text.split())[:_TOPIC_MAX_CHARS]
+
+
+def _build_first_message(*, user_name: str, topic_text: str) -> str:
+    name_part = f"Hi {user_name.strip()}!" if user_name.strip() else "Hi there!"
+    greeting = f"{name_part} Thanks for joining."
+    topic_normalised = _normalise_topic(topic_text)
+    if topic_normalised:
+        return (
+            f"{greeting} Today we're talking about {topic_normalised}. I'd love your perspective. Ready when you are."
+        )
+    return f"{greeting} I'd love your perspective. Ready when you are."
+
+
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -164,12 +182,14 @@ def start_call(request: Request, access_token: str) -> Response:
     topic = ic.topic
     user_name, _ = _parse_identifier(ic.interviewee_identifier)
     agent_context = _merge_agent_context(topic.agent_context or "", ic.agent_context or "")
+    first_message = _build_first_message(user_name=user_name, topic_text=topic.topic or "")
 
     return Response(
         {
             "public_key": settings.VAPI_PUBLIC_KEY,
             "assistant_id": settings.VAPI_ASSISTANT_ID,
             "assistant_overrides": {
+                "firstMessage": first_message,
                 "variableValues": {
                     "userName": user_name,
                     "topic": topic.topic or "",
