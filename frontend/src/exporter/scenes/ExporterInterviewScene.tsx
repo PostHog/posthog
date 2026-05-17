@@ -319,9 +319,8 @@ export default function ExporterInterviewScene({
 
     return (
         <div className="max-w-2xl mx-auto px-4 py-12">
-            <div className="mb-8 flex items-center justify-between">
+            <div className="mb-8">
                 <Logo className="text-lg" />
-                <span className="text-xs text-muted">Powered by PostHog</span>
             </div>
 
             <div className="flex flex-col md:flex-row md:items-start gap-6 md:gap-8 mb-8">
