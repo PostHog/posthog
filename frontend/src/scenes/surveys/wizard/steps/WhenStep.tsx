@@ -1,14 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconX } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCheckbox,
-    LemonCollapse,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonSwitch,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -32,7 +25,7 @@ import {
 } from '../../SurveyEventTrigger'
 import { surveyLogic } from '../../surveyLogic'
 import { surveyWizardLogic } from '../surveyWizardLogic'
-import { WizardPanel, WizardSection, WizardStepLayout } from '../WizardLayout'
+import { WizardDividerSection, WizardPanel, WizardSection, WizardStepLayout } from '../WizardLayout'
 
 const DEFAULT_ITERATION_COUNT = 10
 const MIN_ITERATION_COUNT = 2
@@ -58,17 +51,12 @@ export function WhenStep(): JSX.Element {
     const repeatedActivation = conditions.events?.repeatedActivation ?? false
     const delaySeconds = appearance.surveyPopupDelaySeconds ?? 0
     const excludedObjectProperties = useExcludedObjectProperties()
-    const daysToFrequency = (days: number | undefined): string => {
-        const option = FREQUENCY_OPTIONS.find((opt) => opt.days === days)
-        return option?.value || 'monthly'
-    }
-    // Prefer the new iteration-based model. Fall back to the legacy wait-period for older guided-form surveys.
+    // Derive frequency strictly from the iteration model — the universal wait-period is a separate
+    // across-surveys gate and must not influence which cadence is highlighted.
     const frequency =
         survey.schedule === SurveySchedule.Once
             ? 'once'
-            : survey.iteration_frequency_days
-              ? daysToFrequency(survey.iteration_frequency_days)
-              : daysToFrequency(conditions.seenSurveyWaitPeriodInDays)
+            : (FREQUENCY_OPTIONS.find((opt) => opt.days === survey.iteration_frequency_days)?.value ?? 'monthly')
     const iterationCount = survey.iteration_count ?? DEFAULT_ITERATION_COUNT
     const seenSurveyWaitPeriodInDays = conditions.seenSurveyWaitPeriodInDays ?? null
 
@@ -263,9 +251,25 @@ export function WhenStep(): JSX.Element {
                         </div>
                     </div>
                 )}
+
+                <div className="flex flex-wrap items-center gap-2 text-sm pt-1">
+                    <span>Then wait</span>
+                    <LemonInput
+                        type="number"
+                        min={0}
+                        value={delaySeconds}
+                        onChange={(val) => setDelaySeconds(Number(val) || 0)}
+                        className="w-20"
+                    />
+                    <span className="text-secondary">seconds before showing the survey</span>
+                </div>
             </WizardSection>
 
-            <WizardSection title="How often should this survey trigger?">
+            <WizardSection
+                title="How often should this survey repeat?"
+                description="Controls how many times the same user can see this survey, and how far apart those views are."
+                descriptionClassName="text-sm"
+            >
                 <LemonSegmentedButton
                     value={frequency}
                     onChange={setFrequency}
@@ -282,8 +286,8 @@ export function WhenStep(): JSX.Element {
                 )}
 
                 {frequency !== 'once' && (
-                    <div className="flex items-center gap-2 mt-4 text-sm">
-                        <span>Show up to</span>
+                    <div className="flex flex-wrap items-center gap-2 mt-4 text-sm">
+                        <span>Show this survey up to</span>
                         <LemonInput
                             type="number"
                             min={MIN_ITERATION_COUNT}
@@ -293,72 +297,39 @@ export function WhenStep(): JSX.Element {
                             onBlur={commitIterationCount}
                             className="w-20"
                         />
-                        <span className="text-secondary">times total</span>
-                        <span className="text-muted text-xs">
-                            min {MIN_ITERATION_COUNT}, max {MAX_ITERATION_COUNT}
+                        <span className="text-secondary">
+                            times total (min {MIN_ITERATION_COUNT}, max {MAX_ITERATION_COUNT})
                         </span>
                     </div>
                 )}
+
+                <div className="flex flex-col gap-1 mt-4 pt-3 border-t border-border">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <LemonSwitch
+                            checked={seenSurveyWaitPeriodInDays != null}
+                            onChange={(checked) => setSeenSurveyWaitPeriod(checked ? 30 : null)}
+                            size="small"
+                            label="Also wait at least"
+                        />
+                        <LemonInput
+                            type="number"
+                            min={1}
+                            value={seenSurveyWaitPeriodInDays ?? NaN}
+                            onChange={(val) => setSeenSurveyWaitPeriod(val ?? null)}
+                            disabled={seenSurveyWaitPeriodInDays == null}
+                            className="w-20"
+                        />
+                        <span className="text-secondary">days after any other survey was shown to this user</span>
+                    </div>
+                    <p className="text-muted text-xs">
+                        Applies across every survey in this project — useful to avoid bombarding the same user with
+                        multiple surveys in a short window.
+                    </p>
+                </div>
             </WizardSection>
 
-            <LemonCollapse
-                embedded
-                defaultActiveKey={seenSurveyWaitPeriodInDays != null ? 'wait-period' : undefined}
-                panels={[
-                    {
-                        key: 'wait-period',
-                        header: (
-                            <span>
-                                Wait period across all surveys{' '}
-                                <span className="text-muted font-normal">
-                                    {seenSurveyWaitPeriodInDays != null
-                                        ? `(${seenSurveyWaitPeriodInDays} days)`
-                                        : '(optional)'}
-                                </span>
-                            </span>
-                        ),
-                        content: (
-                            <div className="flex items-center gap-2 text-sm py-1">
-                                <LemonSwitch
-                                    checked={seenSurveyWaitPeriodInDays != null}
-                                    onChange={(checked) => setSeenSurveyWaitPeriod(checked ? 30 : null)}
-                                    size="small"
-                                />
-                                <span>Hide if any survey was seen in the last</span>
-                                <LemonInput
-                                    type="number"
-                                    min={1}
-                                    value={seenSurveyWaitPeriodInDays ?? NaN}
-                                    onChange={(val) => setSeenSurveyWaitPeriod(val ?? null)}
-                                    className="w-20"
-                                />
-                                <span className="text-secondary">days</span>
-                            </div>
-                        ),
-                    },
-                ]}
-            />
-
-            <section className="space-y-2 border-t border-border pt-5">
-                <label className="text-sm font-medium">Delay before showing</label>
-                <div className="flex items-center gap-2">
-                    <LemonInput
-                        type="number"
-                        min={0}
-                        value={delaySeconds}
-                        onChange={(val) => setDelaySeconds(Number(val) || 0)}
-                        className="w-20"
-                    />
-                    <span className="text-secondary text-sm">seconds after conditions are met</span>
-                </div>
-                <p className="text-muted text-xs">
-                    Once a user matches the targeting conditions, wait this long before displaying the survey
-                </p>
-            </section>
-
-            <section className="space-y-2">
-                <label className="text-sm font-medium">Response limit</label>
-                <div className="flex items-center gap-2">
+            <WizardDividerSection title="Response limit">
+                <div className="flex flex-wrap items-center gap-2">
                     <LemonCheckbox
                         checked={survey.responses_limit != null}
                         onChange={(checked) => setSurveyValue('responses_limit', checked ? 100 : null)}
@@ -373,10 +344,10 @@ export function WhenStep(): JSX.Element {
                     />
                     <span className="text-secondary text-sm">completed responses</span>
                 </div>
-                <p className="text-muted text-xs">
-                    Automatically stop showing the survey once you've collected enough responses
+                <p className="text-muted text-xs mt-2">
+                    Automatically stop showing the survey once you've collected enough responses.
                 </p>
-            </section>
+            </WizardDividerSection>
         </WizardStepLayout>
     )
 }
