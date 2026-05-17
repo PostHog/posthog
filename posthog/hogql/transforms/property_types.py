@@ -573,7 +573,9 @@ class PropertySwapper(CloningVisitor):
         if field_type == "DateTime":
             # Carry the return type so an enclosing toDateTime() resolves its
             # already-a-datetime overload instead of re-parsing this value
-            # (parseDateTime64BestEffortOrNull only accepts strings).
+            # (parseDateTime64BestEffortOrNull only accepts strings). Only
+            # return_type drives overload resolution here; arg_types is an
+            # approximation of the signature and is not re-validated.
             return ast.Call(
                 name="toDateTime",
                 args=[node],
