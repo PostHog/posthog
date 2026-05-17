@@ -1,11 +1,12 @@
 import { useValues } from 'kea'
 
-import { IconArrowLeft, IconCheck, IconChevronRight, IconClock } from '@posthog/icons'
+import { IconArrowLeft, IconCheck, IconChevronRight, IconClock, IconCopy } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, LemonWidget } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -39,6 +40,7 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
         topicLoading,
         interviewees,
         intervieweesLoading,
+        linkByIdentifier,
         respondedIdentifiers,
         respondedCount,
         totalTargeted,
@@ -133,6 +135,7 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                                         identifier={identifier}
                                         topicId={id}
                                         hasResponded={respondedIdentifiers.has(identifier)}
+                                        interviewUrl={linkByIdentifier[identifier]}
                                     />
                                 ))
                             )}
@@ -221,11 +224,22 @@ function PersonRow({
     identifier,
     topicId,
     hasResponded,
+    interviewUrl,
 }: {
     identifier: string
     topicId: string
     hasResponded: boolean
+    interviewUrl?: string
 }): JSX.Element {
+    const handleCopy = (e: React.MouseEvent): void => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (!interviewUrl) {
+            return
+        }
+        void copyToClipboard(interviewUrl, 'interview link')
+    }
+
     return (
         <Link
             to={urls.userInterviewResponse(topicId, encodeURIComponent(identifier))}
@@ -237,6 +251,14 @@ function PersonRow({
                         <div className="font-medium text-sm">{identifier}</div>
                     </div>
                     <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            icon={<IconCopy />}
+                            onClick={handleCopy}
+                            disabledReason={interviewUrl ? undefined : 'Generating link…'}
+                            tooltip="Copy interview link"
+                        />
                         {hasResponded ? (
                             <LemonTag type="success" icon={<IconCheck />}>
                                 Responded
