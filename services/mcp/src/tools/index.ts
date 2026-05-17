@@ -13,6 +13,8 @@ import { GENERATED_TOOL_MAP } from './generated'
 import queryInsight from './insights/query'
 // LLM Analytics
 import getLLMCosts from './llmAnalytics/getLLMCosts'
+// Notebooks (collab edit is hand-written — generated CRUD lives in generated/notebooks.ts)
+import notebooksCollabEdit from './notebooks/collabEdit'
 // Organizations
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
@@ -75,6 +77,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // LLM Analytics
     'get-llm-total-costs-for-project': getLLMCosts,
+
+    // Notebooks
+    'notebooks-collab-edit': notebooksCollabEdit,
 
     // Search
     'entity-search': entitySearch,
