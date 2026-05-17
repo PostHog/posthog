@@ -13796,6 +13796,17 @@ export namespace Schemas {
       repo_name?: string;
     }
 
+    export interface ErrorTrackingLatestSession {
+      /** $session_id from the most recent exception event. Pivot key for the matching Session replay. */
+      session_id?: string;
+      /** distinct_id of the user who hit the most recent exception event. */
+      distinct_id?: string;
+      /** Timestamp of the exception event the session metadata was taken from. */
+      timestamp?: string;
+      /** UUID of the exception event the session metadata was taken from. */
+      event_uuid?: string;
+    }
+
     export interface ErrorTrackingIssueDetail {
       /** Error tracking issue ID. */
       id: string;
@@ -13844,6 +13855,8 @@ export namespace Schemas {
       top_in_app_frame?: ErrorTrackingTopFrame;
       /** Latest release metadata. */
       latest_release?: ErrorTrackingLatestRelease;
+      /** Identifiers from the most recent exception event so agents can pivot to a Session replay or actor without a follow-up issue events query. */
+      latest_session?: ErrorTrackingLatestSession;
       /** Compact impact counts. */
       impact?: ErrorTrackingImpact;
       /** Optional compact occurrence sparkline. */

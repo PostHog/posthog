@@ -720,6 +720,17 @@ export interface ErrorTrackingLatestReleaseApi {
     repo_name?: string
 }
 
+export interface ErrorTrackingLatestSessionApi {
+    /** $session_id from the most recent exception event. Pivot key for the matching Session replay. */
+    session_id?: string
+    /** distinct_id of the user who hit the most recent exception event. */
+    distinct_id?: string
+    /** Timestamp of the exception event the session metadata was taken from. */
+    timestamp?: string
+    /** UUID of the exception event the session metadata was taken from. */
+    event_uuid?: string
+}
+
 export interface ErrorTrackingImpactApi {
     /** Exception occurrence count. */
     occurrences?: number
@@ -777,6 +788,8 @@ export interface ErrorTrackingIssueDetailApi {
     top_in_app_frame?: ErrorTrackingTopFrameApi
     /** Latest release metadata. */
     latest_release?: ErrorTrackingLatestReleaseApi
+    /** Identifiers from the most recent exception event so agents can pivot to a Session replay or actor without a follow-up issue events query. */
+    latest_session?: ErrorTrackingLatestSessionApi
     /** Compact impact counts. */
     impact?: ErrorTrackingImpactApi
     /** Optional compact occurrence sparkline. */
