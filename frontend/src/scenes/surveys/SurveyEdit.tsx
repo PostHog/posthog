@@ -436,7 +436,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                     data-attr="switch-to-wizard"
                                     type="tertiary"
                                     size="small"
-                                    to={`${urls.surveyWizard(id)}#preserveLocalChanges=true`}
+                                    to={urls.surveyWizard(id)}
                                     onClick={() => setPreferredEditor('guided')}
                                 >
                                     Guided editor

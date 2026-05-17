@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
+import { LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 
-import { deploymentsLogic } from '../deploymentsLogic'
+import { deploymentProjectLogic } from '../deploymentProjectLogic'
 import { DeploymentStatus } from '../fixtures'
 
 const STATUS_OPTIONS: { label: string; key: DeploymentStatus }[] = [
@@ -14,9 +14,9 @@ const STATUS_OPTIONS: { label: string; key: DeploymentStatus }[] = [
     { label: 'Cancelled', key: 'cancelled' },
 ]
 
-export function DeploymentsFilters(): JSX.Element {
-    const { filters, authorOptions } = useValues(deploymentsLogic)
-    const { setFilters } = useActions(deploymentsLogic)
+export function DeploymentsFilters({ projectId }: { projectId: string }): JSX.Element {
+    const { filters } = useValues(deploymentProjectLogic({ projectId }))
+    const { setFilters } = useActions(deploymentProjectLogic({ projectId }))
 
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -38,20 +38,19 @@ export function DeploymentsFilters(): JSX.Element {
                     autoWidth={false}
                 />
             </div>
-            <div className="w-64">
-                {/* Backend supports a single `author` query param (icontains on email).
-                    LemonSelect is the right single-value picker; users can clear to "Any author". */}
-                <LemonSelect
-                    placeholder="Any author"
-                    options={[
-                        { value: null as unknown as string, label: 'Any author' },
-                        ...authorOptions.map((o) => ({ value: o.value, label: o.label })),
-                    ]}
-                    value={filters.author}
-                    onChange={(author) => setFilters({ author: author ?? null, page: 1 })}
-                    allowClear
-                />
-            </div>
+            {/* Free-text input: the backend matches `author` against
+                `commit_author_email` (iexact). A dropdown built from the
+                current page would silently hide authors who only appear on
+                other pages and shift its option list as filters narrow the
+                result set, so we accept the small typing cost for a stable,
+                complete filter. */}
+            <LemonInput
+                type="search"
+                placeholder="Filter by author email"
+                value={filters.author ?? ''}
+                onChange={(author) => setFilters({ author: author || null, page: 1 })}
+                className="w-64"
+            />
         </div>
     )
 }

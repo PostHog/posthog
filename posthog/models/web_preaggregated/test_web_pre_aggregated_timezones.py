@@ -1,4 +1,5 @@
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -15,6 +16,15 @@ from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STA
 
 @snapshot_clickhouse_queries
 class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, FloatAwareTestCase):
+    def setUp(self):
+        super().setUp()
+        patcher = patch(
+            "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
+            return_value=False,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _setup_test_data(self):
         """Required by WebAnalyticsPreAggregatedTestBase. Each test handles its own data setup."""
         pass

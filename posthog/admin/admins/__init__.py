@@ -1,5 +1,6 @@
 from products.links.backend.admin import LinkAdmin
 
+from .alert_admin import AlertConfigurationAdmin
 from .async_deletion_admin import AsyncDeletionAdmin
 from .batch_imports import BatchImportAdmin
 from .cohort_admin import CohortAdmin
@@ -31,6 +32,7 @@ from .plugin_admin import PluginAdmin
 from .plugin_config_admin import PluginConfigAdmin
 from .product_tour_admin import ProductTourAdmin
 from .project_admin import ProjectAdmin
+from .subscription_admin import SubscriptionAdmin
 from .survey_admin import SurveyAdmin
 from .team_admin import TeamAdmin
 from .text_admin import TextAdmin
@@ -38,6 +40,7 @@ from .user_admin import UserAdmin
 from .user_product_list_admin import UserProductListAdmin
 
 __all__ = [
+    "AlertConfigurationAdmin",
     "AsyncDeletionAdmin",
     "BatchImportAdmin",
     "CohortAdmin",
@@ -72,6 +75,7 @@ __all__ = [
     "PluginConfigAdmin",
     "ProductTourAdmin",
     "ProjectAdmin",
+    "SubscriptionAdmin",
     "SurveyAdmin",
     "TeamAdmin",
     "TextAdmin",

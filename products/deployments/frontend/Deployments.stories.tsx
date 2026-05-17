@@ -36,6 +36,7 @@ const docsProject: DeploymentProjectApi = {
     repo_url: 'https://github.com/acme/docs',
     cloudflare_project_name: 'team-docs',
     subdomain: 'docs.pages.dev',
+    current_deployment: 'd-docs',
 }
 
 const makeDeployment = (id: string, overrides: Partial<DeploymentApi> = {}): DeploymentApi => ({
@@ -70,6 +71,14 @@ const currentDeployment = makeDeployment('d-current', {
     commit_message: 'feat: deployments list page',
     duration_seconds: 84,
     deployment_url: 'https://acme-site.pages.dev',
+})
+
+const docsCurrent = makeDeployment('d-docs', {
+    project: 'project-2',
+    is_current: true,
+    commit_message: 'docs: refresh getting started',
+    duration_seconds: 36,
+    deployment_url: 'https://acme-docs.pages.dev',
 })
 
 const failedDeployment = makeDeployment('d-failed', {
@@ -110,7 +119,7 @@ const meta: Meta = {
                     previous: null,
                     results: [baseProject, docsProject],
                 },
-                '/api/projects/:team_id/deployment_projects/:project_id/deployments/': {
+                '/api/projects/:team_id/deployment_projects/project-1/deployments/': {
                     count: 5,
                     next: null,
                     previous: null,
@@ -122,7 +131,14 @@ const meta: Meta = {
                         makeDeployment('d-4', { commit_message: 'chore: tidy filters' }),
                     ],
                 },
+                '/api/projects/:team_id/deployment_projects/project-2/deployments/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [docsCurrent],
+                },
                 '/api/projects/:team_id/deployment_projects/:project_id/deployments/d-current/': currentDeployment,
+                '/api/projects/:team_id/deployment_projects/:project_id/deployments/d-docs/': docsCurrent,
             },
         }),
     ],
@@ -131,8 +147,10 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const DeploymentsList: Story = {}
+// Grid of project cards on /deployments
+export const ProjectGrid: Story = {}
 
+// Empty state — onboarding into the product, no projects yet
 export const NoProjects: Story = {
     decorators: [
         mswDecorator({
@@ -143,7 +161,66 @@ export const NoProjects: Story = {
     ],
 }
 
-export const ProjectWithNoDeployments: Story = {
+// Single-project grid (current behavior with one connected repo)
+export const SingleProjectGrid: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/deployment_projects/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [baseProject],
+                },
+                '/api/projects/:team_id/deployment_projects/:project_id/deployments/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [currentDeployment],
+                },
+            },
+        }),
+    ],
+}
+
+// Per-project page: card + table at /deployments/:projectId
+export const ProjectPage: Story = {
+    parameters: {
+        pageUrl: urls.deploymentProject(baseProject.id),
+    },
+}
+
+// Per-project page where the current deployment failed
+export const ProjectPageCurrentErrored: Story = {
+    parameters: {
+        pageUrl: urls.deploymentProject(baseProject.id),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/deployment_projects/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [baseProject],
+                },
+                '/api/projects/:team_id/deployment_projects/:project_id/deployments/': {
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [failedDeployment, currentDeployment],
+                },
+                '/api/projects/:team_id/deployment_projects/:project_id/deployments/d-current/': currentDeployment,
+            },
+        }),
+    ],
+}
+
+// Per-project page with zero deployments (just-provisioned project)
+export const ProjectPageNoDeployments: Story = {
+    parameters: {
+        pageUrl: urls.deploymentProject(baseProject.id),
+    },
     decorators: [
         mswDecorator({
             get: {
@@ -164,48 +241,9 @@ export const ProjectWithNoDeployments: Story = {
     ],
 }
 
-export const CurrentDeploymentErrored: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/deployment_projects/': {
-                    count: 1,
-                    next: null,
-                    previous: null,
-                    results: [baseProject],
-                },
-                '/api/projects/:team_id/deployment_projects/:project_id/deployments/': {
-                    count: 2,
-                    next: null,
-                    previous: null,
-                    results: [
-                        // Latest is the failed one; previous ready deploy is "current".
-                        failedDeployment,
-                        currentDeployment,
-                    ],
-                },
-            },
-        }),
-    ],
-}
-
-export const SingleProjectHidesPicker: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/deployment_projects/': {
-                    count: 1,
-                    next: null,
-                    previous: null,
-                    results: [baseProject],
-                },
-                '/api/projects/:team_id/deployment_projects/:project_id/deployments/': {
-                    count: 1,
-                    next: null,
-                    previous: null,
-                    results: [currentDeployment],
-                },
-            },
-        }),
-    ],
+// Deployment detail page at /deployments/:projectId/:deploymentId
+export const DeploymentDetail: Story = {
+    parameters: {
+        pageUrl: urls.deployment(baseProject.id, currentDeployment.id),
+    },
 }
