@@ -33,7 +33,14 @@ LIST_ISSUE_FIELDS = [
     "aggregations",
 ]
 
-CONTEXT_EVENT_SELECTS = ["properties.$exception_list", "properties.$exception_releases"]
+CONTEXT_EVENT_SELECTS = [
+    "uuid",
+    "timestamp",
+    "distinct_id",
+    "properties.$session_id",
+    "properties.$exception_list",
+    "properties.$exception_releases",
+]
 EVENT_PROPERTY_SELECTS = [
     "properties.$exception_types",
     "properties.$exception_values",
@@ -303,14 +310,26 @@ def map_event_row(row: object, columns: list[str], verbosity: str, only_app_fram
     return event
 
 
-def map_context_event_properties(data: dict[str, object]) -> dict[str, object]:
+def map_context_event(data: dict[str, object]) -> dict[str, object]:
     rows = data.get("results")
     row = rows[0] if isinstance(rows, list) and rows else None
     if row is None:
         return {}
     raw_columns = data.get("columns")
     columns = [str(column) for column in raw_columns] if isinstance(raw_columns, list) else CONTEXT_EVENT_SELECTS
-    return cast(dict[str, object], map_event_row(row, columns, "stack", True)["properties"])
+    return map_event_row(row, columns, "stack", True)
+
+
+def build_latest_session(event: dict[str, object]) -> dict[str, object]:
+    properties = as_record(event.get("properties")) or {}
+    return compact_dict(
+        {
+            "session_id": properties.get("$session_id"),
+            "distinct_id": event.get("distinct_id"),
+            "timestamp": event.get("timestamp"),
+            "event_uuid": event.get("uuid"),
+        }
+    )
 
 
 def get_frames(exception_list: object) -> list[dict[str, object]]:

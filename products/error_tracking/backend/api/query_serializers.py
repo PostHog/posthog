@@ -282,12 +282,35 @@ class ErrorTrackingLatestReleaseSerializer(serializers.Serializer):
     repo_name = serializers.CharField(required=False, help_text="Git repository name.")
 
 
+class ErrorTrackingLatestSessionSerializer(serializers.Serializer):
+    session_id = serializers.CharField(
+        required=False,
+        help_text="$session_id from the most recent exception event. Pivot key for the matching Session replay.",
+    )
+    distinct_id = serializers.CharField(
+        required=False, help_text="distinct_id of the user who hit the most recent exception event."
+    )
+    timestamp = serializers.DateTimeField(
+        required=False, help_text="Timestamp of the exception event the session metadata was taken from."
+    )
+    event_uuid = serializers.CharField(
+        required=False, help_text="UUID of the exception event the session metadata was taken from."
+    )
+
+
 class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     function = serializers.CharField(
         required=False, allow_null=True, help_text="Top function associated with the issue."
     )
     top_in_app_frame = ErrorTrackingTopFrameSerializer(required=False, help_text="Top in_app application frame.")
     latest_release = ErrorTrackingLatestReleaseSerializer(required=False, help_text="Latest release metadata.")
+    latest_session = ErrorTrackingLatestSessionSerializer(
+        required=False,
+        help_text=(
+            "Identifiers from the most recent exception event so agents can pivot to a Session replay or actor "
+            "without a follow-up issue events query."
+        ),
+    )
     impact = ErrorTrackingImpactSerializer(required=False, help_text="Compact impact counts.")
     sparkline = serializers.ListField(
         child=serializers.FloatField(), required=False, help_text="Optional compact occurrence sparkline."

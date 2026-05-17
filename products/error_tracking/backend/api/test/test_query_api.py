@@ -266,6 +266,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         self.create_issue()
         self.create_exception_event(
             properties={
+                "$session_id": "session-id-detail",
                 "$exception_list": [
                     {
                         "type": "TypeError",
@@ -311,7 +312,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == self.issue_id
-        assert data["impact"] == {"occurrences": 1, "users": 1, "sessions": 0}
+        assert data["impact"] == {"occurrences": 1, "users": 1, "sessions": 1}
         assert data["top_in_app_frame"] == {
             "function": "loadIssue",
             "source": "https://example.test/app.js",
@@ -321,6 +322,29 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         }
         assert data["latest_release"]["version"] == "2026.04.24"
         assert data["latest_release"]["commit_id"] == "commit-123"
+        latest_session = data["latest_session"]
+        assert latest_session["session_id"] == "session-id-detail"
+        assert latest_session["distinct_id"] == "user-1"
+        assert latest_session["timestamp"]
+        assert latest_session["event_uuid"]
+
+    @freeze_time("2026-04-24T12:00:00Z")
+    def test_issue_detail_omits_latest_session_when_event_lacks_session_id(self) -> None:
+        self.create_issue()
+        self.create_exception_event()
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        latest_session = data.get("latest_session", {})
+        assert "session_id" not in latest_session
+        assert latest_session.get("distinct_id") == "user-1"
 
     @freeze_time("2026-04-24T12:00:00Z")
     def test_issue_detail_returns_without_context_when_context_query_fails(self) -> None:

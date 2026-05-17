@@ -37,6 +37,7 @@ from .query_utils import (
     build_impact,
     build_issue_filters,
     build_issue_where,
+    build_latest_session,
     build_property_group,
     build_search_query,
     build_sparkline,
@@ -44,7 +45,7 @@ from .query_utils import (
     compact_dict,
     extract_latest_release,
     get_page_info,
-    map_context_event_properties,
+    map_context_event,
     map_event_row,
     pick_fields,
 )
@@ -155,7 +156,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 payload["sparkline"] = []
             return Response(payload)
         issue = cast(dict[str, object], raw_results[0])
-        event_properties: dict[str, object] = {}
+        context_event: dict[str, object] = {}
         try:
             context_event_query = EventsQuery(
                 kind="EventsQuery",
@@ -181,7 +182,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     error=event_data.get("error"),
                 )
             else:
-                event_properties = map_context_event_properties(event_data)
+                context_event = map_context_event(event_data)
         except Exception:
             logger.warning(
                 "error_tracking_issue_context_query_failed",
@@ -189,11 +190,13 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 team_id=self.team.pk,
                 exc_info=True,
             )
+        event_properties = cast(dict[str, object], context_event.get("properties") or {})
         payload = compact_dict(
             {
                 **pick_fields(issue, ISSUE_FIELDS),
                 "top_in_app_frame": build_top_in_app_frame(issue, event_properties),
                 "latest_release": extract_latest_release(event_properties),
+                "latest_session": build_latest_session(context_event),
                 "impact": build_impact(issue),
                 "sparkline": build_sparkline(issue) if include_sparkline else None,
             }
