@@ -39,6 +39,7 @@ FieldType = Union[
     SourceFieldOauthConfig,
     SourceFieldFileUploadConfig,
     SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchConfig,
 ]
 
 SourceCredentialsValidationResult = tuple[bool, str | None]

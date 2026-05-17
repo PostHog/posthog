@@ -274,6 +274,24 @@ export const sourceFieldToElement = (
         )
     }
 
+    if (field.type === 'switch') {
+        return (
+            <LemonField
+                key={field.name}
+                name={field.name}
+                label={field.label}
+                help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
+            >
+                {({ value, onChange }) => (
+                    <LemonSwitch
+                        checked={value || lastValue?.[field.name] || false}
+                        onChange={(checked) => onChange(checked)}
+                    />
+                )}
+            </LemonField>
+        )
+    }
+
     if (field.type === 'text' && field.name === 'repository' && sourceConfig.name === 'Github') {
         // Special case, this is the GitHub repository field
         return <GitHubRepositorySelector key={field.name} />

@@ -4621,6 +4621,16 @@ class SourceFieldSSHTunnelConfig(BaseModel):
     type: Literal["ssh-tunnel"] = "ssh-tunnel"
 
 
+class SourceFieldSwitchConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    name: str
+    type: Literal["switch"] = "switch"
+    caption: str | None = None
+
+
 class SourceFieldSelectConfigConverter(StrEnum):
     STR_TO_INT = "str_to_int"
     STR_TO_BOOL = "str_to_bool"
