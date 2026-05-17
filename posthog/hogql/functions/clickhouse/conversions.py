@@ -56,11 +56,17 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         using_placeholder_arguments=True,
         using_positional_arguments=True,
+        # The default arg (second) may be an integer or float literal — the
+        # template casts it to Float64 either way, so both must resolve.
         signatures=[
             ((DecimalType(), FloatType()), FloatType()),
+            ((DecimalType(), IntegerType()), FloatType()),
             ((IntegerType(), FloatType()), FloatType()),
+            ((IntegerType(), IntegerType()), FloatType()),
             ((FloatType(), FloatType()), FloatType()),
+            ((FloatType(), IntegerType()), FloatType()),
             ((StringType(), FloatType()), FloatType()),
+            ((StringType(), IntegerType()), FloatType()),
         ],
     ),
     "toDecimal": HogQLFunctionMeta(

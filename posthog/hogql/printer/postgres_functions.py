@@ -289,6 +289,8 @@ POSTGRES_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     # More type conversions
     "toDecimal": _make_cast_handler("DECIMAL"),
     "toDateTime64": _make_cast_handler("TIMESTAMP"),
+    # Postgres backend intentionally drops the default arg — _make_cast_handler
+    # only uses args[0], so this is a plain CAST and the fallback is unsupported.
     "toFloatOrDefault": _make_cast_handler("DOUBLE PRECISION"),
     # More JSON
     "JSONExtractUInt": _make_json_cast_handler("INTEGER"),
