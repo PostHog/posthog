@@ -514,9 +514,10 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             database=config.database,
             sslmode="prefer",
             # When include_all_schemas is enabled, use source_schema from metadata (per-table).
+            # Fall back to "public" if source_schema is missing (legacy metadata).
             # Otherwise config.schema wins so warehouse-mode renames flow through without
             # rewriting schema_metadata. Falls back to source_schema for direct mode.
-            schema=source_schema if config.include_all_schemas else (config.schema or source_schema or "public"),
+            schema=(source_schema or "public") if config.include_all_schemas else (config.schema or source_schema or "public"),
             table_names=[source_table_name or inputs.schema_name],
             should_use_incremental_field=inputs.should_use_incremental_field,
             logger=inputs.logger,
