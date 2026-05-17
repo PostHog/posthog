@@ -22,12 +22,14 @@ import type {
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
+    ProjectProfileApi,
     RememberRequestApi,
     SignalScoutRunDetailApi,
     SignalReportApi,
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
     SignalsScoutMemoryListParams,
+    SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsListParams,
     SignalsProcessingListParams,
     SignalsReportsListParams,
@@ -121,6 +123,40 @@ export const signalsScoutScratchpadDelete = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(forgetRequestApi),
+    })
+}
+
+export const getSignalsScoutProjectProfileGetUrl = (
+    projectId: string,
+    params?: SignalsScoutProjectProfileGetParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/project_profile/current/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/project_profile/current/`
+}
+
+/**
+ * Return the team's deterministic project profile. By default the response reflects either the newest non-expired cached row or a freshly-built one (lazy compute on cache miss). Pass `force_refresh=true` to skip the cache and rebuild from authoritative sources — useful right after seeding events or importing data so the next agent run sees the change without waiting for natural TTL expiry. Read this at the start of a run to orient on the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface.
+ * @summary Get the current project profile
+ */
+export const signalsScoutProjectProfileGet = async (
+    projectId: string,
+    params?: SignalsScoutProjectProfileGetParams,
+    options?: RequestInit
+): Promise<ProjectProfileApi> => {
+    return apiMutator<ProjectProfileApi>(getSignalsScoutProjectProfileGetUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

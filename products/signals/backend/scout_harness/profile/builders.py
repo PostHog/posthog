@@ -648,7 +648,7 @@ def _top_events(team: Team) -> list[dict[str, Any]] | None:
     except Exception:
         # Defensive: ClickHouse can be slow or unavailable. Profile build shouldn't
         # crash on this — the rest of the inventory is still valuable orientation.
-        logger.warning("signals_agent_profile: top_events query failed for team_id=%s", team.id, exc_info=True)
+        logger.warning("signals_scout_profile: top_events query failed for team_id=%s", team.id, exc_info=True)
         return None
     rows = response.results or []
     return [

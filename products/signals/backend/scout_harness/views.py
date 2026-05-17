@@ -426,9 +426,9 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         # the request — the rejection message even reads "does not support
         # personal API key access" regardless of whether the request was
         # authenticated via PAK or OAuth, because that branch fires for both.
-        # `signal_agent:read` is the public, user-grantable read scope already
+        # `signal_scout:read` is the public, user-grantable read scope already
         # used by `runs-list`, `runs-retrieve`, and `memory-list` on this surface.
-        required_scopes=["signal_agent:read"],
+        required_scopes=["signal_scout:read"],
     )
     def current(self, request: Request, *args, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}

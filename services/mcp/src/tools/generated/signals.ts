@@ -6,6 +6,7 @@ import {
     SignalsScoutMemoryCreateBody,
     SignalsScoutMemoryDeleteBody,
     SignalsScoutMemoryListQueryParams,
+    SignalsScoutProjectProfileGetQueryParams,
     SignalsScoutRunsFindingsCreateBody,
     SignalsScoutRunsFindingsCreateParams,
     SignalsScoutRunsListQueryParams,
@@ -236,6 +237,27 @@ const signalsScoutScratchpadList = (): ToolBase<
     },
 })
 
+const SignalsScoutProjectProfileGetSchema = SignalsScoutProjectProfileGetQueryParams
+
+const signalsScoutProjectProfileGet = (): ToolBase<
+    typeof SignalsScoutProjectProfileGetSchema,
+    Schemas.ProjectProfile
+> => ({
+    name: 'signals-scout-project-profile-get',
+    schema: SignalsScoutProjectProfileGetSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutProjectProfileGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ProjectProfile>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/project_profile/current/`,
+            query: {
+                force_refresh: params.force_refresh,
+            },
+        })
+        return result
+    },
+})
+
 const SignalsScoutRunsFindingsCreateSchema = SignalsScoutRunsFindingsCreateParams.omit({ project_id: true }).extend(
     SignalsScoutRunsFindingsCreateBody.shape
 )
@@ -347,6 +369,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-scout-scratchpad-create': signalsScoutScratchpadCreate,
     'signals-scout-scratchpad-delete': signalsScoutScratchpadDelete,
     'signals-scout-scratchpad-list': signalsScoutScratchpadList,
+    'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
     'signals-scout-runs-findings-create': signalsScoutRunsFindingsCreate,
     'signals-scout-runs-list': signalsScoutRunsList,
     'signals-scout-runs-retrieve': signalsScoutRunsRetrieve,
