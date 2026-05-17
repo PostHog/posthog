@@ -327,7 +327,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         json["node"] = "TupleAccess";
         if (!is_internal) addPositionInfo(json, ctx);
         json["tuple"] = visitAsJSON(ctx->assignmentTarget());
-        json["index"] = stoll(ctx->DECIMAL_LITERAL()->getText());
+        json["index"] = static_cast<int64_t>(stoll(ctx->DECIMAL_LITERAL()->getText()));
         return json;
       }
       // `target . name` — property access, mirrors ColumnExprPropertyAccess.
