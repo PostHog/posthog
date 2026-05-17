@@ -1,4 +1,4 @@
-import { joinWithUiHost, slashDotDataAttrUnescape } from './utils'
+import { generatePKCE, InsecureContextError, joinWithUiHost, slashDotDataAttrUnescape } from './utils'
 
 describe('utils', () => {
     describe('joinWithUiHost', () => {
@@ -44,6 +44,52 @@ describe('utils', () => {
             it(`joins "${uiHost}" + "${path}"`, () => {
                 expect(joinWithUiHost(uiHost, path)).toBe(expected)
             })
+        })
+    })
+
+    describe('generatePKCE', () => {
+        const originalCrypto = global.crypto
+
+        afterEach(() => {
+            Object.defineProperty(global, 'crypto', { value: originalCrypto, configurable: true })
+        })
+
+        it('throws InsecureContextError when crypto.subtle is undefined', async () => {
+            // Simulates loading the toolbar on a non-secure HTTP host (e.g. http://vm-docker-spb6:3535),
+            // where the browser does not expose SubtleCrypto. Pre-fix this surfaced as an opaque
+            // TypeError reading .digest of undefined.
+            Object.defineProperty(global, 'crypto', {
+                value: { getRandomValues: originalCrypto.getRandomValues.bind(originalCrypto) },
+                configurable: true,
+            })
+            await expect(generatePKCE()).rejects.toThrow(InsecureContextError)
+        })
+
+        it('throws InsecureContextError when crypto.subtle.digest is not a function', async () => {
+            Object.defineProperty(global, 'crypto', {
+                value: {
+                    getRandomValues: originalCrypto.getRandomValues.bind(originalCrypto),
+                    subtle: { digest: undefined },
+                },
+                configurable: true,
+            })
+            await expect(generatePKCE()).rejects.toThrow(InsecureContextError)
+        })
+
+        it('produces a verifier and challenge when crypto.subtle is available', async () => {
+            // JSDOM doesn't expose SubtleCrypto by default, so stub a digest implementation.
+            Object.defineProperty(global, 'crypto', {
+                value: {
+                    getRandomValues: originalCrypto.getRandomValues.bind(originalCrypto),
+                    subtle: {
+                        digest: jest.fn(async () => new Uint8Array(32).fill(0xab).buffer),
+                    },
+                },
+                configurable: true,
+            })
+            const { verifier, challenge } = await generatePKCE()
+            expect(verifier).toMatch(/^[A-Za-z0-9_-]+$/)
+            expect(challenge).toMatch(/^[A-Za-z0-9_-]+$/)
         })
     })
 

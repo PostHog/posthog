@@ -75,7 +75,22 @@ export function cleanToolbarAuthHash(): void {
     history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
 }
 
+export class InsecureContextError extends Error {
+    constructor() {
+        super('Toolbar authentication requires a secure context (HTTPS or localhost).')
+        this.name = 'InsecureContextError'
+    }
+}
+
 export async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
+    // crypto.subtle is only exposed in secure contexts (HTTPS or http://localhost).
+    // Accessing .digest on a non-secure HTTP page throws an opaque
+    // "Cannot read properties of undefined (reading 'digest')" — turn that into a
+    // typed error so confirmAuthenticate can surface an actionable message instead
+    // of leaking the implementation detail to the user.
+    if (typeof crypto === 'undefined' || !crypto.subtle || typeof crypto.subtle.digest !== 'function') {
+        throw new InsecureContextError()
+    }
     const bytes = new Uint8Array(48)
     crypto.getRandomValues(bytes)
     const verifier = btoa(String.fromCharCode(...bytes))

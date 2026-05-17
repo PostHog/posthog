@@ -328,6 +328,22 @@ class TestHedgehogConfigOAuthAuth(APIBaseTest):
         )
         assert response.status_code == 200
 
+    def test_full_toolbar_token_grants_patch_access(self):
+        # Regression: with only user:read in TOOLBAR_OAUTH_SCOPES, every hedgehog
+        # toggle from the toolbar returned 403, and the toolbar's 403→tokenExpired
+        # handler then nuked the session — looping the user through OAuth on every
+        # click. The toolbar scope set must include user:write.
+        toolbar_scopes = " ".join(settings.TOOLBAR_OAUTH_SCOPES)
+        token = _make_token(self.user, self.oauth_app, "pha_hh_toolbar", scope=toolbar_scopes)
+        self.client.logout()
+        response = self.client.patch(
+            self._url(),
+            data={"color": "blue"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token.token}",
+        )
+        assert response.status_code == 200, response.content[:300]
+
     def test_expired_token_is_rejected(self):
         token = _make_token(self.user, self.oauth_app, "pha_hh_exp", scope="user:read", delta_hours=-1)
         self.client.logout()
@@ -357,6 +373,8 @@ class TestToolbarOAuthScopesConfig(APIBaseTest):
         "element:read",
         "uploaded_media:write",
         "user:read",
+        # Required for the hedgehog mode toggle (PATCH /api/users/@me/hedgehog_config).
+        "user:write",
     ]
 
     @parameterized.expand([(s,) for s in EXPECTED_SCOPES])

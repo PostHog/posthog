@@ -853,7 +853,7 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(logic.values.refreshToken).toBe('new-refresh')
         })
 
-        it('calls tokenExpired when refresh fails', async () => {
+        it('calls tokenExpired when refresh fails with terminal 4xx', async () => {
             const logic = toolbarConfigLogic.build({
                 apiURL: 'http://localhost',
                 accessToken: 'old-access',
@@ -863,7 +863,11 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
                 if (url.includes('toolbar_oauth_refresh')) {
-                    return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({}) })
+                    return Promise.resolve({
+                        ok: false,
+                        status: 400,
+                        json: () => Promise.resolve({ error: 'invalid_grant' }),
+                    })
                 }
                 return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) })
             })
@@ -872,6 +876,136 @@ describe('toolbar toolbarConfigLogic', () => {
 
             expect(logic.values.accessToken).toBeNull()
             expect(logic.values.isAuthenticated).toBe(false)
+        })
+
+        it('keeps session intact when refresh fails with a transient 5xx and retry also fails', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'old-access',
+                refreshToken: 'old-refresh',
+                clientId: 'client-id',
+            })
+            logic.mount()
+
+            let refreshCallCount = 0
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (url.includes('toolbar_oauth_refresh')) {
+                    refreshCallCount++
+                    return Promise.resolve({
+                        ok: false,
+                        status: 502,
+                        json: () => Promise.resolve({}),
+                    })
+                }
+                return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) })
+            })
+
+            await toolbarFetch('/api/projects/@current/actions/')
+
+            // Should have retried once on transient 5xx (refreshCallCount === 2).
+            expect(refreshCallCount).toBe(2)
+            // Session must NOT be cleared on transient refresh failure — that was the
+            // production regression where a single 502 cost a user their toolbar session.
+            expect(logic.values.accessToken).toBe('old-access')
+            expect(logic.values.isAuthenticated).toBe(true)
+        })
+
+        it('keeps session intact when refresh fails with a network error and retry also fails', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'old-access',
+                refreshToken: 'old-refresh',
+                clientId: 'client-id',
+            })
+            logic.mount()
+
+            let refreshCallCount = 0
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (url.includes('toolbar_oauth_refresh')) {
+                    refreshCallCount++
+                    return Promise.reject(new TypeError('network down'))
+                }
+                return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) })
+            })
+
+            await toolbarFetch('/api/projects/@current/actions/')
+
+            expect(refreshCallCount).toBe(2)
+            expect(logic.values.accessToken).toBe('old-access')
+            expect(logic.values.isAuthenticated).toBe(true)
+        })
+
+        it('retries refresh on first 502 and succeeds on second attempt', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'old-access',
+                refreshToken: 'old-refresh',
+                clientId: 'client-id',
+            })
+            logic.mount()
+
+            let refreshCallCount = 0
+            let apiCallCount = 0
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (url.includes('toolbar_oauth_refresh')) {
+                    refreshCallCount++
+                    if (refreshCallCount === 1) {
+                        return Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({}) })
+                    }
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: () =>
+                            Promise.resolve({
+                                access_token: 'new-access',
+                                refresh_token: 'new-refresh',
+                                expires_in: 3600,
+                            }),
+                    })
+                }
+                apiCallCount++
+                if (apiCallCount === 1) {
+                    return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) })
+                }
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ results: ['ok'] }),
+                })
+            })
+
+            const response = await toolbarFetch('/api/projects/@current/actions/')
+
+            expect(response.status).toBe(200)
+            expect(refreshCallCount).toBe(2)
+            expect(logic.values.accessToken).toBe('new-access')
+        })
+
+        it('does not clear session on a 403 (missing scope, not token expiry)', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'access',
+                refreshToken: 'refresh',
+                clientId: 'client',
+            })
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+            ;(global.fetch as jest.Mock).mockImplementation(() =>
+                Promise.resolve({
+                    ok: false,
+                    status: 403,
+                    json: () => Promise.resolve({ detail: 'You do not have permission' }),
+                })
+            )
+
+            const response = await toolbarFetch('/api/users/@me/hedgehog_config/', 'PATCH', { color: 'red' })
+
+            expect(response.status).toBe(403)
+            // A 403 means the token is valid but the action isn't permitted (scope or
+            // project mismatch). Re-running OAuth produces the same scopes, so we
+            // must not destroy the session.
+            expect(logic.values.accessToken).toBe('access')
+            expect(logic.values.isAuthenticated).toBe(true)
         })
 
         it('does not retry when response is not 401', async () => {
