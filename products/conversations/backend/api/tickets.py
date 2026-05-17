@@ -100,14 +100,12 @@ def _get_persons_by_email(team: Team, emails: list[str]) -> dict[str, Person]:
     if not response.results:
         return {}
 
+    emails_set = {e.lower() for e in emails}
     email_to_uuid: dict[str, str] = {}
     for person_uuid, prop_email, prop_Email, prop_dollar_email in response.results:
-        matched = prop_email or prop_Email or prop_dollar_email
-        if not matched:
-            continue
-        lower = matched.lower()
-        if lower not in email_to_uuid:
-            email_to_uuid[lower] = str(person_uuid)
+        for val in (prop_email, prop_Email, prop_dollar_email):
+            if val and val.lower() in emails_set and val.lower() not in email_to_uuid:
+                email_to_uuid[val.lower()] = str(person_uuid)
 
     persons = get_persons_by_uuids(team.pk, list(email_to_uuid.values()))
     uuid_to_person: dict[str, Person] = {str(p.uuid): p for p in persons}
