@@ -347,7 +347,24 @@ class TestBuildFirstMessage(unittest.TestCase):
     def test_drops_topic_sentence_when_topic_empty(self, _label: str, topic_text: str):
         message = _build_first_message(user_name="Sam", topic_text=topic_text)
         assert "Hi Sam!" in message
-        assert "We're researching" not in message
+        assert "Today we're talking about" not in message
+
+    @parameterized.expand([("empty", ""), ("whitespace_only", "   ")])
+    def test_falls_back_to_generic_greeting_when_user_name_empty(self, _label: str, user_name: str):
+        message = _build_first_message(user_name=user_name, topic_text="checkout funnel")
+        assert "Hi there!" in message
+        assert "Hi !" not in message
+
+    def test_collapses_internal_whitespace_in_topic(self):
+        message = _build_first_message(user_name="Sam", topic_text="multi\nline\n\ttopic")
+        assert "multi line topic" in message
+        assert "\n" not in message
+
+    def test_truncates_very_long_topic(self):
+        long_topic = "x" * 500
+        message = _build_first_message(user_name="Sam", topic_text=long_topic)
+        assert "x" * 200 in message
+        assert "x" * 201 not in message
 
 
 class TestInterviewStartCall(APIBaseTest):
@@ -390,6 +407,7 @@ class TestInterviewStartCall(APIBaseTest):
         share = self._create_share()
         self.client.logout()
         response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
+        assert response.status_code == status.HTTP_200_OK, response.content
         first_message = response.json()["assistant_overrides"]["firstMessage"]
         assert "Hi Alex!" in first_message
         assert "Replay adoption" in first_message

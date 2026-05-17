@@ -129,6 +129,24 @@ def _public_sharing_disabled_for_org(sharing_config: SharingConfiguration) -> bo
     )
 
 
+_TOPIC_MAX_CHARS = 200
+
+
+def _normalise_topic(topic_text: str) -> str:
+    return " ".join(topic_text.split())[:_TOPIC_MAX_CHARS]
+
+
+def _build_first_message(*, user_name: str, topic_text: str) -> str:
+    name_part = f"Hi {user_name.strip()}!" if user_name.strip() else "Hi there!"
+    greeting = f"{name_part} Thanks for joining."
+    topic_normalised = _normalise_topic(topic_text)
+    if topic_normalised:
+        return (
+            f"{greeting} Today we're talking about {topic_normalised}. I'd love your perspective. Ready when you are."
+        )
+    return f"{greeting} I'd love your perspective. Ready when you are."
+
+
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -188,14 +206,6 @@ def start_call(request: Request, access_token: str) -> Response:
             },
         }
     )
-
-
-def _build_first_message(*, user_name: str, topic_text: str) -> str:
-    greeting = f"Hi {user_name}! Thanks for joining."
-    topic_stripped = topic_text.strip()
-    if topic_stripped:
-        return f"{greeting} We're researching {topic_stripped} and I'd love your perspective. Ready when you are."
-    return f"{greeting} I'd love your perspective. Ready when you are."
 
 
 @api_view(["POST"])
