@@ -303,6 +303,16 @@ class TestMappings(ClickhouseTestMixin, BaseTest):
         assert response.columns is not None
         assert response.results[0] == (3.14, None, 3.0, 3.14, 3.14, 3.14, 0.0, 7.0, 0.0, 7.0, None, 7.0)
 
+    def test_to_float_or_default_with_integer_default(self):
+        # ClickHouse's toFloat64OrDefault requires the default to be Float64;
+        # an integer default literal must still work.
+        response = execute_hogql_query(
+            "SELECT toFloatOrDefault('bla', 0), toFloatOrDefault('2.5', 1)",
+            self.team,
+        )
+        assert response.results is not None
+        assert response.results[0] == (0.0, 2.5)
+
     def test_map_function_with_multiple_key_value_pairs(self):
         """Test that the map function accepts multiple key-value pairs."""
         response = execute_hogql_query(
