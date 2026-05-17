@@ -2,11 +2,12 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconGear } from '@posthog/icons'
+import { IconGear, IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { MaxTool } from 'scenes/max/MaxTool'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -215,6 +216,40 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
         'Check that your ad platform campaigns are properly linked to UTM tracking in PostHog.',
 }
 
+const MarketingAnalyticsMaxToolWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
+    const { dateFilter, integrationFilter, compareFilter } = useValues(marketingAnalyticsLogic)
+    const { conversion_goals, marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
+
+    return (
+        <MaxTool
+            identifier="marketing_diagnose_setup"
+            context={{
+                current_filters: { integrationFilter, compareFilter },
+                current_date_range: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                custom_source_mappings_count: Object.keys(marketingAnalyticsConfig?.custom_source_mappings || {})
+                    .length,
+                campaign_name_mappings_count: Object.keys(marketingAnalyticsConfig?.campaign_name_mappings || {})
+                    .length,
+                existing_goal_count: (conversion_goals || []).length,
+            }}
+            contextDescription={{
+                text: 'Marketing analytics setup',
+                icon: <IconSparkles />,
+            }}
+            initialMaxPrompt="Diagnose my marketing analytics setup"
+            suggestions={[
+                'Diagnose my marketing analytics setup',
+                'Why are events showing as non-integrated?',
+                'Suggest custom_source_mappings for unmatched UTM values',
+                'Which custom events would make good conversion goals?',
+                'List my conversion goals and their last-30d performance',
+            ]}
+        >
+            <>{children}</>
+        </MaxTool>
+    )
+}
+
 export function MarketingAnalyticsScene(): JSX.Element {
     const { activeTab } = useValues(marketingAnalyticsLogic)
 
@@ -253,7 +288,9 @@ export function MarketingAnalyticsScene(): JSX.Element {
                             </>
                         }
                     />
-                    <MarketingAnalyticsContent />
+                    <MarketingAnalyticsMaxToolWrapper>
+                        <MarketingAnalyticsContent />
+                    </MarketingAnalyticsMaxToolWrapper>
                 </SceneContent>
             </BindLogic>
         </BindLogic>

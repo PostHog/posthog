@@ -728,6 +728,62 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Filtering web analytics...'
         },
     },
+    marketing_diagnose_setup: {
+        name: 'Diagnose marketing analytics',
+        description: 'Health check across data sources, attribution, and conversion goals',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Diagnosed marketing analytics' : 'Diagnosing marketing analytics...',
+    },
+    marketing_explain_conversion_goal: {
+        name: 'Explain a conversion goal',
+        description: "Show which events drove a goal's count, broken down by source and integration",
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Explained conversion goal' : 'Explaining conversion goal...',
+    },
+    marketing_list_conversion_goals: {
+        name: 'List conversion goals',
+        description: 'Read configured conversion goals with last-30d performance',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Listed conversion goals' : 'Listing conversion goals...',
+    },
+    marketing_list_data_sources: {
+        name: 'List marketing data sources',
+        description: 'Show platform-side health for every connected ad integration',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Listed marketing data sources' : 'Listing marketing data sources...',
+    },
+    marketing_audit_utm: {
+        name: 'Audit UTM tagging',
+        description: 'Find UTM issues that prevent attribution to ad platforms',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Audited UTM tagging' : 'Auditing UTM tagging...',
+    },
+    marketing_suggest_conversion_goals: {
+        name: 'Suggest conversion goals',
+        description: 'Rank custom events that are good candidates for conversion goals',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Suggested conversion goals' : 'Suggesting conversion goals...',
+    },
+    marketing_suggest_utm_mappings: {
+        name: 'Suggest UTM mappings',
+        description: 'Detect unmatched utm_source values and propose custom_source_mappings entries',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Suggested UTM mappings' : 'Suggesting UTM mappings...',
+    },
     upsert_dashboard: {
         name: 'Create and edit dashboards',
         description: 'Create and edit dashboards with insights based on your requirements',

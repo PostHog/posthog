@@ -727,6 +727,13 @@ class AssistantTool(StrEnum):
     SEARCH_LLM_TRACES = "search_llm_traces"
     RUN_HOG_EVAL_TEST = "run_hog_eval_test"
     DIAGNOSE_PROXY = "diagnose_proxy"
+    MARKETING_DIAGNOSE_SETUP = "marketing_diagnose_setup"
+    MARKETING_EXPLAIN_CONVERSION_GOAL = "marketing_explain_conversion_goal"
+    MARKETING_LIST_CONVERSION_GOALS = "marketing_list_conversion_goals"
+    MARKETING_LIST_DATA_SOURCES = "marketing_list_data_sources"
+    MARKETING_AUDIT_UTM = "marketing_audit_utm"
+    MARKETING_SUGGEST_CONVERSION_GOALS = "marketing_suggest_conversion_goals"
+    MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
 
 
 class AssistantToolCall(BaseModel):

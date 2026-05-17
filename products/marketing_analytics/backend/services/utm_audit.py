@@ -15,6 +15,7 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
     INTEGRATION_DEFAULT_SOURCES,
     INTEGRATION_PRIMARY_SOURCE,
 )
+from products.marketing_analytics.backend.services.native_integrations import KEY_TO_NATIVE, iter_custom_source_mappings
 from products.marketing_analytics.backend.services.types import (
     AlternativeSource,
     Campaign,
@@ -36,24 +37,18 @@ def _load_team_mappings(team: Team) -> TeamMappings:
     if config is None:
         return TeamMappings(source_to_integration={}, campaign_aliases={}, field_preferences={})
 
-    # Build source mapping: custom utm_source values -> the integration's primary source
-    # e.g. custom_source_mappings = {"GoogleAds": ["partner_blog", "affiliate"]}
-    # The adapter for GoogleAds uses "google" as source_name, so "partner_blog" should match "google"
+    # Build source mapping: custom utm_source values -> the integration's primary source.
+    # e.g. custom_source_mappings = {"GoogleAds": ["partner_blog", "affiliate"]} →
+    # {"partner_blog": "google", "affiliate": "google"} because the GoogleAds adapter
+    # uses "google" as `source_name`. The (target_key, raw_value) pairs come from
+    # `iter_custom_source_mappings` so the enum-resolution rules stay shared with
+    # `native_integrations.build_combined_alias_map`.
     source_to_integration: dict[str, str] = {}
-
-    custom_source_mappings = config.custom_source_mappings or {}
-    for integration_type, custom_sources in custom_source_mappings.items():
-        try:
-            native_source = NativeMarketingSource(integration_type)
-        except ValueError:
-            native_source = None
-        primary_source = (
-            INTEGRATION_PRIMARY_SOURCE.get(native_source, integration_type.lower())
-            if native_source
-            else integration_type.lower()
-        )
-        for custom_source in custom_sources:
-            source_to_integration[custom_source.lower().strip()] = primary_source.lower().strip()
+    for target_key, raw_value in iter_custom_source_mappings(config.custom_source_mappings):
+        primary = INTEGRATION_PRIMARY_SOURCE.get(KEY_TO_NATIVE[target_key])
+        if not primary:
+            continue
+        source_to_integration[raw_value.lower().strip()] = str(primary).lower().strip()
 
     # Build campaign aliases: clean_campaign_name -> set of raw utm values
     # e.g. campaign_name_mappings = {"GoogleAds": {"brand_campaign": ["partner_q1", "brand_q1"]}}
