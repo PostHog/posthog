@@ -571,7 +571,18 @@ class PropertySwapper(CloningVisitor):
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):
         if field_type == "DateTime":
-            return ast.Call(name="toDateTime", args=[node])
+            # Carry the return type so an enclosing toDateTime() resolves its
+            # already-a-datetime overload instead of re-parsing this value
+            # (parseDateTime64BestEffortOrNull only accepts strings).
+            return ast.Call(
+                name="toDateTime",
+                args=[node],
+                type=ast.CallType(
+                    name="toDateTime",
+                    arg_types=[ast.StringType(nullable=True)],
+                    return_type=ast.DateTimeType(nullable=True),
+                ),
+            )
         if field_type == "Float":
             return ast.Call(name="toFloat", args=[node])
         if field_type == "Boolean":
