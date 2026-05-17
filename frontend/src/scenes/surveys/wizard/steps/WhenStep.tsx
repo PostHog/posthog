@@ -25,7 +25,7 @@ import {
 } from '../../SurveyEventTrigger'
 import { surveyLogic } from '../../surveyLogic'
 import { surveyWizardLogic } from '../surveyWizardLogic'
-import { WizardDividerSection, WizardPanel, WizardSection, WizardStepLayout } from '../WizardLayout'
+import { WizardPanel, WizardSection, WizardStepLayout } from '../WizardLayout'
 
 const DEFAULT_ITERATION_COUNT = 10
 const MIN_ITERATION_COUNT = 2
@@ -52,11 +52,12 @@ export function WhenStep(): JSX.Element {
     const delaySeconds = appearance.surveyPopupDelaySeconds ?? 0
     const excludedObjectProperties = useExcludedObjectProperties()
     // Derive frequency strictly from the iteration model — the universal wait-period is a separate
-    // across-surveys gate and must not influence which cadence is highlighted.
+    // across-surveys gate and must not influence which cadence is highlighted. Default to 'once' so
+    // an unconfigured survey doesn't silently imply a recurring cadence.
     const frequency =
         survey.schedule === SurveySchedule.Once
             ? 'once'
-            : (FREQUENCY_OPTIONS.find((opt) => opt.days === survey.iteration_frequency_days)?.value ?? 'monthly')
+            : (FREQUENCY_OPTIONS.find((opt) => opt.days === survey.iteration_frequency_days)?.value ?? 'once')
     const iterationCount = survey.iteration_count ?? DEFAULT_ITERATION_COUNT
     const seenSurveyWaitPeriodInDays = conditions.seenSurveyWaitPeriodInDays ?? null
 
@@ -252,22 +253,22 @@ export function WhenStep(): JSX.Element {
                     </div>
                 )}
 
-                <div className="flex flex-wrap items-center gap-2 text-sm pt-1">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
                     <span>Then wait</span>
                     <LemonInput
                         type="number"
                         min={0}
                         value={delaySeconds}
                         onChange={(val) => setDelaySeconds(Number(val) || 0)}
-                        className="w-20"
+                        className="w-20 tabular-nums"
                     />
-                    <span className="text-secondary">seconds before showing the survey</span>
+                    <span className="text-secondary">seconds before showing it.</span>
                 </div>
             </WizardSection>
 
             <WizardSection
                 title="How often should this survey repeat?"
-                description="Controls how many times the same user can see this survey, and how far apart those views are."
+                description="How many times the same user can see this survey, and how far apart those views are."
                 descriptionClassName="text-sm"
             >
                 <LemonSegmentedButton
@@ -282,12 +283,12 @@ export function WhenStep(): JSX.Element {
                 />
 
                 {recommendedFrequency.value === frequency && (
-                    <p className="text-sm text-success mt-3">{recommendedFrequency.reason}</p>
+                    <p className="text-sm text-success mt-2 mb-0">{recommendedFrequency.reason}</p>
                 )}
 
                 {frequency !== 'once' && (
-                    <div className="flex flex-wrap items-center gap-2 mt-4 text-sm">
-                        <span>Show this survey up to</span>
+                    <div className="flex flex-wrap items-center gap-2 text-sm mt-3">
+                        <span>Show up to</span>
                         <LemonInput
                             type="number"
                             min={MIN_ITERATION_COUNT}
@@ -295,59 +296,51 @@ export function WhenStep(): JSX.Element {
                             value={iterationCount}
                             onChange={(val) => setIterationCount(val ?? undefined)}
                             onBlur={commitIterationCount}
-                            className="w-20"
+                            className="w-20 tabular-nums"
                         />
                         <span className="text-secondary">
-                            times total (min {MIN_ITERATION_COUNT}, max {MAX_ITERATION_COUNT})
+                            times in total ({MIN_ITERATION_COUNT}–{MAX_ITERATION_COUNT}).
                         </span>
                     </div>
                 )}
 
-                <div className="flex flex-col gap-1 mt-4 pt-3 border-t border-border">
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                        <LemonSwitch
-                            checked={seenSurveyWaitPeriodInDays != null}
-                            onChange={(checked) => setSeenSurveyWaitPeriod(checked ? 30 : null)}
-                            size="small"
-                            label="Also wait at least"
-                        />
-                        <LemonInput
-                            type="number"
-                            min={1}
-                            value={seenSurveyWaitPeriodInDays ?? NaN}
-                            onChange={(val) => setSeenSurveyWaitPeriod(val ?? null)}
-                            disabled={seenSurveyWaitPeriodInDays == null}
-                            className="w-20"
-                        />
-                        <span className="text-secondary">days after any other survey was shown to this user</span>
-                    </div>
-                    <p className="text-muted text-xs">
-                        Applies across every survey in this project — useful to avoid bombarding the same user with
-                        multiple surveys in a short window.
-                    </p>
+                <div className="flex flex-wrap items-center gap-2 text-sm mt-3">
+                    <LemonSwitch
+                        checked={seenSurveyWaitPeriodInDays != null}
+                        onChange={(checked) => setSeenSurveyWaitPeriod(checked ? 30 : null)}
+                        size="small"
+                        label="Also wait at least"
+                    />
+                    <LemonInput
+                        type="number"
+                        min={1}
+                        value={seenSurveyWaitPeriodInDays ?? NaN}
+                        onChange={(val) => setSeenSurveyWaitPeriod(val ?? null)}
+                        disabled={seenSurveyWaitPeriodInDays == null}
+                        className="w-20 tabular-nums"
+                    />
+                    <span className="text-secondary">days after any other survey was shown to the same user.</span>
                 </div>
             </WizardSection>
 
-            <WizardDividerSection title="Response limit">
-                <div className="flex flex-wrap items-center gap-2">
+            <WizardSection title="Response limit">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
                     <LemonCheckbox
                         checked={survey.responses_limit != null}
                         onChange={(checked) => setSurveyValue('responses_limit', checked ? 100 : null)}
-                        label="Stop the survey after"
+                        label="Stop after"
                     />
                     <LemonInput
                         type="number"
                         min={1}
                         value={survey.responses_limit ?? undefined}
                         onChange={(val) => setSurveyValue('responses_limit', val && val > 0 ? val : null)}
-                        className="w-20"
+                        disabled={survey.responses_limit == null}
+                        className="w-20 tabular-nums"
                     />
-                    <span className="text-secondary text-sm">completed responses</span>
+                    <span className="text-secondary">completed responses.</span>
                 </div>
-                <p className="text-muted text-xs mt-2">
-                    Automatically stop showing the survey once you've collected enough responses.
-                </p>
-            </WizardDividerSection>
+            </WizardSection>
         </WizardStepLayout>
     )
 }
