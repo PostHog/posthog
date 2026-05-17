@@ -53,6 +53,8 @@ describe('posthog-llm-classify template', () => {
             Authorization: 'Bearer service-key',
             'Content-Type': 'application/json',
         })
+        // Generous timeout — LLM responses regularly exceed the 3s default.
+        expect(params.timeout_ms).toBe(120_000)
 
         const body = parseJSON(params.body)
         expect(body.model).toBe('gpt-5-mini')
