@@ -13,12 +13,41 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.replay_vision.backend.api.constants import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
-from products.replay_vision.backend.models.replay_lens import ReplayLens
+from products.replay_vision.backend.models.replay_lens import LensModel, LensProvider, LensType, ReplayLens
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
 )
+
+
+class LensSnapshotSerializer(serializers.Serializer):
+    """Mirrors `temporal.types.LensSnapshot` for OpenAPI generation."""
+
+    name = serializers.CharField(
+        help_text="Lens name at run time.",
+    )
+    lens_type = serializers.ChoiceField(
+        choices=LensType.choices,
+        help_text="Lens type (monitor, classifier, scorer, summarizer, indexer) at run time.",
+    )
+    lens_version = serializers.IntegerField(
+        help_text="The `ReplayLens.lens_version` value at the moment the workflow ran.",
+    )
+    model = serializers.ChoiceField(
+        choices=LensModel.choices,
+        help_text="Concrete model that ran the observation.",
+    )
+    provider = serializers.ChoiceField(
+        choices=LensProvider.choices,
+        help_text="Concrete provider that ran the observation.",
+    )
+    emits_signals = serializers.BooleanField(
+        help_text="Whether the observation was run with Signal emission enabled.",
+    )
+    lens_config = serializers.JSONField(
+        help_text="Lens-type-specific configuration at run time (prompt, tags, scale, etc.).",
+    )
 
 
 class ReplayObservationSerializer(serializers.ModelSerializer):
@@ -32,31 +61,16 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     error_reason = serializers.CharField(
         read_only=True,
         allow_blank=True,
-        help_text="Populated on failure. Includes the malformed model response when validation fails.",
+        help_text="Populated on failure; includes the malformed model response when validation fails.",
     )
     workflow_id = serializers.CharField(
         read_only=True,
         allow_blank=True,
         help_text="Temporal workflow id for progress queries and debugging. Empty until the workflow starts.",
     )
-    lens_version = serializers.IntegerField(
+    lens_snapshot = LensSnapshotSerializer(
         read_only=True,
-        help_text="The `ReplayLens.lens_version` value at the moment the workflow ran.",
-    )
-    # TODO: type against the same Pydantic shape used to validate `ReplayLens.lens_config`.
-    lens_config_snapshot = serializers.JSONField(
-        read_only=True,
-        help_text="Snapshot of `ReplayLens.lens_config` at run time. Lens edits do not retroactively mutate observations.",
-    )
-    model_used = serializers.CharField(
-        read_only=True,
-        allow_blank=True,
-        help_text="Concrete model that ran the observation.",
-    )
-    provider_used = serializers.CharField(
-        read_only=True,
-        allow_blank=True,
-        help_text="Concrete provider that ran the observation.",
+        help_text="Frozen view of the lens at run time; lens edits do not retroactively mutate this observation.",
     )
     triggered_by = serializers.ChoiceField(
         choices=ObservationTrigger.choices,
@@ -66,7 +80,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     triggered_by_user = UserBasicSerializer(
         read_only=True,
         allow_null=True,
-        help_text="User who triggered an on-demand observation. Null for scheduled observations.",
+        help_text="User who triggered an on-demand observation; null for scheduled observations.",
     )
 
     class Meta:
@@ -78,10 +92,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "status",
             "error_reason",
             "workflow_id",
-            "lens_version",
-            "lens_config_snapshot",
-            "model_used",
-            "provider_used",
+            "lens_snapshot",
             "triggered_by",
             "triggered_by_user",
             "started_at",

@@ -17,6 +17,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.temporal.constants import APPLY_LENS_WORKFLOW_NAME, build_apply_lens_workflow_id
+from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
 
 class _VisionAPITestCase(APIBaseTest):
@@ -232,8 +233,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         defaults = {
             "lens": self.lens,
             "session_id": "sess-1",
-            "lens_version": self.lens.lens_version,
-            "lens_config_snapshot": self.lens.lens_config,
+            "lens_snapshot": _snapshot_for(self.lens),
             "triggered_by": ObservationTrigger.SCHEDULE,
         }
         defaults.update(overrides)
@@ -275,8 +275,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         ReplayObservation.objects.create(
             lens=other_lens,
             session_id="theirs",
-            lens_version=other_lens.lens_version,
-            lens_config_snapshot=other_lens.lens_config,
+            lens_snapshot=_snapshot_for(other_lens),
             triggered_by=ObservationTrigger.SCHEDULE,
         )
         resp = self.client.get(self.observations_url(str(self.lens.id)))
