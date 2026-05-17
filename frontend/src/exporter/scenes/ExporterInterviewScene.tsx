@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Logo } from 'lib/brand/Logo'
-import { HeartHog, MicrophoneHog, ProfessorHog, RobotHog } from 'lib/components/hedgehogs'
+import { RobotHog } from 'lib/components/hedgehogs'
 
 import { InterviewExportPayload } from '../types'
 
@@ -12,13 +12,16 @@ type CallState = 'idle' | 'loading' | 'connecting' | 'in-call' | 'ended' | 'erro
 
 type ConversationPhase = 'agent-talking' | 'user-speaking' | 'waiting'
 
-const USER_SPEAKING_VOLUME_ENTER = 0.05
-const USER_SPEAKING_VOLUME_LEAVE = 0.03
-
 const PHASE_LABELS: Record<ConversationPhase, string> = {
-    'agent-talking': 'Talking…',
-    'user-speaking': 'Listening…',
-    waiting: 'Thinking…',
+    'agent-talking': '🎤 Talking',
+    'user-speaking': '👂 Listening',
+    waiting: '🧠 Thinking',
+}
+
+interface VapiTranscriptMessage {
+    type?: string
+    role?: string
+    transcriptType?: string
 }
 
 interface StartCallPayload {
@@ -31,22 +34,6 @@ interface StartCallPayload {
     }
 }
 
-function pickHog(state: CallState, phase: ConversationPhase): typeof RobotHog {
-    if (state === 'in-call') {
-        if (phase === 'agent-talking') {
-            return RobotHog
-        }
-        if (phase === 'user-speaking') {
-            return MicrophoneHog
-        }
-        return ProfessorHog
-    }
-    if (state === 'ended') {
-        return HeartHog
-    }
-    return RobotHog
-}
-
 const CallStatusPanel = memo(function CallStatusPanel({
     state,
     phase,
@@ -54,11 +41,10 @@ const CallStatusPanel = memo(function CallStatusPanel({
     state: CallState
     phase: ConversationPhase
 }): JSX.Element {
-    const Hog = pickHog(state, phase)
     return (
         <div className="flex-shrink-0 mx-auto md:mx-0 md:w-40">
             <div className="w-40 h-40 mx-auto">
-                <Hog className="w-full h-full" alt="" />
+                <RobotHog className="w-full h-full" alt="" />
             </div>
             {state === 'in-call' && <p className="text-sm text-muted text-center mt-2">{PHASE_LABELS[phase]}</p>}
         </div>
@@ -286,16 +272,22 @@ export default function ExporterInterviewScene({
                     agentTalkingRef.current = false
                     setPhase('waiting')
                 })
-                vapi.on('volume-level', (volume: number) => {
+                vapi.on('message', (message: VapiTranscriptMessage) => {
+                    if (message.type === 'user-interrupted') {
+                        agentTalkingRef.current = false
+                        setPhase('user-speaking')
+                        return
+                    }
+                    if (message.type !== 'transcript' || message.role !== 'user') {
+                        return
+                    }
                     if (agentTalkingRef.current) {
                         return
                     }
-                    if (lastPhaseRef.current === 'user-speaking') {
-                        if (volume < USER_SPEAKING_VOLUME_LEAVE) {
-                            setPhase('waiting')
-                        }
-                    } else if (volume > USER_SPEAKING_VOLUME_ENTER) {
+                    if (message.transcriptType === 'partial') {
                         setPhase('user-speaking')
+                    } else if (message.transcriptType === 'final') {
+                        setPhase('waiting')
                     }
                 })
                 setState('connecting')
