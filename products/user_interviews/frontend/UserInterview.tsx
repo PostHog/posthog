@@ -40,8 +40,6 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
         topicLoading,
         interviewees,
         intervieweesLoading,
-        linkByIdentifier,
-        linksLoading,
         respondedIdentifiers,
         respondedCount,
         totalTargeted,
@@ -136,8 +134,6 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                                         identifier={identifier}
                                         topicId={id}
                                         hasResponded={respondedIdentifiers.has(identifier)}
-                                        interviewUrl={linkByIdentifier[identifier]}
-                                        linksLoading={linksLoading}
                                     />
                                 ))
                             )}
@@ -222,19 +218,10 @@ function DetailRow({ label, value }: { label: string; value: string }): JSX.Elem
     )
 }
 
-function PersonRow({
-    identifier,
-    topicId,
-    hasResponded,
-    interviewUrl,
-    linksLoading,
-}: {
-    identifier: string
-    topicId: string
-    hasResponded: boolean
-    interviewUrl?: string
-    linksLoading: boolean
-}): JSX.Element {
+function InterviewLinkCopyButton({ identifier, topicId }: { identifier: string; topicId: string }): JSX.Element {
+    const { linkForIdentifier, linksLoading } = useValues(userInterviewLogic({ id: topicId }))
+    const interviewUrl = linkForIdentifier(identifier)
+
     const handleCopy = (e: React.MouseEvent): void => {
         e.preventDefault()
         e.stopPropagation()
@@ -247,6 +234,27 @@ function PersonRow({
     const disabledReason = interviewUrl ? undefined : linksLoading ? 'Generating link…' : 'No link available'
 
     return (
+        <LemonButton
+            type="tertiary"
+            size="xsmall"
+            icon={<IconCopy />}
+            onClick={handleCopy}
+            disabledReason={disabledReason}
+            tooltip="Copy interview link"
+        />
+    )
+}
+
+function PersonRow({
+    identifier,
+    topicId,
+    hasResponded,
+}: {
+    identifier: string
+    topicId: string
+    hasResponded: boolean
+}): JSX.Element {
+    return (
         <Link
             to={urls.userInterviewResponse(topicId, encodeURIComponent(identifier))}
             className="block no-underline text-current"
@@ -257,14 +265,7 @@ function PersonRow({
                         <div className="font-medium text-sm">{identifier}</div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            icon={<IconCopy />}
-                            onClick={handleCopy}
-                            disabledReason={disabledReason}
-                            tooltip="Copy interview link"
-                        />
+                        <InterviewLinkCopyButton identifier={identifier} topicId={topicId} />
                         {hasResponded ? (
                             <LemonTag type="success" icon={<IconCheck />}>
                                 Responded

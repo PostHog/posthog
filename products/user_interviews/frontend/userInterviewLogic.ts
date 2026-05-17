@@ -88,6 +88,12 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
             (links): Record<string, string> =>
                 Object.fromEntries(links.map((link) => [link.interviewee_identifier, link.interview_url])),
         ],
+        linkForIdentifier: [
+            (s) => [s.linkByIdentifier],
+            (linkByIdentifier): ((identifier: string) => string | undefined) =>
+                (identifier: string) =>
+                    linkByIdentifier[identifier],
+        ],
         respondedIdentifiers: [
             (s) => [s.topicInterviews],
             (interviews): Set<string> => {
