@@ -86,21 +86,28 @@ describe('disposablesPlugin', () => {
         expect(setupCalls).toBe(1)
     })
 
-    it('runs cleanup on visibility-hidden for default disposables', () => {
-        setHidden(false)
-        ;(logic as any).cache.disposables.add(makeSetup(), 'k1')
-        expect(setupCalls).toBe(1)
-        expect(cleanupCalls).toBe(0)
-
-        setHidden(true)
-        expect(cleanupCalls).toBe(1)
-    })
-
-    it('does NOT run cleanup on visibility-hidden for opted-out disposables', () => {
-        setHidden(false)
-        ;(logic as any).cache.disposables.add(makeSetup(), 'k1', { pauseOnPageHidden: false })
-        setHidden(true)
-        expect(cleanupCalls).toBe(0)
+    describe.each<{
+        label: string
+        options?: { pauseOnPageHidden?: boolean }
+        expectedCleanupCalls: number
+    }>([
+        {
+            label: 'default — cleanup runs on hide',
+            expectedCleanupCalls: 1,
+        },
+        {
+            label: 'pauseOnPageHidden=false — cleanup does NOT run on hide',
+            options: { pauseOnPageHidden: false },
+            expectedCleanupCalls: 0,
+        },
+    ])('visibility-hidden cleanup — $label', ({ options, expectedCleanupCalls }) => {
+        it('matches expected cleanup count', () => {
+            setHidden(false)
+            ;(logic as any).cache.disposables.add(makeSetup(), 'k1', options)
+            expect(setupCalls).toBe(1)
+            setHidden(true)
+            expect(cleanupCalls).toBe(expectedCleanupCalls)
+        })
     })
 
     it('replacing a keyed disposable cleans up the previous one', () => {
@@ -156,31 +163,39 @@ describe('disposablesPlugin', () => {
         expect(setupCalls).toBe(2)
     })
 
-    it('dispose() runs cleanup and removes the entry', () => {
-        setHidden(false)
-        ;(logic as any).cache.disposables.add(makeSetup(), 'k1')
-        expect(setupCalls).toBe(1)
+    describe.each<{
+        label: string
+        initialHidden: boolean
+        expectedSetupCalls: number
+        expectedCleanupCalls: number
+    }>([
+        {
+            label: 'active entry — cleanup runs',
+            initialHidden: false,
+            expectedSetupCalls: 1,
+            expectedCleanupCalls: 1,
+        },
+        {
+            label: 'paused-at-birth entry — no user cleanup runs',
+            initialHidden: true,
+            expectedSetupCalls: 0,
+            expectedCleanupCalls: 0,
+        },
+    ])('dispose() — $label', ({ initialHidden, expectedSetupCalls, expectedCleanupCalls }) => {
+        it('removes entry and runs cleanup as expected', () => {
+            setHidden(initialHidden)
+            ;(logic as any).cache.disposables.add(makeSetup(), 'k1')
+            expect(setupCalls).toBe(expectedSetupCalls)
+            ;(logic as any).cache.disposables.dispose('k1')
+            expect(cleanupCalls).toBe(expectedCleanupCalls)
+            expect((logic as any).cache.disposables.registry.has('k1')).toBe(false)
 
-        ;(logic as any).cache.disposables.dispose('k1')
-        expect(cleanupCalls).toBe(1)
-        expect((logic as any).cache.disposables.registry.has('k1')).toBe(false)
-
-        // Subsequent visibility changes should not affect anything
-        setHidden(true)
-        setHidden(false)
-        expect(setupCalls).toBe(1)
-        expect(cleanupCalls).toBe(1)
-    })
-
-    it('dispose() on a paused-at-birth entry runs no-op cleanup and removes it', () => {
-        setHidden(true)
-        ;(logic as any).cache.disposables.add(makeSetup(), 'k1')
-        expect(setupCalls).toBe(0)
-
-        // Setup never ran, so disposing should not run any user cleanup
-        ;(logic as any).cache.disposables.dispose('k1')
-        expect(cleanupCalls).toBe(0)
-        expect((logic as any).cache.disposables.registry.has('k1')).toBe(false)
+            // Subsequent visibility changes should not affect anything
+            setHidden(!initialHidden)
+            setHidden(initialHidden)
+            expect(setupCalls).toBe(expectedSetupCalls)
+            expect(cleanupCalls).toBe(expectedCleanupCalls)
+        })
     })
 
     it('logic.unmount() disposes all registered disposables (no leak when consumer omits beforeUnmount)', () => {

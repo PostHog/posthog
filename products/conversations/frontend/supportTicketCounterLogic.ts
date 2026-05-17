@@ -68,12 +68,12 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
         isSupportEnabled: [(s) => [s.currentTeam], (currentTeam): boolean => !!currentTeam?.conversations_enabled],
     }),
     listeners(({ actions, values, cache }) => ({
-        // Re-schedule after each load completes (success or failure). The
-        // disposables plugin will auto-pause this disposable when the tab is
-        // hidden and resume it when visible — no explicit visibilitychange
-        // listener needed.
+        // Re-schedule after each load completes. The loader catches API errors
+        // and returns a value, so the failure action never actually dispatches —
+        // a single success listener covers both the happy path and the swallowed
+        // error path. The disposables plugin auto-pauses the scheduled timer
+        // when the tab is hidden and resumes it when visible.
         loadUnreadCountSuccess: () => actions.schedulePoll(),
-        loadUnreadCountFailure: () => actions.schedulePoll(),
         schedulePoll: () => {
             if (!values.isSupportEnabled) {
                 return
