@@ -121,7 +121,7 @@ logger = structlog.get_logger(__name__)
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
     "Query executions by category",
-    labelnames=["query_type", "category", "error_type"],
+    labelnames=["query_type", "category", "error_type", "has_user_authored_hogql"],
 )
 
 QUERY_EXECUTION_DURATION = Histogram(
@@ -143,6 +143,34 @@ SURVEY_QUERY_EXECUTION_DURATION = Histogram(
     labelnames=["query_type", "query_name"],
     buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
 )
+
+
+def query_uses_user_authored_hogql(query: Any) -> bool:
+    """Whether the query contains a user-authored HogQL expression — a HogQL property
+    filter, breakdown, funnel aggregation, or series math. A failure on a query built
+    purely from structured input (no user HogQL) is almost always a query-builder bug,
+    so this label lets observability separate those from user-written-HogQL failures."""
+
+    def _walk(obj: Any) -> bool:
+        if isinstance(obj, dict):
+            if obj.get("type") == "hogql" or obj.get("kind") == "HogQLQuery":
+                return True
+            if obj.get("breakdown_type") == "hogql":
+                return True
+            if obj.get("math") == "hogql" or obj.get("math_hogql"):
+                return True
+            if obj.get("funnelAggregateByHogQL") not in (None, "", "person_id"):
+                return True
+            return any(_walk(value) for value in obj.values())
+        if isinstance(obj, list):
+            return any(_walk(item) for item in obj)
+        return False
+
+    try:
+        return _walk(query.model_dump())
+    except Exception:
+        return False
+
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
 
@@ -1565,11 +1593,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers.useMaterializedViews = True
 
         query_type = getattr(self.query, "kind", "Other")
+        has_user_authored_hogql = str(query_uses_user_authored_hogql(self.query)).lower()
         survey_query_metric_labels = get_survey_query_metric_labels(self.query)
         query_start = perf_counter()
         try:
             query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
-            QUERY_EXECUTION_TOTAL.labels(query_type=query_type, category="success", error_type="none").inc()
+            QUERY_EXECUTION_TOTAL.labels(
+                query_type=query_type,
+                category="success",
+                error_type="none",
+                has_user_authored_hogql=has_user_authored_hogql,
+            ).inc()
             if survey_query_metric_labels:
                 SURVEY_QUERY_EXECUTION_TOTAL.labels(
                     **survey_query_metric_labels, category="success", error_type="none"
@@ -1579,6 +1613,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 query_type=query_type,
                 category=classify_query_error(e),
                 error_type=clickhouse_error_type(e),
+                has_user_authored_hogql=has_user_authored_hogql,
             ).inc()
             if survey_query_metric_labels:
                 SURVEY_QUERY_EXECUTION_TOTAL.labels(
