@@ -824,11 +824,21 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 ON funnel_actors.actor_id = event.$group_{self.funnels_query.aggregation_group_type_index}
             """
 
-        return (
-            aggregation_group_join
-            if self.funnels_query.aggregation_group_type_index is not None
-            else aggregation_person_join
-        )
+        if self.funnels_query.aggregation_group_type_index is not None:
+            return aggregation_group_join
+
+        # When the funnel aggregates by a custom HogQL expression, funnel_actors.actor_id
+        # holds that value — joining on event.person_id would mismatch types (UUID vs the
+        # expression's type). Join on the same expression instead.
+        funnels_filter = self.funnels_query.funnelsFilter
+        aggregate_by_hogql = funnels_filter.funnelAggregateByHogQL if funnels_filter else None
+        if aggregate_by_hogql and aggregate_by_hogql != "person_id":
+            return f"""
+            JOIN funnel_actors
+                ON funnel_actors.actor_id = {aggregate_by_hogql}
+            """
+
+        return aggregation_person_join
 
     def _get_aggregation_join_query(self):
         if self.funnels_query.aggregation_group_type_index is None:

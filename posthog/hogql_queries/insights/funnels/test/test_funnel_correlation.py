@@ -105,6 +105,43 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
         return [str(row[0]) for row in serialized_actors]
 
+    def test_funnel_correlation_with_events_and_hogql_aggregation(self):
+        # When the funnel aggregates by a custom HogQL expression, the correlation
+        # event join must use that expression — joining on event.person_id would
+        # mismatch types (UUID vs the string actor id) and fail the query.
+        query = FunnelsQuery(
+            series=[EventsNode(event="user signed up"), EventsNode(event="paid")],
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
+            funnelsFilter=FunnelsFilter(funnelAggregateByHogQL="properties.session_id"),
+        )
+
+        for i in range(5):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+                properties={"session_id": f"session_{i}"},
+            )
+            _create_event(
+                team=self.team,
+                event="positively_related",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-03T14:00:00Z",
+                properties={"session_id": f"session_{i}"},
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+                properties={"session_id": f"session_{i}"},
+            )
+
+        result, _ = self._get_events_for_query(query)
+        assert result is not None
+
     def test_basic_funnel_correlation_with_events(self):
         query = FunnelsQuery(
             series=[EventsNode(event="user signed up"), EventsNode(event="paid")],
