@@ -1174,12 +1174,33 @@ class TestQueryUsesUserAuthoredHogQL(BaseTest):
             ),
             ("hogql_query", HogQLQuery(query="select 1"), True),
             (
+                "hogql_series_math",
+                TrendsQuery(series=[EventsNode(event="$pageview", math="hogql", math_hogql="properties.revenue")]),
+                True,
+            ),
+            (
                 "funnel_hogql_aggregation",
                 FunnelsQuery(
                     series=[EventsNode(event="a"), EventsNode(event="b")],
                     funnelsFilter=FunnelsFilter(funnelAggregateByHogQL="properties.x"),
                 ),
                 True,
+            ),
+            (
+                "funnel_group_aggregation_is_structured",
+                FunnelsQuery(
+                    series=[EventsNode(event="a"), EventsNode(event="b")],
+                    funnelsFilter=FunnelsFilter(funnelAggregateByHogQL="$group_0"),
+                ),
+                False,
+            ),
+            (
+                "funnel_person_id_aggregation_is_structured",
+                FunnelsQuery(
+                    series=[EventsNode(event="a"), EventsNode(event="b")],
+                    funnelsFilter=FunnelsFilter(funnelAggregateByHogQL="person_id"),
+                ),
+                False,
             ),
         ]
     )

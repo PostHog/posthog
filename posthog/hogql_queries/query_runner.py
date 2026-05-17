@@ -1,3 +1,4 @@
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -145,6 +146,9 @@ SURVEY_QUERY_EXECUTION_DURATION = Histogram(
 )
 
 
+_GROUP_AGGREGATION_RE = re.compile(r"^\$group_\d+$")
+
+
 def query_uses_user_authored_hogql(query: Any) -> bool:
     """Whether the query contains a user-authored HogQL expression — a HogQL property
     filter, breakdown, funnel aggregation, or series math. A failure on a query built
@@ -157,9 +161,14 @@ def query_uses_user_authored_hogql(query: Any) -> bool:
                 return True
             if obj.get("breakdown_type") == "hogql":
                 return True
-            if obj.get("math") == "hogql" or obj.get("math_hogql"):
+            # math_hogql is only meaningful alongside math == "hogql"; checking
+            # it standalone would false-positive on stale data where math changed.
+            if obj.get("math") == "hogql":
                 return True
-            if obj.get("funnelAggregateByHogQL") not in (None, "", "person_id"):
+            # funnelAggregateByHogQL holds a user-authored HogQL expression, except
+            # for the structured "person_id" / "$group_N" values picked from a dropdown.
+            funnel_agg = obj.get("funnelAggregateByHogQL")
+            if funnel_agg and funnel_agg != "person_id" and not _GROUP_AGGREGATION_RE.match(funnel_agg):
                 return True
             return any(_walk(value) for value in obj.values())
         if isinstance(obj, list):
@@ -169,6 +178,9 @@ def query_uses_user_authored_hogql(query: Any) -> bool:
     try:
         return _walk(query.model_dump())
     except Exception:
+        # query is always a pydantic BaseModel here, so model_dump() should not
+        # raise — log rather than silently mislabel a real bug in _walk as false.
+        logger.warning("query_uses_user_authored_hogql failed", exc_info=True)
         return False
 
 
