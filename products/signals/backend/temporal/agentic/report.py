@@ -13,6 +13,7 @@ from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.models import (
     SignalReport,
@@ -415,6 +416,7 @@ async def _persist_agentic_report_artefacts(
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenticReportOutput:
     """Run the sandbox-backed report research and persist its artefacts after full success."""
     try:
