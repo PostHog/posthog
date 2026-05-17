@@ -228,6 +228,12 @@ def vapi_webhook(request: Request) -> Response:
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
     provided = request.headers.get("x-vapi-signature") or request.headers.get("X-Vapi-Signature")
+    logger.info(
+        "user_interviews_vapi_webhook_received",
+        header_keys=sorted(request.headers.keys()),
+        has_provided_signature=bool(provided),
+        body_bytes=len(request.body),
+    )
     if not _verify_signature(settings.VAPI_WEBHOOK_SECRET, request.body, provided):
         return Response({"error": "invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
 
