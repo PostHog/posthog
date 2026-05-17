@@ -23,7 +23,9 @@ export function genericOperatorToHumanName(property?: AnyPropertyFilter | null):
 
 export function allOperatorsToHumanName(operator?: PropertyOperator | null): string {
     if (operator && allOperatorsMapping[operator]) {
-        // for the case of cohort matching, we want to return the operator name without the "user" prefix
+        // Cohort operator labels ('user in' / 'user not in') have no symbol prefix,
+        // so the generic slice(2) below would garble them ('er not in'). Return the
+        // bare phrase instead.
         if (operator === PropertyOperator.In) {
             return 'in'
         }
