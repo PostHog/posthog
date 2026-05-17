@@ -110,10 +110,4 @@ look for:
 
 ## Anti-patterns
 
-- **Mirror reducer**: don't add a `foo` reducer alongside a `loadFoo` loader — the
-  loader already gives you the value.
-- **`isLoading` reducer**: `fooLoading` already exists and stays in sync automatically.
-- **try/catch around the whole handler**: the loaders plugin handles failures and
-  emits `loadFooFailure`. Re-throw if you genuinely need to abort.
-- **Putting non-async logic in a loader**: if there's no `await`, it's a reducer or
-  selector, not a loader.
+See [anti-patterns.md](anti-patterns.md) for the consolidated catalogue.

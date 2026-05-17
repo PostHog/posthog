@@ -40,10 +40,10 @@ urlToAction(({ actions }) => ({
 ```ts
 actionToUrl(({ values }) => ({
     setSelectedId: ({ id }) => (id ? urls.foo(id) : urls.fooList()),
-    setFilter: () => [
+    setFilter: ({ filter }) => [
         router.values.location.pathname,
-        values.filter,                       // query string
-        router.values.hashParams,            // keep hash
+        { q: filter },                       // searchParams (object — router serialises it)
+        router.values.hashParams,            // hashParams (object — keep existing hash)
         { replace: true },                   // don't push history entry
     ],
 })),
@@ -52,7 +52,9 @@ actionToUrl(({ values }) => ({
 Return shapes:
 
 - A string — replaces the pathname.
-- `[pathname, search, hash, options]` — full control over the URL parts.
+- `[pathname, searchParams, hashParams, options]` — full control. `searchParams` and
+  `hashParams` are **objects**; the router serialises them. Don't pass a raw query
+  string here — it'll get URL-encoded twice.
 - Nothing / `undefined` — no URL change for this action.
 
 Use `{ replace: true }` for filter/sort changes so the back button skips through
@@ -107,14 +109,4 @@ the same concept — let the builder do the wiring.
 
 ## Anti-patterns
 
-- **Hard-coded URLs.** Always go through `frontend/src/scenes/urls.ts`. Refactors
-  rename routes; the helpers update in one place.
-- **`useNavigate` / `useParams` in a component when there's a logic.** URL is logic
-  state; move it.
-- **Mutating `window.location` directly.** Goes around kea-router; `urlToAction`
-  doesn't fire. Always go through `router.actions`.
-- **`urlToAction` with no equality guard on `actionToUrl`-driven changes.**
-  Infinite loop bug.
-- **Plain `urlToAction` on a scene root logic.** Use `tabAwareUrlToAction` so
-  inactive tabs don't hijack the URL. See
-  [making-scenes-tab-aware](../../making-scenes-tab-aware/SKILL.md).
+See [anti-patterns.md](anti-patterns.md) for the consolidated catalogue.

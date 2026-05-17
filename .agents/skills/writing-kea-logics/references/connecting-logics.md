@@ -129,15 +129,4 @@ use `useAttachedLogic`. See
 
 ## Anti-patterns
 
-- **Reading state out of another logic with `otherLogic.values.x` inside a render
-  function.** Use `useValues` so the component subscribes properly.
-- **`useEffect(() => { otherLogic(props).actions.x() }, [])` to mount and call.**
-  Use `useMountedLogic` plus `useActions`, or do the mounting in a logic.
-- **`connect.values: [otherLogic, ['everything']]` style copy-paste.** Pull only the
-  names you use. The generated types are tighter and refactors stay obvious.
-- **Importing a logic just for its types.** Use `import type { fooLogicType } from
-'./fooLogicType'` — pulling the runtime logic forces it to load into memory.
-- **`BindLogic` for a singleton.** It's a no-op; just call `useValues(fooLogic)`
-  directly.
-- **Mounting a logic with `.mount()` and never storing the unmount fn.** The logic
-  stays mounted forever. Register unmount with `cache.disposables`.
+See [anti-patterns.md](anti-patterns.md) for the consolidated catalogue.

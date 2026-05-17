@@ -131,14 +131,7 @@ listeners(({ sharedListeners }) => ({
 
 ## Anti-patterns
 
-- **Subscribing to a value that an action sets.** Listen to the action.
-- **`useEffect` in a component reacting to a logic value.** That's a listener. Move
-  it into the logic.
-- **`propsChanged` body that doesn't guard.** Every parent re-render fires it; if you
-  don't check `props.x !== oldProps.x`, you'll trigger work on unrelated re-renders.
-- **A listener that just dispatches one other action with identical args.** Use
-  `sharedListeners` or array form, or refactor so the original action is enough.
-- **Subscriptions inside a `products/*` logic.** Build will fail.
+See [anti-patterns.md](anti-patterns.md) for the consolidated catalogue.
 
 ## History
 

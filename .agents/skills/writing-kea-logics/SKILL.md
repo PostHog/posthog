@@ -5,8 +5,10 @@ description: Guide for writing or reviewing PostHog kea logic files (`*Logic.ts`
 
 # Writing kea logics
 
-PostHog uses [kea](https://keajs.org) (`^4.0.0-pre.5`) as the state container for the frontend.
-Almost all non-trivial business logic lives in a `*Logic.ts` / `*Logic.tsx` file, not in React.
+PostHog uses [kea](https://keajs.org) (`^4.0.0-pre.5` — a kea 4 pre-release; the stable
+docs you'll find at keajs.org are kea 3.x and differ in a few places) as the state
+container for the frontend. Almost all non-trivial business logic lives in a
+`*Logic.ts` / `*Logic.tsx` file, not in React.
 
 This skill captures the PostHog-specific conventions on top of the upstream
 [kea docs](https://keajs.org). When in doubt about a builder's signature, go upstream.
@@ -88,6 +90,25 @@ export const fooLogic = kea<fooLogicType>([
 Conventional block order: `props` → `key` → `path` → `connect` → `actions` → `forms` → `loaders` →
 `reducers` → `selectors` → `sharedListeners` → `listeners` → `subscriptions` (rare) →
 `windowValues` → `urlToAction` / `actionToUrl` → `afterMount` / `propsChanged` / `beforeUnmount`.
+
+You almost never need all of those — half a dozen blocks is typical. Pick the ones
+the logic actually uses and leave the rest out.
+
+## Decision flow — pick the right container before you start
+
+Most kea bugs come from picking the wrong container for a piece of state. Work
+through this before reaching for any builder:
+
+1. **Does it come from an HTTP call?** Use a [loader](references/loading-data.md).
+2. **Can it be computed from other state?** Use a `selector`.
+3. **Does an action change it, and does the UI need to re-render when it changes?**
+   Use a `reducer`.
+4. **Is it a timer, listener, or other disposable resource?** Use `cache.disposables`
+   — see [using-kea-disposables](../using-kea-disposables/SKILL.md).
+
+`cache.foo` is an escape hatch for transient flags the UI never reads — reach for it
+last, not first. See [references/state-decision.md](references/state-decision.md)
+for the full breakdown.
 
 ## Pattern index
 

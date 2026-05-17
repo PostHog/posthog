@@ -71,6 +71,61 @@ listeners(({ cache, actions }) => ({
 
 `cache` has no subscription. Use a reducer.
 
+### `try`/`catch` around the whole loader handler
+
+```ts
+// don't
+loadFoo: async () => {
+    try {
+        return await api.foos.get(props.fooId)
+    } catch (e) {
+        return null
+    }
+},
+```
+
+`kea-loaders` already catches and emits `loadFooFailure` with the error. Listen for
+that action if you need custom handling, and only re-throw inside the handler if you
+genuinely need to abort the loader machinery.
+
+### Non-async logic in a loader
+
+If the handler doesn't `await` anything, it's a reducer or selector wearing a loader's
+hat. Loaders are for async — the action/success/failure trio and the `xLoading` boolean
+are noise when the work is synchronous.
+
+## Loading data and persistence
+
+### `localStorage.setItem` directly inside a listener
+
+Two tabs will race; serialisation is your problem; you've reinvented `{ persist: true }`.
+Use the kea-localstorage plugin — second slot of a reducer tuple.
+
+### Persisted loader results
+
+```ts
+// don't
+foo: [
+    null as Foo | null,
+    { persist: true },                       // serves stale data on next mount
+    { loadFooSuccess: (_, { foo }) => foo },
+],
+```
+
+Loaders re-fetch on mount anyway, so persisting the value just shows stale data
+during the gap. Persist only if the previous value is genuinely better than a loading
+spinner.
+
+### Persisting a selector
+
+Selectors aren't reducers. Persist the inputs and recompute.
+
+### `window.matchMedia(...)` registered without going through `cache.disposables`
+
+Same shape as bare `setInterval` — you'll leak a listener on unmount. Wrap the
+`addEventListener` / `removeEventListener` pair in `cache.disposables.add(...)`. See
+[using-kea-disposables](../../using-kea-disposables/SKILL.md).
+
 ## Reactions
 
 ### `subscriptions` reacting to a value set by an action
@@ -122,15 +177,34 @@ different but structurally equal props.
 ### A listener that just dispatches one other action
 
 ```ts
-// don't
+// smells off
 listeners(({ actions }) => ({
   setX: ({ x }) => actions.setY(x),
 }))
 ```
 
-Either rename the original action (and let the upstream caller dispatch the right
-one), or use `sharedListeners` if multiple actions converge on the same body. A
-listener that thinly forwards is a hint that the action shape is wrong.
+Sometimes this is the right shape — adapting payload shape across a logic boundary, or
+re-firing a connected action you don't own. But if you do own both actions and they
+take the same args, this is a hint that the action shape is wrong. Check whether you
+can rename the upstream action, or whether two callers should share a body via
+`sharedListeners`.
+
+### Polling without a stop condition
+
+If the thing you're waiting on can finish (a job, a migration, a build), listen for
+the terminal state and `cache.disposables.dispose('pollKey')`. Otherwise the poller
+hammers the API indefinitely while the page is open.
+
+### Polling on a singleton when only a subset of views need fresh data
+
+Mount the polling logic from the view that needs it (via `useMountedLogic` or
+`useValues`) so the timer is scoped to where it matters.
+
+### `setInterval(... 0)` as "next tick"
+
+If you need to act on the next event-loop turn, use a listener on the action that
+should trigger the work, or `requestAnimationFrame` for frame-boundary cases.
+`setInterval(0)` is a wasted timer.
 
 ## Keying
 
@@ -139,10 +213,12 @@ listener that thinly forwards is a hint that the action shape is wrong.
 ```ts
 // don't
 key((props) => props.fooId),
-path(['scenes', 'foo', 'fooLogic']),       // not unique per instance
+path(['scenes', 'foo', 'fooLogic']),       // key not visible in path
 ```
 
-All instances collide in redux. Use `path((key) => ['...', key])`.
+Instance identity is handled by `key`, but PostHog convention is to also append the
+key to `path` so the key shows up in redux devtools, in typegen output, and in any
+log lines that include the logic path. Use `path((key) => ['...', key])`.
 
 ### `key` reading from `window`, locals, or another logic
 
@@ -164,6 +240,27 @@ key((props) => props.fooId)
 
 Pull the key derivation into a helper. Inconsistent keys mean callers don't talk to
 the same instance.
+
+### Mounting a keyed logic with `fooLogic()` (no props)
+
+Same as `fooLogic({})` — keys to `undefined`. All such callers share one phantom
+instance. Always pass props at the call site.
+
+### Forgetting to type the export when the logic is keyed
+
+```ts
+// don't (call-site types end up as any)
+export const fooLogic = kea<fooLogicType>([
+  props({} as FooLogicProps),
+  key((props) => props.fooId),
+  // ...
+])
+```
+
+```ts
+// do
+export const fooLogic: LogicWrapper<fooLogicType> = kea<fooLogicType>([...])
+```
 
 ## Routing
 
@@ -195,6 +292,12 @@ window.location.href = '/foos/' + id
 
 Bypasses kea-router entirely — `urlToAction` won't fire. Use `router.actions.push`.
 
+### `useNavigate` / `useParams` in a component when there's a logic
+
+URL is logic state. Move the reaction to `urlToAction` and the navigation to
+`actionToUrl` (or `router.actions.push` inside a listener) so the logic owns the
+behaviour and the component shrinks back to view code.
+
 ## Forms
 
 ### Validation in the submit handler
@@ -212,10 +315,17 @@ Validation belongs in `errors`. Submit is for the work.
 ### Returning `''` from `errors`
 
 ```ts
-errors: ({ email }) => ({ email: email ? '' : 'Required' }) // '' is truthy!
+errors: ({ email }) => ({ email: email ? '' : 'Required' }) // '' is not undefined — counts as a present error
 ```
 
-Empty string registers as an error. Use `undefined` for "no error".
+`kea-forms` treats any non-`undefined` value in the errors map as a present error,
+so `''` and `'Required'` both make the field invalid. Return `undefined` for
+"no error".
+
+### Side effects inside `errors`
+
+`errors` re-runs on every keystroke. Keep it pure — no logging, no analytics, no
+async work. Reach for a listener on `setFooValues` if you need to react to typing.
 
 ### `useState` for form values
 
@@ -226,6 +336,15 @@ const [name, setName] = useState('')
 ```
 
 That's a `forms` builder waiting to be written.
+
+### Manual `setFoo` / `setFooValue` chains instead of `<Field>`
+
+```tsx
+// don't
+<LemonInput value={values.signup.email} onChange={(v) => actions.setSignupValue('email', v)} />
+```
+
+`<Field name="email">` already wires the change handler. Use it; the component shrinks.
 
 ## Types
 
@@ -278,19 +397,34 @@ Blows away every mounted logic in the app.
 Singletons have one instance. `BindLogic` is for keyed logics. For singletons, just
 call `useValues(fooLogic)`.
 
-### `useValues` + `useActions` in two calls when you can combine
+### Reading another logic's state from a render function
 
-```ts
-// OK but verbose if you have many
-const { foo } = useValues(fooLogic)
-const { setName } = useActions(fooLogic)
-
-// Slightly tighter when bound
-const { foo, fooLoading } = useValues(fooLogic)
-const { setName, save, reset } = useActions(fooLogic)
+```tsx
+// don't
+function FooView(): JSX.Element {
+  const x = otherLogic.values.x // no subscription — won't re-render when x changes
+  return <div>{x}</div>
+}
 ```
 
-Not really an anti-pattern, just: don't split into many calls when one of each works.
+Use `useValues(otherLogic)` so the component subscribes and re-renders on change.
+
+### `useEffect` to mount another logic and dispatch an action
+
+```tsx
+// don't
+useEffect(() => {
+  otherLogic(props).actions.x()
+}, [])
+```
+
+Use `useMountedLogic(otherLogic)` to manage the lifecycle, plus `useActions` to call
+the action — or do the mounting inside a logic that owns the relationship.
+
+### `connect.values: [otherLogic, ['everything']]` copy-paste
+
+Pull only the names you actually use. The generated types are tighter, downstream
+refactors stay obvious, and unused names won't trigger spurious re-renders.
 
 ### Business logic in `useEffect`
 
@@ -310,13 +444,10 @@ thing went wrong in real code:
 - [PR #58691](https://github.com/PostHog/posthog/pull/58691) — fixed a subtle bug
   where disposables registered while the page was hidden would still start
   immediately, defeating the auto-pause.
-- PRs [#48039](https://github.com/PostHog/posthog/pull/48039),
-  [#48040](https://github.com/PostHog/posthog/pull/48040),
-  [#48041](https://github.com/PostHog/posthog/pull/48041), and
-  [#48042](https://github.com/PostHog/posthog/pull/48042) — four near-identical
-  conversions of "bare `setInterval` poll" to `cache.disposables` across different
-  products. Read one of these alongside the disposables skill if you're converting
-  similar code.
+- [PR #48042](https://github.com/PostHog/posthog/pull/48042) — canonical example of
+  converting a "bare `setInterval` poll" to `cache.disposables` (the managed-migrations
+  logic). Read this alongside the disposables skill if you're doing the same
+  conversion in another product.
 - Commit [`7ef47b68e75`](https://github.com/PostHog/posthog/commit/7ef47b68e75) —
   why `kea-subscriptions` doesn't work inside a `products/*` logic, and the
   listener-based fix.

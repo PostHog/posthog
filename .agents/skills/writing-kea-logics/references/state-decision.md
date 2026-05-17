@@ -9,10 +9,15 @@ decision flow before you write a new field.
 2. **Can it be computed from other state?** Use a `selector`.
 3. **Does an action change it, and does the UI need to re-render when it changes?**
    Use a `reducer`.
-4. **Is it a transient, non-reactive flag (a "have we kicked off X yet" guard)?**
-   Use `cache.foo`.
-5. **Is it a timer, listener, or other disposable resource?** Use `cache.disposables`
+4. **Is it a timer, listener, or other disposable resource?** Use `cache.disposables`
    — see [using-kea-disposables](../../using-kea-disposables/SKILL.md).
+
+If none of the above fit and you need a transient, non-reactive flag the UI never
+reads (a re-entry guard inside a listener, for example), then `cache.foo` is the
+escape hatch. Reach for it last, not first — most "I need a flag" cases are actually
+served by `fooLoading` from a loader or `isFooSubmitting` from a form. `cache.foo`
+also has nothing to do with `cache.disposables` despite sharing the namespace — they
+are separate concerns.
 
 ## Why this matters
 
@@ -63,8 +68,9 @@ on identity of the inputs. Always annotate the return type — typegen needs it 
 downstream consumers.
 
 You can read another logic's selector inside a result function via `s.someValue` (if
-connected) or `otherLogic.selectors.someValue` (if not connected but you want to
-avoid mounting). The connected form is preferred — fewer surprises.
+connected) or `otherLogic.selectors.someValue` (when you'd rather not connect). The
+connected form is preferred — type safety, explicit dependency declaration, and
+nothing surprising at mount time.
 
 ### Transient flag — cache
 

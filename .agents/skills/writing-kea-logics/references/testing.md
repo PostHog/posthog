@@ -65,7 +65,7 @@ await expectLogic(logic, () => {
 
 // Assert an action did NOT fire
 await expectLogic(logic, () => {
-  logic.actions.setQuery(values.query) // same value, should be a no-op
+  logic.actions.setQuery(logic.values.query) // same value, should be a no-op
 }).toNotHaveDispatchedActions(['loadResults'])
 
 // Router-driven action
@@ -143,7 +143,7 @@ expect(logic.key).toEqual('123')
 
 // Asserting required props throw on missing key
 it('requires fooId', () => {
-  expect(() => fooLogic()).toThrow(/Must init/)
+  expect(() => fooLogic()).toThrow(/must init/i)
 })
 ```
 
@@ -156,12 +156,9 @@ it('requires fooId', () => {
 - **Don't rely on real HTTP** — every loader hit must be mocked via `useMocks`,
   otherwise MSW warns and your test depends on the dev server being up.
 
-## Canonical files to copy
+## Finding examples in the wild
 
-| Pattern                                        | File                                                                                    |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Simple form logic test                         | `frontend/src/scenes/organization/ConfirmOrganization/confirmOrganizationLogic.test.ts` |
-| Loader test with `toFinishAllListeners`        | `frontend/src/scenes/insights/insightDataLogic.test.ts`                                 |
-| Keyed logic with `useMocks` + lots of branches | `frontend/src/scenes/insights/insightLogic.test.ts`                                     |
-| Router-driven test (`urlToAction` assertions)  | `frontend/src/toolbar/flags/flagsToolbarLogic.test.ts`                                  |
-| Parameterised disposables behaviour            | `frontend/src/kea-disposables.test.ts`                                                  |
+For each pattern (form logic test, loader test with `toFinishAllListeners`, keyed
+logic with `useMocks`, router-driven test with `urlToAction` assertions), grep for
+the relevant builder or matcher inside `**/*.test.ts` — there are plenty of
+current examples and the conventions are stable.

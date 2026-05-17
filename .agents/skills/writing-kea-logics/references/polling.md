@@ -126,13 +126,4 @@ Always include the interval as a named constant near the top of the file
 
 ## Anti-patterns
 
-- **Bare `setInterval` + `beforeUnmount` cleanup.** Convert to `cache.disposables`.
-  See [using-kea-disposables](../../using-kea-disposables/SKILL.md).
-- **Polling without a stop condition.** If the thing you're waiting on can finish
-  (a job, a migration), listen for the terminal state and `dispose()` the poller.
-  Otherwise you keep hammering the API forever.
-- **Polling on a singleton just so a small subset of views can see fresh data.**
-  Mount the polling logic from the view that needs it.
-- **Trying to `setInterval(... 0)` as "react immediately on the next tick".** Use a
-  listener on the action that should trigger the work, or `requestAnimationFrame` if
-  you really need the frame boundary.
+See [anti-patterns.md](anti-patterns.md) for the consolidated catalogue.

@@ -86,7 +86,7 @@ who needs to talk to the same instance can compute the same key.
 ```ts
 // Throws if fooId is missing — for logics that must have a resource
 key((props) => {
-    if (!props.fooId) throw new Error('fooLogic must be init with fooId')
+    if (!props.fooId) throw new Error('Must init fooLogic with fooId')
     return props.fooId
 }),
 
@@ -97,22 +97,29 @@ key((props) => props.fooId ?? 'new'),
 Throwing is friendlier than silently mounting under a key like `undefined`, which
 will mysteriously share state across all the places that forgot the prop.
 
-## Reacting to a key change
+## Reacting to a key or prop change
 
-When the parent component re-renders with a new `fooId`, React mounts a different
-instance — the old one stays mounted until React unmounts the old component. Use
-`propsChanged` to react to the change:
+Two distinct cases — distinguish them:
+
+- **Props change, key stays the same.** Same logic instance, new props. Use
+  `propsChanged` to react.
+- **Key changes.** A different instance is mounted; the old one is torn down when its
+  React subscriber unmounts. `propsChanged` does **not** fire across instances —
+  it's a same-instance hook. The new instance gets `afterMount` as usual.
 
 ```ts
+// Same instance, new props (a non-keyed prop changes):
 propsChanged(({ actions, props }, oldProps) => {
-    if (props.fooId !== oldProps.fooId) {
+    if (props.filter !== oldProps.filter) {
         actions.loadFoo()
     }
 }),
-```
 
-(Most of the time `afterMount` is enough; `propsChanged` is for the case where the
-parent reuses the same React component instance with different props.)
+// New instance via key change: afterMount fires on the new one as usual
+afterMount(({ actions }) => {
+    actions.loadFoo()
+}),
+```
 
 ## Typing the export
 
@@ -132,13 +139,4 @@ instance. This is its own concern — see
 
 ## Anti-patterns
 
-- **`path(['scenes', 'foo', 'fooLogic'])` for a keyed logic.** All instances
-  collapse onto the same redux node. The path **must** end with the key.
-- **`key` reading from outside props.** Keys must be derivable from props alone,
-  otherwise two callers with the same props get different keys.
-- **Different key derivations across `connect` call sites.** Use a shared helper so
-  everyone keys the same way.
-- **Forgetting to type the export when the logic is keyed.** Call-site types end up
-  as `any`. Add `LogicWrapper<fooLogicType>`.
-- **Mounting a keyed logic with `fooLogic()` (no props).** It's the same as
-  `fooLogic({})` and almost certainly keys to `undefined`. Always pass props.
+See [anti-patterns.md](anti-patterns.md) for the consolidated catalogue.

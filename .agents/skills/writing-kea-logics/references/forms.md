@@ -111,13 +111,4 @@ not to.
 
 ## Anti-patterns
 
-- **Local `useState` for form values when a logic exists.** Move it into a `forms`
-  builder. The component shrinks to JSX.
-- **Validation in the submit handler.** Validation belongs in `errors` so users see
-  feedback before they click submit, and the submit button can be disabled via
-  `fooHasErrors`.
-- **Side effects inside `errors`.** It runs on every keystroke. Keep it pure.
-- **Returning `''` instead of `undefined` from `errors`.** An empty string still
-  registers as an error.
-- **Manual `setFoo`/`setFooValue` chains instead of letting `<Field name="...">`
-  handle it.** The Field component already wires the change handler.
+See [anti-patterns.md](anti-patterns.md) for the consolidated catalogue.

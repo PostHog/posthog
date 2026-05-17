@@ -80,11 +80,4 @@ Each key becomes a selector. The plugin re-evaluates them on `resize` / `scroll`
 
 ## Anti-patterns
 
-- **`localStorage.setItem` directly inside a listener.** Two tabs will race;
-  serialization is your problem; you've reinvented `{ persist: true }`. Use the plugin.
-- **Persisted loader results.** Loaders re-fetch on mount anyway; persisting just
-  serves stale data until the new fetch lands. Use it only if showing the previous
-  value is genuinely better than a loading spinner.
-- **Persisting a selector.** Selectors aren't reducers. Persist the inputs.
-- **`window.matchMedia(...)` registered without going through `cache.disposables`.**
-  You'll leak a listener on unmount.
+See [anti-patterns.md](anti-patterns.md) for the consolidated catalogue.
