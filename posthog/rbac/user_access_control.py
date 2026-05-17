@@ -297,6 +297,11 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "customer_journey"
     if name in ("replaylens", "replayobservation"):
         return "replay_lens"
+    if name == "deploymentproject":
+        # DeploymentProject + Deployment share the `deployment` scope/resource
+        # so RBAC checks (scope, queryset filter, object-level) fire for both
+        # via AccessControlViewSetMixin.
+        return "deployment"
 
     if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None

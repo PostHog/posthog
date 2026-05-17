@@ -500,6 +500,25 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
 
     @patch("products.tasks.backend.seat_api.requests.request")
     @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_canceling_pro_beats_active_free(self, _mock_token, mock_request, _mock_license):
+        canceling_pro = {
+            **MOCK_PRO_SEAT,
+            "status": "canceling",
+            "id": "seat_canceling_pro",
+            "active_until": "2026-06-04T00:00:00Z",
+        }
+        mock_request.side_effect = [
+            _billing_response({"seat": canceling_pro}),
+            _billing_response({"seat": MOCK_FREE_SEAT}),
+        ]
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["plan_key"] == MOCK_PRO_SEAT["plan_key"]
+        assert response.json()["status"] == "canceling"
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
     def test_future_exception_handled_gracefully(self, _mock_token, mock_request, _mock_license):
         mock_request.side_effect = [
             RuntimeError("connection reset"),

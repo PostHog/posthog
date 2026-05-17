@@ -1826,9 +1826,25 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitNumberLiteral(self, ctx: HogQLParser.NumberLiteralContext):
         text = ctx.getText().lower()
-        if "." in text or "e" in text or text == "-inf" or text == "inf" or text == "nan":
+        # Grammar allows an optional leading sign on every numberLiteral, including INF/NAN.
+        # Strip a leading '+' so the sign-stripping below is uniform and "+inf" → "inf".
+        if text.startswith("+"):
+            text = text[1:]
+        sign = 1
+        abs_text = text
+        if abs_text.startswith("-"):
+            sign = -1
+            abs_text = abs_text[1:]
+        # Hex must be dispatched BEFORE the float guard: hex digits include 'e', so
+        # "0xfe" would otherwise route through float() and raise ValueError.
+        if abs_text.startswith("0x"):
+            return ast.Constant(value=sign * int(abs_text, 16))
+        if "." in abs_text or "e" in abs_text or abs_text == "inf" or abs_text == "nan":
             return ast.Constant(value=float(text))
-        return ast.Constant(value=int(text))
+        # Octal literals (leading '0' followed by more digits) must use base 8.
+        if len(abs_text) > 1 and abs_text[0] == "0":
+            return ast.Constant(value=sign * int(abs_text, 8))
+        return ast.Constant(value=sign * int(abs_text))
 
     def visitLiteral(self, ctx: HogQLParser.LiteralContext):
         if ctx.NULL_SQL():
