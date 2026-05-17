@@ -165,6 +165,7 @@ def start_call(request: Request, access_token: str) -> Response:
     from .api import _merge_agent_context, _parse_identifier
 
     if not settings.VAPI_PUBLIC_KEY or not settings.VAPI_ASSISTANT_ID:
+        logger.warning("user_interviews_start_call_misconfigured")
         return Response(
             {"error": "Vapi is not configured on this PostHog instance."},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -172,10 +173,15 @@ def start_call(request: Request, access_token: str) -> Response:
 
     sharing_config = _resolve_share(access_token)
     if sharing_config is None or sharing_config.interviewee_context is None:
+        logger.warning("user_interviews_start_call_unknown_access_token")
         return Response({"error": "unknown access_token"}, status=status.HTTP_404_NOT_FOUND)
     if _public_sharing_disabled_for_org(sharing_config):
         # Match the public viewer's behavior: return 404 so the kill switch is opaque to
         # link recipients (doesn't reveal whether the token is real, just disabled).
+        logger.info(
+            "user_interviews_start_call_sharing_disabled",
+            team_id=sharing_config.team_id,
+        )
         return Response({"error": "unknown access_token"}, status=status.HTTP_404_NOT_FOUND)
 
     ic = sharing_config.interviewee_context
@@ -183,6 +189,12 @@ def start_call(request: Request, access_token: str) -> Response:
     user_name, _ = _parse_identifier(ic.interviewee_identifier)
     agent_context = _merge_agent_context(topic.agent_context or "", ic.agent_context or "")
     first_message = _build_first_message(user_name=user_name, topic_text=topic.topic or "")
+
+    logger.info(
+        "user_interviews_start_call_issued",
+        team_id=sharing_config.team_id,
+        topic_id=str(topic.id),
+    )
 
     return Response(
         {
@@ -223,18 +235,34 @@ def vapi_webhook(request: Request) -> Response:
     existing interview's id instead of creating a second row.
     """
     if not settings.VAPI_WEBHOOK_SECRET:
+        logger.warning("user_interviews_vapi_webhook_secret_missing")
         return Response(
             {"error": "Vapi webhook secret is not configured on this PostHog instance."},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
     provided = request.headers.get("x-vapi-signature") or request.headers.get("X-Vapi-Signature")
+    logger.info(
+        "user_interviews_vapi_webhook_received",
+        header_keys=sorted(request.headers.keys()),
+        has_provided_signature=bool(provided),
+        body_bytes=len(request.body),
+    )
     if not _verify_signature(settings.VAPI_WEBHOOK_SECRET, request.body, provided):
+        logger.warning(
+            "user_interviews_vapi_webhook_signature_failed",
+            has_provided_signature=bool(provided),
+        )
         return Response({"error": "invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
 
     payload = request.data if isinstance(request.data, dict) else {}
     message: dict[str, Any] = payload.get("message", {})
-    if message.get("type") != "end-of-call-report":
+    message_type = message.get("type")
+    if message_type != "end-of-call-report":
         # Other event types (status updates, transcripts mid-call) are ignored.
+        logger.info(
+            "user_interviews_vapi_webhook_ignored_message_type",
+            message_type=message_type,
+        )
         return Response({"status": "ignored"})
 
     call: dict[str, Any] = message.get("call", {}) or {}
@@ -243,6 +271,10 @@ def vapi_webhook(request: Request) -> Response:
     call_id = call.get("id")
 
     if not access_token:
+        logger.warning(
+            "user_interviews_vapi_webhook_missing_access_token",
+            call_id=call_id,
+        )
         return Response(
             {"error": "missing sharing_access_token in call.metadata"},
             status=status.HTTP_400_BAD_REQUEST,
@@ -250,10 +282,19 @@ def vapi_webhook(request: Request) -> Response:
 
     sharing_config = _resolve_share(access_token)
     if sharing_config is None:
+        logger.warning(
+            "user_interviews_vapi_webhook_unknown_access_token",
+            call_id=call_id,
+        )
         return Response({"error": "unknown access_token"}, status=status.HTTP_404_NOT_FOUND)
 
     interviewee_context = sharing_config.interviewee_context
     if interviewee_context is None:
+        logger.warning(
+            "user_interviews_vapi_webhook_wrong_share_type",
+            team_id=sharing_config.team_id,
+            call_id=call_id,
+        )
         return Response(
             {"error": "access_token does not belong to a user interview share"},
             status=status.HTTP_400_BAD_REQUEST,
@@ -294,6 +335,5 @@ def vapi_webhook(request: Request) -> Response:
         team_id=sharing_config.team_id,
         topic_id=str(topic.id),
         interview_id=str(interview.id),
-        interviewee=interviewee_context.interviewee_identifier,
     )
     return Response({"status": "created", "interview_id": str(interview.id)}, status=status.HTTP_201_CREATED)
