@@ -389,7 +389,6 @@ export function FeatureFlagReleaseConditions({
                                           })
                                         : null
                                 }
-                                exactMatchFeatureFlagCohortOperators={true}
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                             />
                         </div>
