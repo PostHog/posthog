@@ -308,23 +308,25 @@ class LLMSkillViewSet(
     @llma_track_latency("llma_skills_get_by_name")
     @monitor(feature=None, endpoint="llma_skills_get_by_name", method="GET")
     def get_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response:
-        # If the caller passed a UUID instead of a slug name, redirect to the
-        # name-based URL so bookmarks / copied links still work.
-        if _is_uuid(skill_name):
-            skill = get_active_skill_queryset(self.team).filter(id=skill_name).first()
-            if skill is None:
-                return self._skill_not_found_response(skill_name)
-            redirect_url = request.build_absolute_uri(request.path.replace(skill_name, skill.name))
-            query_string = request.META.get("QUERY_STRING", "")
-            if query_string:
-                redirect_url = f"{redirect_url}?{query_string}"
-            response = Response(status=status.HTTP_301_MOVED_PERMANENTLY)
-            response["Location"] = redirect_url
-            return response
-
         version_params = self._get_requested_version_params(request)
         version = cast(int | None, version_params.get("version"))
         skill = get_skill_by_name_from_db(self.team, skill_name, version)
+
+        # If no skill was found by name AND the segment looks like a UUID, the caller
+        # may have copied the skill's `id` field instead of its slug name. Try a PK
+        # lookup and redirect to the canonical name URL. We only attempt this when the
+        # name lookup came up empty, so a skill deliberately named with a UUID-shaped
+        # slug is always reachable by that name without being redirected.
+        if skill is None and _is_uuid(skill_name):
+            skill_by_id = get_active_skill_queryset(self.team).filter(id=skill_name).first()
+            if skill_by_id is not None:
+                redirect_url = request.build_absolute_uri(
+                    request.get_full_path().replace(skill_name, skill_by_id.name, 1)
+                )
+                response = Response(status=status.HTTP_302_FOUND)
+                response["Location"] = redirect_url
+                return response
+
         if skill is None:
             return self._skill_not_found_response(skill_name)
 
