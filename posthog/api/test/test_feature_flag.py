@@ -468,17 +468,24 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag = FeatureFlag.objects.get(key=f"cohort-norm-{operator}")
         self.assertEqual(flag.filters["groups"][0]["properties"][0]["operator"], expected)
 
-    def test_updating_flag_normalizes_legacy_is_not_cohort_operator(self) -> None:
+    @parameterized.expand(
+        [
+            ("is_not", "not_in"),
+            ("exact", "in"),
+            ("icontains", "in"),
+        ]
+    )
+    def test_updating_flag_normalizes_invalid_cohort_operator(self, operator: str, expected: str) -> None:
         cohort = Cohort.objects.create(team=self.team, name="test cohort", created_by=self.user)
         flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
-            key="cohort-legacy-is-not",
+            key=f"cohort-legacy-{operator}",
             filters={
                 "groups": [
                     {
                         "rollout_percentage": 100,
-                        "properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "is_not"}],
+                        "properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": operator}],
                     }
                 ]
             },
@@ -491,7 +498,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "groups": [
                         {
                             "rollout_percentage": 100,
-                            "properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "is_not"}],
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": operator}],
                         }
                     ]
                 }
@@ -500,7 +507,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         flag.refresh_from_db()
-        self.assertEqual(flag.filters["groups"][0]["properties"][0]["operator"], "not_in")
+        self.assertEqual(flag.filters["groups"][0]["properties"][0]["operator"], expected)
 
     def test_non_cohort_is_not_operator_is_left_untouched(self) -> None:
         response = self.client.post(
