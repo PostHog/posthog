@@ -12,13 +12,16 @@ type CallState = 'idle' | 'loading' | 'connecting' | 'in-call' | 'ended' | 'erro
 
 type ConversationPhase = 'agent-talking' | 'user-speaking' | 'waiting'
 
-const USER_SPEAKING_VOLUME_ENTER = 0.05
-const USER_SPEAKING_VOLUME_LEAVE = 0.03
-
 const PHASE_LABELS: Record<ConversationPhase, string> = {
     'agent-talking': '🎤 Talking',
     'user-speaking': '👂 Listening',
     waiting: '🧠 Thinking',
+}
+
+interface VapiTranscriptMessage {
+    type?: string
+    role?: string
+    transcriptType?: string
 }
 
 interface StartCallPayload {
@@ -269,16 +272,22 @@ export default function ExporterInterviewScene({
                     agentTalkingRef.current = false
                     setPhase('waiting')
                 })
-                vapi.on('volume-level', (volume: number) => {
+                vapi.on('message', (message: VapiTranscriptMessage) => {
+                    if (message.type === 'user-interrupted') {
+                        agentTalkingRef.current = false
+                        setPhase('user-speaking')
+                        return
+                    }
+                    if (message.type !== 'transcript' || message.role !== 'user') {
+                        return
+                    }
                     if (agentTalkingRef.current) {
                         return
                     }
-                    if (lastPhaseRef.current === 'user-speaking') {
-                        if (volume < USER_SPEAKING_VOLUME_LEAVE) {
-                            setPhase('waiting')
-                        }
-                    } else if (volume > USER_SPEAKING_VOLUME_ENTER) {
+                    if (message.transcriptType === 'partial') {
                         setPhase('user-speaking')
+                    } else if (message.transcriptType === 'final') {
+                        setPhase('waiting')
                     }
                 })
                 setState('connecting')
