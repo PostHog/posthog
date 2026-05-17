@@ -344,6 +344,8 @@ def property_to_Q(
             # Don't match anything if cohort doesn't exist
             return Q(pk__isnull=True)
 
+        negate = property.operator == "not_in"
+
         if cohort.is_static:
             # When a concrete person is in scope, short-circuit the Exists subquery
             # with a direct membership check — routes through personhog when enabled,
@@ -352,9 +354,9 @@ def property_to_Q(
             if person_id is not None and team_id is not None:
                 from posthog.models.cohort.util import is_person_in_cohort
 
-                if is_person_in_cohort(team_id=team_id, person_id=person_id, cohort_id=cohort_id):
-                    return Q(pk__isnull=False)
-                return Q(pk__isnull=True)
+                in_cohort = is_person_in_cohort(team_id=team_id, person_id=person_id, cohort_id=cohort_id)
+                matched = in_cohort if not negate else not in_cohort
+                return Q(pk__isnull=False) if matched else Q(pk__isnull=True)
 
             # When team_id is available, list all member IDs and filter with
             # Q(id__in=…) — routes through personhog when the gate is on,
@@ -366,10 +368,11 @@ def property_to_Q(
 
                 member_ids = list_cohort_member_ids(team_id=team_id, cohort_id=cohort_id)
                 if not member_ids:
-                    return Q(pk__isnull=True)
-                return Q(id__in=member_ids)
+                    return Q(pk__isnull=False) if negate else Q(pk__isnull=True)
+                membership_q = Q(id__in=member_ids)
+                return ~membership_q if negate else membership_q
 
-            return Q(
+            membership_q = Q(
                 Exists(
                     CohortPeople.objects.db_manager(using_database)  # nosemgrep: no-direct-persons-db-orm
                     .filter(
@@ -380,10 +383,11 @@ def property_to_Q(
                     .only("id")
                 )
             )
+            return ~membership_q if negate else membership_q
         else:
             # :TRICKY: This has potential to create an infinite loop if the cohort is recursive.
             # But, this shouldn't happen because we check for cyclic cohorts on creation.
-            return property_group_to_Q(
+            membership_q = property_group_to_Q(
                 project_id,
                 cohort.properties,
                 override_property_values,
@@ -392,6 +396,7 @@ def property_to_Q(
                 person_id=person_id,
                 team_id=team_id,
             )
+            return ~membership_q if negate else membership_q
 
     # short circuit query if key exists in override_property_values
     if property.key in override_property_values:
