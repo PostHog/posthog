@@ -190,11 +190,28 @@ export const retentionLogic = kea<retentionLogicType>([
                         const cellDate = dayjs(result.date).tz(timezone).add(index, periodUnit)
                         const now = dayjs().tz(timezone)
 
+                        // For custom brackets, a cell is in-progress when the bracket's
+                        // END period hasn't elapsed yet (not just its start). Individual
+                        // periods use the standard same-period check.
+                        const customBrackets = retentionFilter?.retentionCustomBrackets
+                        let isCurrentPeriod: boolean
+                        if (customBrackets && customBrackets.length > 0 && index > 0) {
+                            // Sum bracket sizes up to this index to get the end period offset.
+                            // e.g. brackets [1,3,4,8] at index 4 → offset 16 → ends at cohort+16 periods
+                            const bracketEndOffset = customBrackets
+                                .slice(0, index)
+                                .reduce((acc: number, size: number) => acc + size, 0)
+                            const bracketEndDate = dayjs(result.date).tz(timezone).add(bracketEndOffset, periodUnit)
+                            isCurrentPeriod = bracketEndDate.isAfter(now)
+                        } else {
+                            isCurrentPeriod = cellDate.isSame(now, periodUnit)
+                        }
+
                         return {
                             ...value,
                             percentage,
                             cellDate,
-                            isCurrentPeriod: cellDate.isSame(now, periodUnit),
+                            isCurrentPeriod,
                             isFuture: cellDate.isAfter(now),
                         }
                     }),
