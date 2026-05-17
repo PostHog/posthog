@@ -41,7 +41,19 @@ forStmt        : FOR LPAREN
                  RPAREN statement SEMICOLON?;
 forInStmt      : FOR LPAREN LET identifier (COMMA identifier)? IN expression RPAREN statement SEMICOLON?;
 funcStmt       : (FN | FUN) identifier LPAREN identifierList? RPAREN block;
-varAssignment  : expression COLONEQUALS expression ;
+varAssignment  : assignmentTarget COLONEQUALS expression ;
+// The left-hand side of `:=` must be an assignable place: an identifier
+// chain, a `.`-property / `.`-tuple access, or a `[]`-subscript (the only
+// shapes the Hog bytecode compiler can assign to), optionally parenthesised.
+// Restricting it here keeps `declaration*` parseable with bounded lookahead
+// rather than whole-program backtracking.
+assignmentTarget
+    : LPAREN assignmentTarget RPAREN
+    | assignmentTarget DOT identifier
+    | assignmentTarget DOT DECIMAL_LITERAL
+    | assignmentTarget LBRACKET columnExpr RBRACKET
+    | columnIdentifier
+    ;
 exprStmt       : expression SEMICOLON?;
 emptyStmt      : SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;

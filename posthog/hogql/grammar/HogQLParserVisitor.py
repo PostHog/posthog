@@ -89,6 +89,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#assignmentTarget.
+    def visitAssignmentTarget(self, ctx:HogQLParser.AssignmentTargetContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#exprStmt.
     def visitExprStmt(self, ctx:HogQLParser.ExprStmtContext):
         return self.visitChildren(ctx)

@@ -108,6 +108,51 @@ def identifierList_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[st
 
 
 @functools.cache
+def assignmentTarget_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    _has_suffixes = True
+
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        seed_idx = draw(st.integers(min_value=0, max_value=1))
+        seed = ""
+        if seed_idx == 0:
+            parts = []
+            parts.append("(")
+            parts.append(draw(assignmentTarget_strategy(_dec(depth))))
+            parts.append(")")
+            seed = " ".join(p for p in parts if p)
+        if seed_idx == 1:
+            parts = []
+            parts.append(draw(columnIdentifier_strategy(_dec(depth))))
+            seed = " ".join(p for p in parts if p)
+        if depth <= 0 or not _has_suffixes:
+            return seed
+        n_suffixes = draw(st.integers(min_value=0, max_value=_MAX_LR_CHAIN))
+        for _ in range(n_suffixes):
+            suffix_idx = draw(st.integers(min_value=0, max_value=2))
+            if suffix_idx == 0:
+                parts = []
+                parts.append(".")
+                parts.append(draw(identifier_strategy(_dec(depth))))
+                seed = seed + " " + " ".join(p for p in parts if p)
+            if suffix_idx == 1:
+                parts = []
+                parts.append(".")
+                parts.append(draw(decimal_literal_token))
+                seed = seed + " " + " ".join(p for p in parts if p)
+            if suffix_idx == 2:
+                parts = []
+                parts.append("[")
+                parts.append(draw(columnExpr_strategy(_dec(depth))))
+                parts.append("]")
+                seed = seed + " " + " ".join(p for p in parts if p)
+        return seed
+
+    return gen()
+
+
+@functools.cache
 def select_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
@@ -2536,18 +2581,22 @@ def numberLiteral_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str
                 parts.append("+")
             if group_idx == 1:
                 parts.append("-")
-        group_idx = draw(st.integers(min_value=0, max_value=5))
+        group_idx = draw(st.integers(min_value=0, max_value=7))
         if group_idx == 0:
             parts.append(draw(floatingLiteral_strategy(_dec(depth))))
         if group_idx == 1:
-            parts.append(draw(octal_literal_token))
+            parts.append("<unresolved:BINARY_LITERAL>")
         if group_idx == 2:
-            parts.append(draw(decimal_literal_token))
+            parts.append(draw(octal_literal_token))
         if group_idx == 3:
-            parts.append(draw(hexadecimal_literal_token))
+            parts.append("<unresolved:OCTAL_PREFIX_LITERAL>")
         if group_idx == 4:
-            parts.append(draw(st.sampled_from(["inf", "infinity"])))
+            parts.append(draw(decimal_literal_token))
         if group_idx == 5:
+            parts.append(draw(hexadecimal_literal_token))
+        if group_idx == 6:
+            parts.append(draw(st.sampled_from(["inf", "infinity"])))
+        if group_idx == 7:
             parts.append("nan")
         return " ".join(p for p in parts if p)
 

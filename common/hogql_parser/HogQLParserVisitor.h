@@ -51,6 +51,8 @@ public:
 
     virtual std::any visitVarAssignment(HogQLParser::VarAssignmentContext *context) = 0;
 
+    virtual std::any visitAssignmentTarget(HogQLParser::AssignmentTargetContext *context) = 0;
+
     virtual std::any visitExprStmt(HogQLParser::ExprStmtContext *context) = 0;
 
     virtual std::any visitEmptyStmt(HogQLParser::EmptyStmtContext *context) = 0;

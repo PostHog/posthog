@@ -79,6 +79,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitAssignmentTarget(HogQLParser::AssignmentTargetContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitExprStmt(HogQLParser::ExprStmtContext *ctx) override {
     return visitChildren(ctx);
   }
