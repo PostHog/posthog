@@ -158,8 +158,14 @@ export function NotebookHistoryWarning(): JSX.Element | null {
         duplicateNotebook()
     }
     const onRevert = (): void => {
+        // Capture before clearing — clearPreviewContent's listener snaps the editor back to current,
+        // then setLocalContent(..., updateEditor=true) puts the historical doc into the editor so
+        // PM-collab produces real steps for the delta and saveNotebook sends them.
+        // Without updateEditor=true the collab path's sendableSteps would be a no-op (the editor never
+        // actually transitions to the historical doc) and the revert would silently do nothing.
+        const content = previewContent
         clearPreviewContent()
-        setLocalContent(previewContent)
+        setLocalContent(content, true)
         setShowHistory(false)
     }
 
