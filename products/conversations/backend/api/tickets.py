@@ -79,6 +79,7 @@ def _get_persons_by_email(team: Team, emails: list[str]) -> dict[str, Person]:
     if not emails:
         return {}
 
+    emails_lower = [e.lower() for e in emails]
     with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
         response = execute_hogql_query(
             """
@@ -88,11 +89,11 @@ def _get_persons_by_email(team: Team, emails: list[str]) -> dict[str, Person]:
                 properties.Email,
                 properties.$email
             FROM persons
-            WHERE toString(properties.email) IN {emails}
-               OR toString(properties.Email) IN {emails}
-               OR toString(properties.$email) IN {emails}
+            WHERE lower(toString(properties.email)) IN {emails}
+               OR lower(toString(properties.Email)) IN {emails}
+               OR lower(toString(properties.$email)) IN {emails}
             """,
-            placeholders={"emails": ast.Constant(value=emails)},
+            placeholders={"emails": ast.Constant(value=emails_lower)},
             team=team,
             query_type="conversations_person_email_lookup",
         )
