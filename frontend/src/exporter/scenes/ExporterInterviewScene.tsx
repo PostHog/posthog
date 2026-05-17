@@ -14,6 +14,7 @@ interface StartCallPayload {
     public_key: string
     assistant_id: string
     assistant_overrides: {
+        firstMessage?: string
         variableValues?: Record<string, string>
         metadata?: Record<string, string>
     }

@@ -164,12 +164,14 @@ def start_call(request: Request, access_token: str) -> Response:
     topic = ic.topic
     user_name, _ = _parse_identifier(ic.interviewee_identifier)
     agent_context = _merge_agent_context(topic.agent_context or "", ic.agent_context or "")
+    first_message = _build_first_message(user_name=user_name, topic_text=topic.topic or "")
 
     return Response(
         {
             "public_key": settings.VAPI_PUBLIC_KEY,
             "assistant_id": settings.VAPI_ASSISTANT_ID,
             "assistant_overrides": {
+                "firstMessage": first_message,
                 "variableValues": {
                     "userName": user_name,
                     "topic": topic.topic or "",
@@ -186,6 +188,14 @@ def start_call(request: Request, access_token: str) -> Response:
             },
         }
     )
+
+
+def _build_first_message(*, user_name: str, topic_text: str) -> str:
+    greeting = f"Hi {user_name}! Thanks for joining."
+    topic_stripped = topic_text.strip()
+    if topic_stripped:
+        return f"{greeting} We're researching {topic_stripped} and I'd love your perspective. Ready when you are."
+    return f"{greeting} I'd love your perspective. Ready when you are."
 
 
 @api_view(["POST"])
