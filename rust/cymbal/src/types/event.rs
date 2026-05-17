@@ -85,6 +85,10 @@ mod test {
                 "value": exception_value
             }]
         });
+        make_exception_event_with_props(props)
+    }
+
+    fn make_exception_event_with_props(props: serde_json::Value) -> ClickHouseEvent {
         ClickHouseEvent {
             uuid: Uuid::now_v7(),
             team_id: 1,
@@ -123,5 +127,51 @@ mod test {
 
         let expected = format!("{}...", "x".repeat(MAX_EXCEPTION_VALUE_LENGTH));
         assert_eq!(exc_props.exception_list[0].exception_message, expected);
+    }
+
+    #[test]
+    fn test_legacy_exception_type_and_message_fallback() {
+        // Older SDKs and custom integrations send $exception_type / $exception_message
+        // instead of a structured $exception_list. Without the backward-compat shim,
+        // these events are silently dropped from error tracking.
+        let props = serde_json::json!({
+            "$exception_type": "ReferenceError",
+            "$exception_message": "x is not defined"
+        });
+        let event = make_exception_event_with_props(props);
+        let any_event = AnyEvent::try_from(event).unwrap();
+        let exc_props = ExceptionProperties::try_from(any_event).unwrap();
+
+        assert_eq!(exc_props.exception_list.len(), 1);
+        assert_eq!(exc_props.exception_list[0].exception_type, "ReferenceError");
+        assert_eq!(exc_props.exception_list[0].exception_message, "x is not defined");
+    }
+
+    #[test]
+    fn test_legacy_exception_type_without_message() {
+        // Only $exception_type is required to reconstruct a minimal list.
+        let props = serde_json::json!({
+            "$exception_type": "TypeError"
+        });
+        let event = make_exception_event_with_props(props);
+        let any_event = AnyEvent::try_from(event).unwrap();
+        let exc_props = ExceptionProperties::try_from(any_event).unwrap();
+
+        assert_eq!(exc_props.exception_list.len(), 1);
+        assert_eq!(exc_props.exception_list[0].exception_type, "TypeError");
+        assert_eq!(exc_props.exception_list[0].exception_message, "");
+    }
+
+    #[test]
+    fn test_truly_empty_exception_list_still_errors() {
+        // When neither $exception_list nor $exception_type is present, fall through
+        // to the original EmptyExceptionList error so the event is dead-lettered.
+        let props = serde_json::json!({
+            "some_other_prop": "value"
+        });
+        let event = make_exception_event_with_props(props);
+        let any_event = AnyEvent::try_from(event).unwrap();
+        let result = ExceptionProperties::try_from(any_event);
+        assert!(matches!(result, Err(EventError::EmptyExceptionList(_))));
     }
 }

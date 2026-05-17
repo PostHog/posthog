@@ -213,6 +213,12 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.replace(tzinfo=timezone_info)
         else:
             parsed_dt = parsed_dt.astimezone(timezone_info)
+        # When the caller passed `increase=True` (the date is acting as the upper bound of a range)
+        # and the input is a date-only string with no time component, advance to end-of-day so that
+        # equal-day absolute ranges (date_from == date_to) yield a non-empty window instead of
+        # collapsing to a single instant.
+        if increase and "T" not in input and ":" not in input:
+            parsed_dt = parsed_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
         return parsed_dt, None, None
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<kind>[hdwmqysHDWMQY])(?P<position>Start|End)?"

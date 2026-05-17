@@ -278,6 +278,15 @@ class ErrorTrackingQueryRunnerTestsMixin:
         self.assertEqual(date_from, datetime(2022, 1, 9, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
         self.assertEqual(date_to, datetime(2022, 1, 11, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
 
+    def test_equal_day_absolute_range_covers_full_day(self):
+        # Regression: equal-day absolute date ranges (date_from == date_to) used to
+        # collapse to a zero-width window because parse_relative_date_to ignored
+        # increase=True for ISO dates, returning 00:00:00 for both endpoints.
+        date_from = ErrorTrackingQueryRunner.parse_relative_date_from("2024-05-16")
+        date_to = ErrorTrackingQueryRunner.parse_relative_date_to("2024-05-16")
+        self.assertEqual(date_from, datetime(2024, 5, 16, 0, 0, 0, tzinfo=ZoneInfo(key="UTC")))
+        self.assertEqual(date_to, datetime(2024, 5, 16, 23, 59, 59, 999999, tzinfo=ZoneInfo(key="UTC")))
+
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_issue_grouping(self):

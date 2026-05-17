@@ -12,7 +12,7 @@ use crate::{
     issue_resolution::Issue,
     langs::apple::AppleDebugImage,
     recursively_sanitize_properties,
-    types::{event::AnyEvent, ExceptionList, OutputErrProps},
+    types::{event::AnyEvent, Exception, ExceptionList, OutputErrProps},
 };
 
 pub const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
@@ -159,7 +159,35 @@ impl TryFrom<AnyEvent> for ExceptionProperties {
         };
 
         if evt.exception_list.is_empty() {
-            return Err(EventError::EmptyExceptionList(event.uuid));
+            // Backward-compat: older SDKs and custom integrations may send a single
+            // `$exception_type` / `$exception_message` pair instead of a structured
+            // `$exception_list`. Reconstruct a minimal list from those legacy fields
+            // so the event still gets fingerprinted and grouped into an issue.
+            if let Some(exception_type) = evt
+                .props
+                .get("$exception_type")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+            {
+                let exception_message = evt
+                    .props
+                    .get("$exception_message")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                evt.exception_list = ExceptionList(vec![Exception {
+                    exception_id: None,
+                    exception_type,
+                    exception_message,
+                    mechanism: None,
+                    module: None,
+                    thread_id: None,
+                    stack: None,
+                }]);
+            } else {
+                return Err(EventError::EmptyExceptionList(event.uuid));
+            }
         }
 
         for exception in evt.exception_list.iter_mut() {

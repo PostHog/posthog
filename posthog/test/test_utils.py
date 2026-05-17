@@ -396,6 +396,30 @@ class TestRelativeDateParse(TestCase):
             "2019-12-31",
         )
 
+    def test_absolute_date_only_with_increase_advances_to_end_of_day(self):
+        # Date-only inputs are typically used as inclusive upper bounds — without this,
+        # equal-day date ranges (date_from == date_to == "2024-05-16") collapse to a
+        # zero-width window because both endpoints land at 00:00:00.
+        self.assertEqual(
+            relative_date_parse("2024-05-16", ZoneInfo("UTC"), increase=True).isoformat(),
+            "2024-05-16T23:59:59.999999+00:00",
+        )
+
+    def test_absolute_date_only_without_increase_stays_at_midnight(self):
+        # Lower-bound usage should still land at the start of the day.
+        self.assertEqual(
+            relative_date_parse("2024-05-16", ZoneInfo("UTC")).isoformat(),
+            "2024-05-16T00:00:00+00:00",
+        )
+
+    def test_absolute_datetime_with_increase_preserves_time(self):
+        # When the user provides an explicit time component, respect it rather than
+        # snapping forward to end-of-day.
+        self.assertEqual(
+            relative_date_parse("2024-05-16T14:30:00", ZoneInfo("UTC"), increase=True).isoformat(),
+            "2024-05-16T14:30:00+00:00",
+        )
+
 
 class TestDefaultEventName(BaseTest):
     def setUp(self):

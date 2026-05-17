@@ -44,6 +44,11 @@ SEARCH_QUERY_EXAMPLES = """
 - "Errors from last 7 days" → dateRange: { date_from: "-7d" }
 - "Issues since last week" → dateRange: { date_from: "-7d" }
 - "Errors from December" → dateRange: { date_from: "2024-12-01", date_to: "2024-12-31" }
+- "Errors on May 16" → dateRange: { date_from: "2024-05-16", date_to: "2024-05-16" }
+
+Note: Absolute date-only inputs in `date_to` are inclusive — `date_to: "2024-05-16"`
+covers the full day up to 23:59:59 UTC. Equal-day ranges (date_from == date_to) return
+issues from that single day.
 
 ## Ordering
 - "Most frequent errors" → orderBy: "occurrences", orderDirection: "DESC"
