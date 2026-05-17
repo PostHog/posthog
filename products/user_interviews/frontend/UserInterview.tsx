@@ -219,7 +219,7 @@ function DetailRow({ label, value }: { label: string; value: string }): JSX.Elem
 }
 
 function InterviewLinkCopyButton({ identifier, topicId }: { identifier: string; topicId: string }): JSX.Element {
-    const { linkForIdentifier, linksLoading } = useValues(userInterviewLogic({ id: topicId }))
+    const { linkForIdentifier, linksLoading, linksLoadFailed } = useValues(userInterviewLogic({ id: topicId }))
     const interviewUrl = linkForIdentifier(identifier)
 
     const handleCopy = (e: React.MouseEvent): void => {
@@ -231,7 +231,13 @@ function InterviewLinkCopyButton({ identifier, topicId }: { identifier: string; 
         void copyToClipboard(interviewUrl, 'interview link')
     }
 
-    const disabledReason = interviewUrl ? undefined : linksLoading ? 'Generating link…' : 'No link available'
+    const disabledReason = interviewUrl
+        ? undefined
+        : linksLoadFailed
+          ? "Couldn't generate link — refresh to retry"
+          : linksLoading
+            ? 'Generating link…'
+            : 'No link available'
 
     return (
         <LemonButton

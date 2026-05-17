@@ -1,4 +1,4 @@
-import { afterMount, kea, key, path, props, selectors } from 'kea'
+import { afterMount, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,6 +22,13 @@ import type { userInterviewLogicType } from './userInterviewLogicType'
 
 export interface UserInterviewLogicProps {
     id: string
+}
+
+function unwrapPaginatedOrArray<T>(response: T[] | { results?: T[] }): T[] {
+    if (Array.isArray(response)) {
+        return response
+    }
+    return response.results ?? []
 }
 
 export const userInterviewLogic = kea<userInterviewLogicType>([
@@ -71,13 +78,19 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
                 const response = (await userInterviewTopicsGenerateLinksCreate(projectId, props.id)) as unknown as
                     | InterviewLinkApi[]
                     | { results?: InterviewLinkApi[] }
-                if (Array.isArray(response)) {
-                    return response
-                }
-                return response.results ?? []
+                return unwrapPaginatedOrArray(response)
             },
         },
     })),
+    reducers({
+        linksLoadFailed: [
+            false,
+            {
+                loadLinks: () => false,
+                loadLinksFailure: () => true,
+            },
+        ],
+    }),
     selectors(({ props }) => ({
         topicInterviews: [
             (s) => [s.interviews],
