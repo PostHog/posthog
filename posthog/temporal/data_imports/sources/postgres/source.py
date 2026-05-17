@@ -513,9 +513,10 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             password=config.password,
             database=config.database,
             sslmode="prefer",
-            # config.schema wins so warehouse-mode renames flow through without rewriting
-            # schema_metadata. Falls back to source_schema for direct mode (browse-all).
-            schema=config.schema or source_schema or "public",
+            # When include_all_schemas is enabled, use source_schema from metadata (per-table).
+            # Otherwise config.schema wins so warehouse-mode renames flow through without
+            # rewriting schema_metadata. Falls back to source_schema for direct mode.
+            schema=source_schema if config.include_all_schemas else (config.schema or source_schema or "public"),
             table_names=[source_table_name or inputs.schema_name],
             should_use_incremental_field=inputs.should_use_incremental_field,
             logger=inputs.logger,
