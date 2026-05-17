@@ -609,26 +609,25 @@ class TestVapiWebhook(APIBaseTest):
         response = self._signed_post("topsecret", self._end_of_call_payload("does-not-exist"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @parameterized.expand(
+        [
+            ("wrong_secret", "wrong"),
+            ("empty_secret", ""),
+            ("missing_header", None),
+        ]
+    )
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    def test_webhook_requires_valid_secret(self):
+    def test_webhook_rejects_bad_or_missing_secret(self, _label: str, header_value: str | None):
         share = self._create_share()
         self.client.logout()
+        extra: dict[str, str] = {}
+        if header_value is not None:
+            extra["HTTP_X_VAPI_SECRET"] = header_value
         response = self.client.post(
             "/api/user_interviews/vapi_webhook/",
             data=json.dumps(self._end_of_call_payload(share.access_token)),
             content_type="application/json",
-            HTTP_X_VAPI_SECRET="wrong",
-        )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    def test_webhook_requires_secret_header(self):
-        share = self._create_share()
-        self.client.logout()
-        response = self.client.post(
-            "/api/user_interviews/vapi_webhook/",
-            data=json.dumps(self._end_of_call_payload(share.access_token)),
-            content_type="application/json",
+            **extra,
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
