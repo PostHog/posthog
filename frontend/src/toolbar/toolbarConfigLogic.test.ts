@@ -18,6 +18,15 @@ global.fetch = jest.fn(() =>
     } as any as Response)
 )
 
+/** Filter fetch.mock.calls to only toolbar OAuth calls — ignores incidental fetches
+ * (e.g. preflightLogic's _preflight/ load from initKeaTests) that can race with the
+ * test under the kea-loaders microtask queue. */
+function toolbarOAuthCalls(fetchMock: jest.Mock): unknown[][] {
+    return fetchMock.mock.calls.filter(
+        (call) => typeof call[0] === 'string' && (call[0] as string).includes('/toolbar_oauth/')
+    )
+}
+
 /** Mock fetch so the HEAD check succeeds and then the token exchange succeeds. */
 function mockTokenExchangeSuccess(): void {
     ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
@@ -1003,8 +1012,9 @@ describe('toolbar toolbarConfigLogic', () => {
             await expectLogic(logic).delay(0)
 
             // HEAD check fires but token exchange does not
-            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
-            expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('/toolbar_oauth/check')
+            const toolbarCalls = toolbarOAuthCalls(global.fetch as jest.Mock)
+            expect(toolbarCalls).toHaveLength(1)
+            expect(toolbarCalls[0][0]).toContain('/toolbar_oauth/check')
             warnSpy.mockRestore()
         })
 
@@ -1021,8 +1031,9 @@ describe('toolbar toolbarConfigLogic', () => {
             await expectLogic(logic).delay(0)
 
             // HEAD check fires but token exchange does not
-            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
-            expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('/toolbar_oauth/check')
+            const toolbarCalls = toolbarOAuthCalls(global.fetch as jest.Mock)
+            expect(toolbarCalls).toHaveLength(1)
+            expect(toolbarCalls[0][0]).toContain('/toolbar_oauth/check')
             warnSpy.mockRestore()
         })
 
@@ -1039,8 +1050,9 @@ describe('toolbar toolbarConfigLogic', () => {
             await expectLogic(logic).delay(0)
 
             // HEAD check fires but token exchange does not
-            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
-            expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('/toolbar_oauth/check')
+            const toolbarCalls = toolbarOAuthCalls(global.fetch as jest.Mock)
+            expect(toolbarCalls).toHaveLength(1)
+            expect(toolbarCalls[0][0]).toContain('/toolbar_oauth/check')
             warnSpy.mockRestore()
         })
     })
