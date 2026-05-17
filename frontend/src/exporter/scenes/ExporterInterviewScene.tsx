@@ -1,5 +1,5 @@
 import Vapi from '@vapi-ai/web'
-import { useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -14,6 +14,12 @@ type ConversationPhase = 'agent-talking' | 'user-speaking' | 'waiting'
 
 const USER_SPEAKING_VOLUME_THRESHOLD = 0.05
 
+const PHASE_LABELS: Record<ConversationPhase, string> = {
+    'agent-talking': 'Talking…',
+    'user-speaking': 'Listening…',
+    waiting: 'Thinking…',
+}
+
 interface StartCallPayload {
     public_key: string
     assistant_id: string
@@ -24,34 +30,174 @@ interface StartCallPayload {
     }
 }
 
-interface PhaseStatusProps {
+const CallStatusPanel = memo(function CallStatusPanel({
+    state,
+    phase,
+}: {
+    state: CallState
     phase: ConversationPhase
-}
+}): JSX.Element {
+    const Hog = pickHog(state, phase)
+    return (
+        <div className="flex-shrink-0 mx-auto md:mx-0 md:w-40">
+            <div className="w-40 h-40 mx-auto">
+                <Hog className="w-full h-full" alt="" />
+            </div>
+            {state === 'in-call' && <p className="text-sm text-muted text-center mt-2">{PHASE_LABELS[phase]}</p>}
+        </div>
+    )
+})
 
-function HogForCallState({ state, phase }: { state: CallState; phase: ConversationPhase }): JSX.Element {
+function pickHog(state: CallState, phase: ConversationPhase): typeof RobotHog {
     if (state === 'in-call') {
         if (phase === 'agent-talking') {
-            return <RobotHog className="w-full h-full" alt="" />
+            return RobotHog
         }
         if (phase === 'user-speaking') {
-            return <MicrophoneHog className="w-full h-full" alt="" />
+            return MicrophoneHog
         }
-        return <ProfessorHog className="w-full h-full" alt="" />
+        return ProfessorHog
     }
     if (state === 'ended') {
-        return <HeartHog className="w-full h-full" alt="" />
+        return HeartHog
     }
-    return <RobotHog className="w-full h-full" alt="" />
+    return RobotHog
 }
 
-function PhaseCaption({ phase }: PhaseStatusProps): JSX.Element {
-    const labels: Record<ConversationPhase, string> = {
-        'agent-talking': 'Talking…',
-        'user-speaking': 'Listening…',
-        waiting: 'Thinking…',
+const PreCallIntro = memo(function PreCallIntro({ interview }: { interview: InterviewExportPayload }): JSX.Element {
+    return (
+        <>
+            <h1 className="text-3xl font-bold mb-4">Hi {interview.user_name}!</h1>
+            <p className="text-lg mb-4">
+                We're researching <strong>{interview.topic}</strong> and would love to hear your perspective.
+            </p>
+            <p className="text-muted mb-6">
+                This is a 5–10 minute voice conversation with an AI interviewer. Talk like you would to a researcher on
+                our team — your feedback helps us build a better product.
+            </p>
+            <div className="bg-accent-highlight border border-accent p-4 rounded mb-6 text-sm">
+                <strong>How it works</strong>
+                <ol className="list-decimal pl-5 mt-2 space-y-1">
+                    <li>
+                        Click <em>Start interview</em> below.
+                    </li>
+                    <li>Allow microphone access when prompted.</li>
+                    <li>Have a casual conversation — the AI will guide you through a few questions.</li>
+                    <li>You can end the call any time.</li>
+                </ol>
+            </div>
+        </>
+    )
+})
+
+const ConnectingPanel = memo(function ConnectingPanel(): JSX.Element {
+    return (
+        <>
+            <h2 className="text-2xl font-bold mb-2">Connecting…</h2>
+            <p className="text-muted">Hold tight while we wake the interviewer up.</p>
+        </>
+    )
+})
+
+const LivePanel = memo(function LivePanel(): JSX.Element {
+    return (
+        <>
+            <h2 className="text-2xl font-bold mb-2">You're live</h2>
+            <p className="text-muted mb-2">Talk as you would to a researcher on our team.</p>
+            <p className="text-xs text-muted">
+                End the call any time using the button below — the recording will still be saved.
+            </p>
+        </>
+    )
+})
+
+const EndedPanel = memo(function EndedPanel(): JSX.Element {
+    return (
+        <>
+            <h2 className="text-2xl font-bold mb-2">Thanks for taking the time!</h2>
+            <p className="text-muted">
+                Your conversation has been recorded — we'll be in touch if we have follow-up questions.
+            </p>
+        </>
+    )
+})
+
+const ErrorPanel = memo(function ErrorPanel({ errorMessage }: { errorMessage: string | null }): JSX.Element {
+    return (
+        <div className="text-danger">
+            <h2 className="text-2xl font-bold mb-2">Something went wrong</h2>
+            <p className="mb-2">{errorMessage ?? 'Unknown error.'}</p>
+        </div>
+    )
+})
+
+const CallActionButton = memo(function CallActionButton({
+    state,
+    onStart,
+    onStop,
+    onRetry,
+}: {
+    state: CallState
+    onStart: () => void
+    onStop: () => void
+    onRetry: () => void
+}): JSX.Element | null {
+    if (state === 'idle') {
+        return (
+            <LemonButton type="primary" size="large" fullWidth onClick={onStart}>
+                Start interview
+            </LemonButton>
+        )
     }
-    return <p className="text-sm text-muted text-center mt-2">{labels[phase]}</p>
-}
+    if (state === 'loading') {
+        return <p>Loading interviewer…</p>
+    }
+    if (state === 'in-call') {
+        return (
+            <LemonButton type="secondary" onClick={onStop}>
+                End interview
+            </LemonButton>
+        )
+    }
+    if (state === 'error') {
+        return (
+            <LemonButton type="secondary" onClick={onRetry}>
+                Try again
+            </LemonButton>
+        )
+    }
+    return null
+})
+
+const CallBodyPanel = memo(function CallBodyPanel({
+    state,
+    interview,
+    errorMessage,
+    onStart,
+    onStop,
+    onRetry,
+}: {
+    state: CallState
+    interview: InterviewExportPayload
+    errorMessage: string | null
+    onStart: () => void
+    onStop: () => void
+    onRetry: () => void
+}): JSX.Element {
+    const isPreCall = state === 'idle' || state === 'loading'
+    return (
+        <div className="flex-1 min-w-0">
+            {isPreCall && <PreCallIntro interview={interview} />}
+            {state === 'connecting' && <ConnectingPanel />}
+            {state === 'in-call' && <LivePanel />}
+            {state === 'ended' && <EndedPanel />}
+            {state === 'error' && <ErrorPanel errorMessage={errorMessage} />}
+            <div className="mt-4">
+                <CallActionButton state={state} onStart={onStart} onStop={onStop} onRetry={onRetry} />
+            </div>
+        </div>
+    )
+})
 
 /**
  * Fetch the Vapi public key, assistant id, and *full* assistant overrides (including
@@ -94,7 +240,7 @@ export default function ExporterInterviewScene({
         }
     }, [])
 
-    const start = async (): Promise<void> => {
+    const start = useCallback(async (): Promise<void> => {
         if (!accessToken) {
             setErrorMessage('Interview link is missing its access token. Open the URL you were emailed.')
             setState('error')
@@ -131,14 +277,20 @@ export default function ExporterInterviewScene({
             setErrorMessage(e instanceof Error ? e.message : 'Failed to start interview.')
             setState('error')
         }
-    }
+    }, [accessToken])
 
-    const stop = (): void => {
+    const stop = useCallback((): void => {
         vapiRef.current?.stop()
         setState('ended')
-    }
+    }, [])
 
-    const isPreCall = state === 'idle' || state === 'loading'
+    const retry = useCallback((): void => {
+        setState('idle')
+    }, [])
+
+    const onStart = useCallback((): void => {
+        void start()
+    }, [start])
 
     return (
         <div className="max-w-2xl mx-auto px-4 py-12">
@@ -148,87 +300,15 @@ export default function ExporterInterviewScene({
             </div>
 
             <div className="flex flex-col md:flex-row md:items-start gap-6 md:gap-8 mb-8">
-                <div className="flex-shrink-0 mx-auto md:mx-0 md:w-40">
-                    <div className="w-40 h-40 mx-auto">
-                        <HogForCallState state={state} phase={conversationPhase} />
-                    </div>
-                    {state === 'in-call' && <PhaseCaption phase={conversationPhase} />}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                    {isPreCall && (
-                        <>
-                            <h1 className="text-3xl font-bold mb-4">Hi {interview.user_name}!</h1>
-                            <p className="text-lg mb-4">
-                                We're researching <strong>{interview.topic}</strong> and would love to hear your
-                                perspective.
-                            </p>
-                            <p className="text-muted mb-6">
-                                This is a 5–10 minute voice conversation with an AI interviewer. Talk like you would to
-                                a researcher on our team — your feedback helps us build a better product.
-                            </p>
-                            <div className="bg-accent-highlight border border-accent p-4 rounded mb-6 text-sm">
-                                <strong>How it works</strong>
-                                <ol className="list-decimal pl-5 mt-2 space-y-1">
-                                    <li>
-                                        Click <em>Start interview</em> below.
-                                    </li>
-                                    <li>Allow microphone access when prompted.</li>
-                                    <li>Have a casual conversation — the AI will guide you through a few questions.</li>
-                                    <li>You can end the call any time.</li>
-                                </ol>
-                            </div>
-                        </>
-                    )}
-                    {state === 'connecting' && (
-                        <>
-                            <h2 className="text-2xl font-bold mb-2">Connecting…</h2>
-                            <p className="text-muted">Hold tight while we wake the interviewer up.</p>
-                        </>
-                    )}
-                    {state === 'in-call' && (
-                        <>
-                            <h2 className="text-2xl font-bold mb-2">You're live</h2>
-                            <p className="text-muted mb-2">Talk as you would to a researcher on our team.</p>
-                            <p className="text-xs text-muted">
-                                End the call any time using the button below — the recording will still be saved.
-                            </p>
-                        </>
-                    )}
-                    {state === 'ended' && (
-                        <>
-                            <h2 className="text-2xl font-bold mb-2">Thanks for taking the time!</h2>
-                            <p className="text-muted">
-                                Your conversation has been recorded — we'll be in touch if we have follow-up questions.
-                            </p>
-                        </>
-                    )}
-                    {state === 'error' && (
-                        <div className="text-danger">
-                            <h2 className="text-2xl font-bold mb-2">Something went wrong</h2>
-                            <p className="mb-2">{errorMessage ?? 'Unknown error.'}</p>
-                        </div>
-                    )}
-
-                    <div className="mt-4">
-                        {state === 'idle' && (
-                            <LemonButton type="primary" size="large" fullWidth onClick={start}>
-                                Start interview
-                            </LemonButton>
-                        )}
-                        {state === 'loading' && <p>Loading interviewer…</p>}
-                        {state === 'in-call' && (
-                            <LemonButton type="secondary" onClick={stop}>
-                                End interview
-                            </LemonButton>
-                        )}
-                        {state === 'error' && (
-                            <LemonButton type="secondary" onClick={() => setState('idle')}>
-                                Try again
-                            </LemonButton>
-                        )}
-                    </div>
-                </div>
+                <CallStatusPanel state={state} phase={conversationPhase} />
+                <CallBodyPanel
+                    state={state}
+                    interview={interview}
+                    errorMessage={errorMessage}
+                    onStart={onStart}
+                    onStop={stop}
+                    onRetry={retry}
+                />
             </div>
 
             <p className="text-xs text-muted text-center mt-12">
