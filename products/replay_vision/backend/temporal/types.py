@@ -49,6 +49,21 @@ class FetchSessionEventsInputs(BaseModel, frozen=True):
     session_id: str
 
 
+class EventTable(BaseModel, frozen=True):
+    """A column-oriented analytics-event table; every row's arity matches `len(columns)`."""
+
+    columns: list[str]
+    rows: list[list[Any]]
+
+    @model_validator(mode="after")
+    def _rows_match_columns(self) -> "EventTable":
+        column_count = len(self.columns)
+        for index, row in enumerate(self.rows):
+            if len(row) != column_count:
+                raise ValueError(f"rows[{index}] has {len(row)} values but columns has {column_count}")
+        return self
+
+
 class LensLlmInputs(BaseModel, frozen=True):
     """Per-session analytics events + recording metadata, stashed in Redis between activities."""
 
@@ -57,16 +72,7 @@ class LensLlmInputs(BaseModel, frozen=True):
     session_start_time: dt.datetime
     session_end_time: dt.datetime
     duration_seconds: float
-    columns: list[str]
-    events: list[list[Any]]
-
-    @model_validator(mode="after")
-    def _events_match_columns(self) -> "LensLlmInputs":
-        column_count = len(self.columns)
-        for index, row in enumerate(self.events):
-            if len(row) != column_count:
-                raise ValueError(f"events[{index}] has {len(row)} values but columns has {column_count}")
-        return self
+    events: EventTable
 
 
 class EnsureSessionAssetInputs(BaseModel, frozen=True):

@@ -1,9 +1,8 @@
-import hmac
 import json
-import hashlib
 import datetime
 from typing import Any
 
+import unittest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -19,7 +18,13 @@ from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.user_interviews.backend.api import UserInterviewTopicSerializer
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
-from products.user_interviews.backend.webhooks import EMBEDDING_CONTENT_MAX_BYTES
+from products.user_interviews.backend.webhooks import (
+    DEFAULT_FIRST_MESSAGE_TEMPLATE,
+    EMBEDDING_CONTENT_MAX_BYTES,
+    FIRST_MESSAGE_PROMPT_NAME,
+    _build_first_message,
+    _resolve_first_message_template,
+)
 
 
 class _FeatureFlagEnabledMixin(APIBaseTest):
@@ -324,6 +329,116 @@ class TestInterviewPublicViewer(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
+class TestBuildFirstMessage(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("simple_name_and_topic", "Paul", "taxonomic filter search", ["Hey Paul!", "taxonomic filter search"]),
+            ("dotted_local_part", "Cory S", "session replay adoption", ["Hey Cory S!", "session replay adoption"]),
+            (
+                "name_with_trailing_topic_whitespace",
+                "Kim",
+                "  feature flag rollout  ",
+                ["Hey Kim!", "feature flag rollout"],
+            ),
+        ]
+    )
+    def test_includes_name_and_topic(self, _label: str, user_name: str, topic_text: str, expected_fragments: list[str]):
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name=user_name, topic_text=topic_text)
+        for fragment in expected_fragments:
+            assert fragment in message
+
+    @parameterized.expand([("empty", ""), ("whitespace_only", "   ")])
+    def test_falls_back_to_generic_topic_when_topic_empty(self, _label: str, topic_text: str):
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="Sam", topic_text=topic_text)
+        assert "Hey Sam!" in message
+        assert "your experience" in message
+
+    @parameterized.expand([("empty", ""), ("whitespace_only", "   ")])
+    def test_falls_back_to_generic_greeting_when_user_name_empty(self, _label: str, user_name: str):
+        message = _build_first_message(
+            DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name=user_name, topic_text="checkout funnel"
+        )
+        assert "Hey there!" in message
+        assert "Hey !" not in message
+
+    def test_collapses_internal_whitespace_in_topic(self):
+        message = _build_first_message(
+            DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="Sam", topic_text="multi\nline\n\ttopic"
+        )
+        assert "multi line topic" in message
+        assert "\n" not in message
+
+    def test_truncates_very_long_topic(self):
+        long_topic = "x" * 500
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="Sam", topic_text=long_topic)
+        assert "x" * 200 in message
+        assert "x" * 201 not in message
+
+    def test_uses_custom_template_when_provided(self):
+        custom = "Hi $user_name, today's topic: $topic_text."
+        message = _build_first_message(custom, user_name="Paul", topic_text="onboarding")
+        assert message == "Hi Paul, today's topic: onboarding."
+
+    def test_falls_back_to_default_when_custom_template_missing_placeholder(self):
+        broken = "Hi $nonsense, today is $missing_field."
+        message = _build_first_message(broken, user_name="Paul", topic_text="onboarding")
+        assert "Hey Paul!" in message
+        assert "onboarding" in message
+
+    def test_format_spec_in_template_is_treated_as_literal_text(self):
+        # string.Template has no format-spec syntax, so an attacker cannot use
+        # `{user_name:>10000000000}` to allocate gigabytes — `:` is just a character.
+        attempted = "Hi $user_name, padded: {user_name:>10000000000}"
+        message = _build_first_message(attempted, user_name="Paul", topic_text="onboarding")
+        assert "Hi Paul" in message
+        assert len(message) <= 1000
+
+    def test_falls_back_to_default_when_rendered_message_exceeds_cap(self):
+        huge = "Hi $user_name! " + ("x" * 2000)
+        message = _build_first_message(huge, user_name="Paul", topic_text="onboarding")
+        assert "Hey Paul!" in message
+        assert "onboarding" in message
+        assert len(message) <= 1000
+
+    def test_return_value_is_always_bounded_even_with_long_user_name(self):
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="x" * 5000, topic_text="onboarding")
+        assert len(message) <= 1000
+
+
+class TestResolveFirstMessageTemplate(APIBaseTest):
+    def test_returns_default_when_no_prompt_configured(self):
+        template = _resolve_first_message_template(self.team)
+        assert template == DEFAULT_FIRST_MESSAGE_TEMPLATE
+
+    def test_returns_team_override_when_prompt_published(self):
+        from posthog.models.llm_prompt import LLMPrompt
+
+        LLMPrompt.objects.create(
+            team=self.team,
+            name=FIRST_MESSAGE_PROMPT_NAME,
+            prompt="Hey $user_name! Quick chat about $topic_text?",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        template = _resolve_first_message_template(self.team)
+        assert template == "Hey $user_name! Quick chat about $topic_text?"
+
+    def test_returns_default_when_published_prompt_is_empty(self):
+        from posthog.models.llm_prompt import LLMPrompt
+
+        LLMPrompt.objects.create(
+            team=self.team,
+            name=FIRST_MESSAGE_PROMPT_NAME,
+            prompt="   ",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        template = _resolve_first_message_template(self.team)
+        assert template == DEFAULT_FIRST_MESSAGE_TEMPLATE
+
+
 class TestInterviewStartCall(APIBaseTest):
     def _create_share(self) -> SharingConfiguration:
         topic = UserInterviewTopic.objects.create(
@@ -358,6 +473,16 @@ class TestInterviewStartCall(APIBaseTest):
         self.assertIn("heavy user, churned last quarter", overrides["variableValues"]["agent_context"])
         self.assertEqual(overrides["metadata"]["sharing_access_token"], share.access_token)
         self.assertEqual(overrides["metadata"]["interviewee_identifier"], "alex@example.com")
+
+    @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
+    def test_returns_personalised_first_message(self):
+        share = self._create_share()
+        self.client.logout()
+        response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        first_message = response.json()["assistant_overrides"]["firstMessage"]
+        assert "Hey Alex!" in first_message
+        assert "Replay adoption" in first_message
 
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
     def test_rejects_disabled_share(self):
@@ -446,13 +571,11 @@ class TestVapiWebhook(APIBaseTest):
         }
 
     def _signed_post(self, secret: str, payload: dict) -> Any:
-        body = json.dumps(payload)
-        signature = hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
         return self.client.post(
             "/api/user_interviews/vapi_webhook/",
-            data=body,
+            data=json.dumps(payload),
             content_type="application/json",
-            HTTP_X_VAPI_SIGNATURE=signature,
+            HTTP_X_VAPI_SECRET=secret,
         )
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
@@ -486,16 +609,25 @@ class TestVapiWebhook(APIBaseTest):
         response = self._signed_post("topsecret", self._end_of_call_payload("does-not-exist"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @parameterized.expand(
+        [
+            ("wrong_secret", "wrong"),
+            ("empty_secret", ""),
+            ("missing_header", None),
+        ]
+    )
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    def test_webhook_requires_valid_signature(self):
+    def test_webhook_rejects_bad_or_missing_secret(self, _label: str, header_value: str | None):
         share = self._create_share()
         self.client.logout()
-        response = self.client.post(
-            "/api/user_interviews/vapi_webhook/",
-            data=self._end_of_call_payload(share.access_token),
-            content_type="application/json",
-            HTTP_X_VAPI_SIGNATURE="wrong",
-        )
+        body = json.dumps(self._end_of_call_payload(share.access_token))
+        url = "/api/user_interviews/vapi_webhook/"
+        if header_value is None:
+            response = self.client.post(url, data=body, content_type="application/json")
+        else:
+            response = self.client.post(
+                url, data=body, content_type="application/json", HTTP_X_VAPI_SECRET=header_value
+            )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
