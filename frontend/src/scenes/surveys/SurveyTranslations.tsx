@@ -1,29 +1,18 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
 
-import { IconSparkles, IconTrash, IconWarning } from '@posthog/icons'
+import { IconSparkles, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInputSelect, LemonTag } from '@posthog/lemon-ui'
-
-import { MultipleSurveyQuestion, SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { BaseLanguagePicker } from './BaseLanguagePicker'
 import {
     COMMON_LANGUAGES,
     DEFAULT_SURVEY_BASE_LANGUAGE,
-    classifyTranslationKeys,
-    describeInvalidLanguageCode,
-    getBaseLanguage,
     getSurveyLanguageLabel,
     getSurveyLanguageName,
-    normalizeLanguageCode,
 } from './language'
+import { LegacyTranslationKeysPanel } from './LegacyTranslationKeysPanel'
 import { surveyLogic } from './surveyLogic'
-
-// Re-exports kept so older imports continue to work — prefer importing from `./language` directly.
-export { COMMON_LANGUAGES, COMMON_SURVEY_LANGUAGE_CODES, getSurveyLanguageLabel } from './language'
-
-const isChoiceQuestion = (question: SurveyQuestion): question is MultipleSurveyQuestion =>
-    question.type === SurveyQuestionType.SingleChoice || question.type === SurveyQuestionType.MultipleChoice
+import { useSurveyTranslationsForm } from './useSurveyTranslationsForm'
 
 export function SurveyTranslations(): JSX.Element {
     const {
@@ -33,114 +22,23 @@ export function SurveyTranslations(): JSX.Element {
         generatingTranslationDrafts,
         dataProcessingAccepted,
     } = useValues(surveyLogic)
-    const { setSurveyValue, setEditingLanguage, generateTranslationDrafts } = useActions(surveyLogic)
+    const { setEditingLanguage, generateTranslationDrafts } = useActions(surveyLogic)
 
-    const baseLanguage = getBaseLanguage(survey)
-    const surveyTranslations = survey.translations ?? {}
-    const addedLanguages = Object.keys(surveyTranslations)
-    const [pickerError, setPickerError] = useState<string | null>(null)
-
-    const { invalidKeys, validKeys } = useMemo(
-        () => classifyTranslationKeys(addedLanguages, baseLanguage),
-        [addedLanguages, baseLanguage]
-    )
+    const {
+        baseLanguage,
+        addedLanguages,
+        validKeys,
+        invalidKeys,
+        pickerOptions,
+        pickerError,
+        setBaseLanguage,
+        addLanguage,
+        removeLanguage,
+    } = useSurveyTranslationsForm({ editingLanguage, setEditingLanguage })
 
     const getLanguageLabel = (lang: string): string =>
         COMMON_LANGUAGES.find((language) => language.value === lang)?.label || getSurveyLanguageLabel(lang)
     const selectLanguage = (lang: string | null): void => setEditingLanguage(lang)
-
-    const setBaseLanguage = (next: string): void => {
-        setSurveyValue('base_language', next)
-        // If the user was editing the same language they just set as the base, clear it.
-        if (editingLanguage && normalizeLanguageCode(editingLanguage) === next) {
-            setEditingLanguage(null)
-        }
-    }
-
-    const addLanguage = (rawLang: string): void => {
-        const error = describeInvalidLanguageCode(rawLang, baseLanguage)
-        if (error) {
-            setPickerError(error)
-            return
-        }
-        const lang = normalizeLanguageCode(rawLang)
-        setPickerError(null)
-        const currentTranslations = surveyTranslations
-        if (currentTranslations[lang]) {
-            return
-        }
-
-        const updatedQuestions = survey.questions.map((question) => {
-            const questionTranslations = question.translations ?? {}
-            const baseTranslation = {
-                question: question.question || '',
-                description: question.description || '',
-                buttonText: question.buttonText || '',
-            }
-
-            const newTranslation = {
-                ...baseTranslation,
-                ...(question.type === SurveyQuestionType.Rating
-                    ? {
-                          lowerBoundLabel: question.lowerBoundLabel || '',
-                          upperBoundLabel: question.upperBoundLabel || '',
-                      }
-                    : {}),
-                ...(isChoiceQuestion(question) ? { choices: question.choices || [] } : {}),
-                ...(question.type === SurveyQuestionType.Link ? { link: question.link || '' } : {}),
-            }
-
-            return {
-                ...question,
-                translations: {
-                    ...questionTranslations,
-                    [lang]: {
-                        ...questionTranslations[lang],
-                        ...newTranslation,
-                    },
-                },
-            }
-        })
-
-        setSurveyValue('questions', updatedQuestions)
-        setSurveyValue('translations', {
-            ...currentTranslations,
-            [lang]: {
-                name: survey.name || '',
-                thankYouMessageHeader: survey.appearance?.thankYouMessageHeader || '',
-                thankYouMessageDescription: survey.appearance?.thankYouMessageDescription || '',
-                thankYouMessageCloseButtonText: survey.appearance?.thankYouMessageCloseButtonText || '',
-            },
-        })
-        setEditingLanguage(lang)
-    }
-
-    const removeLanguage = (lang: string): void => {
-        const currentTranslations = { ...surveyTranslations }
-        delete currentTranslations[lang]
-        setSurveyValue('translations', currentTranslations)
-
-        const updatedQuestions = survey.questions.map((question) => {
-            if (question.translations && question.translations[lang]) {
-                const questionTranslations = { ...question.translations }
-                delete questionTranslations[lang]
-                return {
-                    ...question,
-                    translations: questionTranslations,
-                }
-            }
-            return question
-        })
-        setSurveyValue('questions', updatedQuestions)
-
-        if (editingLanguage === lang) {
-            setEditingLanguage(null)
-        }
-    }
-
-    const pickerOptions = COMMON_LANGUAGES.filter(
-        (l) => l.value !== baseLanguage && !addedLanguages.includes(l.value)
-    ).map((l) => ({ key: l.value, label: l.label }))
 
     return (
         <div className="flex flex-col gap-3">
@@ -150,7 +48,11 @@ export function SurveyTranslations(): JSX.Element {
                     Survey is written in <strong>{getSurveyLanguageName(baseLanguage)}</strong>{' '}
                     <span className="text-muted">({baseLanguage})</span>
                 </span>
-                <BaseLanguagePicker baseLanguage={baseLanguage} onChange={setBaseLanguage} />
+                <BaseLanguagePicker
+                    baseLanguage={baseLanguage}
+                    onChange={setBaseLanguage}
+                    translatedLanguages={addedLanguages}
+                />
             </div>
 
             <div className="flex flex-col gap-2">
@@ -170,6 +72,7 @@ export function SurveyTranslations(): JSX.Element {
                             allowCustomValues
                             autoFocus={validKeys.length === 0}
                             value={[]}
+                            data-attr="survey-translation-add"
                         />
                         {pickerError && (
                             <span role="alert" className="text-danger text-xs">
@@ -255,52 +158,7 @@ export function SurveyTranslations(): JSX.Element {
                     })}
                 </div>
 
-                {invalidKeys.length > 0 && (
-                    <div className="flex flex-col gap-1 text-sm">
-                        <div className="flex items-center gap-2 text-warning font-semibold">
-                            <IconWarning />
-                            Legacy translation keys
-                        </div>
-                        <p className="m-0 text-xs text-muted">
-                            These codes the SDK can't match. Remove or re-add with a valid BCP-47 code (e.g. 'en',
-                            'es-MX').
-                        </p>
-                        <div className="flex flex-wrap gap-2 mt-1">
-                            {invalidKeys.map((lang) => (
-                                <div
-                                    key={lang}
-                                    className="flex items-center gap-1 rounded border border-border px-2 py-0.5"
-                                >
-                                    <code className="text-xs">{lang}</code>
-                                    <LemonButton
-                                        icon={<IconTrash />}
-                                        status="danger"
-                                        size="xsmall"
-                                        aria-label={`Remove legacy translation '${lang}'`}
-                                        onClick={() =>
-                                            LemonDialog.open({
-                                                title: 'Remove legacy translation',
-                                                description: (
-                                                    <p className="py-2">
-                                                        Remove the translation stored under <code>{lang}</code>? It
-                                                        currently has no effect at runtime — the SDK never matches this
-                                                        code.
-                                                    </p>
-                                                ),
-                                                primaryButton: {
-                                                    children: 'Remove',
-                                                    status: 'danger',
-                                                    onClick: () => removeLanguage(lang),
-                                                },
-                                                secondaryButton: { children: 'Cancel' },
-                                            })
-                                        }
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
+                <LegacyTranslationKeysPanel languages={invalidKeys} onRemove={removeLanguage} />
             </div>
 
             {baseLanguage !== DEFAULT_SURVEY_BASE_LANGUAGE && (

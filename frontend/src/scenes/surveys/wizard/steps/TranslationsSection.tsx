@@ -1,31 +1,19 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
 
-import { IconSparkles, IconTrash, IconWarning } from '@posthog/icons'
+import { IconSparkles, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonInputSelect, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import {
-    LinkSurveyQuestion,
-    MultipleSurveyQuestion,
-    RatingSurveyQuestion,
-    SurveyQuestion,
-    SurveyQuestionType,
-} from '~/types'
+import { SurveyQuestion } from '~/types'
 
 import { BaseLanguagePicker } from '../../BaseLanguagePicker'
 import { defaultSurveyAppearance } from '../../constants'
-import {
-    COMMON_LANGUAGES,
-    classifyTranslationKeys,
-    describeInvalidLanguageCode,
-    getBaseLanguage,
-    getSurveyLanguageLabel,
-    getSurveyLanguageName,
-    normalizeLanguageCode,
-} from '../../language'
+import { COMMON_LANGUAGES, getSurveyLanguageLabel, getSurveyLanguageName } from '../../language'
+import { LegacyTranslationKeysPanel } from '../../LegacyTranslationKeysPanel'
+import { isChoiceQuestion, isLinkQuestion, isRatingQuestion } from '../../questionTypeGuards'
 import { surveyLogic } from '../../surveyLogic'
+import { useSurveyTranslationsForm } from '../../useSurveyTranslationsForm'
 import { WizardPanel, WizardSection } from '../WizardLayout'
 
 type QuestionTranslation = NonNullable<SurveyQuestion['translations']>[string]
@@ -35,18 +23,6 @@ function getLanguageLabel(language: string): string {
         COMMON_LANGUAGES.find((commonLanguage) => commonLanguage.value === language)?.label ||
         getSurveyLanguageLabel(language)
     )
-}
-
-function isChoiceQuestion(question: SurveyQuestion): question is MultipleSurveyQuestion {
-    return question.type === SurveyQuestionType.SingleChoice || question.type === SurveyQuestionType.MultipleChoice
-}
-
-function isRatingQuestion(question: SurveyQuestion): question is RatingSurveyQuestion {
-    return question.type === SurveyQuestionType.Rating
-}
-
-function isLinkQuestion(question: SurveyQuestion): question is LinkSurveyQuestion {
-    return question.type === SurveyQuestionType.Link
 }
 
 function GuidedTranslationInput({
@@ -108,101 +84,22 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
     const { survey, generatingTranslationDrafts, dataProcessingAccepted, aiGeneratedTranslationFields } =
         useValues(surveyLogic)
     const { setSurveyValue, generateTranslationDrafts, clearAiGeneratedTranslationField } = useActions(surveyLogic)
-    const [pickerError, setPickerError] = useState<string | null>(null)
 
-    const baseLanguage = getBaseLanguage(survey)
+    const {
+        baseLanguage,
+        addedLanguages,
+        validKeys,
+        invalidKeys,
+        pickerOptions,
+        pickerError,
+        setBaseLanguage,
+        addLanguage,
+        removeLanguage,
+    } = useSurveyTranslationsForm({ editingLanguage, setEditingLanguage })
+
     const translations = survey.translations ?? {}
-    const addedLanguages = Object.keys(translations)
     const activeLanguage = editingLanguage && translations[editingLanguage] ? editingLanguage : null
     const appearance = { ...defaultSurveyAppearance, ...survey.appearance }
-
-    const { invalidKeys, validKeys } = useMemo(
-        () => classifyTranslationKeys(addedLanguages, baseLanguage),
-        [addedLanguages, baseLanguage]
-    )
-
-    const setBaseLanguage = (next: string): void => {
-        setSurveyValue('base_language', next)
-        if (editingLanguage && normalizeLanguageCode(editingLanguage) === next) {
-            setEditingLanguage(null)
-        }
-    }
-
-    const addLanguage = (rawLanguage: string): void => {
-        const error = describeInvalidLanguageCode(rawLanguage, baseLanguage)
-        if (error) {
-            setPickerError(error)
-            return
-        }
-        const language = normalizeLanguageCode(rawLanguage)
-        setPickerError(null)
-        if (translations[language]) {
-            return
-        }
-
-        setSurveyValue('translations', {
-            ...translations,
-            [language]: {
-                thankYouMessageHeader: appearance.thankYouMessageHeader || '',
-                thankYouMessageDescription: appearance.thankYouMessageDescription || '',
-                thankYouMessageCloseButtonText: appearance.thankYouMessageCloseButtonText || '',
-            },
-        })
-        setSurveyValue(
-            'questions',
-            survey.questions.map((question) => {
-                const questionTranslations = question.translations ?? {}
-
-                return {
-                    ...question,
-                    translations: {
-                        ...questionTranslations,
-                        [language]: {
-                            question: question.question || '',
-                            description: question.description || '',
-                            buttonText: question.buttonText || '',
-                            ...(isChoiceQuestion(question) ? { choices: question.choices || [] } : {}),
-                            ...(isRatingQuestion(question)
-                                ? {
-                                      lowerBoundLabel: question.lowerBoundLabel || '',
-                                      upperBoundLabel: question.upperBoundLabel || '',
-                                  }
-                                : {}),
-                            ...(isLinkQuestion(question) ? { link: question.link || '' } : {}),
-                        },
-                    },
-                }
-            })
-        )
-        setEditingLanguage(language)
-    }
-
-    const removeLanguage = (language: string): void => {
-        const nextTranslations = { ...translations }
-        delete nextTranslations[language]
-
-        setSurveyValue('translations', nextTranslations)
-        setSurveyValue(
-            'questions',
-            survey.questions.map((question) => {
-                if (!question.translations?.[language]) {
-                    return question
-                }
-
-                const nextQuestionTranslations = { ...question.translations }
-                delete nextQuestionTranslations[language]
-
-                return {
-                    ...question,
-                    translations: nextQuestionTranslations,
-                }
-            })
-        )
-
-        if (editingLanguage === language) {
-            setEditingLanguage(null)
-        }
-    }
 
     const updateSurveyTranslation = (updates: Partial<NonNullable<(typeof survey)['translations']>[string]>): void => {
         if (!activeLanguage) {
@@ -293,18 +190,17 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                         Survey is written in <strong>{getSurveyLanguageName(baseLanguage)}</strong>{' '}
                         <span className="text-muted">({baseLanguage})</span>
                     </span>
-                    <BaseLanguagePicker baseLanguage={baseLanguage} onChange={setBaseLanguage} />
+                    <BaseLanguagePicker
+                        baseLanguage={baseLanguage}
+                        onChange={setBaseLanguage}
+                        translatedLanguages={addedLanguages}
+                    />
                 </div>
 
                 <div className="flex flex-col gap-1">
                     <LemonInputSelect
                         mode="single"
-                        options={COMMON_LANGUAGES.filter(
-                            (language) => language.value !== baseLanguage && !addedLanguages.includes(language.value)
-                        ).map((language) => ({
-                            key: language.value,
-                            label: language.label,
-                        }))}
+                        options={pickerOptions}
                         onChange={(values) => {
                             const language = values[0]
                             if (language) {
@@ -314,6 +210,7 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                         placeholder="Add a translation"
                         allowCustomValues
                         value={[]}
+                        data-attr="survey-translation-add"
                     />
                     {pickerError && (
                         <span role="alert" className="text-danger text-xs">
@@ -342,52 +239,7 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                     ))}
                 </div>
 
-                {invalidKeys.length > 0 && (
-                    <div className="flex flex-col gap-1 text-sm">
-                        <div className="flex items-center gap-2 text-warning font-semibold">
-                            <IconWarning />
-                            Legacy translation keys
-                        </div>
-                        <p className="m-0 text-xs text-muted">
-                            These codes the SDK can't match. Remove or re-add with a valid BCP-47 code (e.g. 'en',
-                            'es-MX').
-                        </p>
-                        <div className="flex flex-wrap gap-2 mt-1">
-                            {invalidKeys.map((language) => (
-                                <div
-                                    key={language}
-                                    className="flex items-center gap-1 rounded border border-border px-2 py-0.5"
-                                >
-                                    <code className="text-xs">{language}</code>
-                                    <LemonButton
-                                        icon={<IconTrash />}
-                                        status="danger"
-                                        size="xsmall"
-                                        aria-label={`Remove legacy translation '${language}'`}
-                                        onClick={() =>
-                                            LemonDialog.open({
-                                                title: 'Remove legacy translation',
-                                                description: (
-                                                    <p className="py-2">
-                                                        Remove the translation stored under <code>{language}</code>? It
-                                                        currently has no effect at runtime — the SDK never matches this
-                                                        code.
-                                                    </p>
-                                                ),
-                                                primaryButton: {
-                                                    children: 'Remove',
-                                                    status: 'danger',
-                                                    onClick: () => removeLanguage(language),
-                                                },
-                                                secondaryButton: { children: 'Cancel' },
-                                            })
-                                        }
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
+                <LegacyTranslationKeysPanel languages={invalidKeys} onRemove={removeLanguage} />
 
                 {activeLanguage ? (
                     <div className="space-y-4 border-t border-border pt-4">

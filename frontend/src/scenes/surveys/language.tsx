@@ -4,11 +4,9 @@ import { Survey } from '~/types'
 
 export const DEFAULT_SURVEY_BASE_LANGUAGE = 'en'
 
-// Keep this regex in sync with BCP47_LANGUAGE_CODE_RE in products/surveys/backend/api/survey.py.
+// Lightweight frontend shape check for BCP-47 codes — inline UX only.
+// The backend is the source of truth and will return a clear error if its rules diverge.
 const BCP47_LANGUAGE_CODE_RE = /^[a-z]{2,3}(-[a-z0-9]{2,8}){0,3}$/
-
-// Sentinel keys we explicitly reject — kept in sync with REJECTED_TRANSLATION_KEYS on the backend.
-export const REJECTED_TRANSLATION_KEYS = new Set(['default', 'original', 'base'])
 
 export const COMMON_SURVEY_LANGUAGE_CODES = [
     'en',
@@ -81,11 +79,7 @@ export function isValidLanguageCode(raw: string): boolean {
     if (!raw) {
         return false
     }
-    const normalized = normalizeLanguageCode(raw)
-    if (REJECTED_TRANSLATION_KEYS.has(normalized)) {
-        return false
-    }
-    return BCP47_LANGUAGE_CODE_RE.test(normalized)
+    return BCP47_LANGUAGE_CODE_RE.test(normalizeLanguageCode(raw))
 }
 
 export function getSurveyLanguageLabel(languageCode: string): string {
@@ -155,14 +149,10 @@ export function describeInvalidLanguageCode(raw: string, baseLanguage: string): 
     if (!raw || !raw.trim()) {
         return 'Pick a language to add.'
     }
-    const normalized = normalizeLanguageCode(raw)
-    if (REJECTED_TRANSLATION_KEYS.has(normalized)) {
-        return `"${raw}" isn't a language — the original text is the default. Set the survey's original language instead.`
-    }
     if (!isValidLanguageCode(raw)) {
         return `"${raw}" isn't a valid language code. Use codes like "en", "es", or "es-MX".`
     }
-    if (normalized === normalizeLanguageCode(baseLanguage)) {
+    if (normalizeLanguageCode(raw) === normalizeLanguageCode(baseLanguage)) {
         return `"${raw}" matches the survey's original language. Change the original first, or translate to a different language.`
     }
     return null

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonInputSelect, Popover } from '@posthog/lemon-ui'
@@ -8,10 +8,30 @@ import { COMMON_LANGUAGES, isValidLanguageCode, normalizeLanguageCode } from './
 interface BaseLanguagePickerProps {
     baseLanguage: string
     onChange: (next: string) => void
+    /** Languages already present as translations — filtered out of the picker to avoid collisions. */
+    translatedLanguages?: string[]
 }
 
-export function BaseLanguagePicker({ baseLanguage, onChange }: BaseLanguagePickerProps): JSX.Element {
+export function BaseLanguagePicker({
+    baseLanguage,
+    onChange,
+    translatedLanguages = [],
+}: BaseLanguagePickerProps): JSX.Element {
     const [open, setOpen] = useState(false)
+
+    const normalizedTranslated = useMemo(
+        () => new Set(translatedLanguages.map(normalizeLanguageCode)),
+        [translatedLanguages]
+    )
+
+    const options = useMemo(
+        () =>
+            COMMON_LANGUAGES.filter((language) => !normalizedTranslated.has(normalizeLanguageCode(language.value))).map(
+                (language) => ({ key: language.value, label: language.label })
+            ),
+        [normalizedTranslated]
+    )
+
     return (
         <Popover
             visible={open}
@@ -24,7 +44,7 @@ export function BaseLanguagePicker({ baseLanguage, onChange }: BaseLanguagePicke
                     </p>
                     <LemonInputSelect
                         mode="single"
-                        options={COMMON_LANGUAGES.map((l) => ({ key: l.value, label: l.label }))}
+                        options={options}
                         value={[baseLanguage]}
                         onChange={(values) => {
                             const lang = values[0]
@@ -34,6 +54,7 @@ export function BaseLanguagePicker({ baseLanguage, onChange }: BaseLanguagePicke
                             }
                         }}
                         placeholder="Search languages"
+                        data-attr="survey-base-language-select"
                     />
                 </div>
             }
@@ -44,6 +65,7 @@ export function BaseLanguagePicker({ baseLanguage, onChange }: BaseLanguagePicke
                 icon={<IconPencil />}
                 onClick={() => setOpen((v) => !v)}
                 tooltip="Change the survey's original language"
+                data-attr="survey-base-language-change"
             >
                 Change
             </LemonButton>
