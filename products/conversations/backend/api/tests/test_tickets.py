@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_person
 from unittest.mock import patch
 
 from django.db import transaction
@@ -1190,3 +1190,136 @@ class TestTicketPersonData(PersonhogTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["person"] is None
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
+    """Tests the email-property fallback in _attach_persons_to_tickets.
+
+    When an email-channel ticket's distinct_id doesn't match any person,
+    the fallback queries ClickHouse for persons whose properties.email
+    matches the ticket's email_from field.
+    """
+
+    def _create_email_ticket(self, email_from, distinct_id=None):
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.EMAIL,
+            distinct_id=distinct_id or email_from,
+            email_from=email_from,
+            status=Status.NEW,
+        )
+
+    @parameterized.expand(
+        [
+            ("email",),
+            ("$email",),
+            ("Email",),
+        ]
+    )
+    def test_email_fallback_matches_property_variant(self, prop_key, mock_on_commit):
+        email_addr = f"test-{prop_key}@example.com"
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"uid-{prop_key}"],
+            properties={prop_key: email_addr},
+            immediate=True,
+        )
+        self._create_email_ticket(email_from=email_addr, distinct_id=email_addr)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        person_data = response.json()["results"][0]["person"]
+        assert person_data is not None
+        assert person_data["properties"][prop_key] == email_addr
+
+    def test_email_fallback_not_triggered_when_distinct_id_matches(self, mock_on_commit):
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["alice@example.com"],
+            properties={"email": "alice@example.com"},
+            immediate=True,
+        )
+        self._create_email_ticket(email_from="alice@example.com", distinct_id="alice@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        person_data = response.json()["results"][0]["person"]
+        assert person_data is not None
+        assert person_data["id"] == str(person.uuid)
+
+    def test_email_fallback_no_match_returns_null_person(self, mock_on_commit):
+        self._create_email_ticket(email_from="nobody@example.com", distinct_id="nobody@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["person"] is None
+
+    def test_email_fallback_batch_multiple_tickets(self, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["uid-a"],
+            properties={"email": "a@example.com"},
+            immediate=True,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["uid-b"],
+            properties={"email": "b@example.com"},
+            immediate=True,
+        )
+        self._create_email_ticket(email_from="a@example.com", distinct_id="a@example.com")
+        self._create_email_ticket(email_from="b@example.com", distinct_id="b@example.com")
+        self._create_email_ticket(email_from="c@example.com", distinct_id="c@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        person_emails = {
+            r["email_from"]: r["person"]["properties"]["email"] for r in results if r["person"] is not None
+        }
+        assert person_emails == {
+            "a@example.com": "a@example.com",
+            "b@example.com": "b@example.com",
+        }
+        no_person = [r for r in results if r["person"] is None]
+        assert len(no_person) == 1
+        assert no_person[0]["email_from"] == "c@example.com"
+
+    def test_email_fallback_scoped_to_team(self, mock_on_commit):
+        other_team = self.organization.teams.create(name="Other Team")
+        _create_person(
+            team=other_team,
+            distinct_ids=["uid-other"],
+            properties={"email": "scoped@example.com"},
+            immediate=True,
+        )
+        self._create_email_ticket(email_from="scoped@example.com", distinct_id="scoped@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["person"] is None
+
+    def test_email_fallback_skipped_for_non_email_channels(self, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["uid-widget"],
+            properties={"email": "widget@example.com"},
+            immediate=True,
+        )
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            distinct_id="unmatched-did",
+            status=Status.NEW,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["person"] is None
