@@ -12,7 +12,8 @@ type CallState = 'idle' | 'loading' | 'connecting' | 'in-call' | 'ended' | 'erro
 
 type ConversationPhase = 'agent-talking' | 'user-speaking' | 'waiting'
 
-const USER_SPEAKING_VOLUME_THRESHOLD = 0.05
+const USER_SPEAKING_VOLUME_ENTER = 0.05
+const USER_SPEAKING_VOLUME_LEAVE = 0.03
 
 const PHASE_LABELS: Record<ConversationPhase, string> = {
     'agent-talking': 'Talking…',
@@ -28,6 +29,22 @@ interface StartCallPayload {
         variableValues?: Record<string, string>
         metadata?: Record<string, string>
     }
+}
+
+function pickHog(state: CallState, phase: ConversationPhase): typeof RobotHog {
+    if (state === 'in-call') {
+        if (phase === 'agent-talking') {
+            return RobotHog
+        }
+        if (phase === 'user-speaking') {
+            return MicrophoneHog
+        }
+        return ProfessorHog
+    }
+    if (state === 'ended') {
+        return HeartHog
+    }
+    return RobotHog
 }
 
 const CallStatusPanel = memo(function CallStatusPanel({
@@ -48,23 +65,7 @@ const CallStatusPanel = memo(function CallStatusPanel({
     )
 })
 
-function pickHog(state: CallState, phase: ConversationPhase): typeof RobotHog {
-    if (state === 'in-call') {
-        if (phase === 'agent-talking') {
-            return RobotHog
-        }
-        if (phase === 'user-speaking') {
-            return MicrophoneHog
-        }
-        return ProfessorHog
-    }
-    if (state === 'ended') {
-        return HeartHog
-    }
-    return RobotHog
-}
-
-const PreCallIntro = memo(function PreCallIntro({ interview }: { interview: InterviewExportPayload }): JSX.Element {
+function PreCallIntro({ interview }: { interview: InterviewExportPayload }): JSX.Element {
     return (
         <>
             <h1 className="text-3xl font-bold mb-4">Hi {interview.user_name}!</h1>
@@ -88,18 +89,18 @@ const PreCallIntro = memo(function PreCallIntro({ interview }: { interview: Inte
             </div>
         </>
     )
-})
+}
 
-const ConnectingPanel = memo(function ConnectingPanel(): JSX.Element {
+function ConnectingPanel(): JSX.Element {
     return (
         <>
             <h2 className="text-2xl font-bold mb-2">Connecting…</h2>
-            <p className="text-muted">Hold tight while we wake the interviewer up.</p>
+            <p className="text-muted">Hold tight while we connect you to the AI interviewer.</p>
         </>
     )
-})
+}
 
-const LivePanel = memo(function LivePanel(): JSX.Element {
+function LivePanel(): JSX.Element {
     return (
         <>
             <h2 className="text-2xl font-bold mb-2">You're live</h2>
@@ -109,9 +110,9 @@ const LivePanel = memo(function LivePanel(): JSX.Element {
             </p>
         </>
     )
-})
+}
 
-const EndedPanel = memo(function EndedPanel(): JSX.Element {
+function EndedPanel(): JSX.Element {
     return (
         <>
             <h2 className="text-2xl font-bold mb-2">Thanks for taking the time!</h2>
@@ -120,18 +121,18 @@ const EndedPanel = memo(function EndedPanel(): JSX.Element {
             </p>
         </>
     )
-})
+}
 
-const ErrorPanel = memo(function ErrorPanel({ errorMessage }: { errorMessage: string | null }): JSX.Element {
+function ErrorPanel({ errorMessage }: { errorMessage: string | null }): JSX.Element {
     return (
         <div className="text-danger">
             <h2 className="text-2xl font-bold mb-2">Something went wrong</h2>
             <p className="mb-2">{errorMessage ?? 'Unknown error.'}</p>
         </div>
     )
-})
+}
 
-const CallActionButton = memo(function CallActionButton({
+function CallActionButton({
     state,
     onStart,
     onStop,
@@ -142,32 +143,32 @@ const CallActionButton = memo(function CallActionButton({
     onStop: () => void
     onRetry: () => void
 }): JSX.Element | null {
-    if (state === 'idle') {
-        return (
-            <LemonButton type="primary" size="large" fullWidth onClick={onStart}>
-                Start interview
-            </LemonButton>
-        )
+    switch (state) {
+        case 'idle':
+            return (
+                <LemonButton type="primary" size="large" fullWidth onClick={onStart}>
+                    Start interview
+                </LemonButton>
+            )
+        case 'loading':
+            return <p>Loading interviewer…</p>
+        case 'in-call':
+            return (
+                <LemonButton type="secondary" onClick={onStop}>
+                    End interview
+                </LemonButton>
+            )
+        case 'error':
+            return (
+                <LemonButton type="secondary" onClick={onRetry}>
+                    Try again
+                </LemonButton>
+            )
+        case 'connecting':
+        case 'ended':
+            return null
     }
-    if (state === 'loading') {
-        return <p>Loading interviewer…</p>
-    }
-    if (state === 'in-call') {
-        return (
-            <LemonButton type="secondary" onClick={onStop}>
-                End interview
-            </LemonButton>
-        )
-    }
-    if (state === 'error') {
-        return (
-            <LemonButton type="secondary" onClick={onRetry}>
-                Try again
-            </LemonButton>
-        )
-    }
-    return null
-})
+}
 
 const CallBodyPanel = memo(function CallBodyPanel({
     state,
@@ -229,6 +230,8 @@ export default function ExporterInterviewScene({
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const vapiRef = useRef<Vapi | null>(null)
     const agentTalkingRef = useRef<boolean>(false)
+    const lastPhaseRef = useRef<ConversationPhase>('waiting')
+    const isMountedRef = useRef<boolean>(true)
 
     useEffect(() => {
         document.title = `Interview · ${interview.topic}`
@@ -236,47 +239,80 @@ export default function ExporterInterviewScene({
 
     useEffect(() => {
         return () => {
+            isMountedRef.current = false
             vapiRef.current?.stop()
+            vapiRef.current = null
         }
     }, [])
 
-    const start = useCallback(async (): Promise<void> => {
+    const start = useCallback((): void => {
         if (!accessToken) {
             setErrorMessage('Interview link is missing its access token. Open the URL you were emailed.')
             setState('error')
             return
         }
+        vapiRef.current?.stop()
+        vapiRef.current = null
+        agentTalkingRef.current = false
+        lastPhaseRef.current = 'waiting'
+        setConversationPhase('waiting')
         setState('loading')
-        try {
-            const startPayload = await fetchStartCallPayload(accessToken)
-            const vapi = new Vapi(startPayload.public_key)
-            vapiRef.current = vapi
-            vapi.on('call-end', () => setState('ended'))
-            vapi.on('error', (e: unknown) => {
-                setErrorMessage(e instanceof Error ? e.message : 'Vapi reported an error during the call.')
-                setState('error')
-            })
-            vapi.on('speech-start', () => {
-                agentTalkingRef.current = true
-                setConversationPhase('agent-talking')
-            })
-            vapi.on('speech-end', () => {
-                agentTalkingRef.current = false
-                setConversationPhase('waiting')
-            })
-            vapi.on('volume-level', (volume: number) => {
-                if (agentTalkingRef.current) {
+        void (async () => {
+            try {
+                const startPayload = await fetchStartCallPayload(accessToken)
+                if (!isMountedRef.current) {
                     return
                 }
-                setConversationPhase(volume > USER_SPEAKING_VOLUME_THRESHOLD ? 'user-speaking' : 'waiting')
-            })
-            setState('connecting')
-            await vapi.start(startPayload.assistant_id, startPayload.assistant_overrides)
-            setState('in-call')
-        } catch (e) {
-            setErrorMessage(e instanceof Error ? e.message : 'Failed to start interview.')
-            setState('error')
-        }
+                const vapi = new Vapi(startPayload.public_key)
+                vapiRef.current = vapi
+                const setPhase = (next: ConversationPhase): void => {
+                    if (lastPhaseRef.current === next) {
+                        return
+                    }
+                    lastPhaseRef.current = next
+                    setConversationPhase(next)
+                }
+                vapi.on('call-end', () => setState('ended'))
+                vapi.on('error', (e: unknown) => {
+                    vapi.stop()
+                    setErrorMessage(e instanceof Error ? e.message : 'Vapi reported an error during the call.')
+                    setState('error')
+                })
+                vapi.on('speech-start', () => {
+                    agentTalkingRef.current = true
+                    setPhase('agent-talking')
+                })
+                vapi.on('speech-end', () => {
+                    agentTalkingRef.current = false
+                    setPhase('waiting')
+                })
+                vapi.on('volume-level', (volume: number) => {
+                    if (agentTalkingRef.current) {
+                        return
+                    }
+                    if (lastPhaseRef.current === 'user-speaking') {
+                        if (volume < USER_SPEAKING_VOLUME_LEAVE) {
+                            setPhase('waiting')
+                        }
+                    } else if (volume > USER_SPEAKING_VOLUME_ENTER) {
+                        setPhase('user-speaking')
+                    }
+                })
+                setState('connecting')
+                await vapi.start(startPayload.assistant_id, startPayload.assistant_overrides)
+                if (!isMountedRef.current) {
+                    vapi.stop()
+                    return
+                }
+                setState((current) => (current === 'connecting' ? 'in-call' : current))
+            } catch (e) {
+                if (!isMountedRef.current) {
+                    return
+                }
+                setErrorMessage(e instanceof Error ? e.message : 'Failed to start interview.')
+                setState('error')
+            }
+        })()
     }, [accessToken])
 
     const stop = useCallback((): void => {
@@ -285,12 +321,9 @@ export default function ExporterInterviewScene({
     }, [])
 
     const retry = useCallback((): void => {
+        setErrorMessage(null)
         setState('idle')
     }, [])
-
-    const onStart = useCallback((): void => {
-        void start()
-    }, [start])
 
     return (
         <div className="max-w-2xl mx-auto px-4 py-12">
@@ -305,7 +338,7 @@ export default function ExporterInterviewScene({
                     state={state}
                     interview={interview}
                     errorMessage={errorMessage}
-                    onStart={onStart}
+                    onStart={start}
                     onStop={stop}
                     onRetry={retry}
                 />
