@@ -437,6 +437,91 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["key"], f"cohort-feature-{operator}")
 
+    @parameterized.expand(
+        [
+            ("is_not", "not_in"),
+            ("exact", "in"),
+            ("icontains", "in"),
+        ]
+    )
+    def test_creating_flag_normalizes_invalid_cohort_operator(self, operator: str, expected: str) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="test cohort", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": f"Cohort feature {operator}",
+                "key": f"cohort-norm-{operator}",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": operator}],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key=f"cohort-norm-{operator}")
+        self.assertEqual(flag.filters["groups"][0]["properties"][0]["operator"], expected)
+
+    def test_updating_flag_normalizes_legacy_is_not_cohort_operator(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="test cohort", created_by=self.user)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="cohort-legacy-is-not",
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "is_not"}],
+                    }
+                ]
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.pk}",
+            {
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "is_not"}],
+                        }
+                    ]
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flag.refresh_from_db()
+        self.assertEqual(flag.filters["groups"][0]["properties"][0]["operator"], "not_in")
+
+    def test_non_cohort_is_not_operator_is_left_untouched(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Person prop is_not",
+                "key": "person-is-not",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {"key": "email", "type": "person", "value": "x@y.com", "operator": "is_not"}
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key="person-is-not")
+        self.assertEqual(flag.filters["groups"][0]["properties"][0]["operator"], "is_not")
+
     def test_saving_flag_strips_legacy_holdout_groups(self):
         flag = FeatureFlag.objects.create(
             team=self.team,

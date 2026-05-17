@@ -1050,6 +1050,19 @@ class FeatureFlagSerializer(
                             code="cohort_does_not_exist",
                         )
 
+                    # Cohort membership is binary, so only `in`/`not_in` are meaningful. Other
+                    # operators (notably `is_not`, produced by older AI-assisted flag edits when
+                    # the UI hid the `not_in` option) hit the Rust engine's catch-all arm and
+                    # evaluate to false for everyone, silently disabling the condition. Coerce
+                    # to the intended meaning instead of saving a dead condition.
+                    if prop.operator not in (None, PropertyOperator.IN_, PropertyOperator.NOT_IN):
+                        property["operator"] = (
+                            PropertyOperator.NOT_IN
+                            if prop.operator == PropertyOperator.IS_NOT
+                            else PropertyOperator.IN_
+                        )
+                        prop = Property(**property)
+
                 if prop.operator in (
                     PropertyOperator.IS_DATE_BEFORE,
                     PropertyOperator.IS_DATE_AFTER,
