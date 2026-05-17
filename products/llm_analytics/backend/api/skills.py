@@ -3,7 +3,6 @@ from uuid import UUID
 
 from django.db import IntegrityError
 from django.db.models import Q, QuerySet
-from django.http import HttpResponse, HttpResponsePermanentRedirect
 
 import structlog
 import posthoganalytics
@@ -308,7 +307,7 @@ class LLMSkillViewSet(
     @action(methods=["GET"], detail=False, url_path=r"name/(?P<skill_name>[^/]+)")
     @llma_track_latency("llma_skills_get_by_name")
     @monitor(feature=None, endpoint="llma_skills_get_by_name", method="GET")
-    def get_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response | HttpResponse:
+    def get_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response:
         # If the caller passed a UUID instead of a slug name, redirect to the
         # name-based URL so bookmarks / copied links still work.
         if _is_uuid(skill_name):
@@ -319,7 +318,9 @@ class LLMSkillViewSet(
             query_string = request.META.get("QUERY_STRING", "")
             if query_string:
                 redirect_url = f"{redirect_url}?{query_string}"
-            return HttpResponsePermanentRedirect(redirect_url)
+            response = Response(status=status.HTTP_301_MOVED_PERMANENTLY)
+            response["Location"] = redirect_url
+            return response
 
         version_params = self._get_requested_version_params(request)
         version = cast(int | None, version_params.get("version"))
