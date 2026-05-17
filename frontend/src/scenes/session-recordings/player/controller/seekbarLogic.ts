@@ -161,15 +161,17 @@ export const seekbarLogic = kea<seekbarLogicType>([
             actions.endScrub()
         },
         handleDown: ({ event }) => {
-            if (!values.thumb) {
-                return
-            }
-
             actions.startScrub()
-            const xPos = getXPos(event)
-            let diffFromThumb = xPos - values.thumb.getBoundingClientRect().left - THUMB_OFFSET
-            if (Math.abs(diffFromThumb) > THUMB_SIZE) {
-                diffFromThumb = 0
+            // If the thumb ref hasn't been wired yet (e.g. the logic just remounted on a recording
+            // switch and the post-mount effect hasn't run), treat the click as far from the thumb
+            // so the user still gets feedback instead of a dead click.
+            let diffFromThumb = 0
+            if (values.thumb) {
+                const xPos = getXPos(event)
+                diffFromThumb = xPos - values.thumb.getBoundingClientRect().left - THUMB_OFFSET
+                if (Math.abs(diffFromThumb) > THUMB_SIZE) {
+                    diffFromThumb = 0
+                }
             }
             actions.setCursorDiff(diffFromThumb)
 

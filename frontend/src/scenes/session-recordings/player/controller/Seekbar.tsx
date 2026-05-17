@@ -1,7 +1,7 @@
 import './Seekbar.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import React from 'react'
 
 import { SourceLoadingState } from '@posthog/replay-shared'
@@ -91,9 +91,11 @@ export function Seekbar(): JSX.Element {
     const thumbRef = useRef<HTMLDivElement | null>(null)
     const seekBarRef = useRef<HTMLDivElement | null>(null)
 
-    // Workaround: Something with component and logic mount timing that causes slider and thumb
-    // reducers to be undefined.
-    useEffect(() => {
+    // seekbarLogic is keyed by sessionRecordingId, so the logic instance remounts on every recording
+    // switch with null slider/thumb refs. Use useLayoutEffect so refs are wired synchronously before
+    // the browser paints — otherwise a click landing between commit and effect run finds null refs
+    // and is dead (handleDown bails when thumb is null).
+    useLayoutEffect(() => {
         if (sliderRef.current && thumbRef.current) {
             setSlider(sliderRef)
             setThumb(thumbRef)
