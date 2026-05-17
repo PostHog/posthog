@@ -1210,29 +1210,21 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
             status=Status.NEW,
         )
 
-    @parameterized.expand(
-        [
-            ("email",),
-            ("$email",),
-            ("Email",),
-        ]
-    )
-    def test_email_fallback_matches_property_variant(self, mock_on_commit, prop_key):
-        email_addr = f"test-{prop_key}@example.com"
+    def test_email_fallback_matches_person_by_email_property(self, mock_on_commit):
         _create_person(
             team=self.team,
-            distinct_ids=[f"uid-{prop_key}"],
-            properties={prop_key: email_addr},
+            distinct_ids=["some-other-id"],
+            properties={"email": "alice@example.com"},
             immediate=True,
         )
-        self._create_email_ticket(email_from=email_addr, distinct_id=email_addr)
+        self._create_email_ticket(email_from="alice@example.com", distinct_id="alice@example.com")
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
 
         assert response.status_code == status.HTTP_200_OK
         person_data = response.json()["results"][0]["person"]
         assert person_data is not None
-        assert person_data["properties"][prop_key] == email_addr
+        assert person_data["properties"]["email"] == "alice@example.com"
 
     def test_email_fallback_not_triggered_when_distinct_id_matches(self, mock_on_commit):
         person = _create_person(

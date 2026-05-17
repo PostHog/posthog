@@ -70,11 +70,12 @@ logger = structlog.get_logger(__name__)
 
 
 def _get_persons_by_email(team: Team, emails: list[str]) -> dict[str, Person]:
-    """Batch look up persons by their properties email value via ClickHouse.
+    """Batch look up persons by their properties.email value via ClickHouse.
 
     Returns a dict mapping lowercase email -> Person for the first match.
-    Checks common key variants: ``email``, ``Email``, ``$email``.
-    Uses the HogQL ``persons`` virtual table (argMax dedup handled automatically).
+    Only checks ``properties.email`` (the canonical, materialized key with
+    a skip index). Uses the HogQL ``persons`` virtual table (argMax dedup
+    handled automatically).
     """
     if not emails:
         return {}
@@ -83,15 +84,9 @@ def _get_persons_by_email(team: Team, emails: list[str]) -> dict[str, Person]:
     with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
         response = execute_hogql_query(
             """
-            SELECT
-                id,
-                properties.email,
-                properties.Email,
-                properties.$email
+            SELECT id, properties.email
             FROM persons
             WHERE lower(toString(properties.email)) IN {emails}
-               OR lower(toString(properties.Email)) IN {emails}
-               OR lower(toString(properties.$email)) IN {emails}
             """,
             placeholders={"emails": ast.Constant(value=emails_lower)},
             team=team,
@@ -101,12 +96,12 @@ def _get_persons_by_email(team: Team, emails: list[str]) -> dict[str, Person]:
     if not response.results:
         return {}
 
-    emails_set = {e.lower() for e in emails}
     email_to_uuid: dict[str, str] = {}
-    for person_uuid, prop_email, prop_Email, prop_dollar_email in response.results:
-        for val in (prop_email, prop_Email, prop_dollar_email):
-            if val and val.lower() in emails_set and val.lower() not in email_to_uuid:
-                email_to_uuid[val.lower()] = str(person_uuid)
+    for person_uuid, prop_email in response.results:
+        if prop_email:
+            lower = prop_email.lower()
+            if lower not in email_to_uuid:
+                email_to_uuid[lower] = str(person_uuid)
 
     persons = get_persons_by_uuids(team.pk, list(email_to_uuid.values()))
     uuid_to_person: dict[str, Person] = {str(p.uuid): p for p in persons}
