@@ -68,6 +68,9 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     body: z.union([z.string(), z.null()]).optional(),
     max_tries: z.number().optional(),
     headers: z.record(z.string(), z.string()).optional(),
+    // Per-request override for the fetch abort timeout. Defaults to EXTERNAL_REQUEST_TIMEOUT_MS
+    // (3s) which is too tight for LLM calls — those should set this explicitly.
+    timeout_ms: z.number().int().positive().optional(),
 })
 
 export const CyclotronInvocationQueueParametersEmailSchema = z.object({

@@ -59,6 +59,10 @@ registerAsyncFunction('postHogLLMClassify', {
                 Authorization: `Bearer ${context.llmGatewayApiKey}`,
                 'Content-Type': 'application/json',
             },
+            // LLM responses regularly exceed the 3s EXTERNAL_REQUEST_TIMEOUT_MS default
+            // (gpt-5-mini with reasoning routinely takes 4-8s). Without this override the
+            // fetch aborts mid-completion and the Hog VM sees status 500 / body undefined.
+            timeout_ms: 120_000,
         })
     },
 
