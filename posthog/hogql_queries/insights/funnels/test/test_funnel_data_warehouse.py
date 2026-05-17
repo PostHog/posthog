@@ -261,6 +261,41 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             assert results[0]["count"] == 2
             assert results[1]["count"] == 2
 
+    def test_funnels_data_warehouse_and_regular_nodes_string_aggregation_target(self):
+        # A mixed funnel where the warehouse series aggregates by a plain string
+        # column (not cast to UUID) must not fail the UNION ALL with NO_COMMON_TYPE
+        # against the events series' person_id UUID.
+        table_name = self.setup_data_warehouse()
+        with freeze_time("2025-11-07"):
+            _create_person(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539",
+            )
+            journeys_for(
+                {"person1": [{"event": "$pageview", "timestamp": datetime(2025, 11, 1, 0, 0, 0)}]},
+                self.team,
+                create_people=False,
+            )
+
+            funnels_query = FunnelsQuery(
+                kind="FunnelsQuery",
+                dateRange=DateRange(date_from="2025-11-01"),
+                series=[
+                    EventsNode(event="$pageview"),
+                    FunnelsDataWarehouseNode(
+                        id=table_name,
+                        table_name=table_name,
+                        id_field="uuid",
+                        aggregation_target_field="user_id",
+                        timestamp_field="created",
+                    ),
+                ],
+            )
+
+            response = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True).calculate()
+            assert response.results is not None
+
     @snapshot_clickhouse_queries
     def test_funnels_data_warehouse_non_uuid_id_column(self):
         table_name = self.setup_data_warehouse()
