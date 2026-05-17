@@ -4813,11 +4813,37 @@ class TestPrinted(APIBaseTest):
         )
         assert query_response.results == [(6,)]
 
-    def test_split_function_on_nullable_property(self):
-        # splitByChar on a nullable property would produce an illegal Nullable(Array)
-        query = parse_select("SELECT splitByChar('@', properties.email) FROM events")
+    @parameterized.expand(
+        [
+            ("splitByChar", "splitByChar('@', properties.email)"),
+            ("splitByString", "splitByString('@@', properties.email)"),
+            ("splitByRegexp", "splitByRegexp('[^a-z]+', properties.email)"),
+            ("splitByWhitespace", "splitByWhitespace(properties.email)"),
+            ("splitByNonAlpha", "splitByNonAlpha(properties.email)"),
+            ("alphaTokens", "alphaTokens(properties.email)"),
+            ("ngrams", "ngrams(properties.email, 3)"),
+            ("tokens", "tokens(properties.email)"),
+            ("extractAll", "extractAll(properties.email, '[a-z]+')"),
+            ("extractAllGroups", "extractAllGroups(properties.email, '([a-z]+)')"),
+            ("extractAllGroupsHorizontal", "extractAllGroupsHorizontal(properties.email, '([a-z]+)')"),
+            ("extractAllGroupsVertical", "extractAllGroupsVertical(properties.email, '([a-z]+)')"),
+            ("extractGroups", "extractGroups(properties.email, '([a-z]+)')"),
+        ]
+    )
+    def test_array_returning_string_function_on_nullable_property(self, _name, func_call):
+        # A nullable string arg to an array-returning function would produce an
+        # illegal Nullable(Array(...)) — ClickHouse rejects it (exception_code=43).
+        query = parse_select(f"SELECT {func_call} FROM events")
         query_response = execute_hogql_query(team=self.team, query=query)
-        assert query_response.results is not None
+        assert query_response.clickhouse is not None
+        assert "ifNull(" in query_response.clickhouse
+
+    def test_array_returning_string_function_no_spurious_ifnull_on_constant(self):
+        # A non-nullable (constant) string arg must not be wrapped in ifNull.
+        query = parse_select("SELECT splitByChar('@', 'a@b') FROM events")
+        query_response = execute_hogql_query(team=self.team, query=query)
+        assert query_response.clickhouse is not None
+        assert "ifNull(" not in query_response.clickhouse
 
 
 class TestPostgresPrinter(BaseTest):

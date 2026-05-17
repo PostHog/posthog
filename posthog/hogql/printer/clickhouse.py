@@ -81,7 +81,11 @@ _ARRAY_RETURNING_STRING_FUNCTIONS = frozenset(
         "splitByWhitespace",
         "splitByNonAlpha",
         "alphaTokens",
+        "extractAll",
         "extractAllGroups",
+        "extractAllGroupsHorizontal",
+        "extractAllGroupsVertical",
+        "extractGroups",
         "ngrams",
         "tokens",
     }
@@ -172,14 +176,21 @@ class ClickHousePrinter(BasePrinter):
                 else:
                     args.append(f"ifNull(toString({self.visit(arg)}), '')")
         elif node.name in _ARRAY_RETURNING_STRING_FUNCTIONS:
-            # These return Array(...). A Nullable string argument would make the
-            # result Nullable(Array(...)), which ClickHouse rejects, so coerce
-            # nullable string args to a non-nullable empty string.
+            # A Nullable string arg would make the result Nullable(Array(...)),
+            # which ClickHouse rejects, so coerce nullable string args to a
+            # non-nullable empty string. Coercion is position-agnostic on
+            # purpose — a nullable separator would be just as illegal.
             args = []
             for arg in node_args:
                 visited = self.visit(arg)
                 arg_type = arg.type.resolve_constant_type(self.context) if arg.type is not None else None
-                if isinstance(arg_type, ast.StringType) and arg_type.nullable:
+                # StringArrayType is a StringType subclass but resolves to an
+                # Array — coercing it to a bare '' would be invalid, so exclude it.
+                if (
+                    isinstance(arg_type, ast.StringType)
+                    and not isinstance(arg_type, ast.StringArrayType)
+                    and arg_type.nullable
+                ):
                     args.append(f"ifNull({visited}, '')")
                 else:
                     args.append(visited)
