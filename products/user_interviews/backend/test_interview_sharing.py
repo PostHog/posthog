@@ -20,7 +20,13 @@ from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.user_interviews.backend.api import UserInterviewTopicSerializer
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
-from products.user_interviews.backend.webhooks import EMBEDDING_CONTENT_MAX_BYTES, _build_first_message
+from products.user_interviews.backend.webhooks import (
+    DEFAULT_FIRST_MESSAGE_TEMPLATE,
+    EMBEDDING_CONTENT_MAX_BYTES,
+    FIRST_MESSAGE_PROMPT_NAME,
+    _build_first_message,
+    _resolve_first_message_template,
+)
 
 
 class _FeatureFlagEnabledMixin(APIBaseTest):
@@ -328,43 +334,105 @@ class TestInterviewPublicViewer(APIBaseTest):
 class TestBuildFirstMessage(unittest.TestCase):
     @parameterized.expand(
         [
-            ("simple_name_and_topic", "Paul", "taxonomic filter search", ["Hi Paul!", "taxonomic filter search"]),
-            ("dotted_local_part", "Cory S", "session replay adoption", ["Hi Cory S!", "session replay adoption"]),
+            ("simple_name_and_topic", "Paul", "taxonomic filter search", ["Hey Paul!", "taxonomic filter search"]),
+            ("dotted_local_part", "Cory S", "session replay adoption", ["Hey Cory S!", "session replay adoption"]),
             (
                 "name_with_trailing_topic_whitespace",
                 "Kim",
                 "  feature flag rollout  ",
-                ["Hi Kim!", "feature flag rollout"],
+                ["Hey Kim!", "feature flag rollout"],
             ),
         ]
     )
     def test_includes_name_and_topic(self, _label: str, user_name: str, topic_text: str, expected_fragments: list[str]):
-        message = _build_first_message(user_name=user_name, topic_text=topic_text)
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name=user_name, topic_text=topic_text)
         for fragment in expected_fragments:
             assert fragment in message
 
     @parameterized.expand([("empty", ""), ("whitespace_only", "   ")])
-    def test_drops_topic_sentence_when_topic_empty(self, _label: str, topic_text: str):
-        message = _build_first_message(user_name="Sam", topic_text=topic_text)
-        assert "Hi Sam!" in message
-        assert "Today we're talking about" not in message
+    def test_falls_back_to_generic_topic_when_topic_empty(self, _label: str, topic_text: str):
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="Sam", topic_text=topic_text)
+        assert "Hey Sam!" in message
+        assert "your experience" in message
 
     @parameterized.expand([("empty", ""), ("whitespace_only", "   ")])
     def test_falls_back_to_generic_greeting_when_user_name_empty(self, _label: str, user_name: str):
-        message = _build_first_message(user_name=user_name, topic_text="checkout funnel")
-        assert "Hi there!" in message
-        assert "Hi !" not in message
+        message = _build_first_message(
+            DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name=user_name, topic_text="checkout funnel"
+        )
+        assert "Hey there!" in message
+        assert "Hey !" not in message
 
     def test_collapses_internal_whitespace_in_topic(self):
-        message = _build_first_message(user_name="Sam", topic_text="multi\nline\n\ttopic")
+        message = _build_first_message(
+            DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="Sam", topic_text="multi\nline\n\ttopic"
+        )
         assert "multi line topic" in message
         assert "\n" not in message
 
     def test_truncates_very_long_topic(self):
         long_topic = "x" * 500
-        message = _build_first_message(user_name="Sam", topic_text=long_topic)
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="Sam", topic_text=long_topic)
         assert "x" * 200 in message
         assert "x" * 201 not in message
+
+    def test_uses_custom_template_when_provided(self):
+        custom = "Hi {user_name}, today's topic: {topic_text}."
+        message = _build_first_message(custom, user_name="Paul", topic_text="onboarding")
+        assert message == "Hi Paul, today's topic: onboarding."
+
+    def test_falls_back_to_default_when_custom_template_missing_placeholder(self):
+        broken = "Hi {nonsense}, today is {missing_field}."
+        message = _build_first_message(broken, user_name="Paul", topic_text="onboarding")
+        assert "Hey Paul!" in message
+        assert "onboarding" in message
+
+    def test_falls_back_to_default_when_template_attribute_missing(self):
+        broken = "Hi {user_name.really_missing_attr}!"
+        message = _build_first_message(broken, user_name="Paul", topic_text="onboarding")
+        assert "Hey Paul!" in message
+        assert "onboarding" in message
+
+    def test_falls_back_to_default_when_rendered_message_exceeds_cap(self):
+        huge = "Hi {user_name:>2000}!"
+        message = _build_first_message(huge, user_name="Paul", topic_text="onboarding")
+        assert "Hey Paul!" in message
+        assert "onboarding" in message
+        assert len(message) <= 1000
+
+
+class TestResolveFirstMessageTemplate(APIBaseTest):
+    def test_returns_default_when_no_prompt_configured(self):
+        template = _resolve_first_message_template(self.team)
+        assert template == DEFAULT_FIRST_MESSAGE_TEMPLATE
+
+    def test_returns_team_override_when_prompt_published(self):
+        from posthog.models.llm_prompt import LLMPrompt
+
+        LLMPrompt.objects.create(
+            team=self.team,
+            name=FIRST_MESSAGE_PROMPT_NAME,
+            prompt="Hey {user_name}! Quick chat about {topic_text}?",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        template = _resolve_first_message_template(self.team)
+        assert template == "Hey {user_name}! Quick chat about {topic_text}?"
+
+    def test_returns_default_when_published_prompt_is_empty(self):
+        from posthog.models.llm_prompt import LLMPrompt
+
+        LLMPrompt.objects.create(
+            team=self.team,
+            name=FIRST_MESSAGE_PROMPT_NAME,
+            prompt="   ",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        template = _resolve_first_message_template(self.team)
+        assert template == DEFAULT_FIRST_MESSAGE_TEMPLATE
 
 
 class TestInterviewStartCall(APIBaseTest):
@@ -409,7 +477,7 @@ class TestInterviewStartCall(APIBaseTest):
         response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
         assert response.status_code == status.HTTP_200_OK, response.content
         first_message = response.json()["assistant_overrides"]["firstMessage"]
-        assert "Hi Alex!" in first_message
+        assert "Hey Alex!" in first_message
         assert "Replay adoption" in first_message
 
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
