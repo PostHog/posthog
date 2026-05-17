@@ -163,4 +163,35 @@ describe('posthog-llm-classify template', () => {
 
         expect(response.error).toMatch(/LLM classification failed with status 401/)
     })
+
+    it('skips the LLM call and returns sampled_out when sample_rate is 0', async () => {
+        // sample_rate='0' deterministically samples out (random() >= 0 is always true).
+        // We assert no fetch was dispatched and the action returned the stable
+        // { sampled_out: true } shape that downstream conditional_branch can read.
+        const response = await tester.invoke({
+            ...baseInputs,
+            categories: 'billing, support, sales',
+            sample_rate: '0',
+        })
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toBe(true)
+        expect(response.invocation.queueParameters).toBeUndefined()
+        expect(response.execResult).toEqual({ sampled_out: true })
+    })
+
+    it('runs normally when sample_rate is 1.0', async () => {
+        // Explicit default — confirms the guard is a no-op when sample_rate is at the top of the range.
+        const response = await tester.invoke({
+            ...baseInputs,
+            categories: 'billing, support, sales',
+            sample_rate: '1.0',
+        })
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toBe(false)
+        expect((response.invocation.queueParameters as Record<string, any>).url).toBe(
+            'http://gateway.test/workflows/v1/chat/completions'
+        )
+    })
 })

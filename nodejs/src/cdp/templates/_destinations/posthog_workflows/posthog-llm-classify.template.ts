@@ -18,6 +18,19 @@ if (empty(inputs.content)) {
   throw Error('Content to classify is required')
 }
 
+// Probabilistic sampling — when sample_rate < 1, skip the LLM call on (1 - sample_rate)
+// of triggered events. Bucket is derived from sha256(event.uuid) so the decision is
+// deterministic per event (cyclotron retries on the same event get the same answer)
+// but pseudo-random across events. Returns a stable { sampled_out: true } shape so
+// downstream conditional_branch can read classification.sampled_out and route.
+let sample := toFloat(inputs.sample_rate)
+if (sample != null and sample < 1) {
+  let bucket := toInt(concat('0x', substring(sha256Hex(event.uuid), 1, 4)))
+  if (bucket >= sample * 65536) {
+    return {'sampled_out': true}
+  }
+}
+
 let messages := []
 if (not empty(inputs.instructions)) {
   messages := arrayPushBack(messages, {'role': 'system', 'content': inputs.instructions})
@@ -111,6 +124,16 @@ return {'content': content}
             required: false,
             description:
                 'Optional comma-separated list (e.g. `billing, support, sales`). When set, the model picks exactly one and the result is parsed as `{ category, reasoning }`. Leave empty for free-form classification — the result is parsed as `{ content }`.',
+        },
+        {
+            key: 'sample_rate',
+            type: 'string',
+            label: 'Sample rate',
+            secret: false,
+            required: false,
+            default: '1.0',
+            description:
+                'Probability that this action runs on a triggered event (0.0 to 1.0). Default 1.0 runs every time. Use 0.1 to sample 10% of triggered events — handy for keeping LLM costs bounded on high-volume triggers. When sampled out, the action returns `{ sampled_out: true }` so downstream `conditional_branch` steps can detect and route accordingly. The decision is deterministic per event (derived from `sha256(event.uuid)`), so retries on the same event always make the same choice.',
         },
     ],
 }
