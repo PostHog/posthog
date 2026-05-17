@@ -32,7 +32,7 @@ from posthog.hogql.test.utils import (
 )
 
 from posthog.errors import InternalCHQueryError
-from posthog.models import Cohort
+from posthog.models import Cohort, PropertyDefinition
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.insight_variable import InsightVariable
@@ -42,6 +42,7 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.data_warehouse.backend.models import ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -1902,6 +1903,29 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         # Ignore everything after string, return as array of ints
         self.assertEqual(response.results, [([1, 2, 3, 4, 15],)])
+
+    def test_sortable_semver_on_numeric_property(self):
+        # A property defined as Numeric is coerced to Float64 by the property-types
+        # transform; sortableSemver must still operate on it as a string.
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="app_build",
+            type=PropertyDefinition.Type.EVENT,
+            property_type=PropertyType.Numeric,
+        )
+        with freeze_time("2020-01-10"):
+            _create_event(
+                distinct_id="bla",
+                event="random event",
+                team=self.team,
+                properties={"app_build": "170"},
+            )
+            flush_persons_and_events()
+            response = execute_hogql_query(
+                "SELECT count() FROM events WHERE sortableSemVer(properties.app_build) >= sortableSemVer('170')",
+                self.team,
+            )
+            self.assertEqual(response.results, [(1,)])
 
     def test_exchange_rate_table(self):
         query = "SELECT DISTINCT currency FROM exchange_rate LIMIT 500"

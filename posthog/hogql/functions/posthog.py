@@ -9,7 +9,7 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "explainCSPReport": HogQLFunctionMeta("explainCSPReport", 1, 1),
     # Allow case-insensitive matching since people might not know "SemVer" is the right capitalization
     "sortablesemver": HogQLFunctionMeta(
-        "arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull({}), '(\\d+(\\.\\d+)+)')))",
+        "arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(toString(assumeNotNull({})), '(\\d+(\\.\\d+)+)')))",
         1,
         1,
         case_sensitive=False,
