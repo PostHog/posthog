@@ -3,7 +3,8 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
+import { retryWithBackoff } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
@@ -40,7 +41,26 @@ export const preflightLogic = kea<preflightLogicType>([
             null as PreflightStatus | null,
             {
                 loadPreflight: async () => {
-                    const response = await api.get<PreflightStatus>('_preflight/')
+                    // Retry transient edge/proxy hiccups (502/503/504, network failures) so a brief
+                    // infrastructure blip doesn't surface as a hard preflight error per user.
+                    const response = await retryWithBackoff(() => api.get<PreflightStatus>('_preflight/'), {
+                        maxAttempts: 3,
+                        initialDelayMs: 250,
+                        backoffMultiplier: 3,
+                        shouldRetry: (error) => {
+                            if (error instanceof ApiError) {
+                                // Network failure (no response) or transient upstream errors.
+                                return (
+                                    error.status === undefined ||
+                                    error.status === 0 ||
+                                    error.status === 502 ||
+                                    error.status === 503 ||
+                                    error.status === 504
+                                )
+                            }
+                            return false
+                        },
+                    })
                     return response
                 },
             },
