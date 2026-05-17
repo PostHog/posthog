@@ -92,13 +92,6 @@ def _emit_interview_embeddings(interview: UserInterview, topic: UserInterviewTop
             )
 
 
-def _verify_signature(secret: str, raw_body: bytes, provided_signature: str | None) -> bool:
-    if not secret or not provided_signature:
-        return False
-    expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(provided_signature, expected)
-
-
 def _resolve_share(access_token: str) -> SharingConfiguration | None:
     """Resolve a share token to its `SharingConfiguration`, mirroring the filters
     used by `SharingViewerPageViewSet.get_object()`:
@@ -299,16 +292,25 @@ def vapi_webhook(request: Request) -> Response:
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
     provided = request.headers.get("x-vapi-signature") or request.headers.get("X-Vapi-Signature")
+    expected = (
+        hmac.new(settings.VAPI_WEBHOOK_SECRET.encode(), request.body, hashlib.sha256).hexdigest() if provided else None
+    )
     logger.info(
         "user_interviews_vapi_webhook_received",
         header_keys=sorted(request.headers.keys()),
         has_provided_signature=bool(provided),
         body_bytes=len(request.body),
     )
-    if not _verify_signature(settings.VAPI_WEBHOOK_SECRET, request.body, provided):
+    if not (provided and expected and hmac.compare_digest(provided, expected)):
+        # Log prefixes (first 8 chars of one-way hashes — safe to log; do not leak secrets) to diagnose
+        # whether the failure is wrong-secret vs different-body vs case-mismatch.
         logger.warning(
             "user_interviews_vapi_webhook_signature_failed",
             has_provided_signature=bool(provided),
+            expected_prefix=expected[:8] if expected else None,
+            provided_prefix=provided[:8] if provided else None,
+            provided_length=len(provided) if provided else 0,
+            body_bytes=len(request.body),
         )
         return Response({"error": "invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
 
