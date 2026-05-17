@@ -19,7 +19,10 @@ pub const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExceptionProperties {
-    #[serde(rename = "$exception_list")]
+    // `default` lets us treat a missing `$exception_list` the same as an empty one,
+    // so the backward-compat fallback below can reconstruct it from `$exception_type`
+    // / `$exception_message` instead of erroring out during deserialization.
+    #[serde(rename = "$exception_list", default)]
     pub exception_list: ExceptionList,
 
     #[serde(rename = "$exception_sources")]

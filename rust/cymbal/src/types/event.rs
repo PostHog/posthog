@@ -144,7 +144,10 @@ mod test {
 
         assert_eq!(exc_props.exception_list.len(), 1);
         assert_eq!(exc_props.exception_list[0].exception_type, "ReferenceError");
-        assert_eq!(exc_props.exception_list[0].exception_message, "x is not defined");
+        assert_eq!(
+            exc_props.exception_list[0].exception_message,
+            "x is not defined"
+        );
     }
 
     #[test]
