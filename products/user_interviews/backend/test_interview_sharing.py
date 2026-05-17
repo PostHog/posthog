@@ -620,15 +620,14 @@ class TestVapiWebhook(APIBaseTest):
     def test_webhook_rejects_bad_or_missing_secret(self, _label: str, header_value: str | None):
         share = self._create_share()
         self.client.logout()
-        extra: dict[str, str] = {}
-        if header_value is not None:
-            extra["HTTP_X_VAPI_SECRET"] = header_value
-        response = self.client.post(
-            "/api/user_interviews/vapi_webhook/",
-            data=json.dumps(self._end_of_call_payload(share.access_token)),
-            content_type="application/json",
-            **extra,
-        )
+        body = json.dumps(self._end_of_call_payload(share.access_token))
+        url = "/api/user_interviews/vapi_webhook/"
+        if header_value is None:
+            response = self.client.post(url, data=body, content_type="application/json")
+        else:
+            response = self.client.post(
+                url, data=body, content_type="application/json", HTTP_X_VAPI_SECRET=header_value
+            )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
