@@ -10,14 +10,15 @@ agent on:
 * whether the filters it passed line up with what the user actually asked
   for (status, search, url substring, ordering, etc.).
 
-The Hedgebox demo seeds three deterministic issues into every per-case
-team via ``HedgeboxMatrix.set_project_up`` (see
-``posthog/demo/products/hedgebox/matrix.py:_set_up_error_tracking_demo_data``),
-so cases that name a specific seeded issue (e.g. "Team invite rejected"
-for the TypeError search case) work without a custom seeder. The
-``seed_error_tracking_lookup`` hook is still attached so a future
-``LookupIssueIdInOutput`` extension can verify the agent's final
-message references the per-case UUID.
+``seed_error_tracking_issues`` (see ``seeders.py``) owns the full setup
+per-case: it wipes the stale Hedgebox PSQL rows (whose CH events never
+land in the sandboxed-eval environment), creates three deterministic
+issues with fresh UUIDs, and writes the matching ``$exception`` events
+directly to ClickHouse so the MCP tools resolve them. Cases that name a
+specific seeded issue (e.g. "Team invite rejected" for the TypeError
+search case) work out of the box, and the returned ``lookup_issues`` map
+lets a future ``LookupIssueIdInOutput`` extension verify the agent's
+final message references the per-case UUID.
 
 To run::
 
@@ -37,7 +38,7 @@ from ee.hogai.eval.sandboxed.error_tracking.scorers import (
     IssuesListInputAlignment,
     IssuesListToolUsed,
 )
-from ee.hogai.eval.sandboxed.error_tracking.seeders import seed_error_tracking_lookup
+from ee.hogai.eval.sandboxed.error_tracking.seeders import seed_error_tracking_issues
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
 
 
@@ -51,7 +52,7 @@ def _list_case(
         name=name,
         prompt=prompt,
         expected={"issues_list_input": expected_input},
-        setup=seed_error_tracking_lookup,
+        setup=seed_error_tracking_issues,
     )
 
 

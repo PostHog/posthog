@@ -8,7 +8,7 @@ to 20 by default, default to ``verbosity=raw``, or skip the narrowing
 filter when the user clearly described one are the regressions this
 suite is meant to catch.
 
-Each case names a Hedgebox-seeded issue verbatim; ``IssueIdMatchesTarget``
+Each case names a seeded issue verbatim; ``IssueIdMatchesTarget``
 verifies the call used the right per-case UUID. The LLM-judge
 ``EventsArgsAlignment`` grades the sampled-event arguments against the
 case's expected shape.
@@ -32,7 +32,7 @@ from ee.hogai.eval.sandboxed.error_tracking.scorers import (
     EventsToolUsed,
     IssueIdMatchesTarget,
 )
-from ee.hogai.eval.sandboxed.error_tracking.seeders import seed_error_tracking_lookup
+from ee.hogai.eval.sandboxed.error_tracking.seeders import seed_error_tracking_issues
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
 
 
@@ -50,7 +50,7 @@ def _events_case(
             "target_issue": {"name": target_issue_name},
             "events_args": events_args,
         },
-        setup=seed_error_tracking_lookup,
+        setup=seed_error_tracking_issues,
     )
 
 

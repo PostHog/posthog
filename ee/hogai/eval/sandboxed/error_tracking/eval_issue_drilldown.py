@@ -11,7 +11,7 @@ prompts:
         ↓ ($session_id surfaces here)
     query-session-recordings-list
 
-Each case names a specific Hedgebox-seeded issue verbatim and asks for
+Each case names a specific seeded issue verbatim and asks for
 something that should drive the agent through one or more drill-down
 steps. ``IssueDrilldownOrder`` enforces the call sequence;
 ``IssueIdMatchesTarget`` verifies the agent passed the *per-case* UUID
@@ -38,7 +38,7 @@ from ee.hogai.eval.sandboxed.error_tracking.scorers import (
     IssueDrilldownOrder,
     IssueIdMatchesTarget,
 )
-from ee.hogai.eval.sandboxed.error_tracking.seeders import seed_error_tracking_lookup
+from ee.hogai.eval.sandboxed.error_tracking.seeders import seed_error_tracking_issues
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
 
 
@@ -65,7 +65,7 @@ def _drilldown_case(
         name=name,
         prompt=prompt,
         expected=expected,
-        setup=seed_error_tracking_lookup,
+        setup=seed_error_tracking_issues,
     )
 
 
