@@ -190,8 +190,8 @@ def _build_first_message(
             rendered_chars=len(rendered),
             limit=_FIRST_MESSAGE_MAX_CHARS,
         )
-        return DEFAULT_FIRST_MESSAGE_TEMPLATE.format(user_name=name_part, topic_text=topic_part)
-    return rendered
+        rendered = DEFAULT_FIRST_MESSAGE_TEMPLATE.format(user_name=name_part, topic_text=topic_part)
+    return rendered[:_FIRST_MESSAGE_MAX_CHARS]
 
 
 @api_view(["POST"])

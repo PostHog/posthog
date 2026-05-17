@@ -400,6 +400,10 @@ class TestBuildFirstMessage(unittest.TestCase):
         assert "onboarding" in message
         assert len(message) <= 1000
 
+    def test_return_value_is_always_bounded_even_with_long_user_name(self):
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="x" * 5000, topic_text="onboarding")
+        assert len(message) <= 1000
+
 
 class TestResolveFirstMessageTemplate(APIBaseTest):
     def test_returns_default_when_no_prompt_configured(self):
