@@ -832,13 +832,10 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
 
         # When the funnel aggregates by a custom HogQL expression, funnel_actors.actor_id
         # holds that value — joining on event.person_id would mismatch types (UUID vs the
-        # expression's type). Join on the same expression instead.
-        funnels_filter = self.funnels_query.funnelsFilter
-        aggregate_by_hogql = funnels_filter.funnelAggregateByHogQL if funnels_filter else None
-        if aggregate_by_hogql and aggregate_by_hogql != "person_id":
-            # funnelAggregateByHogQL is user-controlled. Emit a placeholder rather than
-            # interpolating the raw string — _aggregation_join_placeholders parses it
-            # into a bounded AST expression so it can't inject query structure.
+        # expression's type). Join on the same expression instead, emitted as a placeholder
+        # parsed by _aggregation_join_placeholders so the user-controlled string can't
+        # inject query structure.
+        if self._hogql_aggregation_expr() is not None:
             return """
             JOIN funnel_actors
                 ON funnel_actors.actor_id = {aggregation_join_target}
@@ -846,19 +843,21 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
 
         return aggregation_person_join
 
-    def _aggregation_join_placeholders(self) -> dict[str, ast.Expr]:
-        """Placeholder for the HogQL-aggregation join target. Parsing the user-controlled
-        funnelAggregateByHogQL into an AST (rather than string-interpolating it) keeps it a
+    def _hogql_aggregation_expr(self) -> ast.Expr | None:
+        """Parsed AST for funnelAggregateByHogQL when set and non-trivial, else None for
+        person/group aggregation. Parsing the user-controlled string into an AST keeps it a
         single bounded expression — it cannot add joins or clauses to the query."""
+        if self.funnels_query.aggregation_group_type_index is not None:
+            return None
         funnels_filter = self.funnels_query.funnelsFilter
         aggregate_by_hogql = funnels_filter.funnelAggregateByHogQL if funnels_filter else None
-        if (
-            self.funnels_query.aggregation_group_type_index is None
-            and aggregate_by_hogql
-            and aggregate_by_hogql != "person_id"
-        ):
-            return {"aggregation_join_target": parse_expr(aggregate_by_hogql)}
-        return {}
+        if aggregate_by_hogql and aggregate_by_hogql != "person_id":
+            return parse_expr(aggregate_by_hogql)
+        return None
+
+    def _aggregation_join_placeholders(self) -> dict[str, ast.Expr]:
+        expr = self._hogql_aggregation_expr()
+        return {"aggregation_join_target": expr} if expr is not None else {}
 
     def _get_aggregation_join_query(self):
         if self.funnels_query.aggregation_group_type_index is None:

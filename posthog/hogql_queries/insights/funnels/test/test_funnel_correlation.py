@@ -115,6 +115,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             funnelsFilter=FunnelsFilter(funnelAggregateByHogQL="properties.session_id"),
         )
 
+        # Converting sessions (reach "paid") that also fire "positively_related".
         for i in range(5):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
@@ -139,8 +140,25 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 properties={"session_id": f"session_{i}"},
             )
 
+        # Non-converting sessions (never reach "paid"), needed so odds ratios are
+        # computable rather than the totals being skewed to 100% conversion.
+        for i in range(5, 10):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+                properties={"session_id": f"session_{i}"},
+            )
+
+        # Before the fix this raised TYPE_MISMATCH (joining event.person_id, a UUID,
+        # against the string actor id). The join must now run and actually match rows.
         result, _ = self._get_events_for_query(query)
-        assert result is not None
+        events = {item["event"]: item for item in result}
+        self.assertIn("positively_related", events)
+        self.assertEqual(events["positively_related"]["success_count"], 5)
+        self.assertEqual(events["positively_related"]["correlation_type"], "success")
 
     def test_funnel_correlation_hogql_aggregation_rejects_injection(self):
         # funnelAggregateByHogQL is user-controlled — a value that isn't a single
