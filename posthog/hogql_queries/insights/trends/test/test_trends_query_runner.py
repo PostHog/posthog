@@ -2050,6 +2050,40 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         assert "is not supported with histogram breakdowns" in str(exc_info.value)
 
+    def test_trends_histogram_breakdown_on_string_typed_property(self):
+        # Numeric-looking values stored as strings register the property as String,
+        # so the property-type swapper does not coerce it. The histogram bin math
+        # (max - min) must still work rather than raising ILLEGAL_TYPE_OF_ARGUMENT.
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[Series(event="$pageview", timestamps=["2020-01-11T12:00:00Z"])],
+                    properties={"str_amount": "10"},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
+                    properties={"str_amount": "40"},
+                ),
+            ]
+        )
+
+        response = self._run_trends_query(
+            "2020-01-11",
+            "2020-01-13",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.EVENT,
+                breakdown="str_amount",
+                breakdown_histogram_bin_count=2,
+            ),
+        )
+
+        assert {r["breakdown_value"] for r in response.results} == {"[10,25]", "[25,40.01]"}
+
     def test_trends_aggregation_hogql(self):
         self._create_test_events()
 
