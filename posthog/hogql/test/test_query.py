@@ -11,6 +11,8 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
@@ -1904,28 +1906,49 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         # Ignore everything after string, return as array of ints
         self.assertEqual(response.results, [([1, 2, 3, 4, 15],)])
 
-    def test_sortable_semver_on_numeric_property(self):
+    @parameterized.expand(
+        [
+            # (property_scope, stored_value, lower_semver, higher_semver)
+            ("event", "1.7", "1.6", "1.8"),
+            ("event", "170.5", "170.4", "170.6"),
+            ("person", "1.7", "1.6", "1.8"),
+        ]
+    )
+    def test_sortable_semver_on_numeric_property(self, scope, stored_value, lower, higher):
         # A property defined as Numeric is coerced to Float64 by the property-types
-        # transform; sortableSemver must still operate on it as a string.
+        # transform; sortableSemver must still operate on it as a string and parse
+        # the dotted version correctly.
+        prop_type = PropertyDefinition.Type.EVENT if scope == "event" else PropertyDefinition.Type.PERSON
         PropertyDefinition.objects.create(
             team=self.team,
             name="app_build",
-            type=PropertyDefinition.Type.EVENT,
+            type=prop_type,
             property_type=PropertyType.Numeric,
         )
+        prop_chain = "properties.app_build" if scope == "event" else "person.properties.app_build"
         with freeze_time("2020-01-10"):
-            _create_event(
-                distinct_id="bla",
-                event="random event",
-                team=self.team,
-                properties={"app_build": "170"},
-            )
+            if scope == "event":
+                _create_event(
+                    distinct_id="bla", event="random event", team=self.team, properties={"app_build": stored_value}
+                )
+            else:
+                _create_person(distinct_ids=["bla"], team_id=self.team.pk, properties={"app_build": stored_value})
+                _create_event(distinct_id="bla", event="random event", team=self.team)
             flush_persons_and_events()
-            response = execute_hogql_query(
-                "SELECT count() FROM events WHERE sortableSemVer(properties.app_build) >= sortableSemVer('170')",
-                self.team,
+            self.assertEqual(
+                execute_hogql_query(
+                    f"SELECT count() FROM events WHERE sortableSemVer({prop_chain}) >= sortableSemVer('{lower}')",
+                    self.team,
+                ).results,
+                [(1,)],
             )
-            self.assertEqual(response.results, [(1,)])
+            self.assertEqual(
+                execute_hogql_query(
+                    f"SELECT count() FROM events WHERE sortableSemVer({prop_chain}) >= sortableSemVer('{higher}')",
+                    self.team,
+                ).results,
+                [(0,)],
+            )
 
     def test_exchange_rate_table(self):
         query = "SELECT DISTINCT currency FROM exchange_rate LIMIT 500"
