@@ -74,7 +74,7 @@ export const getMcpServerInstallationsCreateUrl = (projectId: string) => {
 
 export const mcpServerInstallationsCreate = async (
     projectId: string,
-    mCPServerInstallationApi: NonReadonly<MCPServerInstallationApi>,
+    mCPServerInstallationApi?: NonReadonly<MCPServerInstallationApi>,
     options?: RequestInit
 ): Promise<MCPServerInstallationApi> => {
     return apiMutator<MCPServerInstallationApi>(getMcpServerInstallationsCreateUrl(projectId), {
@@ -107,7 +107,7 @@ export const getMcpServerInstallationsUpdateUrl = (projectId: string, id: string
 export const mcpServerInstallationsUpdate = async (
     projectId: string,
     id: string,
-    mCPServerInstallationApi: NonReadonly<MCPServerInstallationApi>,
+    mCPServerInstallationApi?: NonReadonly<MCPServerInstallationApi>,
     options?: RequestInit
 ): Promise<MCPServerInstallationApi> => {
     return apiMutator<MCPServerInstallationApi>(getMcpServerInstallationsUpdateUrl(projectId, id), {
@@ -125,7 +125,7 @@ export const getMcpServerInstallationsPartialUpdateUrl = (projectId: string, id:
 export const mcpServerInstallationsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedMCPServerInstallationUpdateApi: PatchedMCPServerInstallationUpdateApi,
+    patchedMCPServerInstallationUpdateApi?: PatchedMCPServerInstallationUpdateApi,
     options?: RequestInit
 ): Promise<MCPServerInstallationApi> => {
     return apiMutator<MCPServerInstallationApi>(getMcpServerInstallationsPartialUpdateUrl(projectId, id), {
@@ -158,10 +158,10 @@ export const getMcpServerInstallationsProxyCreateUrl = (projectId: string, id: s
 export const mcpServerInstallationsProxyCreate = async (
     projectId: string,
     id: string,
-    mCPServerInstallationApi: NonReadonly<MCPServerInstallationApi>,
+    mCPServerInstallationApi?: NonReadonly<MCPServerInstallationApi>,
     options?: RequestInit
-): Promise<Blob> => {
-    return apiMutator<Blob>(getMcpServerInstallationsProxyCreateUrl(projectId, id), {
+): Promise<MCPServerInstallationApi> => {
+    return apiMutator<MCPServerInstallationApi>(getMcpServerInstallationsProxyCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -195,7 +195,7 @@ export const mcpServerInstallationsToolsPartialUpdate = async (
     projectId: string,
     id: string,
     toolName: string,
-    patchedToolApprovalUpdateApi: PatchedToolApprovalUpdateApi,
+    patchedToolApprovalUpdateApi?: PatchedToolApprovalUpdateApi,
     options?: RequestInit
 ): Promise<MCPServerInstallationToolApi> => {
     return apiMutator<MCPServerInstallationToolApi>(
@@ -216,7 +216,7 @@ export const getMcpServerInstallationsToolsRefreshCreateUrl = (projectId: string
 export const mcpServerInstallationsToolsRefreshCreate = async (
     projectId: string,
     id: string,
-    mCPServerInstallationApi: NonReadonly<MCPServerInstallationApi>,
+    mCPServerInstallationApi?: NonReadonly<MCPServerInstallationApi>,
     options?: RequestInit
 ): Promise<PaginatedMCPServerInstallationToolListApi> => {
     return apiMutator<PaginatedMCPServerInstallationToolListApi>(
@@ -230,13 +230,6 @@ export const mcpServerInstallationsToolsRefreshCreate = async (
     )
 }
 
-/**
- * Start (or re-start) an OAuth flow.
-
-Pass ``template_id`` to (re)connect a catalog template, or
-``installation_id`` to reconnect an existing custom install using its
-cached metadata and per-user DCR creds.
- */
 export const getMcpServerInstallationsAuthorizeRetrieveUrl = (
     projectId: string,
     params?: McpServerInstallationsAuthorizeRetrieveParams
@@ -256,6 +249,13 @@ export const getMcpServerInstallationsAuthorizeRetrieveUrl = (
         : `/api/environments/${projectId}/mcp_server_installations/authorize/`
 }
 
+/**
+ * Start (or re-start) an OAuth flow.
+
+Pass ``template_id`` to (re)connect a catalog template, or
+``installation_id`` to reconnect an existing custom install using its
+cached metadata and per-user DCR creds.
+ */
 export const mcpServerInstallationsAuthorizeRetrieve = async (
     projectId: string,
     params?: McpServerInstallationsAuthorizeRetrieveParams,
@@ -307,12 +307,6 @@ export const mcpServerInstallationsInstallTemplateCreate = async (
     )
 }
 
-/**
- * Lists curated MCP server templates that users can install with one click.
-
-Templates are seeded by PostHog operators and carry shared, encrypted
-OAuth client credentials. Inactive templates are hidden from the catalog.
- */
 export const getMcpServersListUrl = (projectId: string, params?: McpServersListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -329,6 +323,12 @@ export const getMcpServersListUrl = (projectId: string, params?: McpServersListP
         : `/api/environments/${projectId}/mcp_servers/`
 }
 
+/**
+ * Lists curated MCP server templates that users can install with one click.
+
+Templates are seeded by PostHog operators and carry shared, encrypted
+OAuth client credentials. Inactive templates are hidden from the catalog.
+ */
 export const mcpServersList = async (
     projectId: string,
     params?: McpServersListParams,

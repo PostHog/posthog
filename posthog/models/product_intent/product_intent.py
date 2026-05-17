@@ -19,6 +19,7 @@ from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import RootTeamMixin, UUIDTModel
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm, get_safe_cache, safe_cache_delete, safe_cache_set
 
@@ -317,6 +318,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def calculate_product_activation(team_id: int, only_calc_if_days_since_last_checked: int = 1) -> None:
     """
     Calculate product activation for a team.

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 from uuid import uuid4
 
@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -105,6 +106,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "created_at": data["created_at"],
             "created_by": data["created_by"],
             "deleted": False,
+            "enabled": True,
             "title": "My Subscription",
             "next_delivery_date": data["next_delivery_date"],
             "integration_id": None,
@@ -420,6 +422,57 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "require a Slack integration" in response.json()["detail"]
 
+    def test_patch_enabled_true_rejected_when_slack_integration_missing(self):
+        """Re-enabling a disabled Slack subscription whose integration is gone must be
+        rejected up front — otherwise the next delivery would auto-disable it again
+        and the user would receive a confusing email seconds after hitting "Enable".
+        """
+        integration = Integration.objects.create(team=self.team, kind="slack", config={})
+        create_response = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=integration.id,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        subscription_id = create_response.json()["id"]
+
+        # Auto-disable: clear integration and disable the subscription
+        Subscription.objects.filter(pk=subscription_id).update(enabled=False, integration=None)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "enabled"
+        assert "Reconnect Slack" in response.json()["detail"]
+
+    def test_patch_enabled_true_rejected_for_webhook_subscription(self):
+        """Webhook delivery is not supported, so a webhook subscription auto-disables on
+        first delivery. Re-enabling without changing target_type would just trigger the
+        auto-disable path again — surface the precondition failure up front.
+        """
+        # Webhook subs can be created (target_type is in the model enum) but are
+        # auto-disabled by the activity since `webhook` isn't in SUPPORTED_TARGET_TYPES.
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="webhook",
+            target_value="https://example.com/hook",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="webhook sub",
+            enabled=False,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "enabled"
+        assert "this delivery channel is not currently supported" in response.json()["detail"]
+
     def test_cannot_create_subscription_with_summary_enabled_without_ai_consent(self):
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
@@ -543,6 +596,86 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "AI summary context" in response.json()["detail"]
 
+    @parameterized.expand(
+        [
+            ("flag_disabled_rejects", False, status.HTTP_403_FORBIDDEN, "Hourly subscriptions"),
+            ("flag_enabled_allows", True, status.HTTP_201_CREATED, "hourly"),
+        ]
+    )
+    def test_hourly_subscription_create_respects_feature_flag(
+        self,
+        _case_name: str,
+        flag_value: bool,
+        expected_status: int,
+        expected_fragment: str,
+    ):
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=flag_value):
+            response = self._create_subscription(frequency="hourly")
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_201_CREATED:
+            assert response.json()["frequency"] == expected_fragment
+        else:
+            assert expected_fragment in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("create_below_cap", 4, status.HTTP_201_CREATED),
+            ("create_at_cap", 5, status.HTTP_400_BAD_REQUEST),
+            ("create_over_cap_grandfathered", 7, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_hourly_subscription_create_respects_org_cap(
+        self,
+        _name: str,
+        existing_active: int,
+        expected_status: int,
+    ):
+        self._seed_active_hourly_subscriptions(existing_active)
+
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
+            response = self._create_subscription(frequency="hourly", title="new hourly")
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert "up to 5 active hourly subscriptions" in str(response.json())
+
+    def test_can_replace_hourly_subscription_after_disable(self):
+        seeded = self._seed_active_hourly_subscriptions(5)
+
+        with patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True):
+            # Disable one of the seeded hourly subscriptions — it should free up an org slot.
+            patch_response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{seeded[0].id}",
+                {"enabled": False},
+            )
+            assert patch_response.status_code == status.HTTP_200_OK
+
+            response = self._create_subscription(frequency="hourly", title="replacement hourly")
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_hourly_cap_hit_emits_telemetry(self):
+        cache.clear()
+        self._seed_active_hourly_subscriptions(5)
+
+        with (
+            patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True),
+            patch("ee.api.subscription.posthoganalytics.capture") as mock_capture,
+        ):
+            response = self._create_subscription(frequency="hourly", title="cap-buster hourly")
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        cap_hit_calls = [
+            c for c in mock_capture.call_args_list if c.kwargs.get("event") == "subscription_hourly_cap_hit"
+        ]
+        assert len(cap_hit_calls) == 1
+        props = cap_hit_calls[0].kwargs["properties"]
+        assert props["organization_id"] == str(self.organization.id)
+        assert props["is_create"] is True
+        assert props["active_count"] == 5
+        assert props["limit"] == 5
+
     def _seed_active_summary_subscriptions(self, count: int) -> list[Subscription]:
         # Build raw rows so we can place an org over its tier cap to exercise
         # grandfathering paths without going through the enforced API.
@@ -558,6 +691,24 @@ class TestSubscriptionTemporal(APILicensedTest):
                 title=f"existing {i}",
                 created_by=self.user,
                 summary_enabled=True,
+            )
+            for i in range(count)
+        ]
+
+    def _seed_active_hourly_subscriptions(self, count: int) -> list[Subscription]:
+        # Build raw rows so we can place an org at or above the hourly cap
+        # without going through the enforced API.
+        return [
+            Subscription.objects.create(
+                team=self.team,
+                insight=self.insight,
+                target_type="email",
+                target_value=f"existing-hourly-{i}@posthog.com",
+                frequency="hourly",
+                interval=1,
+                start_date=datetime(2022, 1, 1, tzinfo=UTC),
+                title=f"existing hourly {i}",
+                created_by=self.user,
             )
             for i in range(count)
         ]
@@ -859,6 +1010,19 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_deliver_disabled_subscription_returns_409(self):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        self.mock_sync.return_value = mock_client
+
+        response = self._create_subscription(invite_message=None)
+        sub_id = response.json()["id"]
+        Subscription.objects.filter(id=sub_id).update(enabled=False)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "Re-enable" in response.json()["detail"]
 
     def test_deliver_temporal_error_returns_500(self):
         mock_client = MagicMock()
@@ -1169,6 +1333,213 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert len(results) == 1
         assert results[0]["id"] == sub_id
         assert results[0]["target_type"] == target_type
+
+    def test_patch_enabled_field(self):
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"enabled": False},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        assert response.json()["enabled"] is False
+        subscription.refresh_from_db()
+        assert subscription.enabled is False
+
+    def test_re_enable_resets_stale_next_delivery_date(self):
+        # Without this reset the scheduler's `next_delivery_date__lte=now` filter
+        # picks the sub up on its next tick and fires a second delivery right
+        # after the immediate TARGET_CHANGE confirmation.
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+            enabled=False,
+        )
+        stale_date = timezone.now() - timedelta(days=3)
+        Subscription.objects.filter(pk=subscription.pk).update(next_delivery_date=stale_date)
+
+        with patch("ee.api.subscription.sync_connect") as temporal_mock:
+            temporal_mock.return_value.start_workflow = AsyncMock()
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+                {"enabled": True},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.content
+        subscription.refresh_from_db()
+        assert subscription.enabled is True
+        assert subscription.next_delivery_date is not None
+        assert subscription.next_delivery_date > timezone.now()
+        # Re-enable also fires the immediate TARGET_CHANGE confirmation delivery —
+        # the date reset prevents the *scheduler* from firing a second one moments later.
+        temporal_mock.return_value.start_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            # `until_date` already in the past → no future occurrence.
+            ("until_date_in_past", {"until_date": -1}),
+            # `count=2` deliveries already consumed at start_date and start_date+1d.
+            ("count_exhausted", {"count": 2}),
+        ]
+    )
+    def test_re_enable_rejects_when_rrule_exhausted(self, _label, schedule_kwargs):
+        # Both exhaustion modes land `next_delivery_date=None` via
+        # `set_next_delivery_date()`, the scheduler `__lte=now` filter excludes
+        # nulls, and the sub would silently never schedule again.
+        kwargs = dict(schedule_kwargs)
+        if "until_date" in kwargs:
+            kwargs["until_date"] = timezone.now() + timedelta(days=kwargs["until_date"])
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now() - timedelta(days=10),
+            insight=self.insight,
+            title="t",
+            enabled=False,
+            **kwargs,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"enabled": True},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        assert "reached its end date" in str(response.json())
+        subscription.refresh_from_db()
+        assert subscription.enabled is False  # rejected pre-write
+
+    def test_patch_rrule_into_exhausted_state_is_rejected(self):
+        # Path 2 of the silent-fail family: editing an active sub's schedule into
+        # an exhausted state. `Subscription.save()` would call
+        # `set_next_delivery_date()` and land `next_delivery_date=None`.
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now() - timedelta(days=10),
+            insight=self.insight,
+            title="t",
+            enabled=True,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"until_date": (timezone.now() - timedelta(days=1)).isoformat()},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        assert "reached its end date" in str(response.json())
+        subscription.refresh_from_db()
+        assert subscription.next_delivery_date is not None  # unchanged
+
+    def test_create_rejects_when_rrule_already_exhausted(self):
+        # Symmetric hole at create-time: a brand-new sub with `until_date` in the
+        # past would land `next_delivery_date=None` and silently never schedule.
+        response = self._create_subscription(
+            start_date="2020-01-01T00:00:00",
+            until_date="2020-01-02T00:00:00",
+        )
+        assert response.status_code == 400, response.content
+        assert "reached its end date" in str(response.json())
+
+    def test_re_enable_with_extended_until_date_is_allowed(self):
+        # User extending their schedule in the same PATCH that re-enables — the
+        # candidate-rrule check honors the new `until_date` and lets it through.
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now() - timedelta(days=10),
+            until_date=timezone.now() - timedelta(days=1),
+            insight=self.insight,
+            title="t",
+            enabled=False,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"enabled": True, "until_date": (timezone.now() + timedelta(days=30)).isoformat()},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        subscription.refresh_from_db()
+        assert subscription.enabled is True
+        # Scheduler-visible invariant: `next_delivery_date` must be a future timestamp,
+        # not None — that's what the candidate-rrule validation defends.
+        assert subscription.next_delivery_date is not None
+        assert subscription.next_delivery_date > timezone.now()
+
+    def test_get_returns_enabled_field(self):
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/")
+        assert response.status_code == 200, response.content
+        assert response.json()["enabled"] is True
+
+    @parameterized.expand(
+        [
+            # Locks the workflow-trigger matrix across all four (initial, final) enabled states.
+            ("enabled_to_enabled_field_edit", True, {"title": "renamed"}, True),
+            ("redundant_enable", True, {"enabled": True}, True),
+            ("disable_enabled", True, {"enabled": False}, False),
+            ("redundant_disable", False, {"enabled": False}, False),
+            ("enable_disabled", False, {"enabled": True}, True),
+        ]
+    )
+    def test_patch_workflow_trigger_for_enabled_field(
+        self, _label, initial_enabled, patch_payload, expect_workflow_called
+    ):
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+            enabled=initial_enabled,
+        )
+        with patch("ee.api.subscription.sync_connect") as temporal_mock:
+            temporal_mock.return_value.start_workflow = AsyncMock()
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+                patch_payload,
+                format="json",
+            )
+            assert response.status_code == 200, response.content
+            if expect_workflow_called:
+                temporal_mock.return_value.start_workflow.assert_called_once()
+            else:
+                temporal_mock.return_value.start_workflow.assert_not_called()
 
 
 class TestSubscriptionDeliveryAPI(APILicensedTest):

@@ -33,6 +33,7 @@ from posthog.utils import (
     get_default_event_info,
     get_default_event_name,
     get_ip_address,
+    get_js_url,
     get_short_user_agent,
     load_data_from_request,
     refresh_requested_by_client,
@@ -163,6 +164,75 @@ class TestFormatUrls(TestCase):
             }
             request: Request = Request(build_req)  # ty: ignore[invalid-assignment]
             self.assertEqual("https://www.testserver", format_query_params_absolute_url(request))
+
+
+class TestGetJsUrl(TestCase):
+    factory = RequestFactory()
+
+    @parameterized.expand(
+        [
+            (
+                "http_rewrites_host",
+                True,
+                "http://localhost:8234",
+                "dev-container:8000",
+                False,
+                "http://dev-container:8234",
+            ),
+            (
+                "https_keeps_localhost",
+                True,
+                "http://localhost:8234",
+                "my-tunnel.ngrok-free.dev",
+                True,
+                "http://localhost:8234",
+            ),
+            (
+                "non_localhost_unchanged",
+                True,
+                "https://cdn.example.com/static",
+                "dev-container:8000",
+                False,
+                "https://cdn.example.com/static",
+            ),
+            (
+                "non_debug_unchanged",
+                False,
+                "http://localhost:8234",
+                "dev-container:8000",
+                False,
+                "http://localhost:8234",
+            ),
+            (
+                "http_rewrites_ipv6_host",
+                True,
+                "http://localhost:8234",
+                "[::1]:8000",
+                False,
+                "http://[::1]:8234",
+            ),
+            (
+                "http_rewrites_host_without_port",
+                True,
+                "http://localhost:8234",
+                "dev-container",
+                False,
+                "http://dev-container:8234",
+            ),
+        ]
+    )
+    def test_get_js_url(
+        self, _name: str, debug: bool, js_url: str, http_host: str, is_https: bool, expected: str
+    ) -> None:
+        settings_kwargs: dict = {"DEBUG": debug, "JS_URL": js_url}
+        if is_https:
+            settings_kwargs["SECURE_PROXY_SSL_HEADER"] = ("HTTP_X_FORWARDED_PROTO", "https")
+        with self.settings(**settings_kwargs):
+            if is_https:
+                request = self.factory.get("/", HTTP_HOST=http_host, HTTP_X_FORWARDED_PROTO="https")
+            else:
+                request = self.factory.get("/", HTTP_HOST=http_host)
+            self.assertEqual(expected, get_js_url(request))
 
 
 class TestGeneralUtils(TestCase):
@@ -929,3 +999,44 @@ class TestSharingOverrideProtection(TestCase):
         result = tile_filters_override_requested_by_client(request, tile)
 
         assert result == {"breakdown": "region"}
+
+
+class TestTemplateContextHistogram(TestCase):
+    @staticmethod
+    def _count_for_labels(template_name: str, authenticated: str) -> int:
+        from posthog.utils import TEMPLATE_CONTEXT_DURATION_HISTOGRAM
+
+        for metric in TEMPLATE_CONTEXT_DURATION_HISTOGRAM.collect():
+            for sample in metric.samples:
+                if (
+                    sample.name.endswith("_count")
+                    and sample.labels.get("template_name") == template_name
+                    and sample.labels.get("authenticated") == authenticated
+                ):
+                    return int(sample.value)
+        return 0
+
+    @parameterized.expand(
+        [
+            ("authenticated", True, "true"),
+            ("anonymous", False, "false"),
+        ]
+    )
+    def test_template_context_duration_histogram_uses_correct_authenticated_label(
+        self, _name: str, authenticated: bool, expected_label: str
+    ):
+        request = RequestFactory().get("/")
+        # Stash the is_authenticated value via a simple attribute on the request
+        # itself; the wrapper reads it via getattr() so it tolerates any user shape.
+        request.user = cast(Any, type("FakeUser", (), {"is_authenticated": authenticated})())
+
+        before = self._count_for_labels("index.html", expected_label)
+
+        # Drive only the label-selection wrapper; bypass the heavy inner body so this
+        # stays a fast, hermetic unit test of the metric plumbing itself.
+        with patch("posthog.utils._build_template_context", return_value={}):
+            from posthog.utils import get_context_for_template
+
+            get_context_for_template("index.html", request)
+
+        assert self._count_for_labels("index.html", expected_label) == before + 1

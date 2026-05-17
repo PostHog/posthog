@@ -17,7 +17,8 @@
         "lucide-react": "^0.577.0",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
-        "tailwindcss": "^4.1.17"
+        "tailwindcss": "^4.1.17",
+        "tailwindcss-scroll-mask": "^0.0.3"
     },
     "devDependencies": {
         "@storybook/addon-docs": "^7.6.4",

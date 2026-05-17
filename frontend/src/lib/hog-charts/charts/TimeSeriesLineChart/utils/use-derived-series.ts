@@ -1,12 +1,8 @@
 import { useMemo } from 'react'
 
 import type { Series } from '../../../core/types'
-import {
-    applyComparisonDimming,
-    buildConfidenceIntervalSeries,
-    buildMovingAverageSeries,
-    buildTrendLineSeries,
-} from './derived-series'
+import { applyComparisonDimming } from '../../../utils/comparison-dimming'
+import { buildConfidenceIntervalSeries, buildMovingAverageSeries, buildTrendLineSeries } from './derived-series'
 
 export interface ConfidenceIntervalConfig {
     seriesKey: string

@@ -155,7 +155,9 @@ async def prepare_data_modeling_ducklake_metadata_activity(
         normalized_name = saved_query.normalized_name or saved_query.name
 
         # Get partition column name from Delta metadata
-        partition_column = _detect_partition_column_name(model.table_uri)
+        partition_column = await database_sync_to_async(_detect_partition_column_name)(
+            model.table_uri, team_id=inputs.team_id
+        )
 
         staging_uri: str | None = None
         if not is_dev_mode():
@@ -519,6 +521,7 @@ def _copy_data_modeling_via_duckgres(inputs: DuckLakeCopyActivityInputs, logger)
         catalog_bucket=catalog.bucket,
         role_arn=catalog.cross_account_role_arn,
         external_id=catalog.cross_account_external_id,
+        organization_id=org_id,
     )
 
     schema = inputs.model.schema_name
@@ -568,19 +571,19 @@ def _attach_ducklake_catalog(conn: duckdb.DuckDBPyConnection, config: dict[str, 
             raise
 
 
-def _detect_partition_column_name(table_uri: str) -> str | None:
+def _detect_partition_column_name(table_uri: str, *, team_id: int) -> str | None:
     """Detect partition column name from Delta metadata."""
     if not table_uri:
         return None
 
-    partition_columns = _fetch_delta_partition_columns(table_uri)
+    partition_columns = _fetch_delta_partition_columns(table_uri, team_id=team_id)
 
     # Return the first partition column
     return partition_columns[0] if partition_columns else None
 
 
-def _fetch_delta_partition_columns(table_uri: str) -> list[str]:
-    options = get_deltalake_storage_options()
+def _fetch_delta_partition_columns(table_uri: str, *, team_id: int) -> list[str]:
+    options = get_deltalake_storage_options(team_id=team_id)
     try:
         delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=options)
     except Exception as exc:

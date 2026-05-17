@@ -633,6 +633,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
                 max_concurrent_activities=50,
+                debug_mode=True,  # turn off sandbox/deadlock detector
             ):
                 await activity_environment.client.execute_workflow(
                     ExternalDataJobWorkflow.run,

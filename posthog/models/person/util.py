@@ -6,6 +6,7 @@ from typing import Optional, TypeVar, Union, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from django.db.models import Q
 from django.db.models.query import Prefetch, QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -557,6 +558,23 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Optional[Person
     )
 
 
+def get_person_by_email_property(team_id: int, email: str) -> Optional[Person]:
+    """Look up a person by their properties email value.
+
+    Checks common key variants: ``email``, ``Email``, ``$email``.
+    No personhog RPC exists for property-based search — uses ORM directly.
+    When a personhog RPC is added, convert to _personhog_routed.
+    """
+    return (
+        Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
+        .filter(
+            Q(properties__email=email) | Q(**{"properties__Email": email}) | Q(**{"properties__$email": email}),
+            team_id=team_id,
+        )
+        .first()
+    )
+
+
 def get_person_by_pk_or_uuid(team_id: int, key: str) -> Optional[Person]:
     """Look up a person by UUID or integer PK, routing through personhog when enabled."""
     try:
@@ -665,6 +683,30 @@ def _delete_person(
 
 
 def _get_distinct_ids_with_version(person: Person) -> dict[str, int]:
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            resp = client.get_distinct_ids_for_person(
+                GetDistinctIdsForPersonRequest(team_id=person.team_id, person_id=person.pk)
+            )
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_distinct_ids_with_version", source="personhog", client_name=get_client_name()
+            ).inc()
+            return {d.distinct_id: int(d.version or 0) for d in resp.distinct_ids}
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_distinct_ids_with_version",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning("personhog_get_distinct_ids_with_version_failure", team_id=person.team_id, exc_info=True)
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_distinct_ids_with_version", source="django_orm", client_name=get_client_name()
+    ).inc()
     return {
         distinct_id: int(version or 0)
         for distinct_id, version in PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)

@@ -3,6 +3,10 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import {
+    hasRecentContext,
+    recentTaxonomicFiltersLogic,
+} from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
@@ -15,7 +19,6 @@ import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, P
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import { infiniteListLogic } from './infiniteListLogic'
-import { hasRecentContext, recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 window.POSTHOG_APP_CONTEXT = {
@@ -874,106 +877,152 @@ describe('infiniteListLogic', () => {
         })
     })
 
-    describe('contextFilteredRecentItems with selectingKeyOnly mode', () => {
-        beforeEach(() => {
-            localStorage.clear()
-            recentTaxonomicFiltersLogic.mount()
-        })
+    describe('contextFilteredRecentItems', () => {
+        // Generic wrapper around hasRecentContext so .filter() preserves the input type
+        // (the production type guard uses `unknown` which TS can't narrow through Array.filter).
+        const onlyWithRecentContext = <T>(
+            item: T
+        ): item is T & {
+            _recentContext: { sourceGroupType: TaxonomicFilterGroupType; propertyFilter?: { value?: any } }
+        } => hasRecentContext(item)
 
-        afterEach(() => {
-            recentTaxonomicFiltersLogic.unmount()
-        })
-
-        const recordKeyOnly = (key: string, item: Record<string, any> = { name: key }): void => {
-            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
-                groupType: TaxonomicFilterGroupType.EventProperties,
-                groupName: 'Event properties',
-                value: key,
-                item: item,
-                selectingKeyOnly: true,
-            })
+        // Recent cohort filters can carry any operator the user previously chose elsewhere
+        // (insights, recordings, etc). Feature flag release conditions intentionally hide
+        // the operator dropdown for cohorts (only `in` is supported), so a non-`in` recent
+        // must not surface there — otherwise the picker would offer an option the
+        // surrounding UI is hiding. Hosts express this via excludedOperators.
+        const recentCohortIn = {
+            name: 'Power Users',
+            _recentContext: {
+                sourceGroupType: TaxonomicFilterGroupType.Cohorts,
+                sourceGroupName: 'Cohorts',
+                propertyFilter: {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 1,
+                    operator: PropertyOperator.In,
+                    cohort_name: 'Power Users',
+                },
+            },
         }
-
-        const recordComplete = (key: string, value: string): void => {
-            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
-                groupType: TaxonomicFilterGroupType.EventProperties,
-                groupName: 'Event properties',
-                value: key,
-                item: { name: key },
+        const recentCohortNotIn = {
+            name: 'Trial Users',
+            _recentContext: {
+                sourceGroupType: TaxonomicFilterGroupType.Cohorts,
+                sourceGroupName: 'Cohorts',
+                propertyFilter: {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 2,
+                    operator: PropertyOperator.NotIn,
+                    cohort_name: 'Trial Users',
+                },
+            },
+        }
+        const recentEventProperty = {
+            name: '$browser',
+            _recentContext: {
+                sourceGroupType: TaxonomicFilterGroupType.EventProperties,
+                sourceGroupName: 'Event properties',
                 propertyFilter: {
                     type: PropertyFilterType.Event,
-                    key,
+                    key: '$browser',
+                    value: 'Chrome',
                     operator: PropertyOperator.Exact,
-                    value,
                 },
-            })
+            },
         }
 
-        it('strips propertyFilter from recents and dedups by key when selectingKeyOnly is set', () => {
-            recordComplete('$browser', 'Chrome')
-            recordComplete('$browser', 'Safari')
-            recordKeyOnly('$os')
-
-            const listLogic = logicWith({
-                listGroupType: TaxonomicFilterGroupType.EventProperties,
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
-                selectingKeyOnly: true,
-            })
-
-            const items = listLogic.values.contextFilteredRecentItems
-            expect(items).toHaveLength(2)
+        const seedRecents = (items: Record<string, any>[]): void => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
             for (const item of items) {
-                expect(hasRecentContext(item)).toBe(true)
-                if (hasRecentContext(item)) {
-                    expect(item._recentContext.propertyFilter).toBeUndefined()
-                }
+                recentLogic.actions.recordRecentFilter({
+                    groupType: item._recentContext.sourceGroupType,
+                    groupName: item._recentContext.sourceGroupName,
+                    value: item._recentContext.propertyFilter.value,
+                    item: { name: item.name },
+                    propertyFilter: item._recentContext.propertyFilter,
+                })
             }
-            expect(items.map((i) => ('name' in i ? i.name : null))).toEqual(['$os', '$browser'])
+        }
+
+        it('hides recents whose operator is excluded for their source group', () => {
+            seedRecents([recentCohortIn, recentCohortNotIn, recentEventProperty])
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'flag-recents-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.RecentFilters,
+                ],
+                showNumericalPropsOnly: false,
+                excludedOperators: { [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] },
+            })
+            listLogic.mount()
+
+            const filtered = listLogic.values.contextFilteredRecentItems
+            const cohortValues = filtered
+                .filter(onlyWithRecentContext)
+                .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
+                .map((i) => i._recentContext.propertyFilter?.value)
+            expect(cohortValues).toEqual([1])
+            expect(filtered.some((i) => 'name' in i && i.name === '$browser')).toBe(true)
         })
 
-        it('preserves complete recents (with their propertyFilter) when selectingKeyOnly is not set', () => {
-            recordComplete('$browser', 'Chrome')
+        it('keeps cohort recents whose operator is undefined even when excludedOperators is set', () => {
+            const recentCohortNoOperator = {
+                name: 'Static Users',
+                _recentContext: {
+                    sourceGroupType: TaxonomicFilterGroupType.Cohorts,
+                    sourceGroupName: 'Cohorts',
+                    propertyFilter: {
+                        type: PropertyFilterType.Cohort,
+                        key: 'id',
+                        value: 3,
+                        operator: undefined,
+                        cohort_name: 'Static Users',
+                    },
+                },
+            }
+            seedRecents([recentCohortIn, recentCohortNoOperator, recentCohortNotIn])
 
-            const listLogic = logicWith({
-                listGroupType: TaxonomicFilterGroupType.EventProperties,
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'flag-recents-no-op-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
+                excludedOperators: { [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] },
             })
+            listLogic.mount()
 
-            const items = listLogic.values.contextFilteredRecentItems
-            expect(items).toHaveLength(1)
-            const [item] = items
-            expect(hasRecentContext(item) && item._recentContext.propertyFilter).toBeTruthy()
+            const cohortValues = listLogic.values.contextFilteredRecentItems
+                .filter(onlyWithRecentContext)
+                .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
+                .map((i) => i._recentContext.propertyFilter?.value)
+            // The undefined-operator recent stays (1 + 3); the explicit NotIn (2) is hidden.
+            expect(cohortValues).toEqual(expect.arrayContaining([1, 3]))
+            expect(cohortValues).not.toContain(2)
         })
 
-        it('dedups by storage value, not by display name (cohorts/actions style)', () => {
-            // Two cohorts have been recorded with the same display name ("Power users") but
-            // distinct ids — they are genuinely different recents. A name-based dedup would
-            // collapse them into one row; sourceValue-based dedup keeps them apart.
-            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
-                groupType: TaxonomicFilterGroupType.Cohorts,
-                groupName: 'Cohorts',
-                value: 42,
-                item: { name: 'Power users' },
-                selectingKeyOnly: true,
-            })
-            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
-                groupType: TaxonomicFilterGroupType.Cohorts,
-                groupName: 'Cohorts',
-                value: 43,
-                item: { name: 'Power users' },
-                selectingKeyOnly: true,
-            })
+        it('keeps all recents when excludedOperators is not set', () => {
+            seedRecents([recentCohortIn, recentCohortNotIn])
 
-            const listLogic = logicWith({
-                listGroupType: TaxonomicFilterGroupType.Cohorts,
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts],
-                selectingKeyOnly: true,
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'insight-recents-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
             })
+            listLogic.mount()
 
-            const items = listLogic.values.contextFilteredRecentItems
-            expect(items).toHaveLength(2)
-            const sourceValues = items.map((i) => hasRecentContext(i) && i._recentContext.sourceValue)
-            expect(new Set(sourceValues)).toEqual(new Set([42, 43]))
+            const cohortValues = listLogic.values.contextFilteredRecentItems
+                .filter(onlyWithRecentContext)
+                .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
+                .map((i) => i._recentContext.propertyFilter?.value)
+            expect(cohortValues).toEqual(expect.arrayContaining([1, 2]))
         })
     })
 })

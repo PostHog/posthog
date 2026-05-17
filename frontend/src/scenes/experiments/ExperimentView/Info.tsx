@@ -27,8 +27,6 @@ import { RunningTimeNew } from './RunningTimeNew'
 export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
     const {
         experiment,
-        legacyPrimaryMetricsResults,
-        legacySecondaryMetricsResults,
         primaryMetricsResults,
         secondaryMetricsResults,
         primaryMetricsResultsLoading,
@@ -59,11 +57,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
 
     // Get the last refresh timestamp from either legacy or new results format
     // Check both primary and secondary metrics for the most recent timestamp
-    const lastRefresh =
-        legacyPrimaryMetricsResults?.[0]?.last_refresh ||
-        legacySecondaryMetricsResults?.[0]?.last_refresh ||
-        primaryMetricsResults?.[0]?.last_refresh ||
-        secondaryMetricsResults?.[0]?.last_refresh
+    const lastRefresh = primaryMetricsResults?.[0]?.last_refresh || secondaryMetricsResults?.[0]?.last_refresh
 
     const status = getExperimentStatus(experiment)
     const isPaused = isExperimentPaused(experiment)

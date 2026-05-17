@@ -788,7 +788,8 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
               AND log_source_id = %(log_source_id)s
               AND instance_id = %(instance_id)s
               AND positionCaseInsensitiveUTF8(message, 'duplicate execution detected') > 0
-              AND timestamp >= toDate(NOW() - INTERVAL 30 DAY)
+              AND timestamp >= toDateTime('2026-03-30 00:00:00')
+              AND timestamp <= toDateTime('2026-04-23 00:00:00')
             LIMIT 1
             """,
             {"team_id": self.team_id, "log_source_id": str(hog_flow.id), "instance_id": instance_id},

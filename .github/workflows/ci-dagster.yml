@@ -322,7 +322,7 @@ jobs:
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-test-db
+                  ./bin/hogli db:restore-schema-fresh
                   gunzip -c .postgres-backups/schema-latest.sql.gz | \
                     docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog posthog
 

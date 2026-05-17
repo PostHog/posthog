@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-05 20:19:56 UTC
+// Generated at: 2026-05-14 10:46:49 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -21,13 +21,13 @@ export type CanonicalProvider =
     | 'anthropic-2'
     | 'arcee-ai'
     | 'arcee-ai-prime'
-    | 'atlas-cloud-fast'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
     | 'azure'
     | 'azure-swedencentral'
     | 'azure-us-east-2'
     | 'baidu-fp8'
+    | 'baseten-2'
     | 'baseten-fp4'
     | 'cerebras-fp16'
     | 'chutes-fp4'
@@ -37,6 +37,7 @@ export type CanonicalProvider =
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
+    | 'crucible'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
@@ -71,11 +72,9 @@ export type CanonicalProvider =
     | 'io-net-bf16'
     | 'io-net-fp16'
     | 'io-net-int4'
-    | 'ionstream-bf16'
     | 'ionstream-fp8'
     | 'liquid'
     | 'mancer-fp8'
-    | 'mancer-int4'
     | 'mara'
     | 'minimax'
     | 'minimax-fp8'
@@ -105,6 +104,7 @@ export type CanonicalProvider =
     | 'parasail-fp8'
     | 'parasail-int4'
     | 'parasail-int8'
+    | 'perceptron'
     | 'perplexity'
     | 'phala'
     | 'poolside-fp8'
@@ -115,7 +115,6 @@ export type CanonicalProvider =
     | 'sambanova'
     | 'sambanova-bf16'
     | 'sambanova-fp8'
-    | 'sambanova-high-throughput'
     | 'sambanova-turbo'
     | 'seed-fp8'
     | 'siliconflow'

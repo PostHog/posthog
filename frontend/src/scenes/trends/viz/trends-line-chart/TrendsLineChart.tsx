@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { createXAxisTickCallback, DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from 'lib/hog-charts'
 import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipConfig, TooltipContext } from 'lib/hog-charts'
 import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -20,13 +20,11 @@ import { openPersonsModal } from '../../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../../trendsDataLogic'
 import type { IndexedTrendResult } from '../../types'
 import { handleTrendsChartClick } from '../handleTrendsChartClick'
-import { AnnotationsLayer } from './AnnotationsLayer'
-import { schemaGoalLinesToConfigs } from './goalLinesAdapter'
-import { TrendsAlertOverlays } from './TrendsAlertOverlays'
-import { buildTrendsYAxisConfig } from './trendsAxisFormat'
-import { buildDerivedConfigs, buildTrendsSeries } from './trendsChartTransforms'
-import type { TrendsSeriesMeta } from './trendsSeriesMeta'
-import { TrendsTooltip } from './TrendsTooltip'
+import { AnnotationsLayer } from '../shared/AnnotationsLayer'
+import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
+import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { TrendsTooltip } from '../shared/TrendsTooltip'
+import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
 interface TrendsLineChartProps {
     context?: QueryContext<InsightVizNode>
@@ -123,77 +121,55 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         ]
     )
 
-    // Built here so the same instance can be threaded into <AnnotationsLayer> below.
-    const xTickFormatter = useMemo(
-        () =>
-            createXAxisTickCallback({
-                interval: interval ?? 'day',
-                allDays: currentPeriodResult?.days ?? [],
-                timezone,
-            }),
-        [interval, currentPeriodResult?.days, timezone]
-    )
-
-    const yAxisConfig = useMemo(
-        () =>
-            buildTrendsYAxisConfig(trendsFilter, isPercentStackView, baseCurrency, {
-                yAxisScaleType,
-                showGrid: true,
-            }),
-        [trendsFilter, isPercentStackView, baseCurrency, yAxisScaleType]
-    )
-
-    const goalLineConfigs = useMemo(() => schemaGoalLinesToConfigs(goalLines), [goalLines])
-
     const valueLabelFormatter = useCallback(
         (value: number) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency),
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const derivedConfigs = useMemo(
+    const chartConfig: TimeSeriesLineChartConfig = useMemo(
         () =>
-            buildDerivedConfigs(indexedResults ?? [], {
+            buildTrendsLineTimeSeriesConfig({
+                results: indexedResults ?? [],
+                trendsFilter,
+                baseCurrency,
+                isPercentStackView,
+                isStickiness,
+                yAxisScaleType,
+                interval,
+                timezone,
+                allDays: currentPeriodResult?.days ?? [],
+                goalLines,
+                incompletenessOffsetFromEnd,
+                getHidden: getTrendsHidden,
                 showConfidenceIntervals,
                 confidenceLevel,
                 showMovingAverage,
                 movingAverageIntervals,
                 showTrendLines,
-                isStickiness,
-                incompletenessOffsetFromEnd,
-                getHidden: getTrendsHidden,
+                valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
+                showCrosshair: true,
+                tooltip: TOOLTIP_CONFIG,
             }),
         [
             indexedResults,
+            trendsFilter,
+            baseCurrency,
+            isPercentStackView,
+            isStickiness,
+            yAxisScaleType,
+            interval,
+            timezone,
+            currentPeriodResult?.days,
+            goalLines,
+            incompletenessOffsetFromEnd,
+            getTrendsHidden,
             showConfidenceIntervals,
             confidenceLevel,
             showMovingAverage,
             movingAverageIntervals,
             showTrendLines,
-            isStickiness,
-            incompletenessOffsetFromEnd,
-            getTrendsHidden,
-        ]
-    )
-
-    const chartConfig: TimeSeriesLineChartConfig = useMemo(
-        () => ({
-            xAxis: { tickFormatter: xTickFormatter },
-            yAxis: yAxisConfig,
-            valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
-            goalLines: goalLineConfigs,
-            ...derivedConfigs,
-            percentStackView: isPercentStackView,
-            showCrosshair: true,
-            tooltip: TOOLTIP_CONFIG,
-        }),
-        [
-            xTickFormatter,
-            yAxisConfig,
             showValuesOnSeries,
             valueLabelFormatter,
-            goalLineConfigs,
-            derivedConfigs,
-            isPercentStackView,
         ]
     )
 
@@ -317,13 +293,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                     isHidden={getTrendsHidden}
                 />
             ) : null}
-            {showAnnotations && (
-                <AnnotationsLayer
-                    insightNumericId={insight.id || 'new'}
-                    dates={annotationsDates}
-                    xTickFormatter={xTickFormatter}
-                />
-            )}
+            {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
         </TimeSeriesLineChart>
     )
 }

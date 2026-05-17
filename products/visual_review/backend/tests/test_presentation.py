@@ -13,10 +13,10 @@ from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import Run, RunSnapshot
-from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
 
-class TestRepoViewSet(APIBaseTest):
+class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
 
     def test_create_repo(self):
@@ -59,7 +59,7 @@ class TestRepoViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
-class TestRunViewSet(APIBaseTest):
+class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
 
     def setUp(self):

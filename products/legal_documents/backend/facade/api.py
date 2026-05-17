@@ -91,7 +91,7 @@ def create_document(data: contracts.CreateLegalDocumentInput) -> contracts.Legal
 
     # Fire and forget: PandaDoc never blocks the response. The envelope lands
     # in `document.uploaded` state and becomes dispatchable asynchronously —
-    # the `document.draft` webhook triggers the actual send + Slack ping via
+    # the `document.draft` webhook triggers the actual send via
     # `mark_envelope_ready_by_pandadoc_document_id`.
     logic.create_pandadoc_envelope(document)
     logic.fire_legal_document_submitted_event(document, distinct_id=data.distinct_id)
@@ -107,11 +107,11 @@ def mark_envelope_ready_by_pandadoc_document_id(
     """
     Entry point from the PandaDoc `document.draft` webhook — the envelope
     finished template processing and is ready to send. Dispatch the signing
-    email and fire the Slack "submitted" notification.
+    email.
 
     Idempotent: if the envelope has already been dispatched (row is already
     signed, or the send call fails because PandaDoc has moved past draft)
-    we quietly skip the side effects.
+    we quietly skip.
     """
     document = logic.get_by_pandadoc_document_id(pandadoc_document_id)
     if document is None:
@@ -122,9 +122,7 @@ def mark_envelope_ready_by_pandadoc_document_id(
         # Envelope already completed — the draft event is a late/replayed
         # delivery; nothing left for us to do.
         return _to_dto(document)
-    sent = logic.send_pandadoc_envelope(document)
-    if sent:
-        logic.notify_slack_on_submit(document)
+    logic.send_pandadoc_envelope(document)
     return _to_dto(document)
 
 
@@ -141,10 +139,10 @@ def mark_signed_by_pandadoc_document_id(
     - Double-checks the template matches the stored document variant, to guard
       against misconfigured PandaDoc templates flipping the wrong row.
     - Downloads the signed PDF from PandaDoc and stashes it in object storage.
-    - Flips status to signed, fires analytics + Slack.
+    - Flips status to signed, fires analytics.
 
     Idempotent: if the row is already signed we return the existing DTO
-    without re-downloading or re-firing Slack/analytics. If the download or
+    without re-downloading or re-firing analytics. If the download or
     upload fails we leave the row unsigned and return None so the webhook
     handler can surface 5xx; PandaDoc will retry.
     """
@@ -158,6 +156,5 @@ def mark_signed_by_pandadoc_document_id(
     if not logic.download_and_store_signed_pdf(document):
         raise LegalDocumentDownloadFailed(f"Failed to retrieve signed PDF for legal_document {document.id}")
     document = logic.mark_document_signed(document)
-    logic.notify_slack_on_signed(document)
     logic.fire_legal_document_signed_event(document)
     return _to_dto(document)

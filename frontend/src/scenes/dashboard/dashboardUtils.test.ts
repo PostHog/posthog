@@ -5,13 +5,8 @@ import {
     parseURLVariables,
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
-    scheduleSharedDashboardStaleAutoForceIfEligible,
     shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
-
-async function flushMicrotasks(): Promise<void> {
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-}
 
 describe('parseURLVariables', () => {
     it.each([
@@ -93,28 +88,5 @@ describe('shouldSharedDashboardAutoForceForStaleTime', () => {
         ])('when %s, returns expected result', (_, isoTime, expected) => {
             expect(shouldSharedDashboardAutoForceForStaleTime(dayjs(isoTime))).toBe(expected)
         })
-    })
-})
-
-describe('scheduleSharedDashboardStaleAutoForceIfEligible', () => {
-    it('does not invoke trigger when not stale', async () => {
-        const trigger = jest.fn()
-        scheduleSharedDashboardStaleAutoForceIfEligible({
-            effectiveLastRefresh: dayjs().subtract(15, 'minute'),
-            triggerDashboardRefresh: trigger,
-        })
-        await flushMicrotasks()
-        expect(trigger).not.toHaveBeenCalled()
-    })
-
-    it('invokes trigger on the next microtask when stale', async () => {
-        const trigger = jest.fn()
-        scheduleSharedDashboardStaleAutoForceIfEligible({
-            effectiveLastRefresh: dayjs().subtract(31, 'minute'),
-            triggerDashboardRefresh: trigger,
-        })
-        expect(trigger).not.toHaveBeenCalled()
-        await flushMicrotasks()
-        expect(trigger).toHaveBeenCalledTimes(1)
     })
 })

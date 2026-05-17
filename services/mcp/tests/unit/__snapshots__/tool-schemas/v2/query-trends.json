@@ -86,6 +86,7 @@
                             }
                         ]
                     },
+                    "maxItems": 3,
                     "type": "array"
                 }
             },
@@ -3558,6 +3559,7 @@
                                         }
                                     ]
                                 },
+                                "minItems": 2,
                                 "type": "array"
                             },
                             "operator": {

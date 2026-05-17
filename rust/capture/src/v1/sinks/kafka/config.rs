@@ -109,6 +109,11 @@ pub struct Config {
     pub topic_historical: String,
     pub topic_overflow: String,
     pub topic_dlq: String,
+
+    // -- Non-analytics topics (also required) --
+    pub topic_exception: String,
+    pub topic_heatmap: String,
+    pub topic_client_ingestion_warning: String,
 }
 
 const VALID_ACKS: &[&str] = &["0", "1", "-1", "all"];
@@ -160,6 +165,9 @@ impl Config {
             Destination::AnalyticsHistorical => Some(&self.topic_historical),
             Destination::Overflow => Some(&self.topic_overflow),
             Destination::Dlq => Some(&self.topic_dlq),
+            Destination::ExceptionErrorTracking => Some(&self.topic_exception),
+            Destination::HeatmapMain => Some(&self.topic_heatmap),
+            Destination::ClientIngestionWarning => Some(&self.topic_client_ingestion_warning),
             Destination::Custom(t) => Some(t.as_str()),
             Destination::Drop => None,
         }
@@ -171,8 +179,10 @@ mod tests {
     use std::collections::HashMap;
 
     use envconfig::Envconfig;
+    use rstest::rstest;
 
     use super::Config;
+    use crate::v1::sinks::Destination;
 
     fn required_kafka_env() -> HashMap<String, String> {
         [
@@ -181,6 +191,9 @@ mod tests {
             ("TOPIC_HISTORICAL", "events_hist"),
             ("TOPIC_OVERFLOW", "events_overflow"),
             ("TOPIC_DLQ", "events_dlq"),
+            ("TOPIC_EXCEPTION", "error_tracking_events"),
+            ("TOPIC_HEATMAP", "heatmaps_ingestion"),
+            ("TOPIC_CLIENT_INGESTION_WARNING", "events_plugin_ingestion"),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -283,18 +296,22 @@ mod tests {
         assert_eq!(cfg.socket_receive_buffer_bytes, 0);
     }
 
-    #[test]
-    fn missing_required_hosts() {
+    #[rstest]
+    #[case("HOSTS")]
+    #[case("TOPIC_MAIN")]
+    #[case("TOPIC_HISTORICAL")]
+    #[case("TOPIC_OVERFLOW")]
+    #[case("TOPIC_DLQ")]
+    #[case("TOPIC_EXCEPTION")]
+    #[case("TOPIC_HEATMAP")]
+    #[case("TOPIC_CLIENT_INGESTION_WARNING")]
+    fn missing_required_field_errors(#[case] key: &str) {
         let mut env = required_kafka_env();
-        env.remove("HOSTS");
-        assert!(Config::init_from_hashmap(&env).is_err());
-    }
-
-    #[test]
-    fn missing_required_topic() {
-        let mut env = required_kafka_env();
-        env.remove("TOPIC_MAIN");
-        assert!(Config::init_from_hashmap(&env).is_err());
+        env.remove(key);
+        assert!(
+            Config::init_from_hashmap(&env).is_err(),
+            "{key} should be required"
+        );
     }
 
     #[test]
@@ -371,5 +388,19 @@ mod tests {
 
         cfg.metadata_max_age_ms = 15000;
         assert!(cfg.validate().is_ok(), "exactly 3x should pass");
+    }
+
+    #[rstest]
+    #[case(Destination::AnalyticsMain, Some("events_main"))]
+    #[case(Destination::AnalyticsHistorical, Some("events_hist"))]
+    #[case(Destination::Overflow, Some("events_overflow"))]
+    #[case(Destination::Dlq, Some("events_dlq"))]
+    #[case(Destination::ExceptionErrorTracking, Some("error_tracking_events"))]
+    #[case(Destination::HeatmapMain, Some("heatmaps_ingestion"))]
+    #[case(Destination::ClientIngestionWarning, Some("events_plugin_ingestion"))]
+    #[case(Destination::Drop, None)]
+    fn topic_for_resolves_destination(#[case] dest: Destination, #[case] expected: Option<&str>) {
+        let cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
+        assert_eq!(cfg.topic_for(&dest), expected);
     }
 }
