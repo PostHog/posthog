@@ -1,5 +1,7 @@
+from datetime import datetime, timezone
 from textwrap import dedent
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 import structlog
 from posthoganalytics import capture_exception
@@ -8,16 +10,20 @@ from pydantic import BaseModel, Field
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.utils import SessionRecordingQueryResult
 from posthog.sync import database_sync_to_async
 from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
+from posthog.utils import relative_date_parse
 
 from products.replay.backend.prompts import (
     DATE_FIELDS_PROMPT,
     FILTER_EXAMPLES_PROMPT,
     FILTER_FIELDS_TAXONOMY_PROMPT,
     PRODUCT_DESCRIPTION_PROMPT,
+    SERVER_SIDE_EVENT_LINKAGE_PROMPT,
     SESSION_REPLAY_EXAMPLES_PROMPT,
 )
 
@@ -36,6 +42,8 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         {SESSION_REPLAY_EXAMPLES_PROMPT}
 
         {FILTER_FIELDS_TAXONOMY_PROMPT}
+
+        {SERVER_SIDE_EVENT_LINKAGE_PROMPT}
 
         {DATE_FIELDS_PROMPT}
 
@@ -175,7 +183,10 @@ class FilterSessionRecordingsTool(MaxTool):
         else:
             total_count = len(query_results.results)
             if total_count == 0:
+                diagnostic = await self._diagnose_empty_result(recordings_filters, recordings_query)
                 content = "✅ Filtered session recordings. No recordings found matching these criteria."
+                if diagnostic:
+                    content += "\n\n" + diagnostic
             elif total_count == 1:
                 content = "✅ Filtered session recordings. Found 1 recording matching these criteria:\n\n"
                 content += self._format_recording_metadata(query_results.results[0])
@@ -200,6 +211,283 @@ class FilterSessionRecordingsTool(MaxTool):
                 team=self._team, query=recordings_query, hogql_query_modifiers=None
             )
             return query_runner.run()
+
+    async def _diagnose_empty_result(
+        self,
+        recordings_filters: MaxRecordingUniversalFilters,
+        recordings_query: RecordingsQuery,
+    ) -> str:
+        """Build a diagnostic block that helps the agent self-correct from a zero-result filter.
+
+        Echoes the materialized filter clauses, progressively drops clauses to identify which
+        one bounded the count to zero, and (for event clauses) checks whether the event has
+        any rows in the time window and whether those rows carry a `$session_id`.
+        """
+        parts: list[str] = ["**Applied filters:**", self._summarize_filter_clauses(recordings_filters, recordings_query)]
+
+        try:
+            baseline_count, count_without_event_clauses = await self._run_clause_drop_diagnostics(recordings_query)
+        except Exception as e:
+            capture_exception(e)
+            baseline_count = None
+            count_without_event_clauses = None
+
+        hints: list[str] = []
+
+        has_event_clauses = bool(recordings_query.events or recordings_query.actions)
+        has_property_clauses = bool(recordings_query.properties)
+        has_having_or_console = bool(recordings_query.having_predicates or recordings_query.console_log_filters)
+
+        if baseline_count == 0:
+            hints.append(
+                "Dropping all event, action, and property clauses still returns zero recordings — "
+                "no recordings exist in this date window with the current `filter_test_accounts` and "
+                "duration settings. Try broadening the date range, lowering the duration threshold, "
+                "or setting `filter_test_accounts=false`."
+            )
+        elif has_event_clauses and count_without_event_clauses is not None and count_without_event_clauses > 0:
+            event_diagnostics = await self._check_event_session_linkage(
+                recordings_query.events or [], recordings_filters
+            )
+            for ev in event_diagnostics:
+                if ev["total"] == 0:
+                    hints.append(
+                        f"Event `{ev['event']}` was never captured in this date window. "
+                        f"Verify the exact event name via `read_taxonomy` (events are case-sensitive)."
+                    )
+                elif ev["with_session"] == 0:
+                    hints.append(
+                        f"Event `{ev['event']}` was captured {ev['total']} time(s) in this window, "
+                        f"but none of those occurrences have a `$session_id` — typically because the "
+                        f"event is captured server-side (e.g. webhooks, scheduled jobs, backend "
+                        f"lifecycle events). Server-side events do not link to any session recording. "
+                        f"Filter on the frontend equivalent instead "
+                        f"(e.g. `cancel_flow_opened` rather than `subscription_cancelled`)."
+                    )
+                elif ev["total"] > 0 and ev["with_session"] > 0:
+                    hints.append(
+                        f"Event `{ev['event']}` has {ev['with_session']} session-linked occurrence(s) "
+                        f"in this window — the zero result likely comes from per-event property filters "
+                        f"on this event or from another clause. Try relaxing the event's property filters."
+                    )
+            if not event_diagnostics:
+                hints.append(
+                    "Dropping event/action clauses returned results — the event filters are bounding "
+                    "the count to zero. Verify event names via `read_taxonomy` and try a frontend "
+                    "equivalent for any backend lifecycle event."
+                )
+        elif has_property_clauses or has_having_or_console:
+            hints.append(
+                "There are recordings in this date window, but the property, duration, or console "
+                "filters are too restrictive. Try relaxing person/session/group property filters or "
+                "lowering duration / console_error_count thresholds."
+            )
+        elif baseline_count is None:
+            hints.append(
+                "Could not run a diagnostic baseline. Verify event names and property values via "
+                "`read_taxonomy`, and try broadening the date range or removing the most specific filter."
+            )
+
+        if hints:
+            parts.append("\n**Diagnostic hints:**")
+            for hint in hints:
+                parts.append(f"- {hint}")
+
+        parts.append(
+            "\n_Note: server-side events (webhooks, scheduled jobs, backend lifecycle actions) "
+            "generally have no `$session_id` and therefore never appear in session recordings. "
+            "Always pick a frontend equivalent when targeting recordings._"
+        )
+
+        return "\n".join(parts)
+
+    @staticmethod
+    def _summarize_filter_clauses(
+        recordings_filters: MaxRecordingUniversalFilters,
+        recordings_query: RecordingsQuery,
+    ) -> str:
+        """Human-readable echo of the filter clauses that were sent to ClickHouse."""
+        lines: list[str] = []
+        date_from = recordings_filters.date_from or recordings_query.date_from or "-3d"
+        date_to = recordings_filters.date_to or recordings_query.date_to or "now"
+        lines.append(f"- Date range: `{date_from}` → `{date_to}`")
+        lines.append(f"- Test accounts excluded: `{bool(recordings_filters.filter_test_accounts)}`")
+
+        if recordings_filters.duration:
+            for d in recordings_filters.duration:
+                operator_value = getattr(d.operator, "value", d.operator)
+                lines.append(f"- Duration filter: `{d.key} {operator_value} {d.value}`")
+        else:
+            lines.append("- Duration filter: _none_")
+
+        events_clause = recordings_query.events or []
+        if events_clause:
+            event_summaries: list[str] = []
+            for e in events_clause:
+                name = e.get("id") or e.get("name") or "?"
+                prop_count = len(e.get("properties") or [])
+                if prop_count > 0:
+                    event_summaries.append(f"`{name}` (+{prop_count} per-event property filter(s))")
+                else:
+                    event_summaries.append(f"`{name}`")
+            lines.append(f"- Event clauses: {', '.join(event_summaries)}")
+
+        actions_clause = recordings_query.actions or []
+        if actions_clause:
+            lines.append(f"- Action clauses: {len(actions_clause)}")
+
+        properties_clause = recordings_query.properties or []
+        if properties_clause:
+            prop_summaries: list[str] = []
+            for p in properties_clause:
+                ptype = getattr(p, "type", None) or (p.get("type") if isinstance(p, dict) else None) or "?"
+                pkey = getattr(p, "key", None) or (p.get("key") if isinstance(p, dict) else None) or "?"
+                ptype_value = getattr(ptype, "value", ptype)
+                prop_summaries.append(f"`{ptype_value}.{pkey}`")
+            lines.append(f"- Property clauses: {', '.join(prop_summaries)}")
+
+        if recordings_query.having_predicates:
+            lines.append(f"- Recording-property (HAVING) clauses: {len(recordings_query.having_predicates)}")
+
+        if recordings_query.console_log_filters:
+            lines.append(f"- Console log filter clauses: {len(recordings_query.console_log_filters)}")
+
+        return "\n".join(lines)
+
+    async def _run_clause_drop_diagnostics(
+        self, recordings_query: RecordingsQuery
+    ) -> tuple[int | None, int | None]:
+        """Re-run the query with progressively dropped clauses to identify the binding clause.
+
+        Returns ``(baseline_count, count_without_event_clauses)`` — either may be ``None``
+        if the diagnostic itself failed. Failures are tolerated so the empty-state response
+        never breaks because of a diagnostic problem.
+        """
+        baseline_count: int | None = None
+        count_without_event_clauses: int | None = None
+
+        baseline_query = recordings_query.model_copy(deep=True)
+        baseline_query.events = None
+        baseline_query.actions = None
+        baseline_query.properties = None
+        baseline_query.having_predicates = None
+        baseline_query.console_log_filters = None
+        try:
+            baseline_result = await database_sync_to_async(
+                self._get_recordings_with_filters, thread_sensitive=False
+            )(baseline_query)
+            baseline_count = len(baseline_result.results)
+        except Exception as e:
+            capture_exception(e)
+
+        if recordings_query.events or recordings_query.actions:
+            no_events_query = recordings_query.model_copy(deep=True)
+            no_events_query.events = None
+            no_events_query.actions = None
+            try:
+                no_events_result = await database_sync_to_async(
+                    self._get_recordings_with_filters, thread_sensitive=False
+                )(no_events_query)
+                count_without_event_clauses = len(no_events_result.results)
+            except Exception as e:
+                capture_exception(e)
+
+        return baseline_count, count_without_event_clauses
+
+    async def _check_event_session_linkage(
+        self,
+        events: list[dict[str, Any]],
+        recordings_filters: MaxRecordingUniversalFilters,
+    ) -> list[dict[str, Any]]:
+        """For each event in the filter, count occurrences and `$session_id`-linked occurrences.
+
+        Returns a list of ``{event, total, with_session}`` rows. The list is empty if the
+        date range could not be resolved or if no diagnosable events were present.
+        """
+        if not events:
+            return []
+
+        try:
+            tz_name = getattr(self._team, "timezone", None) or "UTC"
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            tz = ZoneInfo("UTC")
+
+        try:
+            date_from_parsed = relative_date_parse(recordings_filters.date_from or "-3d", tz)
+        except Exception:
+            return []
+
+        try:
+            if recordings_filters.date_to:
+                date_to_parsed = relative_date_parse(recordings_filters.date_to, tz)
+            else:
+                date_to_parsed = datetime.now(timezone.utc)
+        except Exception:
+            date_to_parsed = datetime.now(timezone.utc)
+
+        results: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for event in events:
+            event_name = event.get("id") or event.get("name")
+            if not event_name or not isinstance(event_name, str):
+                continue
+            if event_name.startswith("$"):
+                # Built-in PostHog events ($autocapture, $pageview, $rageclick) are always
+                # captured client-side with a $session_id — they have nothing useful to report.
+                continue
+            if event_name in seen:
+                continue
+            seen.add(event_name)
+
+            try:
+                query_result = await database_sync_to_async(self._run_session_linkage_query, thread_sensitive=False)(
+                    event_name, date_from_parsed, date_to_parsed
+                )
+            except Exception as e:
+                capture_exception(e)
+                continue
+
+            if query_result and len(query_result) > 0:
+                row = query_result[0]
+                results.append(
+                    {
+                        "event": event_name,
+                        "total": int(row[0] or 0),
+                        "with_session": int(row[1] or 0),
+                    }
+                )
+
+        return results
+
+    def _run_session_linkage_query(
+        self, event_name: str, date_from: datetime, date_to: datetime
+    ) -> list[Any]:
+        """Run a HogQL count of an event's occurrences and `$session_id`-linked occurrences."""
+        with tags_context(
+            product=Product.MAX_AI,
+            feature=Feature.POSTHOG_AI,
+            team_id=self._team.pk,
+            org_id=self._team.organization_id,
+        ):
+            response = execute_hogql_query(
+                query_type="FilterSessionRecordingsTool.SessionLinkageCheck",
+                query=(
+                    "SELECT count() AS total, "
+                    "countIf(events.`$session_id` != '') AS with_session "
+                    "FROM events "
+                    "WHERE event = {event_name} "
+                    "AND timestamp >= {date_from} "
+                    "AND timestamp <= {date_to}"
+                ),
+                placeholders={
+                    "event_name": ast.Constant(value=event_name),
+                    "date_from": ast.Constant(value=date_from),
+                    "date_to": ast.Constant(value=date_to),
+                },
+                team=self._team,
+            )
+            return response.results or []
 
     def _format_recording_metadata(self, recording: dict[str, Any]) -> str:
         """Format recording metadata for display."""

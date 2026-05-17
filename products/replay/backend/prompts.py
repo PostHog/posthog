@@ -237,6 +237,27 @@ All operators take a single value except for `equals` and `doesn't equal` which 
 
 """.strip()
 
+SERVER_SIDE_EVENT_LINKAGE_PROMPT = """
+<server_side_event_linkage>
+Session recordings only contain events that were captured **client-side**, where the SDK
+attaches a `$session_id` to the event. Events captured **server-side** (Stripe webhooks,
+scheduled jobs, admin actions, backend-only lifecycle events such as `subscription_cancelled`,
+`payment_failed`, `user_deleted`, `email_sent`, queue/worker events) generally have no
+`$session_id` and therefore **do not appear in any session recording**.
+
+If your goal is to find recordings where the user *triggered* a server-side event, filter
+on the **frontend equivalent** event that the user actually performed in the browser —
+e.g. `cancel_flow_opened` or `cancel_button_clicked` instead of `subscription_cancelled`,
+`checkout_submitted` instead of `payment_failed`.
+
+When the user-supplied event name reads like a server-side or backend lifecycle action
+(noun-past-tense or system-action shape: `*_cancelled`, `*_completed`, `*_failed`,
+`*_processed`, `*_charged`, `*_refunded`, `*_sent`, `*_received`, `*_synced`), prefer a
+frontend equivalent and/or call `read_taxonomy` first to confirm the event exists and is
+captured with a session.
+</server_side_event_linkage>
+""".strip()
+
 DATE_FIELDS_PROMPT = """
 <date_fields>
 Below is a refined description for the date fields and their types:

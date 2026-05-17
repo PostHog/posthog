@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 from freezegun import freeze_time
-from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
 
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.schema import (
     MaxInnerUniversalFiltersGroup,
     MaxOuterUniversalFiltersGroup,
+    MaxRecordingEventFilter,
     MaxRecordingUniversalFilters,
     PropertyOperator,
     RecordingDurationFilter,
@@ -103,6 +104,119 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
         result_text, artifact = await tool._arun_impl(recordings_filters=filters)
 
         self.assertIn("No recordings found", result_text)
+        # Empty result branch must now include diagnostic context for the agent
+        self.assertIn("Applied filters", result_text)
+        self.assertIn("Date range", result_text)
+        self.assertIn(
+            "no recordings exist in this date window",
+            result_text,
+        )
+        self.assertIn("server-side events", result_text)
+        self.assertIsNone(artifact)
+
+    async def test_diagnostic_flags_server_side_event_without_session_id(self):
+        # Replays exist in the window so the diagnostic baseline is non-empty…
+        base_time = datetime(2025, 1, 15, 10, 0, 0)
+        self._produce_replay(
+            distinct_id="user_1",
+            first_timestamp=base_time,
+            last_timestamp=base_time + timedelta(minutes=5),
+        )
+        # …and the event the user filtered on is captured in the window without `$session_id`
+        # (the typical server-side capture shape).
+        _create_event(
+            team=self.team,
+            event="subscription_cancelled",
+            distinct_id="user_1",
+            timestamp=base_time + timedelta(minutes=1),
+            properties={"plan": "pro"},
+        )
+        flush_persons_and_events()
+
+        tool = await self._create_tool()
+        filters = MaxRecordingUniversalFilters(
+            filter_group=MaxOuterUniversalFiltersGroup(
+                type="AND",
+                values=[
+                    MaxInnerUniversalFiltersGroup(
+                        type="AND",
+                        values=[MaxRecordingEventFilter(id="subscription_cancelled", type="events")],
+                    )
+                ],
+            ),
+            duration=[],
+            date_from="-7d",
+        )
+
+        result_text, artifact = await tool._arun_impl(recordings_filters=filters)
+
+        self.assertIn("No recordings found", result_text)
+        self.assertIn("subscription_cancelled", result_text)
+        self.assertIn("none of those occurrences have a `$session_id`", result_text)
+        self.assertIn("frontend equivalent", result_text)
+        self.assertIsNone(artifact)
+
+    async def test_diagnostic_notes_event_never_captured(self):
+        base_time = datetime(2025, 1, 15, 10, 0, 0)
+        self._produce_replay(
+            distinct_id="user_1",
+            first_timestamp=base_time,
+            last_timestamp=base_time + timedelta(minutes=5),
+        )
+        flush_persons_and_events()
+
+        tool = await self._create_tool()
+        filters = MaxRecordingUniversalFilters(
+            filter_group=MaxOuterUniversalFiltersGroup(
+                type="AND",
+                values=[
+                    MaxInnerUniversalFiltersGroup(
+                        type="AND",
+                        values=[MaxRecordingEventFilter(id="totally_made_up_event", type="events")],
+                    )
+                ],
+            ),
+            duration=[],
+            date_from="-7d",
+        )
+
+        result_text, artifact = await tool._arun_impl(recordings_filters=filters)
+
+        self.assertIn("No recordings found", result_text)
+        self.assertIn("totally_made_up_event", result_text)
+        self.assertIn("never captured", result_text)
+        self.assertIsNone(artifact)
+
+    async def test_diagnostic_echoes_filter_clauses(self):
+        tool = await self._create_tool()
+        filters = MaxRecordingUniversalFilters(
+            filter_group=MaxOuterUniversalFiltersGroup(
+                type="AND",
+                values=[
+                    MaxInnerUniversalFiltersGroup(
+                        type="AND",
+                        values=[MaxRecordingEventFilter(id="checkout_submitted", type="events")],
+                    )
+                ],
+            ),
+            duration=[
+                RecordingDurationFilter(
+                    key="duration",
+                    type="recording",
+                    operator=PropertyOperator.GT,
+                    value=300,
+                )
+            ],
+            date_from="-7d",
+            filter_test_accounts=True,
+        )
+
+        result_text, artifact = await tool._arun_impl(recordings_filters=filters)
+
+        self.assertIn("Applied filters", result_text)
+        self.assertIn("`-7d`", result_text)
+        self.assertIn("`checkout_submitted`", result_text)
+        self.assertIn("duration", result_text.lower())
         self.assertIsNone(artifact)
 
     async def test_returns_single_recording_with_metadata(self):
