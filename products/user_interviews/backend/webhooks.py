@@ -11,6 +11,7 @@ Two surfaces live here, both keyed on a SharingConfiguration access token:
 
 import hmac
 import json
+import string
 import hashlib
 from typing import Any
 
@@ -136,8 +137,8 @@ _TOPIC_MAX_CHARS = 200
 FIRST_MESSAGE_PROMPT_NAME = "user_interviews_vapi_first_message"
 
 DEFAULT_FIRST_MESSAGE_TEMPLATE = (
-    "Hey {user_name}! Thanks for making time — I know you're busy. "
-    "I'm here to learn how you actually use {topic_text} in the wild. "
+    "Hey $user_name! Thanks for making time — I know you're busy. "
+    "I'm here to learn how you actually use $topic_text in the wild. "
     "Mind if I ask a few questions? Should take about 5-10 minutes."
 )
 
@@ -175,14 +176,16 @@ def _build_first_message(
     name_part = user_name.strip() or "there"
     topic_part = _normalise_topic(topic_text) or "your experience"
     try:
-        rendered = template.format(user_name=name_part, topic_text=topic_part)
-    except (KeyError, IndexError, ValueError, AttributeError):
+        rendered = string.Template(template).substitute(user_name=name_part, topic_text=topic_part)
+    except (KeyError, ValueError):
         logger.warning(
             "user_interviews_first_message_template_invalid",
             team_id=team_id,
             template_prefix=template[:60],
         )
-        rendered = DEFAULT_FIRST_MESSAGE_TEMPLATE.format(user_name=name_part, topic_text=topic_part)
+        rendered = string.Template(DEFAULT_FIRST_MESSAGE_TEMPLATE).substitute(
+            user_name=name_part, topic_text=topic_part
+        )
     if len(rendered) > _FIRST_MESSAGE_MAX_CHARS:
         logger.warning(
             "user_interviews_first_message_too_long",
@@ -190,7 +193,9 @@ def _build_first_message(
             rendered_chars=len(rendered),
             limit=_FIRST_MESSAGE_MAX_CHARS,
         )
-        rendered = DEFAULT_FIRST_MESSAGE_TEMPLATE.format(user_name=name_part, topic_text=topic_part)
+        rendered = string.Template(DEFAULT_FIRST_MESSAGE_TEMPLATE).substitute(
+            user_name=name_part, topic_text=topic_part
+        )
     return rendered[:_FIRST_MESSAGE_MAX_CHARS]
 
 

@@ -377,24 +377,26 @@ class TestBuildFirstMessage(unittest.TestCase):
         assert "x" * 201 not in message
 
     def test_uses_custom_template_when_provided(self):
-        custom = "Hi {user_name}, today's topic: {topic_text}."
+        custom = "Hi $user_name, today's topic: $topic_text."
         message = _build_first_message(custom, user_name="Paul", topic_text="onboarding")
         assert message == "Hi Paul, today's topic: onboarding."
 
     def test_falls_back_to_default_when_custom_template_missing_placeholder(self):
-        broken = "Hi {nonsense}, today is {missing_field}."
+        broken = "Hi $nonsense, today is $missing_field."
         message = _build_first_message(broken, user_name="Paul", topic_text="onboarding")
         assert "Hey Paul!" in message
         assert "onboarding" in message
 
-    def test_falls_back_to_default_when_template_attribute_missing(self):
-        broken = "Hi {user_name.really_missing_attr}!"
-        message = _build_first_message(broken, user_name="Paul", topic_text="onboarding")
-        assert "Hey Paul!" in message
-        assert "onboarding" in message
+    def test_format_spec_in_template_is_treated_as_literal_text(self):
+        # string.Template has no format-spec syntax, so an attacker cannot use
+        # `{user_name:>10000000000}` to allocate gigabytes — `:` is just a character.
+        attempted = "Hi $user_name, padded: {user_name:>10000000000}"
+        message = _build_first_message(attempted, user_name="Paul", topic_text="onboarding")
+        assert "Hi Paul" in message
+        assert len(message) <= 1000
 
     def test_falls_back_to_default_when_rendered_message_exceeds_cap(self):
-        huge = "Hi {user_name:>2000}!"
+        huge = "Hi $user_name! " + ("x" * 2000)
         message = _build_first_message(huge, user_name="Paul", topic_text="onboarding")
         assert "Hey Paul!" in message
         assert "onboarding" in message
@@ -416,13 +418,13 @@ class TestResolveFirstMessageTemplate(APIBaseTest):
         LLMPrompt.objects.create(
             team=self.team,
             name=FIRST_MESSAGE_PROMPT_NAME,
-            prompt="Hey {user_name}! Quick chat about {topic_text}?",
+            prompt="Hey $user_name! Quick chat about $topic_text?",
             version=1,
             is_latest=True,
             created_by=self.user,
         )
         template = _resolve_first_message_template(self.team)
-        assert template == "Hey {user_name}! Quick chat about {topic_text}?"
+        assert template == "Hey $user_name! Quick chat about $topic_text?"
 
     def test_returns_default_when_published_prompt_is_empty(self):
         from posthog.models.llm_prompt import LLMPrompt
