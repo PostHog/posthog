@@ -108,51 +108,6 @@ def identifierList_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[st
 
 
 @functools.cache
-def assignmentTarget_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
-    _has_suffixes = True
-
-    @st.composite
-    def gen(draw: Any) -> str:
-        parts: list[str] = []
-        seed_idx = draw(st.integers(min_value=0, max_value=1))
-        seed = ""
-        if seed_idx == 0:
-            parts = []
-            parts.append("(")
-            parts.append(draw(assignmentTarget_strategy(_dec(depth))))
-            parts.append(")")
-            seed = " ".join(p for p in parts if p)
-        if seed_idx == 1:
-            parts = []
-            parts.append(draw(columnIdentifier_strategy(_dec(depth))))
-            seed = " ".join(p for p in parts if p)
-        if depth <= 0 or not _has_suffixes:
-            return seed
-        n_suffixes = draw(st.integers(min_value=0, max_value=_MAX_LR_CHAIN))
-        for _ in range(n_suffixes):
-            suffix_idx = draw(st.integers(min_value=0, max_value=2))
-            if suffix_idx == 0:
-                parts = []
-                parts.append(".")
-                parts.append(draw(identifier_strategy(_dec(depth))))
-                seed = seed + " " + " ".join(p for p in parts if p)
-            if suffix_idx == 1:
-                parts = []
-                parts.append(".")
-                parts.append(draw(decimal_literal_token))
-                seed = seed + " " + " ".join(p for p in parts if p)
-            if suffix_idx == 2:
-                parts = []
-                parts.append("[")
-                parts.append(draw(columnExpr_strategy(_dec(depth))))
-                parts.append("]")
-                seed = seed + " " + " ".join(p for p in parts if p)
-        return seed
-
-    return gen()
-
-
-@functools.cache
 def select_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:

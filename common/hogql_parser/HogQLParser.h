@@ -59,39 +59,39 @@ public:
     RuleIdentifierList = 4, RuleStatement = 5, RuleReturnStmt = 6, RuleThrowStmt = 7, 
     RuleCatchBlock = 8, RuleTryCatchStmt = 9, RuleIfStmt = 10, RuleWhileStmt = 11, 
     RuleForStmt = 12, RuleForInStmt = 13, RuleFuncStmt = 14, RuleVarAssignment = 15, 
-    RuleAssignmentTarget = 16, RuleExprStmt = 17, RuleEmptyStmt = 18, RuleBlock = 19, 
-    RuleKvPair = 20, RuleKvPairList = 21, RuleSelect = 22, RuleSelectStmtWithParens = 23, 
-    RuleSubsequentSelectSetClause = 24, RuleSelectSetStmt = 25, RuleLimitAndOffsetClauseOptional = 26, 
-    RuleSelectStmt = 27, RuleWithClause = 28, RuleTopClause = 29, RuleFromClause = 30, 
-    RuleArrayJoinClause = 31, RuleWindowClause = 32, RulePrewhereClause = 33, 
-    RuleWhereClause = 34, RuleGroupByClause = 35, RuleGroupingSetList = 36, 
-    RuleGroupingSet = 37, RuleHavingClause = 38, RuleQualifyClause = 39, 
-    RuleOrderByClause = 40, RuleInterpolateClause = 41, RuleProjectionOrderByClause = 42, 
-    RuleLimitByClause = 43, RuleLimitAndOffsetClause = 44, RuleOffsetOnlyClause = 45, 
-    RuleSettingsClause = 46, RuleValuesClause = 47, RuleValuesRow = 48, 
-    RuleJoinExpr = 49, RuleJoinOp = 50, RuleJoinOpCross = 51, RuleJoinConstraintClause = 52, 
-    RuleSampleClause = 53, RuleLimitExpr = 54, RuleOrderExprList = 55, RuleOrderExpr = 56, 
-    RuleWithFillClause = 57, RuleInterpolateExpr = 58, RuleRatioExpr = 59, 
-    RuleSettingExprList = 60, RuleSettingExpr = 61, RuleWindowExpr = 62, 
-    RuleWinPartitionByClause = 63, RuleWinOrderByClause = 64, RuleWithinGroupClause = 65, 
-    RuleWinFrameClause = 66, RuleWinFrameExtend = 67, RuleWinFrameBound = 68, 
-    RuleExpr = 69, RuleColumnTypeExpr = 70, RuleColumnTypeCastExpr = 71, 
-    RuleColumnTypeCastIdentifier = 72, RuleKeywordForTypeCast = 73, RuleColumnExprList = 74, 
-    RuleSelectColumnExprListBeforeFrom = 75, RuleSelectColumnExprList = 76, 
-    RuleSelectColumnExpr = 77, RuleColumnExpr = 78, RuleColumnLambdaExpr = 79, 
-    RuleColumnsReplaceList = 80, RuleColumnsReplaceItem = 81, RuleHogqlxChildElement = 82, 
-    RuleHogqlxText = 83, RuleHogqlxTagElement = 84, RuleHogqlxTagAttribute = 85, 
-    RuleWithExprList = 86, RuleWithExpr = 87, RuleWithExprColumnNameList = 88, 
-    RuleColumnIdentifier = 89, RuleNestedIdentifier = 90, RuleTableExpr = 91, 
-    RulePivotColumnList = 92, RulePivotColumn = 93, RuleUnpivotColumnList = 94, 
-    RuleUnpivotColumn = 95, RuleColumnExprTupleOrSingle = 96, RuleColumnAliases = 97, 
-    RuleTableFunctionExpr = 98, RuleTableIdentifier = 99, RuleTableArgList = 100, 
-    RuleDatabaseIdentifier = 101, RuleFloatingLiteral = 102, RuleNumberLiteral = 103, 
-    RuleLiteral = 104, RuleInterval = 105, RuleKeyword = 106, RuleKeywordForAlias = 107, 
-    RuleKeywordForImplicitAlias = 108, RuleAlias = 109, RuleImplicitAlias = 110, 
-    RuleIdentifier = 111, RuleEnumValue = 112, RulePlaceholder = 113, RuleString = 114, 
-    RuleTemplateString = 115, RuleStringContents = 116, RuleFullTemplateString = 117, 
-    RuleStringContentsFull = 118
+    RuleExprStmt = 16, RuleEmptyStmt = 17, RuleBlock = 18, RuleKvPair = 19, 
+    RuleKvPairList = 20, RuleSelect = 21, RuleSelectStmtWithParens = 22, 
+    RuleSubsequentSelectSetClause = 23, RuleSelectSetStmt = 24, RuleLimitAndOffsetClauseOptional = 25, 
+    RuleSelectStmt = 26, RuleWithClause = 27, RuleTopClause = 28, RuleFromClause = 29, 
+    RuleArrayJoinClause = 30, RuleWindowClause = 31, RulePrewhereClause = 32, 
+    RuleWhereClause = 33, RuleGroupByClause = 34, RuleGroupingSetList = 35, 
+    RuleGroupingSet = 36, RuleHavingClause = 37, RuleQualifyClause = 38, 
+    RuleOrderByClause = 39, RuleInterpolateClause = 40, RuleProjectionOrderByClause = 41, 
+    RuleLimitByClause = 42, RuleLimitAndOffsetClause = 43, RuleOffsetOnlyClause = 44, 
+    RuleSettingsClause = 45, RuleValuesClause = 46, RuleValuesRow = 47, 
+    RuleJoinExpr = 48, RuleJoinOp = 49, RuleJoinOpCross = 50, RuleJoinConstraintClause = 51, 
+    RuleSampleClause = 52, RuleLimitExpr = 53, RuleOrderExprList = 54, RuleOrderExpr = 55, 
+    RuleWithFillClause = 56, RuleInterpolateExpr = 57, RuleRatioExpr = 58, 
+    RuleSettingExprList = 59, RuleSettingExpr = 60, RuleWindowExpr = 61, 
+    RuleWinPartitionByClause = 62, RuleWinOrderByClause = 63, RuleWithinGroupClause = 64, 
+    RuleWinFrameClause = 65, RuleWinFrameExtend = 66, RuleWinFrameBound = 67, 
+    RuleExpr = 68, RuleColumnTypeExpr = 69, RuleColumnTypeCastExpr = 70, 
+    RuleColumnTypeCastIdentifier = 71, RuleKeywordForTypeCast = 72, RuleColumnExprList = 73, 
+    RuleSelectColumnExprListBeforeFrom = 74, RuleSelectColumnExprList = 75, 
+    RuleSelectColumnExpr = 76, RuleColumnExpr = 77, RuleColumnLambdaExpr = 78, 
+    RuleColumnsReplaceList = 79, RuleColumnsReplaceItem = 80, RuleHogqlxChildElement = 81, 
+    RuleHogqlxText = 82, RuleHogqlxTagElement = 83, RuleHogqlxTagAttribute = 84, 
+    RuleWithExprList = 85, RuleWithExpr = 86, RuleWithExprColumnNameList = 87, 
+    RuleColumnIdentifier = 88, RuleNestedIdentifier = 89, RuleTableExpr = 90, 
+    RulePivotColumnList = 91, RulePivotColumn = 92, RuleUnpivotColumnList = 93, 
+    RuleUnpivotColumn = 94, RuleColumnExprTupleOrSingle = 95, RuleColumnAliases = 96, 
+    RuleTableFunctionExpr = 97, RuleTableIdentifier = 98, RuleTableArgList = 99, 
+    RuleDatabaseIdentifier = 100, RuleFloatingLiteral = 101, RuleNumberLiteral = 102, 
+    RuleLiteral = 103, RuleInterval = 104, RuleKeyword = 105, RuleKeywordForAlias = 106, 
+    RuleKeywordForImplicitAlias = 107, RuleAlias = 108, RuleImplicitAlias = 109, 
+    RuleIdentifier = 110, RuleEnumValue = 111, RulePlaceholder = 112, RuleString = 113, 
+    RuleTemplateString = 114, RuleStringContents = 115, RuleFullTemplateString = 116, 
+    RuleStringContentsFull = 117
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -127,7 +127,6 @@ public:
   class ForInStmtContext;
   class FuncStmtContext;
   class VarAssignmentContext;
-  class AssignmentTargetContext;
   class ExprStmtContext;
   class EmptyStmtContext;
   class BlockContext;
@@ -515,9 +514,9 @@ public:
   public:
     VarAssignmentContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    AssignmentTargetContext *assignmentTarget();
+    std::vector<ExpressionContext *> expression();
+    ExpressionContext* expression(size_t i);
     antlr4::tree::TerminalNode *COLONEQUALS();
-    ExpressionContext *expression();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -526,28 +525,6 @@ public:
 
   VarAssignmentContext* varAssignment();
 
-  class  AssignmentTargetContext : public antlr4::ParserRuleContext {
-  public:
-    AssignmentTargetContext(antlr4::ParserRuleContext *parent, size_t invokingState);
-    virtual size_t getRuleIndex() const override;
-    antlr4::tree::TerminalNode *LPAREN();
-    AssignmentTargetContext *assignmentTarget();
-    antlr4::tree::TerminalNode *RPAREN();
-    ColumnIdentifierContext *columnIdentifier();
-    antlr4::tree::TerminalNode *DOT();
-    IdentifierContext *identifier();
-    antlr4::tree::TerminalNode *DECIMAL_LITERAL();
-    antlr4::tree::TerminalNode *LBRACKET();
-    ColumnExprContext *columnExpr();
-    antlr4::tree::TerminalNode *RBRACKET();
-
-
-    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-   
-  };
-
-  AssignmentTargetContext* assignmentTarget();
-  AssignmentTargetContext* assignmentTarget(int precedence);
   class  ExprStmtContext : public antlr4::ParserRuleContext {
   public:
     ExprStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
@@ -3716,7 +3693,6 @@ public:
 
   bool sempred(antlr4::RuleContext *_localctx, size_t ruleIndex, size_t predicateIndex) override;
 
-  bool assignmentTargetSempred(AssignmentTargetContext *_localctx, size_t predicateIndex);
   bool joinExprSempred(JoinExprContext *_localctx, size_t predicateIndex);
   bool columnTypeExprSempred(ColumnTypeExprContext *_localctx, size_t predicateIndex);
   bool columnExprSempred(ColumnExprContext *_localctx, size_t predicateIndex);

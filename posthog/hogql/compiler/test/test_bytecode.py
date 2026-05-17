@@ -1,8 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
 
-from parameterized import parameterized
-
 from posthog.hogql.compiler.bytecode import create_bytecode, execute_hog, to_bytecode
 from posthog.hogql.errors import QueryError, SyntaxError
 from posthog.hogql.parser import parse_program
@@ -569,40 +567,6 @@ class TestBytecode(BaseTest):
         with self.assertRaises(SyntaxError):
             execute_hog("throw", team=self.team)
         create_bytecode(parse_program("throw Error('boom')"))
-
-    @parameterized.expand(
-        [
-            ("call_lvalue", "f() := 1"),
-            ("spread_lvalue", "* columns('x') := 1"),
-            ("string_literal_lvalue", "'x' := 1"),
-            ("numeric_literal_lvalue", "1 := 2"),
-            ("operator_lvalue", "(a + b) := 1"),
-        ]
-    )
-    def test_assignment_to_non_lvalue_rejected_at_parse_time(self, _name: str, source: str):
-        # The grammar's `varAssignment` left-hand side is the
-        # `assignmentTarget` rule — an identifier chain with `.`/`[]`
-        # access, optionally parenthesised. A call, spread, literal, or
-        # operator expression is not an assignable place and the
-        # bytecode compiler could never assign to it, so the parser
-        # rejects it outright rather than producing a tree that is
-        # guaranteed to fail compilation.
-        with self.assertRaises(SyntaxError):
-            parse_program(source)
-
-    @parameterized.expand(
-        [
-            ("identifier", "x := 1"),
-            ("property_chain", "x.y.z := 1"),
-            ("subscript", "x[0] := 1"),
-            ("tuple_access", "x.2 := 1"),
-            ("parenthesised", "(x) := 1"),
-            ("mixed_chain", "x.y[0].z := 1"),
-        ]
-    )
-    def test_assignment_to_valid_lvalue_parses(self, _name: str, source: str):
-        # Every shape the `assignmentTarget` rule admits must still parse.
-        parse_program(source)
 
     def test_bytecode_execute(self):
         # Test a simple operations. The Hog execution itself is tested under common/hogvm/python/

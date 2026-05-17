@@ -301,48 +301,9 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "VariableAssignment";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["left"] = visitAsJSON(ctx->assignmentTarget());
-    json["right"] = visitAsJSON(ctx->expression());
+    json["left"] = visitAsJSON(ctx->expression(0));
+    json["right"] = visitAsJSON(ctx->expression(1));
     return json;
-  }
-
-  VISIT(AssignmentTarget) {
-    // `( target )` — parens are pure grouping; unwrap to the inner target.
-    if (ctx->LPAREN()) {
-      return visit(ctx->assignmentTarget());
-    }
-    // `target [ expr ]` — array/subscript access.
-    if (ctx->LBRACKET()) {
-      Json json = Json::object();
-      json["node"] = "ArrayAccess";
-      if (!is_internal) addPositionInfo(json, ctx);
-      json["array"] = visitAsJSON(ctx->assignmentTarget());
-      json["property"] = visitAsJSON(ctx->columnExpr());
-      return json;
-    }
-    if (ctx->DOT()) {
-      // `target . 3` — tuple access by numeric index.
-      if (ctx->DECIMAL_LITERAL()) {
-        Json json = Json::object();
-        json["node"] = "TupleAccess";
-        if (!is_internal) addPositionInfo(json, ctx);
-        json["tuple"] = visitAsJSON(ctx->assignmentTarget());
-        json["index"] = static_cast<int64_t>(stoll(ctx->DECIMAL_LITERAL()->getText()));
-        return json;
-      }
-      // `target . name` — property access, mirrors ColumnExprPropertyAccess.
-      Json property = Json::object();
-      property["node"] = "Constant";
-      property["value"] = visitAsString(ctx->identifier());
-      Json json = Json::object();
-      json["node"] = "ArrayAccess";
-      if (!is_internal) addPositionInfo(json, ctx);
-      json["array"] = visitAsJSON(ctx->assignmentTarget());
-      json["property"] = std::move(property);
-      return json;
-    }
-    // Base case: a plain identifier chain.
-    return visit(ctx->columnIdentifier());
   }
 
   VISIT(Statement) {

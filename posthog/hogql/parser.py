@@ -472,29 +472,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitVarAssignment(self, ctx: HogQLParser.VarAssignmentContext):
         return ast.VariableAssignment(
-            left=self.visit(ctx.assignmentTarget()),
-            right=self.visit(ctx.expression()),
+            left=self.visit(ctx.expression(0)),
+            right=self.visit(ctx.expression(1)),
         )
-
-    def visitAssignmentTarget(self, ctx: HogQLParser.AssignmentTargetContext):
-        if ctx.LPAREN():
-            return self.visit(ctx.assignmentTarget())
-        if ctx.LBRACKET():
-            return ast.ArrayAccess(
-                array=self.visit(ctx.assignmentTarget()),
-                property=self.visit(ctx.columnExpr()),
-            )
-        if ctx.DOT():
-            if ctx.DECIMAL_LITERAL():
-                return ast.TupleAccess(
-                    tuple=self.visit(ctx.assignmentTarget()),
-                    index=int(ctx.DECIMAL_LITERAL().getText()),
-                )
-            return ast.ArrayAccess(
-                array=self.visit(ctx.assignmentTarget()),
-                property=ast.Constant(value=self.visit(ctx.identifier())),
-            )
-        return self.visit(ctx.columnIdentifier())
 
     def visitStatement(self, ctx: HogQLParser.StatementContext):
         return self.visitChildren(ctx)

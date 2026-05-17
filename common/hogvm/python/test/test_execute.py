@@ -3,7 +3,6 @@ from collections.abc import Callable
 from typing import Any, Optional, cast
 
 from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.errors import SyntaxError
 from posthog.hogql.parser import parse_expr, parse_program, parse_string_template
 
 from common.hogvm.python.execute import execute_bytecode, get_nested_value
@@ -795,43 +794,6 @@ class TestBytecodeExecute:
                 return event;
                 """
         ) == {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}}
-
-    def test_assignment_to_parenthesized_target(self):
-        # The left of `:=` is an `assignmentTarget`: an identifier chain
-        # with `.`-property / `.`-tuple / `[]`-subscript access, optionally
-        # wrapped in parentheses. Parentheses collapse to the underlying
-        # place, so a parenthesised target assigns just like a bare one.
-        assert self._run_program("let x := 1; (x) := 2; return x;") == 2
-        assert self._run_program("let x := 1; ((x)) := 2; return x;") == 2
-        assert self._run_program("let o := {'a': 1}; (o.a) := 2; return o.a;") == 2
-        assert self._run_program("let o := {'a': 1}; (o).a := 2; return o.a;") == 2
-        assert self._run_program("let o := {'a': 1}; (o)['a'] := 2; return o.a;") == 2
-        # Two adjacent parenthesised assignments stay two statements rather
-        # than folding `(b) (c)` into a call.
-        assert self._run_program(
-            "let a := 0; let b := 9; let c := 0; let d := 8; (a) := (b) (c) := (d); return [a, c];"
-        ) == [9, 8]
-        # A parenthesised target works in a `for` increment slot too.
-        assert self._run_program("let s := 0; for (let i := 0; i < 3; (i) := i + 1) { s := s + i; } return s;") == 3
-
-    def test_assignment_to_non_lvalue_rejected_at_parse_time(self):
-        # The left of `:=` must be an `assignmentTarget`. A call, spread,
-        # operator, or literal expression is not an assignable place: the
-        # bytecode compiler can never assign to it, so the parser rejects
-        # it rather than producing a tree guaranteed to fail compilation.
-        for source in [
-            "f() := 1",
-            "* columns('x') := 1",
-            "(a + b) := 1",
-            "'x' := 1",
-            "1 := 2",
-        ]:
-            try:
-                parse_program(source)
-            except SyntaxError:
-                pass
-            else:
-                raise AssertionError(f"Expected SyntaxError for non-lvalue assignment: {source}")
 
     def test_bytecode_parse_stringify_json(self):
         assert self._run_program("return jsonStringify({'$browser': 'Chrome', '$os': 'Windows' });") == json.dumps(
