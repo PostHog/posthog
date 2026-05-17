@@ -5,10 +5,10 @@ description: Guide for writing or reviewing PostHog kea logic files (`*Logic.ts`
 
 # Writing kea logics
 
-PostHog uses [kea](https://keajs.org) (`^4.0.0-pre.5` — a kea 4 pre-release; the stable
-docs you'll find at keajs.org are kea 3.x and differ in a few places) as the state
-container for the frontend. Almost all non-trivial business logic lives in a
-`*Logic.ts` / `*Logic.tsx` file, not in React.
+PostHog uses [kea](https://keajs.org) as the state container for the frontend. Almost
+all non-trivial business logic lives in a `*Logic.ts` / `*Logic.tsx` file, not in
+React. We may be on a kea pre-release ahead of the version the keajs.org docs
+cover — when in doubt, check `pnpm-workspace.yaml` for the pinned version.
 
 This skill captures the PostHog-specific conventions on top of the upstream
 [kea docs](https://keajs.org). When in doubt about a builder's signature, go upstream.
