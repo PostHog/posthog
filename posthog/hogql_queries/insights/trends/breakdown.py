@@ -320,6 +320,8 @@ class Breakdown:
         if is_numeric_breakdown:
             # The bin bounds are numeric — coerce the property so the comparison
             # matches the toFloat() column built in _get_breakdown_col_expr.
+            # HogQL toFloat maps to accurateCastOrNull, so non-numeric values
+            # become NULL and drop out of the comparison rather than throwing.
             left = ast.Call(name="toFloat", args=[left])
 
         if lookup_value == BREAKDOWN_NULL_STRING_LABEL:
@@ -428,6 +430,8 @@ class Breakdown:
             # Histogram bin math (max - min, divide, ...) requires a numeric column.
             # The property is not always numeric-typed (so the property-type swapper
             # would not coerce it), so coerce it here to avoid an illegal-type error.
+            # HogQL toFloat maps to accurateCastOrNull, so a stray non-numeric
+            # value buckets as NULL instead of throwing and failing the query.
             return ast.Alias(
                 alias=alias,
                 expr=ast.Call(name="toFloat", args=[ast.Field(chain=properties_chain)]),
