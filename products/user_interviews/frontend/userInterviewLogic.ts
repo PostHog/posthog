@@ -66,14 +66,15 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
         },
         links: {
             __default: [] as InterviewLinkApi[],
-            loadLinks: async () => {
+            loadLinks: async (): Promise<InterviewLinkApi[]> => {
                 const projectId = String(teamLogic.values.currentTeamId)
-                try {
-                    const response = await userInterviewTopicsGenerateLinksCreate(projectId, props.id)
-                    return response.results
-                } catch {
-                    return []
+                const response = (await userInterviewTopicsGenerateLinksCreate(projectId, props.id)) as unknown as
+                    | InterviewLinkApi[]
+                    | { results?: InterviewLinkApi[] }
+                if (Array.isArray(response)) {
+                    return response
                 }
+                return response.results ?? []
             },
         },
     })),

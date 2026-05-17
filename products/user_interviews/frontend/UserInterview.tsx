@@ -41,6 +41,7 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
         interviewees,
         intervieweesLoading,
         linkByIdentifier,
+        linksLoading,
         respondedIdentifiers,
         respondedCount,
         totalTargeted,
@@ -136,6 +137,7 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                                         topicId={id}
                                         hasResponded={respondedIdentifiers.has(identifier)}
                                         interviewUrl={linkByIdentifier[identifier]}
+                                        linksLoading={linksLoading}
                                     />
                                 ))
                             )}
@@ -225,11 +227,13 @@ function PersonRow({
     topicId,
     hasResponded,
     interviewUrl,
+    linksLoading,
 }: {
     identifier: string
     topicId: string
     hasResponded: boolean
     interviewUrl?: string
+    linksLoading: boolean
 }): JSX.Element {
     const handleCopy = (e: React.MouseEvent): void => {
         e.preventDefault()
@@ -239,6 +243,8 @@ function PersonRow({
         }
         void copyToClipboard(interviewUrl, 'interview link')
     }
+
+    const disabledReason = interviewUrl ? undefined : linksLoading ? 'Generating link…' : 'No link available'
 
     return (
         <Link
@@ -256,7 +262,7 @@ function PersonRow({
                             size="xsmall"
                             icon={<IconCopy />}
                             onClick={handleCopy}
-                            disabledReason={interviewUrl ? undefined : 'Generating link…'}
+                            disabledReason={disabledReason}
                             tooltip="Copy interview link"
                         />
                         {hasResponded ? (
