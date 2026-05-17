@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from textwrap import dedent
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
@@ -9,9 +9,10 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.utils import SessionRecordingQueryResult
 from posthog.sync import database_sync_to_async
@@ -422,9 +423,9 @@ class FilterSessionRecordingsTool(MaxTool):
             if recordings_filters.date_to:
                 date_to_parsed = relative_date_parse(recordings_filters.date_to, tz)
             else:
-                date_to_parsed = datetime.now(timezone.utc)
+                date_to_parsed = datetime.now(UTC)
         except Exception:
-            date_to_parsed = datetime.now(timezone.utc)
+            date_to_parsed = datetime.now(UTC)
 
         results: list[dict[str, Any]] = []
         seen: set[str] = set()
