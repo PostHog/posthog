@@ -10,12 +10,12 @@ import { InterviewExportPayload } from '../types'
 
 type CallState = 'idle' | 'loading' | 'connecting' | 'in-call' | 'ended' | 'error'
 
-type ConversationPhase = 'agent-talking' | 'user-speaking' | 'waiting'
+type ConversationPhase = 'agent-talking' | 'listening' | 'thinking'
 
 const PHASE_LABELS: Record<ConversationPhase, string> = {
     'agent-talking': '🎤 Talking',
-    'user-speaking': '👂 Listening',
-    waiting: '🧠 Thinking',
+    listening: '👂 Listening',
+    thinking: '🧠 Thinking',
 }
 
 interface VapiTranscriptMessage {
@@ -212,11 +212,11 @@ export default function ExporterInterviewScene({
     accessToken?: string
 }): JSX.Element {
     const [state, setState] = useState<CallState>('idle')
-    const [conversationPhase, setConversationPhase] = useState<ConversationPhase>('waiting')
+    const [conversationPhase, setConversationPhase] = useState<ConversationPhase>('listening')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const vapiRef = useRef<Vapi | null>(null)
     const agentTalkingRef = useRef<boolean>(false)
-    const lastPhaseRef = useRef<ConversationPhase>('waiting')
+    const lastPhaseRef = useRef<ConversationPhase>('listening')
     const isMountedRef = useRef<boolean>(true)
 
     useEffect(() => {
@@ -240,8 +240,8 @@ export default function ExporterInterviewScene({
         vapiRef.current?.stop()
         vapiRef.current = null
         agentTalkingRef.current = false
-        lastPhaseRef.current = 'waiting'
-        setConversationPhase('waiting')
+        lastPhaseRef.current = 'listening'
+        setConversationPhase('listening')
         setState('loading')
         void (async () => {
             try {
@@ -270,12 +270,12 @@ export default function ExporterInterviewScene({
                 })
                 vapi.on('speech-end', () => {
                     agentTalkingRef.current = false
-                    setPhase('waiting')
+                    setPhase('listening')
                 })
                 vapi.on('message', (message: VapiTranscriptMessage) => {
                     if (message.type === 'user-interrupted') {
                         agentTalkingRef.current = false
-                        setPhase('user-speaking')
+                        setPhase('listening')
                         return
                     }
                     if (message.type !== 'transcript' || message.role !== 'user') {
@@ -285,9 +285,9 @@ export default function ExporterInterviewScene({
                         return
                     }
                     if (message.transcriptType === 'partial') {
-                        setPhase('user-speaking')
+                        setPhase('listening')
                     } else if (message.transcriptType === 'final') {
-                        setPhase('waiting')
+                        setPhase('thinking')
                     }
                 })
                 setState('connecting')
