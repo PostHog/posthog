@@ -142,6 +142,18 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         result, _ = self._get_events_for_query(query)
         assert result is not None
 
+    def test_funnel_correlation_hogql_aggregation_rejects_injection(self):
+        # funnelAggregateByHogQL is user-controlled — a value that isn't a single
+        # bounded expression (e.g. an attempt to inject an extra JOIN) must be
+        # rejected by the parser, not interpolated into the query.
+        query = FunnelsQuery(
+            series=[EventsNode(event="user signed up"), EventsNode(event="paid")],
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
+            funnelsFilter=FunnelsFilter(funnelAggregateByHogQL="properties.session_id JOIN persons ON 1=1"),
+        )
+        with self.assertRaises(Exception):
+            self._get_events_for_query(query)
+
     def test_basic_funnel_correlation_with_events(self):
         query = FunnelsQuery(
             series=[EventsNode(event="user signed up"), EventsNode(event="paid")],
