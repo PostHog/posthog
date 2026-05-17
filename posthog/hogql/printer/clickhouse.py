@@ -71,6 +71,22 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
+# String functions that return an Array — a Nullable string arg would produce an
+# illegal Nullable(Array(...)) type, so their nullable string args are coerced.
+_ARRAY_RETURNING_STRING_FUNCTIONS = frozenset(
+    {
+        "splitByChar",
+        "splitByString",
+        "splitByRegexp",
+        "splitByWhitespace",
+        "splitByNonAlpha",
+        "alphaTokens",
+        "extractAllGroups",
+        "ngrams",
+        "tokens",
+    }
+)
+
 # In non-nullable materialized columns, these values are treated as NULL
 MAT_COL_NULL_SENTINELS = ["", "null"]
 
@@ -155,6 +171,18 @@ class ClickHousePrinter(BasePrinter):
                         args.append(f"ifNull({self.visit(arg)}, '')")
                 else:
                     args.append(f"ifNull(toString({self.visit(arg)}), '')")
+        elif node.name in _ARRAY_RETURNING_STRING_FUNCTIONS:
+            # These return Array(...). A Nullable string argument would make the
+            # result Nullable(Array(...)), which ClickHouse rejects, so coerce
+            # nullable string args to a non-nullable empty string.
+            args = []
+            for arg in node_args:
+                visited = self.visit(arg)
+                arg_type = arg.type.resolve_constant_type(self.context) if arg.type is not None else None
+                if isinstance(arg_type, ast.StringType) and arg_type.nullable:
+                    args.append(f"ifNull({visited}, '')")
+                else:
+                    args.append(visited)
         else:
             args = [self.visit(arg) for arg in node_args]
 

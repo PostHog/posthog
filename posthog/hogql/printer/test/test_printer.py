@@ -4813,6 +4813,12 @@ class TestPrinted(APIBaseTest):
         )
         assert query_response.results == [(6,)]
 
+    def test_split_function_on_nullable_property(self):
+        # splitByChar on a nullable property would produce an illegal Nullable(Array)
+        query = parse_select("SELECT splitByChar('@', properties.email) FROM events")
+        query_response = execute_hogql_query(team=self.team, query=query)
+        assert query_response.results is not None
+
 
 class TestPostgresPrinter(BaseTest):
     maxDiff = None
