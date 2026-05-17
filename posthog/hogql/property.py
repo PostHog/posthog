@@ -226,14 +226,31 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
-def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool:
+_BOOLEAN_TRUE_REPRESENTATIONS = frozenset({"true", "t", "yes", "y", "on", "enable", "enabled", "1"})
+_BOOLEAN_FALSE_REPRESENTATIONS = frozenset({"false", "f", "no", "n", "off", "disable", "disabled", "0"})
+
+
+def _resolve_boolean_value(value: ValueT) -> bool | None:
+    """Resolve a filter value for a Boolean-typed property. A value that is not a
+    recognized boolean returns None so the comparison matches nothing rather than
+    failing in ClickHouse, which cannot parse e.g. 'foo' as a bool."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    if normalized in _BOOLEAN_TRUE_REPRESENTATIONS:
+        return True
+    if normalized in _BOOLEAN_FALSE_REPRESENTATIONS:
+        return False
+    return None
+
+
+def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool | None:
     if value is True:
         value = "true"
     elif value is False:
         value = "false"
-
-    if value != "true" and value != "false":
-        return value
 
     # Virtual event properties (e.g. $virt_is_bot) don't have PropertyDefinition
     # records, so we check the taxonomy directly for boolean type
@@ -243,7 +260,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         for group_defs in CORE_FILTER_DEFINITIONS_BY_GROUP.values():
             prop_def = group_defs.get(property.key)
             if prop_def and prop_def.get("type") == "Boolean":
-                return value == "true"
+                return _resolve_boolean_value(value)
         return value
 
     if property.type == "person":
@@ -291,20 +308,14 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
             raise Exception(f"Could not find table or view for key {key}")
 
         if prop_type == "BooleanDatabaseField":
-            if value == "true":
-                value = True
-            if value == "false":
-                value = False
+            return _resolve_boolean_value(value)
 
         return value
 
     elif property.type == "session":
         field_definition = LAZY_SESSIONS_FIELDS.get(property.key)
         if isinstance(field_definition, BooleanDatabaseField):
-            if value == "true":
-                return True
-            if value == "false":
-                return False
+            return _resolve_boolean_value(value)
         return value
 
     else:
@@ -318,10 +329,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     property_type = property_types[0].property_type if len(property_types) > 0 else None
 
     if property_type == PropertyType.Boolean:
-        if value == "true":
-            return True
-        if value == "false":
-            return False
+        return _resolve_boolean_value(value)
     return value
 
 

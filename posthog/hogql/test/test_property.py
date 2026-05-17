@@ -1923,3 +1923,40 @@ class TestPropertyDateOperatorsWithData(APIBaseTest):
 
         count = self._run({"type": "event", "key": "signup_dt", "value": value, "operator": operator})
         assert count == expected_count
+
+
+class TestBooleanPropertyComparisonWithData(APIBaseTest):
+    """End-to-end tests for a Boolean-typed property compared against a value.
+
+    A non-boolean filter value against a Boolean property renders valid HogQL but
+    ClickHouse rejects it at runtime (it cannot parse e.g. 'foo' as a bool), so
+    these execute the generated SQL.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        PropertyDefinition.objects.create(
+            team=cls.team, name="is_active", property_type="Boolean", type=PropertyDefinition.Type.EVENT
+        )
+        _create_event(team=cls.team, event="signup", distinct_id="u1", properties={"is_active": "true"})
+        _create_event(team=cls.team, event="signup", distinct_id="u2", properties={"is_active": "false"})
+
+    def _run(self, filter: dict) -> int:
+        query_ast = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=property_to_expr(filter, team=self.team, scope="event"),
+        )
+        return execute_hogql_query(team=self.team, query=query_ast).results[0][0]
+
+    @parameterized.expand(
+        [
+            ("true_matches", "true", "exact", 1),
+            ("false_matches", "false", "exact", 1),
+            # a non-boolean value cannot match a boolean property — 0 rows, not a crash
+            ("non_boolean_value_matches_nothing", "not-a-boolean", "exact", 0),
+        ]
+    )
+    def test_boolean_property_comparison(self, _name, value, operator, expected_count):
+        assert self._run({"type": "event", "key": "is_active", "value": value, "operator": operator}) == expected_count
