@@ -421,6 +421,48 @@ class TestSuppressionRuleAPI(APIBaseTest):
         rule = ErrorTrackingSuppressionRule.objects.get(id=data["id"])
         assert rule.bytecode is not None
 
+    @parameterized.expand(
+        [
+            ("semver_eq", "1.2.3"),
+            ("semver_neq", "1.2.3"),
+            ("semver_gt", "1.2.3"),
+            ("semver_gte", "1.2.3"),
+            ("semver_lt", "1.2.3"),
+            ("semver_lte", "1.2.3"),
+            ("semver_tilde", "1.2.3"),
+            ("semver_caret", "1.2.3"),
+            ("semver_wildcard", "1.2.*"),
+        ]
+    )
+    def test_create_with_semver_filter(self, operator: str, value: str) -> None:
+        filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "app_version",
+                            "type": "event",
+                            "value": value,
+                            "operator": operator,
+                        }
+                    ],
+                }
+            ],
+        }
+
+        response = self.client.post(
+            self._url(),
+            data={"filters": filters},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        rule = ErrorTrackingSuppressionRule.objects.get(id=response.json()["id"])
+        assert rule.bytecode is not None
+        assert len(rule.bytecode) > 0
+
     def test_create_invalid_filters(self) -> None:
         response = self.client.post(
             self._url(),

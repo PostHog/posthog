@@ -15,10 +15,13 @@ RUST_HOGVM_STL = [
     "indexOf",
     "notEmpty",
     "match",
+    "extractRegex",
     "JSONExtract",
+    "multiSearchAnyCaseInsensitive",
     "arrayReduce",
     "arrayCount",
     "arrayFilter",
     "arrayExists",
     "arrayMap",
+    "sortableSemver",
 ]
