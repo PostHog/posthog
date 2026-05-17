@@ -2,7 +2,8 @@ import { DateTime } from 'luxon'
 
 import { CyclotronInvocationQueueParametersFetchSchema } from '~/schema/cyclotron'
 
-import { registerAsyncFunction } from '../async-function-registry'
+import { AsyncFunctionContext, registerAsyncFunction } from '../async-function-registry'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 
 type ChatCompletionArgs = {
     model?: string
@@ -10,11 +11,19 @@ type ChatCompletionArgs = {
     response_format?: Record<string, unknown>
 }
 
-const sanitizeProduct = (raw: string): string => raw.replace(/[^a-z0-9_-]/gi, '').toLowerCase() || 'workflows'
+// Template-id allowlist: these async functions inject PostHog's internal service LLM gateway key
+// into outbound requests, so they MUST NOT be callable from arbitrary user-authored destination
+// Hog functions. Any caller whose hogFunction.template_id is not on this list is rejected, even
+// if Hog code references postHogLLMClassify / postHogLLMSummarize by name. template_id is set
+// server-side from the HogFunctionType record — users cannot spoof it from Hog code.
+const ALLOWED_LLM_TEMPLATE_IDS: ReadonlySet<string> = new Set([
+    'template-posthog-llm-classify',
+    'template-posthog-llm-summarize',
+])
 
-const buildGatewayUrl = (rawBase: string, product: string): string => {
+const buildGatewayUrl = (rawBase: string): string => {
     const base = rawBase.replace(/\/+$/, '')
-    return `${base}/${sanitizeProduct(product)}/v1/chat/completions`
+    return `${base}/workflows/v1/chat/completions`
 }
 
 // Shared between postHogLLMClassify and postHogLLMSummarize. The async functions are intentionally
@@ -24,9 +33,16 @@ const buildGatewayUrl = (rawBase: string, product: string): string => {
 const queueChatCompletionFetch = (
     fnName: string,
     opts: ChatCompletionArgs | undefined,
-    context: any,
-    result: any
+    context: AsyncFunctionContext,
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
 ): void => {
+    const callerTemplateId = context.invocation.hogFunction.template_id ?? ''
+    if (!ALLOWED_LLM_TEMPLATE_IDS.has(callerTemplateId)) {
+        throw new Error(
+            `[HogFunction] - ${fnName} is restricted to PostHog-built LLM templates; caller template_id='${callerTemplateId}' is not allowed`
+        )
+    }
+
     const model = opts?.model
     const messages = opts?.messages
     const responseFormat = opts?.response_format
@@ -58,7 +74,7 @@ const queueChatCompletionFetch = (
 
     result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
         type: 'fetch',
-        url: buildGatewayUrl(context.llmGatewayUrl, 'workflows'),
+        url: buildGatewayUrl(context.llmGatewayUrl),
         method: 'POST',
         body: JSON.stringify(body),
         headers: {
@@ -124,3 +140,6 @@ registerAsyncFunction('postHogLLMSummarize', {
         return buildMockResponse('postHogLLMSummarize', opts, mockContent, logs)
     },
 })
+
+// Exported for tests; the runtime gate uses this set directly.
+export const __TESTING_ALLOWED_LLM_TEMPLATE_IDS = ALLOWED_LLM_TEMPLATE_IDS
