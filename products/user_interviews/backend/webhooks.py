@@ -12,6 +12,7 @@ Two surfaces live here, both keyed on a SharingConfiguration access token:
 import hmac
 import json
 import string
+import hashlib
 from typing import Any
 
 from django.conf import settings
@@ -89,14 +90,6 @@ def _emit_interview_embeddings(interview: UserInterview, topic: UserInterviewTop
                 interview_id=str(interview.id),
                 document_type=document_type,
             )
-
-
-def _verify_secret(expected_secret: str, provided_secret: str | None) -> bool:
-    """Vapi sends the configured webhook secret verbatim in ``X-Vapi-Secret`` —
-    constant-time compare it against ``VAPI_WEBHOOK_SECRET`` to authenticate."""
-    if not expected_secret or not provided_secret:
-        return False
-    return hmac.compare_digest(provided_secret, expected_secret)
 
 
 def _resolve_share(access_token: str) -> SharingConfiguration | None:
@@ -286,9 +279,7 @@ def vapi_webhook(request: Request) -> Response:
 
     Fail-closed: if ``VAPI_WEBHOOK_SECRET`` is not configured we refuse to accept any
     request — treating an unconfigured deployment as inert rather than insecure.
-    With the secret set, the ``X-Vapi-Secret`` header is constant-time compared
-    against it (Vapi's documented webhook auth — the configured token is sent
-    verbatim in that header).
+    With the secret set, the request body is HMAC-SHA256 verified.
 
     Idempotent: Vapi retries on 5xx and transient errors, so we de-duplicate by
     ``call.id`` (stored in ``call_metadata.id``). A repeat delivery returns the
@@ -300,19 +291,28 @@ def vapi_webhook(request: Request) -> Response:
             {"error": "Vapi webhook secret is not configured on this PostHog instance."},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
-    provided = request.headers.get("X-Vapi-Secret")
+    provided = request.headers.get("x-vapi-signature") or request.headers.get("X-Vapi-Signature")
+    expected = (
+        hmac.new(settings.VAPI_WEBHOOK_SECRET.encode(), request.body, hashlib.sha256).hexdigest() if provided else None
+    )
     logger.info(
         "user_interviews_vapi_webhook_received",
         header_keys=sorted(request.headers.keys()),
-        has_provided_secret=bool(provided),
+        has_provided_signature=bool(provided),
         body_bytes=len(request.body),
     )
-    if not _verify_secret(settings.VAPI_WEBHOOK_SECRET, provided):
+    if not (provided and expected and hmac.compare_digest(provided, expected)):
+        # Log prefixes (first 8 chars of one-way hashes — safe to log; do not leak secrets) to diagnose
+        # whether the failure is wrong-secret vs different-body vs case-mismatch.
         logger.warning(
-            "user_interviews_vapi_webhook_auth_failed",
-            has_provided_secret=bool(provided),
+            "user_interviews_vapi_webhook_signature_failed",
+            has_provided_signature=bool(provided),
+            expected_prefix=expected[:8] if expected else None,
+            provided_prefix=provided[:8] if provided else None,
+            provided_length=len(provided) if provided else 0,
+            body_bytes=len(request.body),
         )
-        return Response({"error": "invalid secret"}, status=status.HTTP_401_UNAUTHORIZED)
+        return Response({"error": "invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
 
     payload = request.data if isinstance(request.data, dict) else {}
     message: dict[str, Any] = payload.get("message", {})
