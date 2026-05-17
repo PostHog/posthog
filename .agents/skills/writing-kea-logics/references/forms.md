@@ -93,7 +93,6 @@ listeners(({ actions }) => ({
 
 ```tsx
 import { Form, Field } from 'kea-forms'
-
 ;<Form logic={signupLogic} formKey="signup" enableFormOnSubmit>
   <Field name="email" label="Email">
     <LemonInput type="email" />
