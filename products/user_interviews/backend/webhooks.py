@@ -11,6 +11,7 @@ Two surfaces live here, both keyed on a SharingConfiguration access token:
 
 import hmac
 import json
+import string
 import hashlib
 from typing import Any
 
@@ -31,6 +32,8 @@ from posthog.schema import EmbeddingModelName
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.constants import AvailableFeature
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.team import Team
+from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from .models import UserInterview, UserInterviewTopic
 
@@ -131,20 +134,69 @@ def _public_sharing_disabled_for_org(sharing_config: SharingConfiguration) -> bo
 
 _TOPIC_MAX_CHARS = 200
 
+FIRST_MESSAGE_PROMPT_NAME = "user_interviews_vapi_first_message"
+
+DEFAULT_FIRST_MESSAGE_TEMPLATE = (
+    "Hey $user_name! Thanks for making time — I know you're busy. "
+    "I'm here to learn how you actually use $topic_text in the wild. "
+    "Mind if I ask a few questions? Should take about 5-10 minutes."
+)
+
+_FIRST_MESSAGE_MAX_CHARS = 1000
+
 
 def _normalise_topic(topic_text: str) -> str:
     return " ".join(topic_text.split())[:_TOPIC_MAX_CHARS]
 
 
-def _build_first_message(*, user_name: str, topic_text: str) -> str:
-    name_part = f"Hi {user_name.strip()}!" if user_name.strip() else "Hi there!"
-    greeting = f"{name_part} Thanks for joining."
-    topic_normalised = _normalise_topic(topic_text)
-    if topic_normalised:
-        return (
-            f"{greeting} Today we're talking about {topic_normalised}. I'd love your perspective. Ready when you are."
+def _resolve_first_message_template(team: Team) -> str:
+    try:
+        cached = get_prompt_by_name_from_cache(team, FIRST_MESSAGE_PROMPT_NAME)
+    except Exception as err:
+        logger.warning(
+            "user_interviews_first_message_prompt_lookup_failed",
+            team_id=team.id,
+            error=str(err),
         )
-    return f"{greeting} I'd love your perspective. Ready when you are."
+        return DEFAULT_FIRST_MESSAGE_TEMPLATE
+    if cached is not None:
+        template = cached.get("prompt")
+        if isinstance(template, str) and template.strip():
+            return template
+    return DEFAULT_FIRST_MESSAGE_TEMPLATE
+
+
+def _build_first_message(
+    template: str,
+    *,
+    user_name: str,
+    topic_text: str,
+    team_id: int | None = None,
+) -> str:
+    name_part = user_name.strip() or "there"
+    topic_part = _normalise_topic(topic_text) or "your experience"
+    try:
+        rendered = string.Template(template).substitute(user_name=name_part, topic_text=topic_part)
+    except (KeyError, ValueError):
+        logger.warning(
+            "user_interviews_first_message_template_invalid",
+            team_id=team_id,
+            template_prefix=template[:60],
+        )
+        rendered = string.Template(DEFAULT_FIRST_MESSAGE_TEMPLATE).substitute(
+            user_name=name_part, topic_text=topic_part
+        )
+    if len(rendered) > _FIRST_MESSAGE_MAX_CHARS:
+        logger.warning(
+            "user_interviews_first_message_too_long",
+            team_id=team_id,
+            rendered_chars=len(rendered),
+            limit=_FIRST_MESSAGE_MAX_CHARS,
+        )
+        rendered = string.Template(DEFAULT_FIRST_MESSAGE_TEMPLATE).substitute(
+            user_name=name_part, topic_text=topic_part
+        )
+    return rendered[:_FIRST_MESSAGE_MAX_CHARS]
 
 
 @api_view(["POST"])
@@ -188,7 +240,13 @@ def start_call(request: Request, access_token: str) -> Response:
     topic = ic.topic
     user_name, _ = _parse_identifier(ic.interviewee_identifier)
     agent_context = _merge_agent_context(topic.agent_context or "", ic.agent_context or "")
-    first_message = _build_first_message(user_name=user_name, topic_text=topic.topic or "")
+    first_message_template = _resolve_first_message_template(sharing_config.team)
+    first_message = _build_first_message(
+        first_message_template,
+        user_name=user_name,
+        topic_text=topic.topic or "",
+        team_id=sharing_config.team_id,
+    )
 
     logger.info(
         "user_interviews_start_call_issued",
