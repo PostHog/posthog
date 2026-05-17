@@ -24,6 +24,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import (
+    _resolve_boolean_value,
     entity_to_expr,
     has_aggregation,
     map_virtual_properties,
@@ -1925,14 +1926,9 @@ class TestPropertyDateOperatorsWithData(APIBaseTest):
         assert count == expected_count
 
 
+# Executes generated SQL: a non-boolean value against a Boolean property renders
+# valid HogQL but ClickHouse rejects it at runtime, so AST-only tests miss it.
 class TestBooleanPropertyComparisonWithData(APIBaseTest):
-    """End-to-end tests for a Boolean-typed property compared against a value.
-
-    A non-boolean filter value against a Boolean property renders valid HogQL but
-    ClickHouse rejects it at runtime (it cannot parse e.g. 'foo' as a bool), so
-    these execute the generated SQL.
-    """
-
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
@@ -1956,7 +1952,26 @@ class TestBooleanPropertyComparisonWithData(APIBaseTest):
             ("false_matches", "false", "exact", 1),
             # a non-boolean value cannot match a boolean property — 0 rows, not a crash
             ("non_boolean_value_matches_nothing", "not-a-boolean", "exact", 0),
+            # is_not with a valid boolean value returns the complementary row
+            ("is_not_true_matches_false_row", "true", "is_not", 1),
+            # is_not with a non-boolean value: every row "is not" it — match all, not a crash and not 0 rows
+            ("is_not_non_boolean_matches_everything", "not-a-boolean", "is_not", 2),
         ]
     )
     def test_boolean_property_comparison(self, _name, value, operator, expected_count):
         assert self._run({"type": "event", "key": "is_active", "value": value, "operator": operator}) == expected_count
+
+    @parameterized.expand(
+        [
+            ("true", "true", True),
+            ("false", "false", False),
+            ("one_is_true", "1", True),
+            ("zero_is_false", "0", False),
+            ("yes_is_true", "yes", True),
+            ("no_is_false", "no", False),
+            ("bool_passthrough", True, True),
+            ("non_boolean_is_none", "not-a-boolean", None),
+        ]
+    )
+    def test_resolve_boolean_value(self, _name, value, expected):
+        assert _resolve_boolean_value(value) is expected

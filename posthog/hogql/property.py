@@ -236,8 +236,6 @@ def _resolve_boolean_value(value: ValueT) -> bool | None:
     failing in ClickHouse, which cannot parse e.g. 'foo' as a bool."""
     if isinstance(value, bool):
         return value
-    if value is None:
-        return None
     normalized = str(value).strip().lower()
     if normalized in _BOOLEAN_TRUE_REPRESENTATIONS:
         return True
@@ -516,10 +514,17 @@ def _expr_to_compare_op(
             right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.IS_NOT:
+        resolved_value = _handle_bool_values(value, expr, property, team)
+        # A non-boolean value against a Boolean property resolves to None. For
+        # IS_NOT that would emit `expr != NULL`, which is NULL in ClickHouse
+        # three-valued logic and matches zero rows. Every row "is not" the
+        # unparseable value, so match everything instead.
+        if resolved_value is None and value is not None:
+            return ast.Constant(value=True)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotEq,
             left=expr,
-            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
+            right=ast.Constant(value=resolved_value),
         )
     elif operator == PropertyOperator.LT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
