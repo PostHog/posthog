@@ -162,9 +162,7 @@ class MultiTurnSession:
                     exc_info=True,
                 )
                 if self.output_fn:
-                    self.output_fn(
-                        f"Agent response did not match the schema for {label or 'followup'}, retrying..."
-                    )
+                    self.output_fn(f"Agent response did not match the schema for {label or 'followup'}, retrying...")
                 retry_message = message + _build_format_retry_nudge(e.validation_error)
             else:
                 logger.info(

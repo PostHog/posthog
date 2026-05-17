@@ -436,7 +436,7 @@ async def match_signal_to_report(
             if matched is None:
                 raise ValueError(
                     f"signal_id {result.signal_id} not found in candidates. "
-                    f"Pick a signal_id from the SEARCH RESULTS above, or set match_type=\"new\" if nothing fits."
+                    f'Pick a signal_id from the SEARCH RESULTS above, or set match_type="new" if nothing fits.'
                 )
             if result.query_index < 0 or result.query_index >= len(queries):
                 raise ValueError(f"query_index {result.query_index} out of range (0-{len(queries) - 1})")
