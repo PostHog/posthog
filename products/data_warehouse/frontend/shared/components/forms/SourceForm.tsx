@@ -284,7 +284,7 @@ export const sourceFieldToElement = (
             >
                 {({ value, onChange }) => (
                     <LemonSwitch
-                        checked={value || lastValue?.[field.name] || false}
+                        checked={value ?? lastValue?.[field.name] ?? false}
                         onChange={(checked) => onChange(checked)}
                     />
                 )}
