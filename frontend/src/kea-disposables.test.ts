@@ -14,18 +14,8 @@ const setHidden = (hidden: boolean): void => {
     document.dispatchEvent(new Event('visibilitychange'))
 }
 
-interface DisposableTestLogicType {
-    actionCreators: any
-    selectors: any
-    values: any
-    actions: any
-    cache: any
-    mount: () => () => void
-    unmount: () => void
-}
-
 describe('disposablesPlugin', () => {
-    let logic: DisposableTestLogicType
+    let logic: ReturnType<typeof kea<logicType>>
     let setupCalls: number
     let cleanupCalls: number
 
@@ -35,14 +25,12 @@ describe('disposablesPlugin', () => {
         cleanupCalls = 0
         setHidden(false)
 
-        logic = kea<logicType>([path(['test', 'disposablesPluginTest'])]) as unknown as DisposableTestLogicType
+        logic = kea<logicType>([path(['test', 'disposablesPluginTest'])])
         logic.mount()
     })
 
     afterEach(() => {
-        try {
-            logic.unmount()
-        } catch {}
+        logic.unmount()
         setHidden(false)
     })
 
@@ -53,39 +41,54 @@ describe('disposablesPlugin', () => {
         }
     }
 
-    it('runs setup immediately when added while page is visible', () => {
-        setHidden(false)
-        logic.cache.disposables.add(makeSetup(), 'k1')
-        expect(setupCalls).toBe(1)
-        expect(cleanupCalls).toBe(0)
-    })
-
-    it('does NOT run setup when add() is called while page is hidden (default pauseOnPageHidden=true)', () => {
-        setHidden(true)
-        logic.cache.disposables.add(makeSetup(), 'k1')
-        expect(setupCalls).toBe(0)
-        // entry should still be registered so resume can run it later
-        expect(logic.cache.disposables.registry.has('k1')).toBe(true)
+    describe.each<{
+        label: string
+        initialHidden: boolean
+        options?: { pauseOnPageHidden?: boolean }
+        expectedSetupCalls: number
+        expectedRegistryHas: boolean
+    }>([
+        {
+            label: 'visible, default options — runs setup immediately',
+            initialHidden: false,
+            expectedSetupCalls: 1,
+            expectedRegistryHas: true,
+        },
+        {
+            label: 'hidden, default options — defers setup, entry still registered',
+            initialHidden: true,
+            expectedSetupCalls: 0,
+            expectedRegistryHas: true,
+        },
+        {
+            label: 'hidden, pauseOnPageHidden=false — runs setup anyway',
+            initialHidden: true,
+            options: { pauseOnPageHidden: false },
+            expectedSetupCalls: 1,
+            expectedRegistryHas: true,
+        },
+    ])('add() — $label', ({ initialHidden, options, expectedSetupCalls, expectedRegistryHas }) => {
+        it('matches expected setup/registry state', () => {
+            setHidden(initialHidden)
+            ;(logic as any).cache.disposables.add(makeSetup(), 'k1', options)
+            expect(setupCalls).toBe(expectedSetupCalls)
+            expect(cleanupCalls).toBe(0)
+            expect((logic as any).cache.disposables.registry.has('k1')).toBe(expectedRegistryHas)
+        })
     })
 
     it('runs setup on next visibility-visible for paused-at-birth entries', () => {
         setHidden(true)
-        logic.cache.disposables.add(makeSetup(), 'k1')
+        ;(logic as any).cache.disposables.add(makeSetup(), 'k1')
         expect(setupCalls).toBe(0)
 
         setHidden(false)
-        expect(setupCalls).toBe(1)
-    })
-
-    it('runs setup immediately when add() called with pauseOnPageHidden=false even if hidden', () => {
-        setHidden(true)
-        logic.cache.disposables.add(makeSetup(), 'k1', { pauseOnPageHidden: false })
         expect(setupCalls).toBe(1)
     })
 
     it('runs cleanup on visibility-hidden for default disposables', () => {
         setHidden(false)
-        logic.cache.disposables.add(makeSetup(), 'k1')
+        ;(logic as any).cache.disposables.add(makeSetup(), 'k1')
         expect(setupCalls).toBe(1)
         expect(cleanupCalls).toBe(0)
 
@@ -95,15 +98,15 @@ describe('disposablesPlugin', () => {
 
     it('does NOT run cleanup on visibility-hidden for opted-out disposables', () => {
         setHidden(false)
-        logic.cache.disposables.add(makeSetup(), 'k1', { pauseOnPageHidden: false })
+        ;(logic as any).cache.disposables.add(makeSetup(), 'k1', { pauseOnPageHidden: false })
         setHidden(true)
         expect(cleanupCalls).toBe(0)
     })
 
     it('replacing a keyed disposable cleans up the previous one', () => {
         setHidden(false)
-        logic.cache.disposables.add(makeSetup(), 'k1')
-        logic.cache.disposables.add(makeSetup(), 'k1')
+        ;(logic as any).cache.disposables.add(makeSetup(), 'k1')
+        ;(logic as any).cache.disposables.add(makeSetup(), 'k1')
         // first setup ran, first cleanup ran (because replaced), second setup ran
         expect(setupCalls).toBe(2)
         expect(cleanupCalls).toBe(1)
@@ -111,7 +114,7 @@ describe('disposablesPlugin', () => {
 
     it('replacing a keyed disposable while hidden cleans up the previous and stores paused', () => {
         setHidden(false)
-        logic.cache.disposables.add(makeSetup(), 'k1')
+        ;(logic as any).cache.disposables.add(makeSetup(), 'k1')
         expect(setupCalls).toBe(1)
 
         setHidden(true)
@@ -119,7 +122,7 @@ describe('disposablesPlugin', () => {
         expect(cleanupCalls).toBe(1)
 
         // replace while hidden — should not run setup
-        logic.cache.disposables.add(makeSetup(), 'k1')
+        ;(logic as any).cache.disposables.add(makeSetup(), 'k1')
         expect(setupCalls).toBe(1) // unchanged
         // Plugin defensively re-runs the previous cleanup when replacing a key.
         // User-supplied cleanups must therefore be idempotent (clearTimeout on
@@ -137,14 +140,14 @@ describe('disposablesPlugin', () => {
         // while the page is hidden. Before the fix, this would create a live timer.
         // After the fix, the setup is deferred to next visibility-visible.
         setHidden(false)
-        logic.cache.disposables.add(makeSetup(), 'pollTimeout')
+        ;(logic as any).cache.disposables.add(makeSetup(), 'pollTimeout')
         expect(setupCalls).toBe(1)
 
         setHidden(true)
         expect(cleanupCalls).toBe(1)
 
         // Simulate fetch returning and `finally` re-scheduling the timer
-        logic.cache.disposables.add(makeSetup(), 'pollTimeout')
+        ;(logic as any).cache.disposables.add(makeSetup(), 'pollTimeout')
         // CRITICAL: setup must NOT run while hidden — that was the bug
         expect(setupCalls).toBe(1)
 
@@ -155,12 +158,12 @@ describe('disposablesPlugin', () => {
 
     it('dispose() runs cleanup and removes the entry', () => {
         setHidden(false)
-        logic.cache.disposables.add(makeSetup(), 'k1')
+        ;(logic as any).cache.disposables.add(makeSetup(), 'k1')
         expect(setupCalls).toBe(1)
 
-        logic.cache.disposables.dispose('k1')
+        ;(logic as any).cache.disposables.dispose('k1')
         expect(cleanupCalls).toBe(1)
-        expect(logic.cache.disposables.registry.has('k1')).toBe(false)
+        expect((logic as any).cache.disposables.registry.has('k1')).toBe(false)
 
         // Subsequent visibility changes should not affect anything
         setHidden(true)
@@ -171,12 +174,25 @@ describe('disposablesPlugin', () => {
 
     it('dispose() on a paused-at-birth entry runs no-op cleanup and removes it', () => {
         setHidden(true)
-        logic.cache.disposables.add(makeSetup(), 'k1')
+        ;(logic as any).cache.disposables.add(makeSetup(), 'k1')
         expect(setupCalls).toBe(0)
 
         // Setup never ran, so disposing should not run any user cleanup
-        logic.cache.disposables.dispose('k1')
+        ;(logic as any).cache.disposables.dispose('k1')
         expect(cleanupCalls).toBe(0)
-        expect(logic.cache.disposables.registry.has('k1')).toBe(false)
+        expect((logic as any).cache.disposables.registry.has('k1')).toBe(false)
+    })
+
+    it('logic.unmount() disposes all registered disposables (no leak when consumer omits beforeUnmount)', () => {
+        // Pins the contract that supportTicketCounterLogic relies on after
+        // dropping its explicit `beforeUnmount(() => disposables.disposeAll())`.
+        setHidden(false)
+        ;(logic as any).cache.disposables.add(makeSetup(), 'k1')
+        ;(logic as any).cache.disposables.add(makeSetup(), 'k2')
+        expect(setupCalls).toBe(2)
+        expect(cleanupCalls).toBe(0)
+
+        logic.unmount()
+        expect(cleanupCalls).toBe(2)
     })
 })

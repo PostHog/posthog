@@ -87,7 +87,10 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
             }, 'pollTimeout')
         },
         refreshCount: () => {
-            // Public action for other logics to trigger immediate refresh
+            // Intentionally visibility-agnostic: callers (e.g. ticket-viewed events)
+            // want an immediate count refresh regardless of tab focus. The follow-up
+            // polling resumes through schedulePoll, which IS gated by visibility
+            // via the disposables plugin's pause/resume.
             cache.disposables.dispose('pollTimeout')
             actions.loadUnreadCount()
         },
