@@ -37,6 +37,7 @@ import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
@@ -619,6 +620,8 @@ export function ResumeExperimentModal(): JSX.Element {
     )
 }
 
+type FinishExperimentRolloutChoice = 'keep' | 'rollout'
+
 export function FinishExperimentModal(): JSX.Element {
     const { experiment, isSingleVariantShipped, shippedVariantKey } = useValues(experimentLogic)
     const { finishExperiment, endExperimentWithoutShipping, restoreUnmodifiedExperiment } = useActions(experimentLogic)
@@ -626,122 +629,144 @@ export function FinishExperimentModal(): JSX.Element {
     const { isFinishExperimentModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
-    const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
+    // Default to the safe option: don't touch the feature flag. Users must explicitly
+    // opt in to rolling out a variant — otherwise ending an experiment can silently
+    // change which users see which variant, which has caused production incidents.
+    const [rolloutChoice, setRolloutChoice] = useState<FinishExperimentRolloutChoice>('keep')
+    const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>(null)
 
     useEffect(() => {
-        if (experiment.parameters?.feature_flag_variants?.length > 1) {
-            // First test variant selected by default
-            setSelectedVariantKey(experiment.parameters.feature_flag_variants[1].key)
+        if (isFinishExperimentModalOpen) {
+            setRolloutChoice('keep')
+            setSelectedVariantKey(null)
         }
-    }, [
-        experiment.id,
-        experiment.parameters?.feature_flag_variants?.length,
-        experiment.parameters?.feature_flag_variants,
-    ])
+    }, [isFinishExperimentModalOpen, experiment.id])
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null
             ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
             : 'users'
 
+    const willModifyFlag = !isSingleVariantShipped && rolloutChoice === 'rollout'
+
     const handleEndExperiment = (): void => {
-        if (isSingleVariantShipped || !selectedVariantKey) {
-            endExperimentWithoutShipping()
-        } else {
+        if (willModifyFlag && selectedVariantKey) {
             finishExperiment({ selectedVariantKey })
+        } else {
+            endExperimentWithoutShipping()
         }
     }
 
+    const handleClose = (): void => {
+        restoreUnmodifiedExperiment()
+        closeFinishExperimentModal()
+    }
+
+    const disabledReason = !experiment.conclusion
+        ? 'Select a conclusion'
+        : willModifyFlag && !selectedVariantKey
+          ? 'Select a variant to roll out'
+          : undefined
+
     return (
-        <>
-            <LemonModal
-                isOpen={isFinishExperimentModalOpen}
-                onClose={() => {
-                    restoreUnmodifiedExperiment()
-                    closeFinishExperimentModal()
-                }}
-                width={600}
-                title="End experiment"
-                footer={
-                    <div className="flex items-center gap-2">
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                restoreUnmodifiedExperiment()
-                                closeFinishExperimentModal()
-                            }}
-                        >
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            onClick={handleEndExperiment}
-                            type="primary"
-                            disabledReason={!experiment.conclusion && 'Select a conclusion'}
-                        >
-                            End experiment
-                        </LemonButton>
-                    </div>
-                }
-            >
-                <div className="space-y-4">
-                    {isSingleVariantShipped ? (
-                        <div>
-                            <LemonBanner type="info" className="mb-4">
-                                <b>
-                                    <VariantTag variantKey={shippedVariantKey || ''} />
-                                </b>{' '}
-                                is already rolled out to 100% of {aggregationTargetName}. Ending this experiment will
-                                mark it as complete without changing the feature flag.
-                            </LemonBanner>
-                        </div>
-                    ) : (
-                        <div>
-                            <LemonLabel>Variant to keep</LemonLabel>
-                            <div className="text-sm text-secondary mb-2">
-                                The selected variant will be rolled out to <b>100% of {aggregationTargetName}</b>.
-                            </div>
-                            <div className="w-1/2">
-                                <LemonSelect
-                                    className="w-full"
-                                    data-attr="metrics-selector"
-                                    value={selectedVariantKey}
-                                    placeholder="Select a variant"
-                                    onChange={(variantKey) => {
-                                        setSelectedVariantKey(variantKey)
-                                    }}
-                                    allowClear={true}
-                                    options={
-                                        experiment.feature_flag?.filters.multivariate?.variants?.map(({ key }) => ({
-                                            value: key,
-                                            label: (
-                                                <div className="deprecated-space-x-2 inline-flex">
-                                                    <VariantTag variantKey={key} />
-                                                </div>
-                                            ),
-                                        })) || []
-                                    }
-                                />
-                            </div>
-                        </div>
-                    )}
-                    <ConclusionForm />
-                    {!isSingleVariantShipped && (
-                        <LemonBanner type="info" className="mb-4">
-                            For more precise control over your release, adjust the rollout percentage and release
-                            conditions in the{' '}
-                            <Link
-                                target="_blank"
-                                className="font-semibold"
-                                to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
-                            >
-                                {experiment.feature_flag?.key}
-                            </Link>{' '}
-                            feature flag.
-                        </LemonBanner>
-                    )}
+        <LemonModal
+            isOpen={isFinishExperimentModalOpen}
+            onClose={handleClose}
+            width={600}
+            title="End experiment"
+            footer={
+                <div className="flex items-center gap-2">
+                    <LemonButton type="secondary" onClick={handleClose}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        onClick={handleEndExperiment}
+                        type="primary"
+                        disabledReason={disabledReason}
+                        data-attr="end-experiment-confirm"
+                    >
+                        End experiment
+                    </LemonButton>
                 </div>
-            </LemonModal>
-        </>
+            }
+        >
+            <div className="space-y-4">
+                {isSingleVariantShipped ? (
+                    <LemonBanner type="info">
+                        <b>
+                            <VariantTag variantKey={shippedVariantKey || ''} />
+                        </b>{' '}
+                        is already rolled out to 100% of {aggregationTargetName}. Ending this experiment will mark it as
+                        complete without changing the feature flag.
+                    </LemonBanner>
+                ) : (
+                    <div>
+                        <LemonLabel>What should happen to the feature flag?</LemonLabel>
+                        <LemonRadio
+                            className="mt-2"
+                            radioPosition="top"
+                            value={rolloutChoice}
+                            onChange={(value) => setRolloutChoice(value)}
+                            options={[
+                                {
+                                    value: 'keep',
+                                    label: 'Keep feature flag as-is',
+                                    description: `${aggregationTargetName.charAt(0).toUpperCase()}${aggregationTargetName.slice(
+                                        1
+                                    )} continue to see their currently assigned variant. The feature flag will not be modified.`,
+                                    'data-attr': 'end-experiment-keep-flag',
+                                },
+                                {
+                                    value: 'rollout',
+                                    label: 'Roll out a variant to 100%',
+                                    description: `The selected variant will be served to all ${aggregationTargetName}. This will modify the feature flag.`,
+                                    'data-attr': 'end-experiment-rollout-variant',
+                                },
+                            ]}
+                        />
+                        {rolloutChoice === 'rollout' && (
+                            <div className="mt-3 ml-6">
+                                <LemonLabel>Variant to roll out</LemonLabel>
+                                <div className="w-1/2 mt-1">
+                                    <LemonSelect
+                                        className="w-full"
+                                        data-attr="end-experiment-variant-select"
+                                        value={selectedVariantKey}
+                                        placeholder="Select a variant"
+                                        onChange={(variantKey) => setSelectedVariantKey(variantKey)}
+                                        options={
+                                            experiment.feature_flag?.filters.multivariate?.variants?.map(({ key }) => ({
+                                                value: key,
+                                                label: (
+                                                    <div className="deprecated-space-x-2 inline-flex">
+                                                        <VariantTag variantKey={key} />
+                                                    </div>
+                                                ),
+                                            })) || []
+                                        }
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+                <ConclusionForm />
+                {willModifyFlag && (
+                    <LemonBanner type="info">
+                        For more precise control over your release, adjust the rollout percentage and release conditions
+                        in the{' '}
+                        <Link
+                            target="_blank"
+                            className="font-semibold"
+                            to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
+                        >
+                            {experiment.feature_flag?.key}
+                        </Link>{' '}
+                        feature flag after ending the experiment.
+                    </LemonBanner>
+                )}
+            </div>
+        </LemonModal>
     )
 }
 
