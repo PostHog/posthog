@@ -1,5 +1,6 @@
 import re
 from collections.abc import Callable
+from functools import lru_cache
 from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
@@ -244,6 +245,38 @@ def _resolve_boolean_value(value: ValueT) -> bool | None:
     return None
 
 
+@lru_cache(maxsize=2048)
+def _property_definition_is_boolean(
+    project_id: int,
+    property_key: str,
+    definition_type: "PropertyDefinition.Type",
+    group_type_index: int | None,
+) -> bool:
+    """Whether a saved PropertyDefinition for this key is Boolean-typed.
+
+    Memoized because _handle_bool_values now runs for every exact/is_not
+    comparison (not just literal true/false values), and a query build can
+    contain many comparisons on the same property. PropertyDefinition types
+    are effectively static within a process, so a process-level cache is safe.
+    """
+    filters: dict[str, object] = {
+        "effective_project_id": project_id,
+        "name": property_key,
+        "type": definition_type,
+    }
+    if definition_type == PropertyDefinition.Type.GROUP:
+        filters["group_type_index"] = group_type_index
+    property_def = (
+        PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        )
+        .filter(**filters)
+        .values_list("property_type", flat=True)
+        .first()
+    )
+    return property_def == PropertyType.Boolean
+
+
 def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool | None:
     if value is True:
         value = "true"
@@ -262,22 +295,15 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         return value
 
     if property.type == "person":
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=team.project_id,
-            name=property.key,
-            type=PropertyDefinition.Type.PERSON,
-        )
+        if _property_definition_is_boolean(team.project_id, property.key, PropertyDefinition.Type.PERSON, None):
+            return _resolve_boolean_value(value)
+        return value
     elif property.type == "group":
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=team.project_id,
-            name=property.key,
-            type=PropertyDefinition.Type.GROUP,
-            group_type_index=property.group_type_index,
-        )
+        if _property_definition_is_boolean(
+            team.project_id, property.key, PropertyDefinition.Type.GROUP, property.group_type_index
+        ):
+            return _resolve_boolean_value(value)
+        return value
     elif property.type == "data_warehouse_person_property":
         if not isinstance(expr, ast.Field):
             raise Exception(f"Requires a Field expression")
@@ -317,18 +343,9 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         return value
 
     else:
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=team.project_id,
-            name=property.key,
-            type=PropertyDefinition.Type.EVENT,
-        )
-    property_type = property_types[0].property_type if len(property_types) > 0 else None
-
-    if property_type == PropertyType.Boolean:
-        return _resolve_boolean_value(value)
-    return value
+        if _property_definition_is_boolean(team.project_id, property.key, PropertyDefinition.Type.EVENT, None):
+            return _resolve_boolean_value(value)
+        return value
 
 
 def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
