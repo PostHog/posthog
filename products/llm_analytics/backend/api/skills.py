@@ -1,7 +1,9 @@
 from typing import Any, cast
+from uuid import UUID
 
 from django.db import IntegrityError
 from django.db.models import Q, QuerySet
+from django.http import HttpResponse, HttpResponsePermanentRedirect
 
 import structlog
 import posthoganalytics
@@ -73,6 +75,14 @@ LLM_SKILL_FEATURE_FLAG = "llm-analytics-skills"
 
 def _file_extension(path: str) -> str:
     return path.rsplit(".", 1)[1].lower() if "." in path else ""
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+        return True
+    except ValueError:
+        return False
 
 
 def _skill_analytics_props(skill: LLMSkill) -> dict[str, Any]:
@@ -298,7 +308,19 @@ class LLMSkillViewSet(
     @action(methods=["GET"], detail=False, url_path=r"name/(?P<skill_name>[^/]+)")
     @llma_track_latency("llma_skills_get_by_name")
     @monitor(feature=None, endpoint="llma_skills_get_by_name", method="GET")
-    def get_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+    def get_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response | HttpResponse:
+        # If the caller passed a UUID instead of a slug name, redirect to the
+        # name-based URL so bookmarks / copied links still work.
+        if _is_uuid(skill_name):
+            skill = get_active_skill_queryset(self.team).filter(id=skill_name).first()
+            if skill is None:
+                return self._skill_not_found_response(skill_name)
+            redirect_url = request.build_absolute_uri(request.path.replace(skill_name, skill.name))
+            query_string = request.META.get("QUERY_STRING", "")
+            if query_string:
+                redirect_url = f"{redirect_url}?{query_string}"
+            return HttpResponsePermanentRedirect(redirect_url)
+
         version_params = self._get_requested_version_params(request)
         version = cast(int | None, version_params.get("version"))
         skill = get_skill_by_name_from_db(self.team, skill_name, version)
