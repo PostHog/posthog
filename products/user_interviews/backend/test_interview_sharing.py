@@ -1,6 +1,4 @@
-import hmac
 import json
-import hashlib
 import datetime
 from typing import Any
 
@@ -573,13 +571,11 @@ class TestVapiWebhook(APIBaseTest):
         }
 
     def _signed_post(self, secret: str, payload: dict) -> Any:
-        body = json.dumps(payload)
-        signature = hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
         return self.client.post(
             "/api/user_interviews/vapi_webhook/",
-            data=body,
+            data=json.dumps(payload),
             content_type="application/json",
-            HTTP_X_VAPI_SIGNATURE=signature,
+            HTTP_X_VAPI_SECRET=secret,
         )
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
@@ -614,14 +610,25 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    def test_webhook_requires_valid_signature(self):
+    def test_webhook_requires_valid_secret(self):
         share = self._create_share()
         self.client.logout()
         response = self.client.post(
             "/api/user_interviews/vapi_webhook/",
-            data=self._end_of_call_payload(share.access_token),
+            data=json.dumps(self._end_of_call_payload(share.access_token)),
             content_type="application/json",
-            HTTP_X_VAPI_SIGNATURE="wrong",
+            HTTP_X_VAPI_SECRET="wrong",
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    def test_webhook_requires_secret_header(self):
+        share = self._create_share()
+        self.client.logout()
+        response = self.client.post(
+            "/api/user_interviews/vapi_webhook/",
+            data=json.dumps(self._end_of_call_payload(share.access_token)),
+            content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
