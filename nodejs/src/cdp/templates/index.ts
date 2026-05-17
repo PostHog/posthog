@@ -22,6 +22,7 @@ import { template as posthogUpdatePersonPropertiesTemplate } from './_destinatio
 import { template as posthogGetTicketTemplate } from './_destinations/posthog_conversations/posthog-get-ticket.template'
 import { template as posthogUpdateTicketTemplate } from './_destinations/posthog_conversations/posthog-update-ticket.template'
 import { template as posthogLlmClassifyTemplate } from './_destinations/posthog_workflows/posthog-llm-classify.template'
+import { template as posthogLlmSummarizeTemplate } from './_destinations/posthog_workflows/posthog-llm-summarize.template'
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
@@ -68,6 +69,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogUpdatePersonPropertiesTemplate,
     posthogSetHogflowVariableTemplate,
     posthogLlmClassifyTemplate,
+    posthogLlmSummarizeTemplate,
     posthogGetTicketTemplate,
     posthogUpdateTicketTemplate,
     hubspotCompanyTemplate,
