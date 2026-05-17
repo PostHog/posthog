@@ -67,7 +67,7 @@ return jsonParse(choices[1].message.content)
             label: 'Model',
             secret: false,
             required: true,
-            default: 'gpt-5-mini',
+            default: 'gpt-5.4-nano',
             description: 'Any model supported by the PostHog LLM gateway (OpenAI, Anthropic, OpenRouter, Fireworks).',
         },
         {
