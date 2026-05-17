@@ -4,7 +4,6 @@ from datetime import datetime
 from pathlib import Path
 from string import ascii_lowercase
 from typing import Any, Literal, Optional, Union, cast
-from uuid import UUID
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -3514,11 +3513,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
 
                 self.assertCountEqual(
                     self._get_actor_ids_at_step(funnels_query, 1, "Chrome"),
-                    [people["person1"].uuid],
+                    [str(people["person1"].uuid)],
                 )
                 self.assertCountEqual(
                     self._get_actor_ids_at_step(funnels_query, 2, "Chrome"),
-                    [people["person1"].uuid],
+                    [str(people["person1"].uuid)],
                 )
 
                 # unordered funnels include a '' breakdown value, as the data warehouse series can be the first event too
@@ -3544,10 +3543,10 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     self.assertCountEqual(
                         self._get_actor_ids_at_step(funnels_query, 1, ""),
                         [
-                            UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
-                            UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
-                            UUID("8cadb28f-1825-f158-73fa-3f228865b540"),
-                            UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
+                            "d1f7bc7b-8378-3015-4347-e60e2d2f6348",
+                            "4bee5d74-a588-a205-45ef-69db7f5e8bc2",
+                            "8cadb28f-1825-f158-73fa-3f228865b540",
+                            "cf6a408b-b00d-2458-7b24-9321c13033ec",
                         ],
                     )
                     self.assertCountEqual(
@@ -3573,7 +3572,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
 
                 self.assertCountEqual(
                     self._get_actor_ids_at_step(funnels_query, 1, "Firefox"),
-                    [people["person2"].uuid],
+                    [str(people["person2"].uuid)],
                 )
                 self.assertCountEqual(
                     self._get_actor_ids_at_step(funnels_query, 2, "Firefox"),
@@ -3657,11 +3656,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
 
                 self.assertCountEqual(
                     self._get_actor_ids_at_step(funnels_query, 1, "val1"),
-                    [people["person1"].uuid],
+                    [str(people["person1"].uuid)],
                 )
                 self.assertCountEqual(
                     self._get_actor_ids_at_step(funnels_query, 2, "val1"),
-                    [people["person1"].uuid],
+                    [str(people["person1"].uuid)],
                 )
 
                 # unordered funnels include a '' breakdown value, as the data warehouse series can be the first event too
@@ -3687,10 +3686,10 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     self.assertCountEqual(
                         self._get_actor_ids_at_step(funnels_query, 1, ""),
                         [
-                            UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
-                            UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
-                            UUID("8cadb28f-1825-f158-73fa-3f228865b540"),
-                            UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
+                            "d1f7bc7b-8378-3015-4347-e60e2d2f6348",
+                            "4bee5d74-a588-a205-45ef-69db7f5e8bc2",
+                            "8cadb28f-1825-f158-73fa-3f228865b540",
+                            "cf6a408b-b00d-2458-7b24-9321c13033ec",
                         ],
                     )
                     self.assertCountEqual(
@@ -3716,7 +3715,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
 
                 self.assertCountEqual(
                     self._get_actor_ids_at_step(funnels_query, 1, "val2"),
-                    [people["person2"].uuid],
+                    [str(people["person2"].uuid)],
                 )
                 self.assertCountEqual(
                     self._get_actor_ids_at_step(funnels_query, 2, "val2"),
@@ -3790,11 +3789,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 )
                 self.assertCountEqual(
                     self._get_actor_ids_at_step(funnels_query, 1, "payment_succeeded"),
-                    [people["person1"].uuid],
+                    [str(people["person1"].uuid)],
                 )
                 self.assertCountEqual(
                     self._get_actor_ids_at_step(funnels_query, 2, "payment_succeeded"),
-                    [people["person1"].uuid],
+                    [str(people["person1"].uuid)],
                 )
 
                 # '' breakdown
@@ -3818,9 +3817,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 self.assertCountEqual(
                     self._get_actor_ids_at_step(funnels_query, 1, ""),
                     [
-                        UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
-                        UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
-                        UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
+                        "d1f7bc7b-8378-3015-4347-e60e2d2f6348",
+                        "4bee5d74-a588-a205-45ef-69db7f5e8bc2",
+                        "cf6a408b-b00d-2458-7b24-9321c13033ec",
                     ],
                 )
                 self.assertCountEqual(
@@ -3845,7 +3844,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
 
                 self.assertCountEqual(
                     self._get_actor_ids_at_step(funnels_query, 1, "payment_failed"),
-                    [UUID("8cadb28f-1825-f158-73fa-3f228865b540")],
+                    ["8cadb28f-1825-f158-73fa-3f228865b540"],
                 )
                 self.assertCountEqual(
                     self._get_actor_ids_at_step(funnels_query, 2, "payment_failed"),
