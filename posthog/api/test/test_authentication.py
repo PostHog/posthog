@@ -1555,6 +1555,45 @@ class TestPasswordResetAPI(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("none_becomes_true", None, True),
+            ("true_stays_true", True, True),
+            ("false_stays_false", False, False),
+        ]
+    )
+    def test_password_reset_flips_is_email_verified_only_from_none(self, _name, initial_state, expected_state):
+        self.user.is_email_verified = initial_state
+        self.user.requested_password_reset_at = datetime.now()
+        self.user.save()
+
+        token = password_reset_token_generator.make_token(self.user)
+        response = self.client.post(
+            f"/api/reset/{self.user.uuid}/",
+            {"token": token, "password": VALID_TEST_PASSWORD},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.is_email_verified, expected_state)
+
+    def test_password_reset_does_not_clear_pending_email(self):
+        self.user.is_email_verified = False
+        self.user.pending_email = "new-address@example.com"
+        self.user.requested_password_reset_at = datetime.now()
+        self.user.save()
+
+        token = password_reset_token_generator.make_token(self.user)
+        response = self.client.post(
+            f"/api/reset/{self.user.uuid}/",
+            {"token": token, "password": VALID_TEST_PASSWORD},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.is_email_verified, False)
+        self.assertEqual(self.user.pending_email, "new-address@example.com")
+
     @patch("posthog.tasks.email.send_password_changed_email.delay")
     def test_password_change_invalidates_reset_token(self, mock_send_email):
         token = password_reset_token_generator.make_token(self.user)
