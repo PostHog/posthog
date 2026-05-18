@@ -1,3 +1,4 @@
+import re
 from datetime import timedelta
 
 from posthog.test.base import (
@@ -1358,5 +1359,7 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
 
             assert response.results and len(response.results) == 1
             assert response.clickhouse is not None
-            index_info = get_index_from_explain(response.clickhouse, index_name)
+
+            explain_sql = re.sub(r"%\(hogql_val_\d+\)s", "'UTC'", response.clickhouse)
+            index_info = get_index_from_explain(explain_sql, index_name)
             assert index_info is not None, f"Expected skip index {index_name} to be used"
