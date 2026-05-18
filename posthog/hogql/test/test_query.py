@@ -336,15 +336,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         mock_sync_execute.assert_not_called()
 
     @patch("posthog.hogql.query.sync_execute")
-    @patch("posthog.hogql.query.prepare_ast_for_printing", return_value=None)
-    def test_execute_hogql_query_raises_when_prepared_ast_is_none(
-        self, mock_prepare_ast_for_printing, mock_sync_execute
-    ):
-        with self.assertRaises(QueryError) as error:
-            execute_hogql_query("select 1", team=self.team)
+    def test_execute_hogql_query_raises_when_prepared_ast_is_none(self, mock_sync_execute):
+        from posthog.hogql.query import prepare_ast_for_printing as real_prepare_ast
+
+        def fake_prepare(*args, **kwargs):
+            if kwargs.get("dialect") == "clickhouse":
+                return None
+            return real_prepare_ast(*args, **kwargs)
+
+        with patch("posthog.hogql.query.prepare_ast_for_printing", side_effect=fake_prepare):
+            with self.assertRaises(QueryError) as error:
+                execute_hogql_query("select 1", team=self.team)
 
         self.assertIn("Could not prepare the query AST", str(error.exception))
-        mock_prepare_ast_for_printing.assert_called_once()
         mock_sync_execute.assert_not_called()
 
     @pytest.mark.usefixtures("unittest_snapshot")
