@@ -110,6 +110,8 @@ class TeamAdmin(admin.ModelAdmin):
         "export_individual_replay",
         "import_individual_replay",
         "delete_recordings",
+        "api_token_display",
+        "set_api_token_action",
     ]
 
     exclude = DEPRECATED_ATTRS
