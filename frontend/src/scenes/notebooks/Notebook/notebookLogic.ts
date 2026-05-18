@@ -479,13 +479,8 @@ export const notebookLogic = kea<notebookLogicType>([
                                 return values.notebook
                             }
                             if (error.status === 410) {
-                                // Stream trimmed, 410 carries fresh content;
-                                // the modal shows side-by-side previews so the user can discard/save changes.
-                                const fresh = error.data?.content
-                                    ? error.data
-                                    : await api.notebooks.get(values.notebook.short_id, undefined, {})
-                                actions.showCollabConflict({
-                                    serverContent: fresh.content ?? {},
+                                // Stream trimmed
+                                actions.rebaseFailed({
                                     localContent: values.editor?.getJSON() ?? notebook.content ?? {},
                                     localText: values.editor?.getText() ?? '',
                                 })
@@ -1099,8 +1094,20 @@ export const notebookLogic = kea<notebookLogicType>([
             window.location.reload()
         },
 
-        rebaseFailed: ({ serverContent, localContent, localText }) => {
+        rebaseFailed: async ({ localContent, localText }) => {
             // prosemirror-collab couldn't apply a remote step; the modal lets the user copy or discard.
+            if (!values.notebook) {
+                return
+            }
+            // Fetch fresh server content for the side-by-side preview of the changes.
+            let serverContent: JSONContent = {}
+            try {
+                const fresh = await api.notebooks.get(values.notebook.short_id, undefined, {})
+                serverContent = (fresh.content as JSONContent) ?? {}
+            } catch (e) {
+                posthog.captureException(e as Error, { action: 'notebook collab fetch server content' })
+                lemonToast.warning('Could not load the latest saved version.')
+            }
             actions.showCollabConflict({ serverContent, localContent, localText })
         },
 

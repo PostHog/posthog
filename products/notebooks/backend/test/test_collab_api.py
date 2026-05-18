@@ -169,7 +169,6 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         assert response.status_code == status.HTTP_410_GONE
         data = response.json()
         assert data["code"] == "conflict_stale"
-        assert data["content"] == SAMPLE_DOC
 
 
 # Keep the SSE generator lifetime tiny so tests terminate deterministically.

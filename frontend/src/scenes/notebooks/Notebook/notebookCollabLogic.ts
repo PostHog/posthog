@@ -89,7 +89,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
         /** Apply steps received from SSE or a 409 body. Idempotent by version. */
         applyRemoteSteps: (steps: RemoteStep[]) => ({ steps }),
         /** Bubbles up to notebookLogic when receiveTransaction throws — the conflict modal opens. */
-        rebaseFailed: (params: { serverContent: JSONContent; localContent: JSONContent; localText: string }) => params,
+        rebaseFailed: (params: { localContent: JSONContent; localText: string }) => params,
         connectStream: true,
         disconnectStream: true,
     }),
@@ -151,7 +151,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                     applyRemoteStep(editor, remote)
                 } catch (e) {
                     posthog.captureException(e as Error, { action: 'notebook collab apply remote step' })
-                    actions.rebaseFailed({ serverContent: editor.getJSON(), localContent, localText })
+                    actions.rebaseFailed({ localContent, localText })
                     return
                 }
             }
@@ -201,7 +201,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                     })
                 } catch (e) {
                     posthog.captureException(e as Error, { action: 'notebook collab apply remote step' })
-                    actions.rebaseFailed({ serverContent: editor.getJSON(), localContent, localText })
+                    actions.rebaseFailed({ localContent, localText })
                 }
             }
 
