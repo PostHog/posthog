@@ -2106,7 +2106,7 @@
         }
     },
     "feature-flags-bulk-delete-create": {
-        "description": "Soft-delete multiple feature flags in one call. Provide either `ids` (explicit list of flag IDs) OR `filters` (same shape as the list endpoint — e.g., search, active, type, tags), but not both. Flags linked to active experiments, early access features, or that other flags depend on are skipped and reported in `errors`. Returns `deleted` (with each flag's rollout state at deletion time) and `errors` arrays.",
+        "description": "Soft-delete multiple feature flags in one call. Provide either `ids` (explicit list of flag IDs) OR `filters` (same shape as the list endpoint, e.g., search, active, type, tags), but not both. WARNING: `filters` can match an unbounded number of flags. Preview matches via the list endpoint before calling this with `filters`, and prefer explicit `ids` whenever the user has named specific flags. Flags linked to active experiments, early access features, or that other flags depend on are skipped and reported in `errors`. Returns `deleted` (with each flag's rollout state at deletion time) and `errors` arrays.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Bulk delete feature flags",
@@ -2115,7 +2115,7 @@
         "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
-            "idempotentHint": true,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -2144,8 +2144,8 @@
         "required_scopes": ["feature_flag:write"],
         "new_mcp": true,
         "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
+            "destructiveHint": true,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }
