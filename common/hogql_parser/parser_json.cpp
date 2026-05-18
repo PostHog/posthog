@@ -634,7 +634,12 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     if (subsequent_clauses.empty()) {
       Json result = visitAsJSON(ctx->selectStmtWithParens());
-      if (limit_clause) {
+      // A set-level LIMIT/OFFSET clause has no node to attach to when the body
+      // is a bare placeholder (`{ ... } offset ...`). Match the Python parser,
+      // which only applies the clause to SelectQuery/SelectSetQuery nodes.
+      const std::string& result_node = result["node"].getString();
+      bool result_takes_limit = result_node == "SelectQuery" || result_node == "SelectSetQuery";
+      if (limit_clause && result_takes_limit) {
         auto exprs = limit_clause->columnExpr();
         if (limit_clause->OFFSET()) {
           if (limit_clause->LIMIT()) {

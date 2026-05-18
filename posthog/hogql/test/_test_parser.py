@@ -2273,6 +2273,14 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(parsed.limit, ast.Constant(value=3))
             self.assertEqual(parsed.offset, ast.Constant(value=5))
 
+            # A placeholder body has no node to carry a set-level LIMIT/OFFSET,
+            # so both backends drop the clause and return the bare placeholder.
+            # The C++ JSON parser used to attach `offset`/`limit` keys to the
+            # Placeholder node, which the deserializer cannot accept.
+            placeholder = ast.Placeholder(expr=ast.Field(chain=["foo"]))
+            for query in ("{foo} offset 1", "{foo} limit 2", "{foo} limit 2 offset 3"):
+                self.assertEqual(self._select(query), placeholder)
+
         def test_select_placeholders(self):
             self.assertEqual(
                 self._select("select 1 where 1 == {hogql_val_1}"),
