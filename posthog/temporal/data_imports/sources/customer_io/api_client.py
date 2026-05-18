@@ -185,6 +185,7 @@ def create_webhook(
         "name": CIO_AUTO_WEBHOOK_NAME,
         "endpoint": webhook_url,
         "events": events,
+        "disabled": True,
     }
 
     url = f"{_base_url(region)}{REPORTING_WEBHOOKS_PATH}"
@@ -192,18 +193,9 @@ def create_webhook(
     try:
         existing = _find_webhook_by_url(_list_webhooks(api_key, region), webhook_url)
         if existing is not None:
-            if existing.get("disabled"):
-                # A disabled webhook on the same URL would silently drop events; bail
-                # out and ask the user to re-enable or remove it in Customer.io.
-                return WebhookCreationResult(
-                    success=False,
-                    error=(
-                        "A disabled reporting webhook already exists for this URL in Customer.io. "
-                        "Re-enable it (or delete it) from the Reporting Webhooks page and try again."
-                    ),
-                )
             # Webhook already exists for this URL — treat as success so the user can
-            # finish setup by entering the signing key.
+            # finish setup by entering the signing key. The webhook will be enabled
+            # once the signing key is provided.
             return WebhookCreationResult(success=True, pending_inputs=["signing_secret"])
 
         response = _session(api_key).post(
@@ -222,6 +214,41 @@ def create_webhook(
     # Customer.io does NOT return the signing key in the create response — the user
     # has to copy it from the Reporting Webhooks page in the Customer.io UI.
     return WebhookCreationResult(success=True, pending_inputs=["signing_secret"])
+
+
+def enable_webhook(api_key: str, region: str | None, webhook_url: str) -> tuple[bool, str | None]:
+    """Flip the matching reporting webhook to ``disabled: false`` on Customer.io.
+
+    Webhooks are created in a disabled state so Customer.io doesn't start firing
+    against the endpoint before PostHog has the signing secret to verify
+    deliveries. This is called from ``webhook_inputs_updated`` once the user
+    provides that secret.
+    """
+    logger = LOGGER.bind(region=region or "us")
+
+    try:
+        existing = _find_webhook_by_url(_list_webhooks(api_key, region), webhook_url)
+        if existing is None:
+            return False, "No reporting webhook found for this URL in Customer.io."
+
+        webhook_id = existing.get("id")
+        if webhook_id is None:
+            return False, "Customer.io returned a webhook without an id; please enable it manually."
+
+        if not existing.get("disabled"):
+            return True, None
+
+        url = f"{_base_url(region)}{REPORTING_WEBHOOKS_PATH}/{webhook_id}"
+        response = _session(api_key).put(url, json={"disabled": False}, timeout=REQUEST_TIMEOUT_SECONDS)
+        response.raise_for_status()
+    except requests.HTTPError as e:
+        logger.warning("Failed to enable Customer.io reporting webhook", error=str(e))
+        return False, _format_http_error(e)
+    except requests.RequestException as e:
+        logger.warning("Could not reach Customer.io to enable webhook", error=str(e))
+        return False, f"Could not reach Customer.io: {e}"
+
+    return True, None
 
 
 def delete_webhook(api_key: str, region: str | None, webhook_url: str) -> WebhookDeletionResult:

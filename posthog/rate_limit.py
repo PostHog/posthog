@@ -346,6 +346,19 @@ class SignupEmailPrecheckThrottle(IPThrottle):
     rate = "30/minute"
 
 
+class SignupResendInviteThrottle(UserOrEmailRateThrottle):
+    """
+    Rate limit signup invite-resend requests per email address.
+
+    Resending an invite triggers a real email side effect, so the per-email cap
+    bounds inbox spam to a victim regardless of how many IPs an attacker rotates
+    through.
+    """
+
+    scope = "signup_resend_invite"
+    rate = "5/hour"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -626,6 +639,22 @@ class UserAuthenticationThrottle(UserOrEmailRateThrottle):
 class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
     scope = "user_email_verification"
     rate = "6/day"
+
+
+class OnboardingDelegationThrottle(UserRateThrottle):
+    # Delegation sends PostHog-branded emails to caller-supplied recipients, so we cap it tightly
+    # to prevent a compromised admin session (or a misbehaving integration) from using the endpoint
+    # as a spam cannon.
+    scope = "onboarding_delegation"
+    rate = "10/hour"
+
+
+class OnboardingSkipThrottle(UserRateThrottle):
+    # Each skip call opens an atomic transaction, may delete a delegation invite (firing
+    # signals), and queues an analytics event. Cap repeated calls so a misbehaving client
+    # can't churn the user row and the activity log.
+    scope = "onboarding_skip"
+    rate = "30/hour"
 
 
 class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
@@ -923,6 +952,25 @@ class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
         return super().get_cache_key(request, view)
 
 
+class HealthIssueRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "health_issue_refresh"
+    rate = "1/15minutes"
+
+    def parse_rate(self, rate):
+        if rate is None:
+            return (None, None)
+        num, period = rate.split("/")
+        if period.endswith("minutes"):
+            return (int(num), int(period[:-7]) * 60)
+        return super().parse_rate(rate)
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
 class ToolbarOAuthRefreshThrottle(IPThrottle):
     """Rate limit the unauthenticated toolbar OAuth refresh endpoint by IP."""
 
@@ -938,6 +986,16 @@ class EmailVerifyDomainThrottle(UserRateThrottle):
 class EmailSendTestThrottle(UserRateThrottle):
     scope = "email_send_test"
     rate = "6/minute"
+
+
+class ComposeTicketBurstThrottle(UserRateThrottle):
+    scope = "compose_ticket_burst"
+    rate = "10/minute"
+
+
+class ComposeTicketSustainedThrottle(UserRateThrottle):
+    scope = "compose_ticket_sustained"
+    rate = "60/hour"
 
 
 class TeamsAdminGraphThrottle(UserRateThrottle):

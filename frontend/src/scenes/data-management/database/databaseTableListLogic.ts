@@ -54,7 +54,12 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     const requestKey = requestConnectionId ?? '__posthog__'
 
                     if (inFlightDatabaseLoadKey === requestKey && inFlightDatabaseLoadPromise) {
-                        return await inFlightDatabaseLoadPromise
+                        const inFlight = inFlightDatabaseLoadPromise
+                        const result = await inFlight
+                        if (!databaseTableListLogic.isMounted()) {
+                            return null
+                        }
+                        return result
                     }
 
                     const request = performQuery(
@@ -67,21 +72,27 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     inFlightDatabaseLoadKey = requestKey
                     inFlightDatabaseLoadPromise = request
 
+                    let database: Required<DatabaseSchemaQueryResponse> | null = null
                     try {
-                        const database = await request
-                        const currentConnectionId = values.connectionId ?? undefined
-
-                        if (currentConnectionId !== requestConnectionId) {
-                            return values.database
-                        }
-
-                        return database
+                        database = await request
                     } finally {
                         if (inFlightDatabaseLoadKey === requestKey) {
                             inFlightDatabaseLoadKey = null
                             inFlightDatabaseLoadPromise = null
                         }
                     }
+
+                    // Reading `values` post-unmount throws kea's path-not-found error.
+                    if (!databaseTableListLogic.isMounted()) {
+                        return null
+                    }
+
+                    const currentConnectionId = values.connectionId ?? undefined
+                    if (currentConnectionId !== requestConnectionId) {
+                        return values.database
+                    }
+
+                    return database
                 },
             },
         ],

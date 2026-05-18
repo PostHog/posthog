@@ -8,7 +8,7 @@ export function ruleTypeLabel(ruleType: RuleTypeEnumApi): string {
         case RuleTypeEnumApi.SeveritySampling:
             return 'Drop by severity'
         case RuleTypeEnumApi.RateLimit:
-            return 'Rate limit'
+            return 'Rate limit by service'
         default: {
             return String(ruleType)
         }

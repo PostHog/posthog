@@ -12,6 +12,10 @@
         "order": {
             "description": "Sort order. Defaults to `-joined_at`.",
             "type": "string"
+        },
+        "search": {
+            "description": "Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.",
+            "type": "string"
         }
     },
     "type": "object"

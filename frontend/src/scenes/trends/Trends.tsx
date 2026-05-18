@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -25,6 +26,9 @@ const BoxPlotChart = lazy(() => import('scenes/insights/views/BoxPlot').then((m)
 // Flag-gated — keep full d3 out of the eager Trends/Dashboard bundle
 const TrendsLineChart = lazy(() =>
     import('./viz/trends-line-chart/TrendsLineChart').then((m) => ({ default: m.TrendsLineChart }))
+)
+const TrendsBarChart = lazy(() =>
+    import('./viz/trends-bar-chart/TrendsBarChart').then((m) => ({ default: m.TrendsBarChart }))
 )
 
 interface Props {
@@ -51,6 +55,9 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         inSharedMode,
     }
 
+    const showHogChartsBar =
+        featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR] && !isLifecycle && !isStickiness
+
     const renderViz = (): JSX.Element | undefined => {
         if (
             !display ||
@@ -64,6 +71,9 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             return <ActionsLineGraph {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
+            if (showHogChartsBar) {
+                return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
+            }
             return <ActionsLineGraph {...commonProps} />
         }
         if (display === ChartDisplayType.BoldNumber) {
@@ -84,6 +94,9 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             return <ActionsPie {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
+            if (showHogChartsBar) {
+                return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
+            }
             return <ActionsHorizontalBar {...commonProps} />
         }
         if (display === ChartDisplayType.WorldMap) {
@@ -112,7 +125,15 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         <>
             {series && (
                 <div className={embedded ? 'InsightCard__viz' : `TrendsInsight TrendsInsight--${display}`}>
-                    <Suspense fallback={null}>{renderViz()}</Suspense>
+                    <Suspense
+                        fallback={
+                            <WrappingLoadingSkeleton fullWidth>
+                                <span className="block w-full h-72" />
+                            </WrappingLoadingSkeleton>
+                        }
+                    >
+                        {renderViz()}
+                    </Suspense>
                 </div>
             )}
             {!embedded &&

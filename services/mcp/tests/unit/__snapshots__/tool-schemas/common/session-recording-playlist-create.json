@@ -42,17 +42,9 @@
         "type": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `collection` - Collection\n* `filters` - Filters",
-                            "enum": ["collection", "filters"],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `collection` - Collection\n* `filters` - Filters",
+                    "enum": ["collection", "filters"],
+                    "type": "string"
                 },
                 {
                     "type": "null"

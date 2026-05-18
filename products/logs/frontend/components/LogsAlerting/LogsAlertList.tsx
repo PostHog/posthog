@@ -89,6 +89,20 @@ export function LogsAlertList(): JSX.Element {
         },
         {
             title: (
+                <Tooltip title="When this alert is next scheduled to be evaluated. Alerts of the same cadence are spread across the cadence period to smooth load on the database.">
+                    <span className="cursor-help">Next check</span>
+                </Tooltip>
+            ),
+            dataIndex: 'next_check_at',
+            render: (_, alert) =>
+                alert.next_check_at ? (
+                    <TZLabel time={alert.next_check_at} />
+                ) : (
+                    <span className="text-muted text-xs">Pending</span>
+                ),
+        },
+        {
+            title: (
                 <Tooltip title="Alert state over the last 24 hours. Green = OK, red = firing, orange = resolving/errored, grey = snoozed or disabled. Hover to see the state at a point in time.">
                     <span className="cursor-help">Last 24h</span>
                 </Tooltip>

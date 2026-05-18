@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Optional, cast
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from posthog.models.integration import Integration
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -61,6 +62,10 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
 
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
+
+    @staticmethod
+    def _get_authed_user_id(integration: "Integration") -> str | None:
+        return (integration.config or {}).get("authed_user", {}).get("id")
 
     def create_webhook(self, config: SlackSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
         return WebhookCreationResult(
@@ -160,7 +165,12 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         }
 
     def get_schemas(
-        self, config: SlackSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: SlackSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = [
             SourceSchema(
@@ -179,8 +189,8 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
 
         msg_config = messages_endpoint_config()
         webhook_flag_enabled = is_webhook_feature_flag_enabled(team_id)
-        authed_user = (integration.config or {}).get("authed_user", {}).get("id")
-        channels = get_channels(access_token, authed_user)
+        authed_user = self._get_authed_user_id(integration)
+        channels = get_channels(integration.id, access_token, authed_user, force_refresh=force_refresh)
         for ch in channels:
             if ch["id"] in ENDPOINTS:
                 continue
@@ -236,6 +246,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
 
         return slack_source(
             access_token=access_token,
+            integration_id=integration.id,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
@@ -247,4 +258,5 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
             incremental_field=inputs.incremental_field,
             channel_id=channel_id,
             webhook_source_manager=webhook_source_manager,
+            authed_user=self._get_authed_user_id(integration),
         )

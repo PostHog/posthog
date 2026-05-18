@@ -15,18 +15,15 @@
  * utility generation; it does NOT emit them on `:root`. Primitive CSS files
  * reference them via `var()`, so we must materialize them here.
  *
- * Radius vars are emitted by @posthog/quill-tokens directly (see
+ * Radius and shadow vars are emitted by @posthog/quill-tokens directly (see
  * `generateStylesCSS` in packages/tokens/src/colors.ts). Do not re-declare
- * them here — tokens is the single source of truth for radius values.
+ * them here — tokens is the single source of truth for those values.
  */
 :root {
     --text-xxs: 0.625rem;
     --text-xxs--line-height: 0.75rem;
     --text-xs--line-height: 1rem;
     --text-sm--line-height: 1.25rem;
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 30%);
-    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 30%), 0 2px 4px -2px rgb(0 0 0 / 30%);
-    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 30%), 0 4px 6px -4px rgb(0 0 0 / 30%);
     --animate-spin: spin 1s linear infinite;
     --animate-pulse: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     --animate-skeleton: skeleton 2s -1s infinite linear;
@@ -103,11 +100,11 @@
 @keyframes pulse-glow {
     0%,
     100% {
-        box-shadow: 0 0 2px 1px var(--pulse-glow-color, var(--color-accent));
+        box-shadow: 0 0 2px 1px var(--pulse-glow-color, var(--color-primary));
     }
 
     50% {
-        box-shadow: 0 0 6px 2px var(--pulse-glow-color, var(--color-accent));
+        box-shadow: 0 0 6px 2px var(--pulse-glow-color, var(--color-primary));
     }
 }
 

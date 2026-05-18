@@ -25,7 +25,7 @@ class Priority(str, Enum):
 
 
 if TYPE_CHECKING:
-    from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, OutputFn
+    from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext, OutputFn
 
 logger = logging.getLogger(__name__)
 

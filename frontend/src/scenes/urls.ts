@@ -10,6 +10,7 @@ import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
 import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
+import type { ModelsSceneTab } from './models/modelsSceneLogic'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**
@@ -43,7 +44,7 @@ export const urls = {
     webScripts: (): string => '/web-scripts',
     webScriptsNew: (): string => '/web-scripts/new',
     destinations: (): string => '/data-management/destinations',
-    models: (): string => '/models',
+    models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
     transformations: (): string => '/data-management/transformations',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
     event: (id: string, timestamp: string): string =>
@@ -170,11 +171,20 @@ export const urls = {
         productKey,
         stepKey,
         sdk,
+        secondary,
+        from,
+        resumeStep,
     }: {
         campaign?: string
         productKey?: string
         stepKey?: OnboardingStepKey
         sdk?: SDKKey
+        /** Secondary product keys selected in this onboarding session (comma-joined in URL) */
+        secondary?: string[]
+        /** Product key the user navigated from (used for back navigation when diverted) */
+        from?: string
+        /** Step on the from-product to resume after a divert completes */
+        resumeStep?: OnboardingStepKey
     } = {}): string => {
         if (campaign) {
             return `/onboarding/coupons/${campaign}`
@@ -186,6 +196,15 @@ export const urls = {
         }
         if (sdk) {
             params.set('sdk', sdk)
+        }
+        if (secondary?.length) {
+            params.set('secondary', secondary.join(','))
+        }
+        if (from) {
+            params.set('from', from)
+        }
+        if (resumeStep) {
+            params.set('resumeStep', resumeStep)
         }
 
         const base = `/onboarding${productKey ? `/${productKey}` : ''}`

@@ -1,0 +1,39 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dateRange": {
+            "description": "Date range for the query. Defaults to last 24 hours.",
+            "properties": {
+                "date_from": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc."
+                },
+                "date_to": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\"."
+                }
+            },
+            "type": "object"
+        },
+        "trace_id": {
+            "pattern": "^[a-zA-Z0-9]+$",
+            "type": "string"
+        }
+    },
+    "required": ["trace_id"],
+    "type": "object"
+}

@@ -221,6 +221,20 @@ export function formatTokens(tokens: number): string {
     return tokens.toFixed(0)
 }
 
+export function formatAiErrorForDisplay(value: unknown): string {
+    if (typeof value === 'string') {
+        return value || 'Unknown error'
+    }
+    if (value == null) {
+        return 'Unknown error'
+    }
+    try {
+        return JSON.stringify(value)
+    } catch {
+        return String(value)
+    }
+}
+
 export function formatErrorRate(errorRate: number): string {
     const percentage = errorRate * 100
     if (percentage === 0) {
@@ -931,6 +945,44 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
                     item.type === 'document')
         )
     ) {
+        const toolCalls: CompatToolCall[] = []
+        const remainingContent: MultiModalContentItem[] = []
+        for (const item of rawMessage.content) {
+            if (
+                item &&
+                typeof item === 'object' &&
+                'type' in item &&
+                item.type === 'function' &&
+                'function' in item &&
+                item.function &&
+                typeof item.function === 'object' &&
+                'name' in item.function &&
+                typeof item.function.name === 'string'
+            ) {
+                const fn = item.function as { name: string; arguments?: string | Record<string, unknown> }
+                toolCalls.push({
+                    type: 'function',
+                    id: 'id' in item && typeof item.id === 'string' ? item.id : undefined,
+                    function: {
+                        name: fn.name,
+                        arguments: parseToolArguments(fn.arguments ?? {}),
+                    },
+                })
+            } else {
+                remainingContent.push(item as MultiModalContentItem)
+            }
+        }
+
+        if (toolCalls.length > 0) {
+            return [
+                {
+                    role: roleToUse,
+                    content: remainingContent.length > 0 ? remainingContent : '',
+                    tool_calls: toolCalls,
+                },
+            ]
+        }
+
         return [
             {
                 role: roleToUse,
@@ -1160,17 +1212,37 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     }
     // Built-in tool calls (web_search_call, code_interpreter_call, etc.)
     if (isOpenAIResponsesBuiltinToolCall(rawMessage)) {
+        // Prefer an explicit name (e.g. mcp_call.name), fall back to the item type.
+        const name =
+            'name' in rawMessage && typeof rawMessage.name === 'string' && rawMessage.name
+                ? rawMessage.name
+                : rawMessage.type
+
+        let functionArguments: Record<string, unknown> | string
+        if ('arguments' in rawMessage && rawMessage.arguments !== undefined && rawMessage.arguments !== null) {
+            const rawArgs = rawMessage.arguments
+            if (typeof rawArgs === 'string' || (typeof rawArgs === 'object' && !Array.isArray(rawArgs))) {
+                functionArguments = parseToolArguments(rawArgs as string | Record<string, unknown>)
+            } else {
+                functionArguments = { arguments: rawArgs }
+            }
+        } else {
+            // Strip `arguments` too in case it's explicitly null — it would otherwise leak into rest.
+            const { id: _id, type: _type, status: _status, name: _name, arguments: _args, ...rest } = rawMessage
+            functionArguments = rest
+        }
+
         return [
             {
                 role: 'assistant',
-                content: JSON.stringify(rawMessage),
+                content: '',
                 tool_calls: [
                     {
                         type: 'function',
                         id: rawMessage.id,
                         function: {
-                            name: rawMessage.type,
-                            arguments: {},
+                            name,
+                            arguments: functionArguments,
                         },
                     },
                 ],

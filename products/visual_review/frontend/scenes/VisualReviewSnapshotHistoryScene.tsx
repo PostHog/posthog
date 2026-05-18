@@ -1,19 +1,22 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { LemonBanner, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { DiffPercentage } from '../components/DiffPercentage'
+import { QuarantineAction } from '../components/QuarantineAction'
+import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
-import type { SnapshotHistoryEntryApi } from '../generated/api.schemas'
+import type { QuarantinedIdentifierEntryApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
 import {
     ThemePair,
     VisualReviewSnapshotHistorySceneLogicProps,
@@ -151,10 +154,10 @@ function HistoryRow({
                     ) : (
                         <span className="font-mono">{entry.commit_sha.slice(0, 8)}</span>
                     )}
-                    {entry.diff_percentage != null && entry.diff_percentage > 0 && (
+                    {hasSnapshotChangeBadge(entry) && (
                         <>
                             <span>·</span>
-                            <DiffPercentage value={entry.diff_percentage} />
+                            <SnapshotChangeBadge snapshot={entry} size="small" />
                         </>
                     )}
                 </div>
@@ -177,6 +180,77 @@ function HistoryRow({
     )
 }
 
+function QuarantineSection({
+    identifier,
+    label,
+    quarantineEntry,
+    isQuarantined,
+    onQuarantine,
+    onUnquarantine,
+}: {
+    identifier: string
+    label?: string | null
+    quarantineEntry: QuarantinedIdentifierEntryApi | null
+    isQuarantined: boolean
+    onQuarantine: (reason: string, identifiers: string[], expiresAt: string | null) => void
+    onUnquarantine: () => void
+}): JSX.Element {
+    if (isQuarantined && quarantineEntry) {
+        const expires = quarantineEntry.expires_at ? new Date(quarantineEntry.expires_at) : null
+        const openConfirmation = (): void => {
+            LemonDialog.open({
+                title: `Unquarantine ${label ? `(${label})` : 'this identifier'}?`,
+                description:
+                    'This identifier will be gated on again in future runs. ' +
+                    "Branches that haven't merged the fix may get blocked.",
+                primaryButton: {
+                    children: 'Unquarantine',
+                    status: 'danger',
+                    onClick: onUnquarantine,
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+        }
+        return (
+            <LemonBanner
+                type="warning"
+                action={{
+                    children: 'Unquarantine',
+                    status: 'danger',
+                    'data-attr': 'visual-review-history-unquarantine',
+                    onClick: openConfirmation,
+                }}
+            >
+                <div className="text-sm flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-semibold">Quarantined{label && ` (${label})`}</span>
+                    <span>— {quarantineEntry.reason || 'no reason given'}</span>
+                    {expires && (
+                        <>
+                            <span aria-hidden>·</span>
+                            <span>until {expires.toLocaleDateString()}</span>
+                        </>
+                    )}
+                    {quarantineEntry.created_by && (
+                        <>
+                            <span aria-hidden>·</span>
+                            <ProfilePicture user={quarantineEntry.created_by} size="xs" showName />
+                        </>
+                    )}
+                </div>
+            </LemonBanner>
+        )
+    }
+    return (
+        <div className="flex items-center justify-end">
+            <QuarantineAction
+                identifier={identifier}
+                onQuarantine={onQuarantine}
+                triggerLabel={label ? `Quarantine (${label})` : undefined}
+            />
+        </div>
+    )
+}
+
 function Stat({ value, label }: { value: React.ReactNode; label: string }): JSX.Element {
     return (
         <div className="flex flex-col gap-0.5">
@@ -187,16 +261,32 @@ function Stat({ value, label }: { value: React.ReactNode; label: string }): JSX.
 }
 
 export function VisualReviewSnapshotHistoryScene(): JSX.Element {
-    const { repo, repoLoading, history, historyLoading, identifier, pairedHistory, runType, repoId } = useValues(
+    const {
+        repo,
+        repoLoading,
+        history,
+        historyLoading,
+        identifier,
+        pairedHistory,
+        primaryTheme,
+        siblingIdentifier,
+        runType,
+        repoId,
+        quarantineEntry,
+        quarantineEntryLoading,
+        siblingQuarantineEntry,
+        siblingQuarantineEntryLoading,
+    } = useValues(visualReviewSnapshotHistorySceneLogic) as any
+    const { quarantineIdentifier, unquarantineIdentifier, unquarantineSibling } = useActions(
         visualReviewSnapshotHistorySceneLogic
-    )
+    ) as any
 
     const repoFullName = repo?.repo_full_name ?? null
-    // history is already deduped to one row per distinct baseline (newest first),
-    // so the tail is the first ever capture and the length is the number of
-    // distinct baselines this identifier has had.
     const firstSeen = history.length > 0 ? history[history.length - 1].created_at : null
     const baselineUpdates = Math.max(0, history.length - 1)
+    const isQuarantined = !!quarantineEntry
+    const isSiblingQuarantined = !!siblingQuarantineEntry
+    const hasThemePair = primaryTheme !== null && siblingIdentifier !== null
 
     return (
         <SceneContent>
@@ -235,6 +325,41 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
                         />
                     )}
                 </div>
+
+                {hasThemePair ? (
+                    <div className="grid grid-cols-2 gap-2">
+                        {!quarantineEntryLoading && (
+                            <QuarantineSection
+                                identifier={identifier}
+                                label={primaryTheme}
+                                quarantineEntry={quarantineEntry}
+                                isQuarantined={isQuarantined}
+                                onQuarantine={quarantineIdentifier}
+                                onUnquarantine={unquarantineIdentifier}
+                            />
+                        )}
+                        {!siblingQuarantineEntryLoading && (
+                            <QuarantineSection
+                                identifier={siblingIdentifier}
+                                label={primaryTheme === 'light' ? 'dark' : 'light'}
+                                quarantineEntry={siblingQuarantineEntry}
+                                isQuarantined={isSiblingQuarantined}
+                                onQuarantine={quarantineIdentifier}
+                                onUnquarantine={unquarantineSibling}
+                            />
+                        )}
+                    </div>
+                ) : (
+                    !quarantineEntryLoading && (
+                        <QuarantineSection
+                            identifier={identifier}
+                            quarantineEntry={quarantineEntry}
+                            isQuarantined={isQuarantined}
+                            onQuarantine={quarantineIdentifier}
+                            onUnquarantine={unquarantineIdentifier}
+                        />
+                    )
+                )}
 
                 {historyLoading || repoLoading ? (
                     <div className="flex flex-col gap-4">

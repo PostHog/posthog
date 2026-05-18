@@ -4,12 +4,27 @@ from posthog.event_usage import report_user_action
 from posthog.resource_limits.registry import get_definition
 
 if TYPE_CHECKING:
+    from posthog.models.organization import Organization
     from posthog.models.team.team import Team
     from posthog.models.user import User
 
 
 def get_limit(*, team: "Team", key: str) -> int | None:
     return get_definition(key).default
+
+
+def get_organization_limit(*, organization: "Organization", key: str) -> int | None:
+    """Resolve a tiered limit for an organization, falling back to ``default``.
+
+    For limits with ``by_plan_tier`` set, returns the value matching the
+    organization's plan tier from ``Organization.get_plan_tier()``. For
+    limits without tier overrides, returns ``default`` unchanged.
+    """
+    definition = get_definition(key)
+    if definition.by_plan_tier is None:
+        return definition.default
+    tier = organization.get_plan_tier()
+    return definition.by_plan_tier.get(tier, definition.default)
 
 
 def check_count_limit(

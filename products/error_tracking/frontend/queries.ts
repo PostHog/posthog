@@ -182,6 +182,7 @@ export const errorTrackingIssueEventsQuery = ({
         filterTestAccounts: filterTestAccounts,
         after: dateRange.date_from ?? undefined,
         before: dateRange.date_to ?? undefined,
+        tags: { productKey: ProductKey.ERROR_TRACKING },
     }
 
     return eventsQuery
@@ -301,6 +302,7 @@ export const errorTrackingIssueBreakdownQuery = ({
             ],
             dateRange: dateRange,
             filterTestAccounts,
+            tags: { productKey: ProductKey.ERROR_TRACKING },
         },
     }
 

@@ -11,12 +11,12 @@ from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
-from products.tasks.backend.services.custom_prompt_runner import (
+from products.tasks.backend.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
-    _poll_for_turn,
+    poll_for_turn,
 )
+from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_message_line,
@@ -34,7 +34,7 @@ class _Resp(BaseModel):
 class TestPollForTurnEmptyEndTurn:
     @pytest.mark.asyncio
     async def test_raises_empty_agent_turn_error_with_offsets(self):
-        """_poll_for_turn must translate the _check_logs empty-end_turn flag into a
+        """poll_for_turn must translate the _check_logs empty-end_turn flag into a
         typed exception so the caller can retry instead of polling until timeout."""
         turn_1 = [_agent_message_line("first"), _end_turn_line()]
         turn_2_empty = [_user_message_line("prompt"), _end_turn_line()]
@@ -45,12 +45,12 @@ class TestPollForTurnEmptyEndTurn:
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
             patch(
-                "products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS",
+                "products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS",
                 0,
             ),
         ):
             with pytest.raises(EmptyAgentTurnError) as exc_info:
-                await _poll_for_turn(FakeTaskRun(), skip_lines=skip)
+                await poll_for_turn(FakeTaskRun(), skip_lines=skip)
 
         # Carries log offsets so the caller can resume from the tail on retry
         # instead of re-streaming already-printed lines.
@@ -59,7 +59,7 @@ class TestPollForTurnEmptyEndTurn:
 
     @pytest.mark.asyncio
     async def test_text_before_end_turn_across_polls_is_not_empty(self):
-        """When agent_message arrives in one poll and end_turn in the next, _poll_for_turn
+        """When agent_message arrives in one poll and end_turn in the next, poll_for_turn
         must recognize the turn as complete — not raise EmptyAgentTurnError and cause a
         spurious retry."""
         turn_1 = [_agent_message_line("prev"), _end_turn_line()]
@@ -85,17 +85,17 @@ class TestPollForTurnEmptyEndTurn:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
-            last_message, _, total_lines, _ = await _poll_for_turn(fake_task_run, skip_lines=skip)
+            last_message, _, total_lines, _ = await poll_for_turn(fake_task_run, skip_lines=skip)
         assert last_message == "current-turn-text"
         assert total_lines == len(turn_1) + len(turn_2_with_text) + len(turn_2_end_turn)
 
     @pytest.mark.asyncio
     async def test_poll_handles_s3_shrink_then_recovery_without_duplicates(self):
         """End-to-end regression: if S3 briefly serves a truncated log between polls,
-        cursor clamps in _poll_for_turn + _stream_new_lines must prevent already-streamed
+        cursor clamps in poll_for_turn + _stream_new_lines must prevent already-streamed
         lines from being re-emitted or re-parsed when the log recovers."""
         # Poll 1: user_message only (turn in progress).
         # Poll 2: S3 truncated (1 line instead of 2).
@@ -114,10 +114,10 @@ class TestPollForTurnEmptyEndTurn:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
-            last_message, _, total_lines, printed_lines = await _poll_for_turn(
+            last_message, _, total_lines, printed_lines = await poll_for_turn(
                 fake_task_run, skip_lines=0, output_fn=captured.append, verbose=True
             )
 
@@ -151,7 +151,7 @@ class TestMultiTurnSessionRetry:
         agent_response = json.dumps({"value": "ok"})
 
         with patch(
-            "products.tasks.backend.services.custom_prompt_multi_turn_runner._poll_for_turn",
+            "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
             new=AsyncMock(return_value=(agent_response, None, 10, 5)),
         ):
             result = await session.send_followup("hello", _Resp, label="unit")
@@ -172,7 +172,7 @@ class TestMultiTurnSessionRetry:
             ]
         )
         with patch(
-            "products.tasks.backend.services.custom_prompt_multi_turn_runner._poll_for_turn",
+            "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
             new=poll_mock,
         ):
             result = await session.send_followup("please prioritize", _Resp, label="priority")
@@ -198,7 +198,7 @@ class TestMultiTurnSessionRetry:
             ]
         )
         with patch(
-            "products.tasks.backend.services.custom_prompt_multi_turn_runner._poll_for_turn",
+            "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
             new=poll_mock,
         ):
             with pytest.raises(EmptyAgentTurnError, match="twice"):
@@ -209,7 +209,7 @@ class TestMultiTurnSessionRetry:
 
     @pytest.mark.asyncio
     async def test_full_retry_path_with_real_poll_loop(self):
-        """End-to-end integration: send_followup → real _poll_for_turn → real _check_logs
+        """End-to-end integration: send_followup → real poll_for_turn → real _check_logs
         → EmptyAgentTurnError → retry → real _check_logs finds agent_message → parsed.
 
         The log fixture mirrors the production incident: initial turn with a real
@@ -247,7 +247,7 @@ class TestMultiTurnSessionRetry:
         with (
             patch("posthog.storage.object_storage.read", side_effect=current_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
         ):
             result = await session.send_followup("please respond", _Resp, label="priority")
 
@@ -279,7 +279,7 @@ class TestMultiTurnSessionRetry:
             return (agent_response, None, 120, 60)
 
         with patch(
-            "products.tasks.backend.services.custom_prompt_multi_turn_runner._poll_for_turn",
+            "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
             new=fake_poll,
         ):
             await session.send_followup("x", _Resp, label="priority")
@@ -316,7 +316,7 @@ class TestMultiTurnSessionStartBranch:
                 new=AsyncMock(return_value=MagicMock(get_workflow_handle=MagicMock(return_value=AsyncMock()))),
             ),
             patch(
-                "products.tasks.backend.services.custom_prompt_multi_turn_runner._poll_for_turn",
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
                 new=AsyncMock(return_value=(agent_response, None, 1, 1)),
             ),
         ):

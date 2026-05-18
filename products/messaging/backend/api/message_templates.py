@@ -5,8 +5,10 @@ from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 
+from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
 
 
@@ -25,6 +27,9 @@ class MessageTemplateContentSerializer(serializers.Serializer):
 class MessageTemplateSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     content = MessageTemplateContentSerializer(required=False)
+    message_category = TeamScopedPrimaryKeyRelatedField(
+        queryset=MessageCategory.objects.all(), required=False, allow_null=True
+    )
 
     class Meta:
         model = MessageTemplate

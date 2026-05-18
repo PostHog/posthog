@@ -1,3 +1,4 @@
+import json
 import asyncio
 import importlib
 from types import SimpleNamespace
@@ -314,6 +315,52 @@ class TestRelaySandboxEventsErrorHandling:
         assert connect_attempts == 2
         sleep_mock.assert_awaited_once_with(2)
         redis_stream.write_event.assert_awaited_once()
+        redis_stream.mark_complete.assert_awaited_once()
+        redis_stream.mark_error.assert_not_awaited()
+
+    async def test_keepalive_events_are_transport_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+        )
+        terminal_event = {
+            "type": "notification",
+            "notification": {"method": "_posthog/task_complete"},
+        }
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                yield SimpleNamespace(data='{"type":"keepalive"}')
+                yield SimpleNamespace(data=json.dumps(terminal_event))
+
+        def fake_connect_sse(*_args: object, **_kwargs: object) -> SuccessfulEventSource:
+            return SuccessfulEventSource()
+
+        async def fake_background_heartbeat(*_args: object, **_kwargs: object) -> None:
+            return None
+
+        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
+
+        await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+        )
+
+        redis_stream.write_event.assert_awaited_once_with(terminal_event)
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 

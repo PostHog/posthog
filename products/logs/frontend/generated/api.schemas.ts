@@ -45,14 +45,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -72,7 +68,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -160,12 +156,12 @@ export interface LogsAlertStateIntervalApi {
     end: string
     /** Alert state during this interval.
 
-* `not_firing` - Not firing
-* `firing` - Firing
-* `pending_resolve` - Pending resolve
-* `errored` - Errored
-* `snoozed` - Snoozed
-* `broken` - Broken */
+  * `not_firing` - Not firing
+  * `firing` - Firing
+  * `pending_resolve` - Pending resolve
+  * `errored` - Errored
+  * `snoozed` - Snoozed
+  * `broken` - Broken */
     state: LogsAlertConfigurationStateEnumApi
     /** Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive. */
     enabled: boolean
@@ -202,8 +198,8 @@ export interface LogsAlertConfigurationApi {
     threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
 
-* `above` - Above
-* `below` - Below */
+  * `above` - Above
+  * `below` - Below */
     threshold_operator?: ThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
@@ -211,12 +207,12 @@ export interface LogsAlertConfigurationApi {
     readonly check_interval_minutes: number
     /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
 
-* `not_firing` - Not firing
-* `firing` - Firing
-* `pending_resolve` - Pending resolve
-* `errored` - Errored
-* `snoozed` - Snoozed
-* `broken` - Broken */
+  * `not_firing` - Not firing
+  * `firing` - Firing
+  * `pending_resolve` - Pending resolve
+  * `errored` - Errored
+  * `snoozed` - Snoozed
+  * `broken` - Broken */
     readonly state: LogsAlertConfigurationStateEnumApi
     /**
      * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -309,8 +305,8 @@ export interface PatchedLogsAlertConfigurationApi {
     threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
 
-* `above` - Above
-* `below` - Below */
+  * `above` - Above
+  * `below` - Below */
     threshold_operator?: ThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
@@ -318,12 +314,12 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly check_interval_minutes?: number
     /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
 
-* `not_firing` - Not firing
-* `firing` - Firing
-* `pending_resolve` - Pending resolve
-* `errored` - Errored
-* `snoozed` - Snoozed
-* `broken` - Broken */
+  * `not_firing` - Not firing
+  * `firing` - Firing
+  * `pending_resolve` - Pending resolve
+  * `errored` - Errored
+  * `snoozed` - Snoozed
+  * `broken` - Broken */
     readonly state?: LogsAlertConfigurationStateEnumApi
     /**
      * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -391,8 +387,8 @@ export interface PatchedLogsAlertConfigurationApi {
 export interface LogsAlertCreateDestinationApi {
     /** Destination type — slack or webhook.
 
-* `slack` - slack
-* `webhook` - webhook */
+  * `slack` - slack
+  * `webhook` - webhook */
     type: NotificationDestinationTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
@@ -424,6 +420,7 @@ export interface LogsAlertDeleteDestinationApi {
  * `snooze` - Snooze
  * `unsnooze` - Unsnooze
  * `threshold_change` - Threshold change
+ * `broken_config` - Broken config
  */
 export type LogsAlertEventKindEnumApi = (typeof LogsAlertEventKindEnumApi)[keyof typeof LogsAlertEventKindEnumApi]
 
@@ -435,6 +432,7 @@ export const LogsAlertEventKindEnumApi = {
     Snooze: 'snooze',
     Unsnooze: 'unsnooze',
     ThresholdChange: 'threshold_change',
+    BrokenConfig: 'broken_config',
 } as const
 
 export interface LogsAlertEventApi {
@@ -471,11 +469,17 @@ export interface LogsAlertSimulateRequestApi {
     threshold_count: number
     /** Whether the alert fires when the count is above or below the threshold.
 
-* `above` - Above
-* `below` - Below */
+  * `above` - Above
+  * `below` - Below */
     threshold_operator: ThresholdOperatorEnumApi
     /** Window size in minutes — determines bucket interval. */
     window_minutes: number
+    /**
+     * How often the alert is evaluated, in minutes.
+     * @minimum 1
+     * @maximum 60
+     */
+    check_interval_minutes?: number
     /**
      * Total check periods in the N-of-M evaluation window (M).
      * @minimum 1
@@ -593,28 +597,28 @@ export interface _LogPropertyFilterApi {
     key: string
     /** "log" filters the log body/message. "log_attribute" filters log-level attributes. "log_resource_attribute" filters resource-level attributes.
 
-* `log` - log
-* `log_attribute` - log_attribute
-* `log_resource_attribute` - log_resource_attribute */
+  * `log` - log
+  * `log_attribute` - log_attribute
+  * `log_resource_attribute` - log_resource_attribute */
     type: _LogPropertyFilterTypeEnumApi
     /** Comparison operator.
 
-* `exact` - exact
-* `is_not` - is_not
-* `icontains` - icontains
-* `not_icontains` - not_icontains
-* `regex` - regex
-* `not_regex` - not_regex
-* `gt` - gt
-* `lt` - lt
-* `is_date_exact` - is_date_exact
-* `is_date_before` - is_date_before
-* `is_date_after` - is_date_after
-* `is_set` - is_set
-* `is_not_set` - is_not_set */
+  * `exact` - exact
+  * `is_not` - is_not
+  * `icontains` - icontains
+  * `not_icontains` - not_icontains
+  * `regex` - regex
+  * `not_regex` - not_regex
+  * `gt` - gt
+  * `lt` - lt
+  * `is_date_exact` - is_date_exact
+  * `is_date_before` - is_date_before
+  * `is_date_after` - is_date_after
+  * `is_set` - is_set
+  * `is_not_set` - is_not_set */
     operator: _LogPropertyFilterOperatorEnumApi
     /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
-    value?: unknown | null
+    value?: unknown
 }
 
 /**
@@ -634,8 +638,8 @@ export interface _LogAttributeEntryApi {
     propertyFilterType: string
     /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
 
-* `key` - key
-* `value` - value */
+  * `key` - key
+  * `value` - value */
     matchedOn: MatchedOnEnumApi
     /**
      * Sample matching value — only set when matchedOn is "value".
@@ -753,8 +757,8 @@ export interface _LogsQueryBodyApi {
     serviceNames?: string[]
     /** Order results by timestamp.
 
-* `latest` - latest
-* `earliest` - earliest */
+  * `latest` - latest
+  * `earliest` - earliest */
     orderBy?: OrderByEnumApi
     /** Full-text search term to filter log bodies. */
     searchTerm?: string
@@ -830,8 +834,8 @@ export interface _LogsQueryResponseApi {
 }
 
 /**
- * * `severity_sampling` - Severity sampling
- * `path_drop` - Path drop
+ * * `severity_sampling` - Severity-based reduction
+ * `path_drop` - Path exclusion
  * `rate_limit` - Rate limit
  */
 export type RuleTypeEnumApi = (typeof RuleTypeEnumApi)[keyof typeof RuleTypeEnumApi]
@@ -841,6 +845,8 @@ export const RuleTypeEnumApi = {
     PathDrop: 'path_drop',
     RateLimit: 'rate_limit',
 } as const
+
+export type LogsSamplingRuleApiScopeAttributeFiltersItem = { [key: string]: unknown }
 
 export interface LogsSamplingRuleApi {
     /** Unique identifier for this sampling rule. */
@@ -858,11 +864,11 @@ export interface LogsSamplingRuleApi {
      * @nullable
      */
     priority?: number | null
-    /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+    /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
 
-* `severity_sampling` - Severity sampling
-* `path_drop` - Path drop
-* `rate_limit` - Rate limit */
+  * `severity_sampling` - Severity-based reduction
+  * `path_drop` - Path exclusion
+  * `rate_limit` - Rate limit */
     rule_type: RuleTypeEnumApi
     /**
      * If set, the rule applies only to this service name; null means all services.
@@ -877,8 +883,8 @@ export interface LogsSamplingRuleApi {
      */
     scope_path_pattern?: string | null
     /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
-    scope_attribute_filters?: unknown
-    /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
+    scope_attribute_filters?: LogsSamplingRuleApiScopeAttributeFiltersItem[]
+    /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
     config: unknown
     /** Incremented on each update for worker cache coherency. */
     readonly version: number
@@ -897,6 +903,8 @@ export interface PaginatedLogsSamplingRuleListApi {
     results: LogsSamplingRuleApi[]
 }
 
+export type PatchedLogsSamplingRuleApiScopeAttributeFiltersItem = { [key: string]: unknown }
+
 export interface PatchedLogsSamplingRuleApi {
     /** Unique identifier for this sampling rule. */
     readonly id?: string
@@ -913,11 +921,11 @@ export interface PatchedLogsSamplingRuleApi {
      * @nullable
      */
     priority?: number | null
-    /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+    /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
 
-* `severity_sampling` - Severity sampling
-* `path_drop` - Path drop
-* `rate_limit` - Rate limit */
+  * `severity_sampling` - Severity-based reduction
+  * `path_drop` - Path exclusion
+  * `rate_limit` - Rate limit */
     rule_type?: RuleTypeEnumApi
     /**
      * If set, the rule applies only to this service name; null means all services.
@@ -932,8 +940,8 @@ export interface PatchedLogsSamplingRuleApi {
      */
     scope_path_pattern?: string | null
     /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
-    scope_attribute_filters?: unknown
-    /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
+    scope_attribute_filters?: PatchedLogsSamplingRuleApiScopeAttributeFiltersItem[]
+    /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
     config?: unknown
     /** Incremented on each update for worker cache coherency. */
     readonly version?: number
@@ -1050,8 +1058,8 @@ export interface _LogsSparklineBodyApi {
     filterGroup?: _LogPropertyFilterApi[]
     /** Break down sparkline by "severity" (default) or "service".
 
-* `severity` - severity
-* `service` - service */
+  * `severity` - severity
+  * `service` - service */
     sparklineBreakdownBy?: SparklineBreakdownByEnumApi
 }
 
