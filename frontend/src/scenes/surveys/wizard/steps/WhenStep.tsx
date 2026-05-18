@@ -314,7 +314,7 @@ export function WhenStep(): JSX.Element {
                     <LemonCheckbox
                         checked={seenSurveyWaitPeriodInDays != null}
                         onChange={(checked) => setSeenSurveyWaitPeriod(checked ? 30 : null)}
-                        label="Also wait at least"
+                        label="Hide if a different survey was shown in the last"
                     />
                     <LemonInput
                         type="number"
@@ -323,7 +323,7 @@ export function WhenStep(): JSX.Element {
                         onChange={setSeenSurveyWaitPeriod}
                         className="w-20 tabular-nums"
                     />
-                    <span className="text-secondary">days after any other survey was shown to the same user.</span>
+                    <span className="text-secondary">days.</span>
                 </div>
             </WizardSection>
 
