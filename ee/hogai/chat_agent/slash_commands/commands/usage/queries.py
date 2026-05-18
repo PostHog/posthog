@@ -29,6 +29,8 @@ CH_BILLING_SETTINGS = {
     "max_execution_time": 60,  # 1 minute
 }
 
+POSTHOG_AI_EVENTS_PRIMARY_REGION = "US"
+
 
 def _get_billing_config_payload() -> dict | None:
     """
@@ -126,14 +128,15 @@ def get_ai_credits(
     """
     Calculate AI credits used for a specific team (and optionally a specific conversation) in the given time period.
     """
-    # Depending on the region, events are stored in different teams
-    # Default to EU (team_id 1) for local dev or unknown regions
     region = get_instance_region()
     region_value = region if region in CLOUD_REGION_TO_TEAM_ID else "EU"
-    team_to_query = CLOUD_REGION_TO_TEAM_ID[region_value]
-
-    # Only filter by region in production (EU/US) - local dev events don't have region set
     is_production = region in ["EU", "US"]
+
+    # PostHog AI trace events are captured into the primary internal analytics project.
+    # The customer cloud is still isolated by $group_1, so EU traffic is filtered by the EU URL.
+    ai_events_region = POSTHOG_AI_EVENTS_PRIMARY_REGION if is_production else region_value
+    team_to_query = CLOUD_REGION_TO_TEAM_ID[ai_events_region]
+
     region_filter = "AND JSONExtractString(properties, '$group_1') = %(region_url)s" if is_production else ""
 
     # Session filter expression for PREWHERE (must NOT use alias)
