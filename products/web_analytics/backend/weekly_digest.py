@@ -19,6 +19,7 @@ from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRu
 from posthog.hogql_queries.web_analytics.web_goals import NoActionsError, WebGoalsQueryRunner
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.models import Team
+from posthog.models.user import User
 from posthog.tasks.email_utils import compute_week_over_week_change
 
 logger = structlog.get_logger(__name__)
@@ -230,7 +231,7 @@ def build_team_digest(team: Team, days: int = 7, compare: bool = True) -> dict:
     }
 
 
-def auto_select_project_for_user(user, team_traffic_data: dict[int, dict]) -> bool:
+def auto_select_project_for_user(user: User, team_traffic_data: dict[int, dict]) -> bool:
     """For first-time users who have no WA digest project settings, auto-select the project with the most visitors.
 
     Returns True if settings were updated (caller should refresh_from_db).

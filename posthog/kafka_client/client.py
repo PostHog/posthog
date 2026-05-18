@@ -340,12 +340,13 @@ class _AsyncKafkaProducer:
         self,
         kafka_hosts: list[str] | str | None = None,
         kafka_security_protocol: str | None = None,
-        sasl_mechanism: Optional[str] = None,
-        sasl_user: Optional[str] = None,
-        sasl_password: Optional[str] = None,
+        sasl_mechanism: str | None = None,
+        sasl_user: str | None = None,
+        sasl_password: str | None = None,
         max_request_size: int | None = None,
         compression_type: str | None = None,
-        producer_settings: Optional[dict[str, Any]] = None,
+        producer_settings: dict[str, Any] | None = None,
+        loop: asyncio.AbstractEventLoop | None = None,
     ):
         default_profile = settings.KAFKA_PROFILES["default"]
         if kafka_security_protocol is None:
@@ -387,6 +388,7 @@ class _AsyncKafkaProducer:
             config["message.max.bytes"] = max_request_size
 
         self.producer = AIOProducer(config)
+
         self._closed = False
 
     @staticmethod
@@ -399,7 +401,6 @@ class _AsyncKafkaProducer:
         data: Any,
         key: Any = None,
         value_serializer: Callable[[Any], Any] | None = None,
-        headers: list[tuple[str, str | bytes]] | None = None,
     ) -> asyncio.Future[Any]:
         if not value_serializer:
             value_serializer = self.json_serializer
@@ -407,17 +408,11 @@ class _AsyncKafkaProducer:
         if key is not None:
             if not isinstance(key, bytes):
                 key = str(key).encode("utf-8")
-        encoded_headers: list[tuple[str, str | bytes | None]] | None = (
-            [(h[0], h[1] if isinstance(h[1], bytes) else h[1].encode("utf-8")) for h in headers]
-            if headers is not None
-            else None
-        )
 
         future = await self.producer.produce(
             topic=topic,
             value=b,
             key=key,
-            headers=encoded_headers,
         )
         return future
 

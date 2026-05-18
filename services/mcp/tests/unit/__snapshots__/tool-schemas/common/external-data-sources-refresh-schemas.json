@@ -1,6 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "created_via": {
+            "description": "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp",
+            "enum": ["web", "api", "mcp"],
+            "type": "string"
+        },
         "id": {
             "description": "A UUID string identifying this external data source.",
             "type": "string"

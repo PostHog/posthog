@@ -1,18 +1,19 @@
 import { dayjs } from 'lib/dayjs'
 
-// Whether clustering is at trace level or individual generation level
-export type ClusteringLevel = 'trace' | 'generation'
+// Whether clustering is at trace level, individual generation level, or evaluation level
+export type ClusteringLevel = 'trace' | 'generation' | 'evaluation'
 
 /**
  * Extract day bounds from a clustering run ID for efficient timestamp filtering.
- * Run IDs are formatted as `<team_id>_<level>_<YYYYMMDD>_<HHMMSS>` where level is "trace" or "generation".
+ * Run IDs are formatted as `<team_id>_<level>_<YYYYMMDD>_<HHMMSS>` where level is
+ * "trace", "generation", or "evaluation".
  * Returns start and end of the day to ensure we capture the event.
  * Falls back to last 7 days if parsing fails.
  */
 export function getLevelFromRunId(runId: string): ClusteringLevel {
     const parts = runId.split('_')
     // Run ID format: <team_id>_<level>_<YYYYMMDD>_<HHMMSS>
-    if (parts.length >= 2 && (parts[1] === 'trace' || parts[1] === 'generation')) {
+    if (parts.length >= 2 && (parts[1] === 'trace' || parts[1] === 'generation' || parts[1] === 'evaluation')) {
         return parts[1]
     }
     return 'trace' // Default to trace for backwards compatibility
@@ -62,6 +63,12 @@ export interface Cluster {
     centroid: number[] // 384-dim vector, not used in UI but present in data
     centroid_x: number // UMAP 2D x coordinate for scatter plot
     centroid_y: number // UMAP 2D y coordinate for scatter plot
+    // Pre-computed aggregate metrics baked into the event by the backend. Evaluation
+    // clusters always ship with this populated (via ClusterAggregateMetrics); trace and
+    // generation clusters may or may not, depending on whether the aggregates activity
+    // succeeded during that run. The frontend uses this directly when present
+    // instead of recomputing via clusterMetricsLoader.
+    metrics?: ClusterMetrics
 }
 
 // Parameters used for a clustering run
@@ -94,15 +101,22 @@ export interface ClusteringRunOption {
     label: string // Formatted date for display
 }
 
-// Summary from $ai_trace_summary or $ai_generation_summary events
+// Summary from $ai_trace_summary or $ai_generation_summary events — or, for
+// evaluation-level clusters, a shim of the underlying $ai_evaluation event
+// (evaluator name, verdict, reasoning, linked generation id) rendered into the
+// same interface so the list component doesn't need a separate prop.
 export interface TraceSummary {
-    traceId: string // Always set - the trace ID (or parent trace for generations)
-    generationId?: string // Only set for generation-level summaries
+    traceId: string // Always set - the trace ID (or parent trace for generations / eval's $ai_trace_id)
+    generationId?: string // Set for generation-level summaries; for eval, the linked generation uuid
     title: string
     flowDiagram: string
     bullets: string
     interestingNotes: string
     timestamp: string
+    // Evaluation-only fields (empty/undefined for trace/generation summaries)
+    evaluationVerdict?: 'pass' | 'fail' | 'n/a' | 'unknown'
+    evaluationReasoning?: string
+    evaluationRuntime?: string
 }
 
 // Clustering job configuration
@@ -146,4 +160,38 @@ export interface ClusterMetrics {
     errorRate: number | null // Proportion of items with errors (0-1)
     errorCount: number // Number of items with errors
     itemCount: number // Number of items with metrics data
+    // Evaluation-only fields (null for trace / generation levels). Emitted by the
+    // backend's ClusterAggregateMetrics for $ai_evaluation_clusters events.
+    passRate?: number | null // 0-1, share of cluster evals with a "pass" verdict
+    naRate?: number | null // 0-1, share of cluster evals with an "n/a" verdict
+    dominantEvaluationName?: string | null // Most common evaluator name in the cluster
+    dominantRuntime?: string | null // "llm_judge" | "hog" — most common runtime
+    avgJudgeCost?: number | null // Average $ai_total_cost_usd on the eval itself (llm_judge only)
+}
+
+/**
+ * Parse a cluster's `metrics` dict (snake_case, emitted by the backend via
+ * dataclasses.asdict) into the frontend's camelCase `ClusterMetrics` shape.
+ * Returns null when the backend didn't include metrics for this cluster (e.g.
+ * a trace/generation run where the aggregates activity failed).
+ */
+export function parseClusterMetrics(raw: unknown): ClusterMetrics | null {
+    if (!raw || typeof raw !== 'object') {
+        return null
+    }
+    const r = raw as Record<string, unknown>
+    return {
+        avgCost: (r.avg_cost as number | null) ?? null,
+        avgLatency: (r.avg_latency as number | null) ?? null,
+        avgTokens: (r.avg_tokens as number | null) ?? null,
+        totalCost: (r.total_cost as number | null) ?? null,
+        errorRate: (r.error_rate as number | null) ?? null,
+        errorCount: (r.error_count as number) ?? 0,
+        itemCount: (r.item_count as number) ?? 0,
+        passRate: (r.pass_rate as number | null) ?? null,
+        naRate: (r.na_rate as number | null) ?? null,
+        dominantEvaluationName: (r.dominant_evaluation_name as string | null) ?? null,
+        dominantRuntime: (r.dominant_runtime as string | null) ?? null,
+        avgJudgeCost: (r.avg_judge_cost as number | null) ?? null,
+    }
 }

@@ -2,14 +2,16 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconChevronLeft } from '@posthog/icons'
-import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -36,6 +38,8 @@ import {
     frequencyOptionsPlural,
     frequencyOptionsSingular,
     getNextDeliveryDate,
+    hourlyFrequencyOptionPlural,
+    hourlyFrequencyOptionSingular,
     intervalOptions,
     monthlyWeekdayOptions,
     targetTypeOptions,
@@ -72,15 +76,25 @@ export function EditSubscription({
     })
 
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
-    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
+    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
+        useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
     const { resetSubscription, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const hourlySubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_HOURLY_FREQUENCY')
 
     const emailDisabled = !preflight?.email_service_available
+
+    // Show the hourly option whenever the feature flag is on for this user/org, OR
+    // when the subscription being edited is already hourly (so the user can read /
+    // modify a value that was created when the flag was on).
+    const showHourlyOption = hourlySubscriptionsEnabled || subscription?.frequency === 'hourly'
+    const frequencyOptions = subscription?.interval === 1 ? frequencyOptionsSingular : frequencyOptionsPlural
+    const hourlyOption = subscription?.interval === 1 ? hourlyFrequencyOptionSingular : hourlyFrequencyOptionPlural
+    const availableFrequencyOptions = showHourlyOption ? [...hourlyOption, ...frequencyOptions] : frequencyOptions
 
     // For new subscriptions, show InsightSelector immediately (useEffect will auto-select)
     // For editing, wait until subscription data has loaded from API (target_type exists)
@@ -172,9 +186,21 @@ export function EditSubscription({
                             </LemonBanner>
                         )}
 
-                        <LemonField name="title" label="Name">
-                            <LemonInput placeholder="e.g. Weekly team report" />
-                        </LemonField>
+                        <div className="flex gap-4 items-end">
+                            <LemonField className="flex-auto" name="title" label="Name">
+                                <LemonInput placeholder="e.g. Weekly team report" />
+                            </LemonField>
+                            <LemonField name="enabled" className="pb-2">
+                                {({ value, onChange }) => (
+                                    <LemonCheckbox
+                                        checked={value !== false}
+                                        onChange={onChange}
+                                        data-attr="subscription-enabled"
+                                        label="Enabled"
+                                    />
+                                )}
+                            </LemonField>
+                        </div>
 
                         {dashboard?.tiles && selectionReady && (
                             <LemonField name="dashboard_export_insights" label="Insights to include">
@@ -332,13 +358,7 @@ export function EditSubscription({
                                     <LemonSelect options={intervalOptions} />
                                 </LemonField>
                                 <LemonField name="frequency">
-                                    <LemonSelect
-                                        options={
-                                            subscription.interval === 1
-                                                ? frequencyOptionsSingular
-                                                : frequencyOptionsPlural
-                                        }
-                                    />
+                                    <LemonSelect options={availableFrequencyOptions} />
                                 </LemonField>
 
                                 {subscription.frequency === 'weekly' && (
@@ -402,7 +422,7 @@ export function EditSubscription({
                                         </LemonField>
                                     </>
                                 )}
-                                <span>by</span>
+                                <span>{subscription.frequency === 'hourly' ? 'starting at' : 'by'}</span>
                                 <LemonField name="start_date">
                                     {({ value, onChange }) => (
                                         <LemonSelect
@@ -441,20 +461,38 @@ export function EditSubscription({
                                             disabledReason={
                                                 !dataProcessingAccepted && !value
                                                     ? 'Your organization needs to approve AI data processing before enabling AI summaries'
-                                                    : undefined
+                                                    : summaryQuota?.at_limit && !value
+                                                      ? `Plan limit reached (${summaryQuota.limit} active AI summaries). See details below.`
+                                                      : undefined
                                             }
                                         />
                                     </AIConsentPopoverWrapper>
                                 )}
                             </LemonField>
 
+                            {summaryQuota?.at_limit && !subscription.summary_enabled && summaryQuota.limit !== null && (
+                                <UsageLimitPaywall
+                                    title="AI summary limit reached"
+                                    description="Disable an existing AI summary or upgrade your plan to add more."
+                                    limit={summaryQuota.limit}
+                                    currentUsage={summaryQuota.active_count}
+                                    unit="active AI summaries on your plan"
+                                />
+                            )}
+
                             {subscription.summary_enabled && (
-                                <LemonField name="summary_prompt_guide" label="Context for the AI summary" showOptional>
-                                    <LemonTextArea
-                                        placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
-                                        maxLength={500}
-                                    />
-                                </LemonField>
+                                <FlaggedFeature flag={FEATURE_FLAGS.SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE}>
+                                    <LemonField
+                                        name="summary_prompt_guide"
+                                        label="Context for the AI summary"
+                                        showOptional
+                                    >
+                                        <LemonTextArea
+                                            placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
+                                            maxLength={500}
+                                        />
+                                    </LemonField>
+                                </FlaggedFeature>
                             )}
                         </FlaggedFeature>
 

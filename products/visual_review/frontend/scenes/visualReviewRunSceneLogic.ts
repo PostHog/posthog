@@ -9,13 +9,13 @@ import { Breadcrumb } from '~/types'
 
 import {
     visualReviewReposQuarantineCreate,
-    visualReviewReposQuarantineDestroy,
+    visualReviewReposQuarantineExpireCreate,
     visualReviewReposQuarantineList,
     visualReviewReposRetrieve,
     visualReviewRunsApproveCreate,
+    visualReviewRunsRecomputeCreate,
     visualReviewRunsTolerateCreate,
     visualReviewRunsRetrieve,
-    visualReviewRunsSnapshotHistoryList,
     visualReviewRunsSnapshotsList,
     visualReviewRunsToleratedHashesList,
 } from '../generated/api'
@@ -24,7 +24,6 @@ import type {
     RepoApi,
     RunApi,
     SnapshotApi,
-    SnapshotHistoryEntryApi,
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
 import type { visualReviewRunSceneLogicType } from './visualReviewRunSceneLogicType'
@@ -55,6 +54,10 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             expiresAt,
         }),
         unquarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
+        recomputeRun: true,
+        recomputeRunSuccess: true,
+        recomputeRunFailure: true,
+        markThumbnailFailed: (identifier: string) => ({ identifier }),
     }),
     reducers({
         selectedSnapshotId: [
@@ -79,6 +82,24 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 approveSnapshotFailure: () => false,
             },
         ],
+        isRecomputing: [
+            false,
+            {
+                recomputeRun: () => true,
+                recomputeRunSuccess: () => false,
+                recomputeRunFailure: () => false,
+            },
+        ],
+        failedThumbnails: [
+            new Set<string>() as Set<string>,
+            {
+                markThumbnailFailed: (state: Set<string>, { identifier }: { identifier: string }) => {
+                    const next = new Set(state)
+                    next.add(identifier)
+                    return next
+                },
+            },
+        ],
     }),
     loaders(({ props, values }) => ({
         run: [
@@ -93,7 +114,9 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             [] as SnapshotApi[],
             {
                 loadSnapshots: async () => {
-                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId)
+                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
+                        limit: 10000,
+                    })
                     return response.results
                 },
             },
@@ -107,21 +130,6 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                         return null
                     }
                     return visualReviewReposRetrieve(String(values.currentProjectId), run.repo_id)
-                },
-            },
-        ],
-        snapshotHistory: [
-            [] as SnapshotHistoryEntryApi[],
-            {
-                loadSnapshotHistory: async (identifier: string) => {
-                    const response = await visualReviewRunsSnapshotHistoryList(
-                        String(values.currentProjectId),
-                        props.runId,
-                        {
-                            identifier,
-                        }
-                    )
-                    return response.results
                 },
             },
         ],
@@ -192,10 +200,26 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     groups.set(base, group)
                 }
 
-                // Sort groups by max diff% descending
+                // Severity score for ordering. Pixel-tier rows have a real
+                // diff_percentage; structural-tier rows had it nulled by the
+                // split-diff-metrics migration (legacy diff_percentage was
+                // SSIM-as-percentage and would mislead now). Fall back to
+                // SSIM dissimilarity scaled to a comparable percent so
+                // structural shifts surface alongside pixel diffs instead
+                // of sinking to the bottom as 0.
+                const severity = (s: SnapshotApi): number => {
+                    if (s.diff_percentage != null) {
+                        return s.diff_percentage
+                    }
+                    if (s.ssim_score != null) {
+                        return (1 - s.ssim_score) * 100
+                    }
+                    return 0
+                }
+
                 const sortedGroups = [...groups.values()].sort((a, b) => {
-                    const maxA = Math.max(...a.map((s) => s.diff_percentage ?? 0))
-                    const maxB = Math.max(...b.map((s) => s.diff_percentage ?? 0))
+                    const maxA = Math.max(...a.map(severity))
+                    const maxB = Math.max(...b.map(severity))
                     return maxB - maxA
                 })
 
@@ -221,6 +245,17 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 ),
         ],
         repoFullName: [(s) => [s.repo], (repo): string | null => repo?.repo_full_name || null],
+        thumbnailBasePath: [
+            (s) => [s.run, s.currentProjectId],
+            (run, projectId): string | null => {
+                if (!run || !projectId) {
+                    return null
+                }
+                return `/api/projects/${projectId}/visual_review/repos/${run.repo_id}/thumbnails`
+            },
+        ],
+        isRunInProgress: [(s) => [s.run], (run): boolean => run?.status === 'pending' || run?.status === 'processing'],
+        isRunProcessing: [(s) => [s.run], (run): boolean => run?.status === 'processing'],
         breadcrumbs: [
             (s) => [s.run],
             (run): Breadcrumb[] => [
@@ -240,7 +275,6 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         setSelectedSnapshotId: () => {
             const snapshot = values.selectedSnapshot
             if (snapshot) {
-                actions.loadSnapshotHistory(snapshot.identifier)
                 actions.loadToleratedHashes(snapshot.identifier)
             }
         },
@@ -251,7 +285,6 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         loadSnapshotsSuccess: () => {
             const snapshot = values.selectedSnapshot
             if (snapshot) {
-                actions.loadSnapshotHistory(snapshot.identifier)
                 actions.loadToleratedHashes(snapshot.identifier)
             }
         },
@@ -268,7 +301,16 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 actions.approveChangesSuccess()
                 lemonToast.success('Changes approved successfully')
                 actions.loadRun()
-                actions.loadSnapshots()
+                // Patch in place — refetching all snapshots after a bulk approve made the whole
+                // grid flash and lost the user's selection. Server is the source of truth on
+                // next mount; we only need the UI to reflect the change immediately.
+                actions.loadSnapshotsSuccess(
+                    values.snapshots.map((s) =>
+                        s.review_state === 'pending' && s.result !== 'unchanged'
+                            ? { ...s, review_state: 'approved' }
+                            : s
+                    )
+                )
             } catch (e: any) {
                 actions.approveChangesFailure()
                 lemonToast.error(e?.detail || e?.message || 'Failed to approve changes')
@@ -300,7 +342,11 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 actions.approveSnapshotSuccess()
                 lemonToast.success('Snapshot approved')
                 actions.loadRun()
-                actions.loadSnapshots()
+                // Patch only the approved snapshot — refetching the whole list flashed
+                // the entire viewer and dropped the user's place.
+                actions.loadSnapshotsSuccess(
+                    values.snapshots.map((s) => (s.id === snapshot.id ? { ...s, review_state: 'approved' } : s))
+                )
                 if (nextPending) {
                     actions.setSelectedSnapshotId(nextPending.id)
                 }
@@ -316,7 +362,9 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 })
                 lemonToast.success('Marked as tolerated')
                 actions.loadRun()
-                actions.loadSnapshots()
+                actions.loadSnapshotsSuccess(
+                    values.snapshots.map((s) => (s.id === snapshot.id ? { ...s, review_state: 'tolerated' } : s))
+                )
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Failed to mark as tolerated')
             }
@@ -343,15 +391,42 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 lemonToast.error(e?.detail || e?.message || 'Failed to quarantine')
             }
         },
+        recomputeRun: async () => {
+            try {
+                const result = await visualReviewRunsRecomputeCreate(String(values.currentProjectId), props.runId)
+                actions.recomputeRunSuccess()
+
+                if (result.ci_rerun_triggered) {
+                    lemonToast.success(
+                        result.counts_changed ? 'Counts updated, CI job re-triggered' : 'CI job re-triggered'
+                    )
+                } else if (result.ci_rerun_error) {
+                    if (result.counts_changed) {
+                        lemonToast.success('Counts updated')
+                    }
+                    lemonToast.warning(`CI re-trigger failed: ${result.ci_rerun_error}`)
+                } else {
+                    lemonToast.success(result.counts_changed ? 'Counts updated' : 'No changes needed')
+                }
+                actions.loadRun()
+                actions.loadSnapshots()
+            } catch (e: any) {
+                actions.recomputeRunFailure()
+                lemonToast.error(e?.detail || e?.message || 'Failed to recompute')
+            }
+        },
         unquarantineSnapshot: async ({ snapshot }) => {
             const { run } = values
             if (!run) {
                 return
             }
             try {
-                await visualReviewReposQuarantineDestroy(String(values.currentProjectId), run.repo_id, run.run_type, {
-                    identifier: snapshot.identifier,
-                })
+                await visualReviewReposQuarantineExpireCreate(
+                    String(values.currentProjectId),
+                    run.repo_id,
+                    run.run_type,
+                    { identifier: snapshot.identifier, reason: '' }
+                )
                 lemonToast.success('Identifier unquarantined — future runs will gate on it again')
                 actions.loadQuarantinedIdentifiers()
             } catch (e: any) {

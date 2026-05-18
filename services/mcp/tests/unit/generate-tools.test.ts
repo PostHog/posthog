@@ -4,12 +4,14 @@ import {
     buildResponseFilter,
     composeToolSchema,
     extractPathParams,
+    generateDefinitionsJson,
+    generateQueryWrapperDefinitionsJson,
     generateQueryWrapperFile,
     generateToolCode,
 } from '../../scripts/generate-tools'
 import type { OpenApiSpec, ResolvedOperation } from '../../scripts/generate-tools'
 import { QueryWrapperToolConfigSchema, ToolConfigSchema } from '../../scripts/yaml-config-schema'
-import type { ToolConfig } from '../../scripts/yaml-config-schema'
+import type { EnabledQueryWrapperToolConfig, EnabledToolConfig, ToolConfig } from '../../scripts/yaml-config-schema'
 
 function makeSpec(overrides: Partial<OpenApiSpec> = {}): OpenApiSpec {
     return {
@@ -435,6 +437,115 @@ describe('generateToolCode without input_schema', () => {
     })
 })
 
+describe('inject_body', () => {
+    const injectBodyResolved = (): ResolvedOperation =>
+        makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                properties: {
+                                    name: { type: 'string' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+    it('emits hardcoded body assignments for inject_body entries', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            inject_body: { created_via: 'mcp' },
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            injectBodyResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain(`body["created_via"] = "mcp"`)
+    })
+
+    it('emits inject_body after dynamic body builder so it overrides caller input', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            inject_body: { created_via: 'mcp' },
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            injectBodyResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        const nameIdx = result.code.indexOf(`body["name"]`)
+        const injectIdx = result.code.indexOf(`body["created_via"]`)
+        expect(nameIdx).toBeGreaterThan(-1)
+        expect(injectIdx).toBeGreaterThan(nameIdx)
+    })
+
+    it('initializes body even when inject_body is the only source', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            exclude_params: ['name'],
+            inject_body: { created_via: 'mcp' },
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            injectBodyResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('const body: Record<string, unknown> = {}')
+        expect(result.code).toContain(`body["created_via"] = "mcp"`)
+        expect(result.code).toContain('body,')
+    })
+
+    it('escapes inject_body keys that contain special characters', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            inject_body: { "weird'key": 'safe' },
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            injectBodyResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        // JSON.stringify escapes the single quote so the generated TS stays valid.
+        expect(result.code).toContain(`body["weird'key"] = "safe"`)
+    })
+})
+
 describe('rename_params', () => {
     it('swaps field names in schema expression and tracks renames', () => {
         const config: ToolConfig = {
@@ -506,8 +617,128 @@ describe('rename_params', () => {
         )
 
         expect(result.code).toContain('params.property_key !== undefined')
-        expect(result.code).toContain("body['$unset'] = params.property_key")
+        expect(result.code).toContain('body["$unset"] = params.property_key')
         expect(result.code).not.toContain('params.$unset')
+    })
+})
+
+describe('x-accepts-stringified-json query params', () => {
+    function resolvedWith(parameters: NonNullable<ResolvedOperation['operation']['parameters']>): ResolvedOperation {
+        return makeResolved({
+            operation: {
+                operationId: 'things_list',
+                parameters,
+            },
+        })
+    }
+
+    it('widens schema for params marked x-accepts-stringified-json', () => {
+        const config: ToolConfig = { operation: 'things_list', enabled: true }
+        const resolved = resolvedWith([
+            {
+                in: 'query',
+                name: 'filters_override',
+                schema: { type: 'string' },
+                description: 'Filters override.',
+                'x-accepts-stringified-json': true,
+            },
+        ])
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).toContain(
+            "filters_override: z.union([z.string(), z.record(z.string(), z.unknown())]).optional().describe('Filters override.')"
+        )
+    })
+
+    it('does not widen sibling params that lack the extension', () => {
+        const config: ToolConfig = { operation: 'things_list', enabled: true }
+        const resolved = resolvedWith([
+            {
+                in: 'query',
+                name: 'filters_override',
+                schema: { type: 'string' },
+                'x-accepts-stringified-json': true,
+            },
+            {
+                in: 'query',
+                name: 'plain_string',
+                schema: { type: 'string' },
+            },
+        ])
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).toContain('filters_override: z.union([z.string()')
+        expect(result.schemaExpr).not.toContain('plain_string: z.union(')
+    })
+
+    it('does not widen params named *_override without the extension', () => {
+        const config: ToolConfig = { operation: 'things_list', enabled: true }
+        const resolved = resolvedWith([
+            {
+                in: 'query',
+                name: 'filters_override',
+                schema: { type: 'string' },
+                // no x-accepts-stringified-json — magic naming alone must not trigger widening
+            },
+        ])
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).not.toContain('z.union([z.string()')
+    })
+
+    it('skips widening when the YAML config also defines a param_override for the same field', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            param_overrides: {
+                filters_override: { description: 'Custom YAML description' },
+            },
+        }
+        const resolved = resolvedWith([
+            {
+                in: 'query',
+                name: 'filters_override',
+                schema: { type: 'string' },
+                description: 'OpenAPI description',
+                'x-accepts-stringified-json': true,
+            },
+        ])
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        // YAML wins — describe() comes through, no union extension afterwards.
+        expect(result.schemaExpr).toContain('Custom YAML description')
+        expect(result.schemaExpr).not.toContain('z.union([z.string()')
+    })
+
+    it('respects exclude_params — excluded fields are not widened', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            exclude_params: ['filters_override'],
+        }
+        const resolved = resolvedWith([
+            {
+                in: 'query',
+                name: 'filters_override',
+                schema: { type: 'string' },
+                'x-accepts-stringified-json': true,
+            },
+            {
+                in: 'query',
+                name: 'variables_override',
+                schema: { type: 'string' },
+                'x-accepts-stringified-json': true,
+            },
+        ])
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).not.toContain('filters_override: z.union(')
+        expect(result.schemaExpr).toContain('variables_override: z.union([z.string()')
     })
 })
 
@@ -530,6 +761,83 @@ describe('QueryWrapperToolConfigSchema validation', () => {
             use_optimized_output: 'optimized',
         })
         expect(result.success).toBe(false)
+    })
+
+    it('accepts system_prompt_hint on query wrappers', () => {
+        const result = QueryWrapperToolConfigSchema.safeParse({
+            schema_ref: 'AssistantTrendsQuery',
+            enabled: true,
+            scopes: ['query:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+            system_prompt_hint: 'Time series, aggregations, formulas',
+        })
+        expect(result.success).toBe(true)
+    })
+
+    it('accepts system_prompt_hint on standard tools', () => {
+        const result = ToolConfigSchema.safeParse({
+            operation: 'logs_query_create',
+            enabled: true,
+            system_prompt_hint: 'Log filtering by severity/service/attribute',
+        })
+        expect(result.success).toBe(true)
+    })
+})
+
+describe('system_prompt_hint flows into tool definitions', () => {
+    it('propagates system_prompt_hint from wrapper YAML into the generated definition', () => {
+        const wrapperConfig: EnabledQueryWrapperToolConfig = {
+            schema_ref: 'AssistantTrendsQuery',
+            enabled: true,
+            scopes: ['query:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+            system_prompt_hint: 'Time series, aggregations, formulas',
+        }
+        const definitions = generateQueryWrapperDefinitionsJson(
+            { category: 'Query wrappers', feature: 'insights', wrappers: {} },
+            [['query-trends', wrapperConfig]],
+            '/tmp'
+        ) as Record<string, { system_prompt_hint?: string }>
+        expect(definitions['query-trends']?.system_prompt_hint).toBe('Time series, aggregations, formulas')
+    })
+
+    it('omits system_prompt_hint from the wrapper definition when not set', () => {
+        const wrapperConfig: EnabledQueryWrapperToolConfig = {
+            schema_ref: 'AssistantTrendsQuery',
+            enabled: true,
+            scopes: ['query:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+        }
+        const definitions = generateQueryWrapperDefinitionsJson(
+            { category: 'Query wrappers', feature: 'insights', wrappers: {} },
+            [['query-trends', wrapperConfig]],
+            '/tmp'
+        )
+        expect((definitions['query-trends'] as Record<string, unknown>).system_prompt_hint).toBeUndefined()
+    })
+
+    it('propagates system_prompt_hint from standard tool YAML into the generated definition', () => {
+        const toolConfig: EnabledToolConfig = {
+            operation: 'logs_query_create',
+            enabled: true,
+            scopes: ['logs:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+            system_prompt_hint: 'Log filtering by severity/service/attribute',
+        }
+        const resolved: ResolvedOperation = {
+            method: 'POST',
+            path: '/api/projects/{project_id}/logs/query/',
+            operation: { operationId: 'logs_query_create', description: 'Query logs' },
+        }
+        const definitions = generateDefinitionsJson([
+            {
+                config: { category: 'Logs', feature: 'logs', url_prefix: '/logs', tools: {} },
+                enabledTools: [['query-logs', toolConfig, resolved]],
+                enabledWrappers: [],
+                yamlDir: '/tmp',
+            },
+        ]) as Record<string, { system_prompt_hint?: string }>
+        expect(definitions['query-logs']?.system_prompt_hint).toBe('Log filtering by severity/service/attribute')
     })
 })
 

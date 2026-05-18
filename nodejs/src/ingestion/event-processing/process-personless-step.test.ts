@@ -1,3 +1,5 @@
+import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
+
 import { DateTime } from 'luxon'
 
 import { PipelineResultType, isOkResult } from '~/ingestion/pipelines/results'
@@ -16,13 +18,13 @@ import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '../outputs/single-ingestion-output'
 import { ProcessPersonlessInput, createProcessPersonlessStep } from './process-personless-step'
 
-function createPersonOutputs(hub: Hub) {
+function createPersonOutputs(_hub: Hub) {
     return new IngestionOutputs({
-        [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+        [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
         [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
             PERSON_DISTINCT_IDS_OUTPUT,
             KAFKA_PERSON_DISTINCT_ID,
-            hub.kafkaProducer,
+            mockProducer,
             'test'
         ),
     })
@@ -82,7 +84,7 @@ describe('createProcessPersonlessStep', () => {
             [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
                 INGESTION_WARNINGS_OUTPUT,
                 'ingestion_warnings_test',
-                hub.kafkaProducer,
+                mockProducer,
                 'test'
             ),
         })

@@ -8,34 +8,58 @@ use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::MockRedisClient;
 use feature_flags::team::team_models::Team;
 use feature_flags::utils::test_utils::team_token_hypercache_key;
+use lifecycle::Manager;
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use reqwest::header::CONTENT_TYPE;
 use tokio::net::TcpListener;
-use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 
 use feature_flags::cohorts::membership::NoOpCohortMembershipProvider;
 use feature_flags::config::Config;
 use feature_flags::rayon_dispatcher::RayonDispatcher;
-use feature_flags::server::serve;
+use feature_flags::server::{register_components, serve};
 
 pub struct ServerHandle {
     pub addr: SocketAddr,
-    shutdown: Arc<Notify>,
+    shutdown: CancellationToken,
+}
+
+impl ServerHandle {
+    /// Cancel the shutdown token. Drop also does this; use only for explicit
+    /// early shutdown.
+    #[allow(dead_code)]
+    pub fn shutdown_now(&self) {
+        self.shutdown.cancel();
+    }
+}
+
+fn build_test_manager(token: CancellationToken) -> Manager {
+    Manager::builder("feature-flags-test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_shutdown_token(token)
+        .with_global_shutdown_timeout(Duration::from_secs(10))
+        .build()
 }
 
 impl ServerHandle {
     pub async fn for_config(config: Config) -> ServerHandle {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let notify = Arc::new(Notify::new());
-        let shutdown = notify.clone();
+        let shutdown = CancellationToken::new();
+        let mut manager = build_test_manager(shutdown.clone());
+        let handles = register_components(&mut manager);
+        let monitor_guard = manager.monitor_background();
 
         let rayon_dispatcher = RayonDispatcher::new(2, None);
         tokio::spawn(async move {
-            serve(config, listener, rayon_dispatcher, async move {
-                notify.notified().await
-            })
-            .await
+            serve(config, listener, rayon_dispatcher, handles).await;
+            // Drain the lifecycle monitor after serve returns so the supervisor
+            // thread exits cleanly. Any error is logged — a failing shutdown
+            // shouldn't fail the test unless the test explicitly asserts on it.
+            if let Err(e) = monitor_guard.wait().await {
+                tracing::warn!("test lifecycle monitor reported: {e}");
+            }
         });
         ServerHandle { addr, shutdown }
     }
@@ -80,8 +104,20 @@ impl ServerHandle {
     ) -> ServerHandle {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let notify = Arc::new(Notify::new());
-        let shutdown = notify.clone();
+        let shutdown = CancellationToken::new();
+        let mut manager = build_test_manager(shutdown.clone());
+        // `monitor_background()` is intentionally not called in this path:
+        // ReadinessHandler reads the token directly and `trap_signals=false`
+        // means no supervisor is required. `manager` is dropped at the end of
+        // this function — before the spawned task runs — which closes the
+        // receiver for the supervision channel. That's safe here because
+        // shutdown is driven by the `CancellationToken` (via
+        // `handles.http.shutdown_signal()`), not by the manager loop, and the
+        // lifecycle crate intentionally ignores send errors from
+        // `work_completed()` and handle drops. If that ever changes (e.g. a
+        // channel-full panic, or handles relying on a manager ACK), this test
+        // harness will need to keep `manager` alive for the spawn's lifetime.
+        let handles = register_components(&mut manager);
 
         // Create a mock client that handles both quota limit checks and token verification
         let mut mock_client = MockRedisClient::new()
@@ -213,30 +249,21 @@ impl ServerHandle {
                 ),
             );
 
-            let health = health::HealthRegistry::new("liveness");
-            let simple_loop = health
-                .register("simple_loop".to_string(), Duration::from_secs(30))
-                .await;
-            tokio::spawn(liveness_loop(simple_loop));
+            let feature_flags_billing_limiter = feature_flags::billing::FeatureFlagsLimiter::new(
+                Duration::from_secs(5),
+                redis_reader_client.clone(),
+                QUOTA_LIMITER_CACHE_KEY.to_string(),
+                None,
+            )
+            .unwrap();
 
-            let feature_flags_billing_limiter =
-                feature_flags::billing_limiters::FeatureFlagsLimiter::new(
-                    Duration::from_secs(5),
-                    redis_reader_client.clone(),
-                    QUOTA_LIMITER_CACHE_KEY.to_string(),
-                    None,
-                )
-                .unwrap();
-
-            let session_replay_billing_limiter =
-                feature_flags::billing_limiters::SessionReplayLimiter::new(
-                    Duration::from_secs(5),
-                    redis_reader_client.clone(),
-                    QUOTA_LIMITER_CACHE_KEY.to_string(),
-                    None,
-                )
-                .unwrap();
-
+            let session_replay_billing_limiter = feature_flags::billing::SessionReplayLimiter::new(
+                Duration::from_secs(5),
+                redis_reader_client.clone(),
+                QUOTA_LIMITER_CACHE_KEY.to_string(),
+                None,
+            )
+            .unwrap();
             let cookieless_manager = Arc::new(common_cookieless::CookielessManager::new(
                 config.get_cookieless_config(),
                 redis_reader_client.clone(),
@@ -339,6 +366,27 @@ impl ServerHandle {
                 ),
             );
 
+            let flag_definitions_cache = Arc::new(
+                feature_flags::flags::flag_definitions_cache::FlagDefinitionsCache::disabled(),
+            );
+
+            // `for_tests()` skips the background flusher and the harness
+            // never exposes a handle, so pending counts populated here never
+            // reach mock Redis. The construction is intentional: it exercises
+            // the synchronous `record()` half of the dual-write
+            // (`handler::billing::record_billing_increment`) so mock-Redis
+            // coverage doesn't silently regress that codepath. End-to-end
+            // flush behavior lives in the real-Redis tests in `test_flags.rs`
+            // (`test_dual_write_*`, `test_shutdown_flush_*`).
+            let billing_aggregator = if *config.billing_aggregator_enabled {
+                Some(feature_flags::billing::BillingAggregator::for_tests(
+                    redis_writer_client.clone(),
+                    feature_flags::billing::BillingAggregatorConfig::default(),
+                ))
+            } else {
+                None
+            };
+
             let app = feature_flags::router::router(
                 redis_writer_client.clone(), // Use writer client for both reads and writes in tests
                 None,                        // No dedicated flags Redis in tests
@@ -346,11 +394,13 @@ impl ServerHandle {
                 cohort_cache,
                 group_type_cache,
                 geoip_service,
-                health,
+                handles.readiness,
+                handles.liveness,
                 feature_flags_billing_limiter,
                 session_replay_billing_limiter,
                 cookieless_manager,
                 flags_hypercache_reader,
+                flag_definitions_cache,
                 flags_with_cohorts_hypercache_reader,
                 team_hypercache_reader,
                 config_hypercache_reader,
@@ -371,6 +421,7 @@ impl ServerHandle {
                     &[],
                 )),
                 Arc::new(NoOpCohortMembershipProvider),
+                billing_aggregator,
                 config,
             );
 
@@ -378,9 +429,10 @@ impl ServerHandle {
                 listener,
                 app.into_make_service_with_connect_info::<SocketAddr>(),
             )
-            .with_graceful_shutdown(async move { notify.notified().await })
+            .with_graceful_shutdown(handles.http.shutdown_signal())
             .await
-            .unwrap()
+            .unwrap();
+            handles.http.work_completed();
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -435,14 +487,25 @@ impl ServerHandle {
 
 impl Drop for ServerHandle {
     fn drop(&mut self) {
-        self.shutdown.notify_one()
+        self.shutdown.cancel();
     }
 }
 
+/// Poll `HGET key field` for up to ~1s, returning the value as soon as the
+/// key exists. Panics on timeout. Use for the positive ("the write should
+/// land") case in billing aggregator tests — for the negative case, sleep
+/// one flush window and check.
 #[allow(dead_code)]
-async fn liveness_loop(handle: health::HealthHandle) {
-    loop {
-        handle.report_healthy().await;
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+pub async fn poll_for_billing_counter(
+    client: &Arc<dyn common_redis::Client + Send + Sync>,
+    key: &str,
+    field: &str,
+) -> String {
+    for _ in 0..40 {
+        if let Ok(v) = client.hget(key.to_string(), field.to_string()).await {
+            return v;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
     }
+    panic!("billing counter at {key}:{field} did not appear within 1s");
 }

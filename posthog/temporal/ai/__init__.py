@@ -1,3 +1,4 @@
+from posthog.temporal.ai.anomaly_investigation import AnomalyInvestigationWorkflow, investigate_anomaly_activity
 from posthog.temporal.ai.chat_agent import (
     AssistantConversationRunnerWorkflow,
     ChatAgentWorkflow,
@@ -52,6 +53,7 @@ AI_WORKFLOWS = [
     SlackConversationRunnerWorkflow,
     PostHogCodeSlackMentionWorkflow,
     PostHogCodeSlackTerminateTaskWorkflow,
+    AnomalyInvestigationWorkflow,
 ]
 
 AI_ACTIVITIES = [
@@ -76,6 +78,7 @@ AI_ACTIVITIES = [
     post_posthog_code_picker_timeout_activity,
     post_posthog_code_internal_error_activity,
     process_posthog_code_terminate_task_activity,
+    investigate_anomaly_activity,
 ]
 
 __all__ = [

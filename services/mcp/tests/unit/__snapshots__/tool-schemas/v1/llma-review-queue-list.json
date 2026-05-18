@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "name": {
+            "type": "string"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "order_by": {
+            "description": "Order by `name`, `updated_at`, or `created_at`.",
+            "type": "string"
+        },
+        "search": {
+            "description": "Search review queue names.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

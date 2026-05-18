@@ -38,7 +38,12 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
         }
 
     def get_schemas(
-        self, config: ZendeskSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ZendeskSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -84,6 +89,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="api_key",
@@ -91,6 +97,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="email_address",
@@ -98,6 +105,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
                         type=SourceFieldInputConfigType.EMAIL,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                 ],
             ),

@@ -35,7 +35,7 @@ class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAut
         return SourceConfig(
             name=SchemaExternalDataSourceType.LINEAR,
             label="Linear",
-            betaSource=True,
+            releaseStatus="beta",
             caption="Connect your Linear workspace to sync issues, projects, teams, and more.",
             iconPath="/static/services/linear.png",
             fields=cast(
@@ -69,7 +69,12 @@ class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAut
         return integration.access_token
 
     def get_schemas(
-        self, config: LinearSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: LinearSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

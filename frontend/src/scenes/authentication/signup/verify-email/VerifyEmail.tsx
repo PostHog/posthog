@@ -1,3 +1,6 @@
+import './VerifyEmail.scss'
+
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
@@ -127,7 +130,7 @@ export function VerifyEmail(): JSX.Element {
         <div className="flex h-full flex-col">
             <div className="flex h-full">
                 <BridgePage view="verifyEmail" fixedWidth={false}>
-                    <div className="px-12 py-8 text-center flex flex-col items-center max-w-160 w-full">
+                    <div className="px-12 py-8 text-center flex flex-col items-center max-w-160 w-full relative">
                         {view === 'pending' ? (
                             <>
                                 <h2 className="text-lg">Welcome to PostHog!</h2>
@@ -168,6 +171,16 @@ export function VerifyEmail(): JSX.Element {
                             </>
                         ) : (
                             <Spinner className="text-4xl" />
+                        )}
+                        {view === 'success' && (
+                            <div aria-hidden className="VerifyEmail__ProgressBar">
+                                <div
+                                    className={clsx(
+                                        'VerifyEmail__ProgressBarTrack',
+                                        process.env.STORYBOOK && 'VerifyEmail__ProgressBarTrack--static'
+                                    )}
+                                />
+                            </div>
                         )}
                     </div>
                 </BridgePage>

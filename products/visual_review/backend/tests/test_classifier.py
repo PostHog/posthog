@@ -236,6 +236,24 @@ class TestToleratedHashClassification:
         assert result["Button"].tolerated_hash_match_id == tolerated.id
         assert result["Button"].review_state == ""
 
+    def test_tolerated_hash_propagates_diff_percentage(self, repo):
+        tolerated = _make_tolerated(repo, "Button", "baseline_h", "current_h", diff_percentage=0.42)
+        run = _make_run(repo, [{"identifier": "Button", "current_hash": "current_h"}])
+
+        lookup = {("Button", "baseline_h", "current_h"): tolerated}
+        result = _classify(run, {"Button": "baseline_h"}, lookup)
+
+        assert result["Button"].diff_percentage == 0.42
+
+    def test_tolerated_hash_without_diff_percentage_sets_none(self, repo):
+        tolerated = _make_tolerated(repo, "Button", "baseline_h", "current_h")
+        run = _make_run(repo, [{"identifier": "Button", "current_hash": "current_h"}])
+
+        lookup = {("Button", "baseline_h", "current_h"): tolerated}
+        result = _classify(run, {"Button": "baseline_h"}, lookup)
+
+        assert result["Button"].diff_percentage is None
+
     def test_tolerated_hash_not_matched_when_different_identifier(self, repo):
         tolerated = _make_tolerated(repo, "OtherButton", "baseline_h", "current_h")
         run = _make_run(repo, [{"identifier": "Button", "current_hash": "current_h"}])

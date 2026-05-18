@@ -40,11 +40,16 @@ class ErrorTrackingSpikeDetectionConfigViewSet(TeamAndOrgViewSetMixin, viewsets.
         config, _ = ErrorTrackingSpikeDetectionConfig.objects.get_or_create(team=self.team)
         return config
 
+    @extend_schema(responses={200: ErrorTrackingSpikeDetectionConfigSerializer})
     def list(self, request, *args, **kwargs):
         config = self._get_or_create_config()
         serializer = ErrorTrackingSpikeDetectionConfigSerializer(config)
         return Response(serializer.data)
 
+    @extend_schema(
+        request=ErrorTrackingSpikeDetectionConfigSerializer,
+        responses={200: ErrorTrackingSpikeDetectionConfigSerializer},
+    )
     @action(detail=False, methods=["patch"])
     def update_config(self, request, *args, **kwargs):
         config = self._get_or_create_config()

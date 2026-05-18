@@ -327,13 +327,33 @@ class TikTokReportResource:
 class TikTokAdsPaginator(BasePaginator):
     """TikTok Ads API paginator that extends dlt's BasePaginator"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.current_page = 1
         self._has_next_page = False
         self.total_pages = 0
         self.total_number = 0
         self.page_size = 0
+
+    def init_request(self, request: Request) -> None:
+        # Honour a seeded ``current_page`` on the first request so a resumed
+        # run targets the saved page instead of page 1.
+        if request.params is None:
+            request.params = {}
+        request.params["page"] = self.current_page
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # rest_client only calls this when ``has_next_page`` is True, so
+        # ``current_page`` already points at the page still to fetch.
+        if self._has_next_page:
+            return {"page": self.current_page}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        page = state.get("page")
+        if page is not None:
+            self.current_page = int(page)
+            self._has_next_page = True
 
     def update_state(self, response: Response, data: Optional[Any] = None) -> None:
         """Update pagination state from TikTok API response."""

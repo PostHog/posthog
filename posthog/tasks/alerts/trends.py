@@ -17,6 +17,7 @@ from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.event_usage import EventSource
+from posthog.hogql_queries.insights.utils.breakdowns import has_breakdown_filter
 from posthog.models import AlertConfiguration, Insight
 from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES, AlertEvaluationResult
 
@@ -402,13 +403,7 @@ def _drop_incomplete_current_interval(
 
 
 def _has_breakdown(query: TrendsQuery) -> bool:
-    return bool(
-        query.breakdownFilter
-        and (
-            (query.breakdownFilter.breakdown and query.breakdownFilter.breakdown_type)
-            or query.breakdownFilter.breakdowns
-        )
-    )
+    return has_breakdown_filter(query.breakdownFilter)
 
 
 def _date_range_override_for_intervals(query: TrendsQuery, last_x_intervals: int = 1) -> Optional[dict]:

@@ -25,7 +25,7 @@ class Priority(str, Enum):
 
 
 if TYPE_CHECKING:
-    from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, OutputFn
+    from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext, OutputFn
 
 logger = logging.getLogger(__name__)
 
@@ -496,6 +496,7 @@ async def run_multi_turn_research(
     signal_report_id: str | None = None,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
+    from products.tasks.backend.models import Task
     from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
 
     total = len(signals)
@@ -531,8 +532,9 @@ async def run_multi_turn_research(
         step_name="report_research",
         verbose=verbose,
         output_fn=output_fn,
-        origin_product="signal_report",
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
         signal_report_id=signal_report_id,
+        internal=True,
     )
 
     # Record the research task relationship immediately after task creation

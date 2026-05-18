@@ -5,6 +5,7 @@ from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
     CONSUMER_GROUP_PERSON_DISTINCT_ID2_WS,
+    CONSUMER_GROUP_PERSON_DISTINCT_ID_OVERRIDES_WS,
     CONSUMER_GROUP_PERSON_WS,
     KAFKA_COLUMNS,
     KAFKA_COLUMNS_WITH_PARTITION,
@@ -424,7 +425,12 @@ KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = (
 )
 
 
-def PERSON_DISTINCT_ID_OVERRIDES_MV_SQL(on_cluster=True, target_table=PERSON_DISTINCT_ID_OVERRIDES_WRITABLE_TABLE):
+def PERSON_DISTINCT_ID_OVERRIDES_MV_SQL(
+    on_cluster=False,
+    target_table=PERSON_DISTINCT_ID_OVERRIDES_WRITABLE_TABLE,
+    mv_name=PERSON_DISTINCT_ID_OVERRIDES_TABLE_MV,
+    kafka_table=KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+):
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
 TO {target_table}
@@ -440,10 +446,10 @@ _partition
 FROM {kafka_table}
 WHERE version > 0 -- only store updated rows, not newly inserted ones
 """.format(
-        mv_name=PERSON_DISTINCT_ID_OVERRIDES_TABLE_MV,
+        mv_name=mv_name,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         target_table=target_table,
-        kafka_table=KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+        kafka_table=kafka_table,
     )
 
 
@@ -463,6 +469,34 @@ def PERSON_DISTINCT_ID_OVERRIDES_WRITABLE_TABLE_SQL():
 
 def TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {PERSON_DISTINCT_ID_OVERRIDES_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+
+
+# WarpStream Kafka engine tables for person_distinct_id_overrides (coexist alongside MSK tables, same target)
+
+KAFKA_PERSON_DISTINCT_ID_OVERRIDES_WS_TABLE = "kafka_person_distinct_id_overrides_ws"
+PERSON_DISTINCT_ID_OVERRIDES_WS_MV = "person_distinct_id_overrides_ws_mv"
+
+
+def KAFKA_PERSON_DISTINCT_ID_OVERRIDES_WS_TABLE_SQL():
+    return PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL.format(
+        table_name=KAFKA_PERSON_DISTINCT_ID_OVERRIDES_WS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=kafka_engine(
+            topic=KAFKA_PERSON_DISTINCT_ID,
+            group=CONSUMER_GROUP_PERSON_DISTINCT_ID_OVERRIDES_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
+        extra_fields="",
+    )
+
+
+def PERSON_DISTINCT_ID_OVERRIDES_WS_MV_SQL(target_table=PERSON_DISTINCT_ID_OVERRIDES_WRITABLE_TABLE):
+    return PERSON_DISTINCT_ID_OVERRIDES_MV_SQL(
+        on_cluster=False,
+        target_table=target_table,
+        mv_name=PERSON_DISTINCT_ID_OVERRIDES_WS_MV,
+        kafka_table=KAFKA_PERSON_DISTINCT_ID_OVERRIDES_WS_TABLE,
+    )
 
 
 #

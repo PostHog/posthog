@@ -26,6 +26,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.helpers.timestamp_visitor import (
     is_end_of_day_constant,
     is_end_of_hour_constant,
@@ -398,10 +399,18 @@ def _is_constant_one(expr: ast.Expr) -> bool:
     return isinstance(expr, ast.Constant) and expr.value == 1
 
 
-def _is_valid_select_from(node: Optional[ast.JoinExpr]) -> bool:
+def _is_valid_select_from(node: Optional[ast.JoinExpr], context: HogQLContext) -> bool:
     if not node or not isinstance(node.table, ast.Field):
         return False
-    if node.table.chain != ["events"]:
+    # Require a database so we can resolve the chain to a real Table instance. Without a database
+    # we cannot distinguish `events` from `posthog.events` or catch aliases, so skip the transform.
+    if context.database is None:
+        return False
+    try:
+        resolved_table = context.database.get_table([str(c) for c in node.table.chain])
+    except Exception:
+        return False
+    if not isinstance(resolved_table, EventsTable):
         return False
     if node.constraint:
         return False
@@ -435,7 +444,7 @@ def _shallow_transform_select(node: ast.SelectQuery, context: HogQLContext) -> a
     ):
         return node
 
-    if not _is_valid_select_from(node.select_from):
+    if not _is_valid_select_from(node.select_from, context):
         return node
 
     visitor = ExprTransformer(context)

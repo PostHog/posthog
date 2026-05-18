@@ -27,6 +27,23 @@
     border: var(--lemon-badge-border-width) solid var(--color-bg-surface-primary);
     border-radius: calc(var(--lemon-badge-size) / 2);
 
+    // The badge stays mounted so CSS can play the fade-out when `visible` flips
+    // to false; on show, the transition plays again from hidden to visible.
+    // Layout properties (width/height/padding/border) are also transitioned
+    // so a hidden badge collapses out of inline flow rather than reserving
+    // an empty slot in callers using the default `position="none"`.
+    opacity: 1;
+    transition:
+        opacity 150ms ease-out,
+        transform 150ms ease-out,
+        width 150ms ease-out,
+        min-width 150ms ease-out,
+        height 150ms ease-out,
+        padding 150ms ease-out,
+        margin 150ms ease-out,
+        border-width 150ms ease-out;
+    transform: scale(1);
+
     > * {
         // For non-text content, make sure that content fills up the whole badge, and that the badge stays round
         width: calc(var(--lemon-badge-size) - var(--lemon-badge-border-width) * 2);
@@ -104,25 +121,16 @@
         outline: calc(var(--lemon-badge-font-size) / 5) solid var(--lemon-badge-color);
     }
 
-    &.LemonBadge--enter {
+    &.LemonBadge--hidden {
+        width: 0;
+        min-width: 0;
+        height: 0;
+        padding: 0;
+        margin: 0;
+        overflow: hidden;
+        pointer-events: none;
+        border-width: 0;
         opacity: 0;
-        transform: scale(0.5);
-    }
-
-    &.LemonBadge--enter-active {
-        opacity: 1;
-        transition: all 200ms ease-out;
-        transform: scale(1);
-    }
-
-    &.LemonBadge--exit {
-        opacity: 1;
-        transform: scale(1);
-    }
-
-    &.LemonBadge--exit-active {
-        opacity: 0;
-        transition: all 200ms ease-in;
         transform: scale(0.5);
     }
 }
