@@ -1,11 +1,91 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 
 import { env } from '@/lib/env'
-import { type McpCatIdentityProvider, redactSensitiveInformation } from '@/lib/mcpcat'
 
-export type PostHogMcpAnalyticsIdentityProvider = McpCatIdentityProvider
+import { getPostHogClient } from './client'
 
-export type PostHogMcpAnalyticsOptions = {
+export enum AnalyticsEvent {
+    MCP_INIT = 'mcp init',
+    MCP_PROJECT_SWITCHED = 'mcp project switched',
+    MCP_ORGANIZATION_SWITCHED = 'mcp organization switched',
+    MCP_TOOL_CALL = 'mcp_tool_call', // matching @posthog/mcp-analytics
+    MCP_FEEDBACK_SUBMITTED = 'mcp feedback submitted',
+}
+
+export type MCPAnalyticsContext = {
+    organizationId?: string
+    projectId?: string
+    projectUuid?: string
+    projectName?: string
+}
+
+/**
+ * Build PostHog `$groups` from resolved workspace context. Uses `projectUuid`
+ * (not the numeric team id) as the `project` group key to match the convention
+ * in `posthog/event_usage.py` so MCP events join with the rest of the product
+ * in group-level analytics.
+ */
+export const buildMCPAnalyticsGroups = ({
+    organizationId,
+    projectUuid,
+}: MCPAnalyticsContext): Record<string, string> => ({
+    ...(organizationId ? { organization: organizationId } : {}),
+    ...(projectUuid ? { project: projectUuid } : {}),
+})
+
+/**
+ * Convert the workspace context (camelCase) into snake_case event properties.
+ * Single source of truth for this mapping — every callsite that would otherwise
+ * hand-roll `{ organization_id, project_id, project_uuid, project_name }` should
+ * go through this helper so adding a field is a one-touch change.
+ *
+ * `prefix` is used to emit `previous_*` properties on context-switch events.
+ */
+export const buildMCPContextProperties = (
+    ctx: MCPAnalyticsContext,
+    { prefix = '' }: { prefix?: string } = {}
+): Record<string, string> => ({
+    ...(ctx.organizationId ? { [`${prefix}organization_id`]: ctx.organizationId } : {}),
+    ...(ctx.projectId ? { [`${prefix}project_id`]: ctx.projectId } : {}),
+    ...(ctx.projectUuid ? { [`${prefix}project_uuid`]: ctx.projectUuid } : {}),
+    ...(ctx.projectName ? { [`${prefix}project_name`]: ctx.projectName } : {}),
+})
+
+// Provider interface for resolving user/session identity and workspace context.
+export type IdentityProvider = {
+    getDistinctId: () => Promise<string>
+    getMcpClientName: () => Promise<string | undefined>
+    getMcpClientVersion: () => Promise<string | undefined>
+    getMcpProtocolVersion: () => Promise<string | undefined>
+    getRegion: () => Promise<string | undefined>
+    getAnalyticsContext: () => Promise<MCPAnalyticsContext | undefined>
+    getClientUserAgent: () => Promise<string | undefined>
+    getMcpVersion: () => Promise<number | undefined>
+    getOAuthClientName: () => Promise<string | undefined>
+    getReadOnly: () => Promise<boolean | undefined>
+    getTransport: () => Promise<string | undefined>
+    getMcpConsumer: () => Promise<string | undefined>
+    getMcpMode: () => Promise<string | undefined>
+    // PostHog-side session UUID. Resolved from the wrapper-app `?sessionId=`
+    // query hint via `SessionManager.getSessionUuid()` and used as `$session_id`
+    // / `$ai_session_id` to drive Session Replay and LLM Analytics grouping.
+    // Only set when a wrapping consumer app supplied the hint.
+    getSessionUuid: () => Promise<string | undefined>
+    // Streamable-HTTP transport session id from the inbound `Mcp-Session-Id`
+    // header. Distinct from `getSessionUuid()` above: this one is minted by
+    // the MCP server per the protocol spec and is available on (almost) every
+    // request, whereas `getSessionUuid()` only resolves when a wrapper app
+    // also supplied a `?sessionId=` hint. Emitted on events as `mcp_session_id`.
+    getMcpSessionId: () => Promise<string | undefined>
+    // Agent-echoed conversation id from `@posthog/mcp-analytics` PR #14
+    // (`enableConversationId: true`). Persists across transport reconnects.
+    // Sourced from tool-call arguments by the SDK; we scaffold the property
+    // here so it lands on events once the SDK is bumped. Returns undefined
+    // until that wiring is in place.
+    getMcpConversationId: () => Promise<string | undefined>
+}
+
+type McpAnalyticsOptions = {
     contextEnabled: boolean
     // Gate `get_more_tools` registration on non-single-exec mode. With the full
     // tool roster registered, a missing-tool report maps to a real gap in the
@@ -31,13 +111,9 @@ export type PostHogMcpAnalyticsOptions = {
     execInnerToolNames?: readonly string[] | undefined
 }
 
-export type PostHogMcpAnalyticsInitResult =
+export type McpAnalyticsInitResult =
     | {
           action: 'initialized'
-          contextEnabled: boolean
-          tracingEnabled: true
-          aiTracingEnabled: true
-          reportMissingEnabled: boolean
       }
     | {
           action: 'skipped'
@@ -51,7 +127,7 @@ export type PostHogMcpAnalyticsInitResult =
           errorMessage: string
       }
 
-async function buildEventTags(identity: PostHogMcpAnalyticsIdentityProvider): Promise<Record<string, string>> {
+async function buildEventTags(identity: IdentityProvider): Promise<Record<string, string>> {
     const sessionUuid = await identity.getSessionUuid()
     if (!sessionUuid) {
         return {}
@@ -63,7 +139,7 @@ async function buildEventTags(identity: PostHogMcpAnalyticsIdentityProvider): Pr
     }
 }
 
-async function buildEventProperties(identity: PostHogMcpAnalyticsIdentityProvider): Promise<Record<string, unknown>> {
+async function buildEventProperties(identity: IdentityProvider): Promise<Record<string, unknown>> {
     const [
         mcpVersion,
         clientUserAgent,
@@ -124,13 +200,16 @@ async function buildEventProperties(identity: PostHogMcpAnalyticsIdentityProvide
     }
 }
 
-export async function initPostHogMcpAnalytics(
+function redactSensitiveInformation(text: string): string {
+    return text.replace(/Bearer\s?[\w\-.]+/g, '<redacted>')
+}
+
+export async function initMcpAnalytics(
     server: McpServer,
-    identity: PostHogMcpAnalyticsIdentityProvider,
-    options: PostHogMcpAnalyticsOptions = { contextEnabled: false, reportMissingEnabled: false }
-): Promise<PostHogMcpAnalyticsInitResult> {
-    const posthogApiKey = env.POSTHOG_ANALYTICS_API_KEY
-    const posthogHost = env.POSTHOG_ANALYTICS_HOST
+    identity: IdentityProvider,
+    options: McpAnalyticsOptions = { contextEnabled: false, reportMissingEnabled: false }
+): Promise<McpAnalyticsInitResult> {
+    const { POSTHOG_ANALYTICS_API_KEY: posthogApiKey, POSTHOG_ANALYTICS_HOST: posthogHost } = env
     if (!posthogApiKey || !posthogHost) {
         return {
             action: 'skipped',
@@ -141,25 +220,18 @@ export async function initPostHogMcpAnalytics(
     }
 
     try {
-        const { track } = await import('@posthog/mcp-analytics')
+        const { track } = await import('@posthog/mcp-analytics') // Import only if needed
         const distinctId = await identity.getDistinctId()
-        const identifyResult = { userId: distinctId }
 
         track(server, {
-            apiKey: posthogApiKey,
+            posthogClient: getPostHogClient(),
             context: options.contextEnabled,
             enableAITracing: true,
             enableConversationId: true,
             enableTracing: true,
-            host: posthogHost,
-            identify: async () => identifyResult,
-            posthogOptions: {
-                flushAt: 1,
-                flushInterval: 0,
-                host: posthogHost,
-            },
+            identify: { userId: distinctId },
             reportMissing: options.reportMissingEnabled,
-            eventTags: async () => buildEventTags(identity),
+            eventTags: () => buildEventTags(identity),
             eventProperties: async (request) => {
                 const base = await buildEventProperties(identity)
                 const innerToolCall = options.resolveExecInnerToolCall?.(request)
@@ -167,6 +239,7 @@ export async function initPostHogMcpAnalytics(
                     (request as { method?: unknown })?.method === 'tools/list' &&
                     !!options.execInnerToolNames &&
                     options.execInnerToolNames.length > 0
+
                 return {
                     ...base,
                     ...(innerToolCall
@@ -183,13 +256,7 @@ export async function initPostHogMcpAnalytics(
             redactSensitiveInformation: (text) => Promise.resolve(redactSensitiveInformation(text)),
         })
 
-        return {
-            action: 'initialized',
-            contextEnabled: options.contextEnabled,
-            tracingEnabled: true,
-            aiTracingEnabled: true,
-            reportMissingEnabled: options.reportMissingEnabled,
-        }
+        return { action: 'initialized' }
     } catch (error) {
         return {
             action: 'failed',
