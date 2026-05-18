@@ -3332,6 +3332,20 @@ export interface SMSVerifyRequestApi {
     code: string
 }
 
+export interface SMSVerifyResponseApi {
+    /** PostHog UserIntegration row id. */
+    id: string
+    /** Verified phone number in E.164 format. */
+    phone_number: string
+    /** When the phone number was verified. */
+    created_at: string
+    /**
+     * Present when this phone was linked to a different PostHog user and was reassigned during verification.
+     * @nullable
+     */
+    reassignment_message?: string | null
+}
+
 export type SubscriptionsDeliveriesListParams = {
     /**
      * The pagination cursor value.

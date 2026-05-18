@@ -58,6 +58,7 @@ import type {
     SMSStartVerificationRequestApi,
     SMSStartVerificationResponseApi,
     SMSVerifyRequestApi,
+    SMSVerifyResponseApi,
     SharingConfigurationApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
@@ -2118,8 +2119,8 @@ export const usersSmsVerifyCreate = async (
     uuid: string,
     sMSVerifyRequestApi: SMSVerifyRequestApi,
     options?: RequestInit
-): Promise<SMSIntegrationItemApi> => {
-    return apiMutator<SMSIntegrationItemApi>(getUsersSmsVerifyCreateUrl(uuid), {
+): Promise<SMSVerifyResponseApi> => {
+    return apiMutator<SMSVerifyResponseApi>(getUsersSmsVerifyCreateUrl(uuid), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

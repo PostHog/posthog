@@ -1,3 +1,4 @@
+import time
 from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
@@ -12,6 +13,7 @@ from rest_framework import status
 from posthog.api.user_sms_integration import (
     SMS_VERIFICATION_MAX_ATTEMPTS,
     SMS_VERIFICATION_TTL_SECONDS,
+    SMS_VERIFY_REASSIGNMENT_MESSAGE,
     _verification_cache_key,
 )
 from posthog.clients.sendblue import SendBlueError, SendBlueNotConfigured
@@ -35,9 +37,10 @@ class TestUserSMSIntegrationEndpoints(APIBaseTest):
         self.mock_get_client.return_value = self.mock_client
 
     def _seed_verification(self, phone: str = "+14155552671", code: str = "123456", attempts: int = 0) -> None:
+        expires_at = time.time() + SMS_VERIFICATION_TTL_SECONDS
         cache.set(
             _verification_cache_key(self.user),
-            {"phone": phone, "code": code, "attempts": attempts},
+            {"phone": phone, "code": code, "attempts": attempts, "expires_at": expires_at},
             timeout=SMS_VERIFICATION_TTL_SECONDS,
         )
 
@@ -64,7 +67,7 @@ class TestUserSMSIntegrationEndpoints(APIBaseTest):
         self.assertIsNone(cache.get(_verification_cache_key(self.user)))
         self.mock_client.send_message.assert_not_called()
 
-    def test_start_verification_rejects_phone_linked_to_another_user(self):
+    def test_start_verification_sends_sms_when_phone_linked_to_another_user(self):
         other_user = User.objects.create_and_join(self.organization, "other@example.com", "pw")
         UserIntegration.objects.create(
             user=other_user,
@@ -74,8 +77,12 @@ class TestUserSMSIntegrationEndpoints(APIBaseTest):
             sensitive_config={},
         )
         response = self.client.post(START_URL, {"phone_number": "+14155552671"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.mock_client.send_message.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["phone_number"], "+14155552671")
+        cached = cache.get(_verification_cache_key(self.user))
+        self.assertIsNotNone(cached)
+        self.mock_get_client.assert_called_once()
+        self.mock_client.send_message.assert_called_once()
 
     def test_start_verification_returns_400_when_sendblue_not_configured(self):
         self.mock_get_client.side_effect = SendBlueNotConfigured("not configured")
@@ -97,6 +104,31 @@ class TestUserSMSIntegrationEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["phone_number"], "+14155552671")
         self.assertIsNone(cache.get(_verification_cache_key(self.user)))
+        self.assertTrue(
+            UserIntegration.objects.filter(
+                user=self.user, kind=UserIntegration.IntegrationKind.SMS, integration_id="+14155552671"
+            ).exists()
+        )
+        self.assertIsNone(response.json().get("reassignment_message"))
+
+    def test_verify_reassigns_phone_from_another_user(self):
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", "pw")
+        UserIntegration.objects.create(
+            user=other_user,
+            kind=UserIntegration.IntegrationKind.SMS,
+            integration_id="+14155552671",
+            config={},
+            sensitive_config={},
+        )
+        self._seed_verification(phone="+14155552671", code="123456")
+        response = self.client.post(VERIFY_URL, {"phone_number": "+14155552671", "code": "123456"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["reassignment_message"], SMS_VERIFY_REASSIGNMENT_MESSAGE)
+        self.assertFalse(
+            UserIntegration.objects.filter(
+                user=other_user, kind=UserIntegration.IntegrationKind.SMS, integration_id="+14155552671"
+            ).exists()
+        )
         self.assertTrue(
             UserIntegration.objects.filter(
                 user=self.user, kind=UserIntegration.IntegrationKind.SMS, integration_id="+14155552671"

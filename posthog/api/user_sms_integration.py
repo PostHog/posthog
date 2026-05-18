@@ -3,14 +3,15 @@
 A ``UserIntegration`` (kind=sms) stores the user's verified phone number in
 ``integration_id`` (E.164 format). The verification flow is two steps:
 
-1. ``POST /api/users/@me/sms/start_verification`` → SendBlue sends a 6-digit code,
-   we cache ``(phone, code, expires_at)`` keyed by the user.
-2. ``POST /api/users/@me/sms/verify`` → if the submitted code matches and hasn't
-   expired we create the ``UserIntegration`` row.
+1. ``POST /api/users/@me/sms/start_verification`` → SendBlue sends a 6-digit code;
+   we cache ``(phone, code, expires_at)`` keyed by the user (even if the number is
+   already verified elsewhere — possession of the inbox proves control).
+2. ``POST /api/users/@me/sms/verify`` → if the submitted code matches and has not
+   expired, we attach the phone to the current user. Any existing SMS row for that
+   number on another account is removed first so the number moves to this account.
 
-The same phone number cannot be claimed by two PostHog users — a partial unique
-constraint on ``UserIntegration(kind="sms", integration_id)`` enforces this at
-the database level.
+The same phone number cannot be linked to two PostHog users at once — a partial
+unique constraint on ``UserIntegration(kind="sms", integration_id)`` enforces this.
 """
 
 import re
@@ -19,7 +20,7 @@ import secrets
 from typing import cast
 
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -44,6 +45,10 @@ SMS_VERIFICATION_TTL_SECONDS = 600  # 10 minutes
 SMS_VERIFICATION_CODE_LENGTH = 6
 SMS_VERIFICATION_MAX_ATTEMPTS = 5
 
+SMS_VERIFY_REASSIGNMENT_MESSAGE = (
+    "This phone number was previously connected to another account and was moved to this account."
+)
+
 # Conservative E.164: leading +, 8-15 digits, no leading zero on the country code.
 E164_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
 
@@ -57,6 +62,13 @@ def _normalize_phone(raw: str) -> str:
 
 def _verification_cache_key(user: User) -> str:
     return f"{SMS_VERIFICATION_CACHE_PREFIX}{user.pk}"
+
+
+def _start_verification_success_response(phone: str) -> Response:
+    return Response(
+        {"phone_number": phone, "expires_in_seconds": SMS_VERIFICATION_TTL_SECONDS},
+        status=status.HTTP_200_OK,
+    )
 
 
 class SMSIntegrationItemSerializer(serializers.Serializer):
@@ -79,6 +91,14 @@ class SMSStartVerificationResponseSerializer(serializers.Serializer):
 class SMSVerifyRequestSerializer(serializers.Serializer):
     phone_number = serializers.CharField(help_text="Phone number being verified, in E.164 format.")
     code = serializers.CharField(help_text=f"{SMS_VERIFICATION_CODE_LENGTH}-digit verification code received via SMS.")
+
+
+class SMSVerifyResponseSerializer(SMSIntegrationItemSerializer):
+    reassignment_message = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Present when this phone was linked to a different PostHog user and was reassigned during verification.",
+    )
 
 
 def _serialize_sms_integration(integration: UserIntegration) -> dict:
@@ -163,13 +183,6 @@ class UserSMSIntegrationViewSet(viewsets.GenericViewSet):
         body.is_valid(raise_exception=True)
         phone = _normalize_phone(body.validated_data["phone_number"])
 
-        if (
-            UserIntegration.objects.filter(kind=UserIntegration.IntegrationKind.SMS, integration_id=phone)
-            .exclude(user=user)
-            .exists()
-        ):
-            raise exceptions.ValidationError("This phone number is already linked to another PostHog account.")
-
         try:
             client = get_sendblue_client()
         except SendBlueNotConfigured:
@@ -192,15 +205,12 @@ class UserSMSIntegrationViewSet(viewsets.GenericViewSet):
             logger.warning("user_sms.start_verification.send_failed", user_id=user.pk, error=str(exc))
             raise exceptions.ValidationError("Could not send the verification code. Try again in a moment.")
 
-        return Response(
-            {"phone_number": phone, "expires_in_seconds": SMS_VERIFICATION_TTL_SECONDS},
-            status=status.HTTP_200_OK,
-        )
+        return _start_verification_success_response(phone)
 
     @extend_schema(
         summary="Verify an SMS verification code",
         request=SMSVerifyRequestSerializer,
-        responses={201: SMSIntegrationItemSerializer},
+        responses={201: SMSVerifyResponseSerializer},
     )
     @action(methods=["POST"], detail=False, url_path="verify")
     def verify(self, request: Request, **_kwargs) -> Response:
@@ -234,14 +244,34 @@ class UserSMSIntegrationViewSet(viewsets.GenericViewSet):
 
         cache.delete(cache_key)
 
+        reassigned = False
+        previous_user_ids: list[int] = []
         try:
-            integration, _ = UserIntegration.objects.update_or_create(
-                user=user,
-                kind=UserIntegration.IntegrationKind.SMS,
-                integration_id=phone,
-                defaults={"config": {}, "sensitive_config": {}},
-            )
+            with transaction.atomic():
+                other_qs = UserIntegration.objects.filter(
+                    kind=UserIntegration.IntegrationKind.SMS,
+                    integration_id=phone,
+                ).exclude(user=user)
+                previous_user_ids = list(other_qs.values_list("user_id", flat=True))
+                removed_count, _ = other_qs.delete()
+                reassigned = removed_count > 0
+                integration, _ = UserIntegration.objects.update_or_create(
+                    user=user,
+                    kind=UserIntegration.IntegrationKind.SMS,
+                    integration_id=phone,
+                    defaults={"config": {}, "sensitive_config": {}},
+                )
         except IntegrityError:
             raise exceptions.ValidationError("This phone number is already linked to another PostHog account.")
 
-        return Response(_serialize_sms_integration(integration), status=status.HTTP_201_CREATED)
+        if reassigned:
+            logger.info(
+                "user_sms.verify.phone_reassigned",
+                new_user_id=user.pk,
+                previous_user_ids=previous_user_ids,
+            )
+
+        payload = _serialize_sms_integration(integration)
+        if reassigned:
+            payload["reassignment_message"] = SMS_VERIFY_REASSIGNMENT_MESSAGE
+        return Response(payload, status=status.HTTP_201_CREATED)
