@@ -18,8 +18,9 @@ Keep alias keys lowercase and alphanumeric-only — `normalize()` strips
 everything else before lookup.
 """
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from functools import cache
+from types import MappingProxyType
 from typing import Literal
 
 from posthog.schema import NativeMarketingSource
@@ -112,11 +113,12 @@ def _build_canonical_aliases() -> dict[str, NativeIntegration]:
 
 
 @cache
-def canonical_source_aliases() -> dict[str, NativeIntegration]:
+def canonical_source_aliases() -> Mapping[str, NativeIntegration]:
     """Return the canonical alias table from the official `*DefaultSources`
-    enums. Cached because the table is immutable. Lookup keys are normalized
-    (lowercase, alphanumeric only)."""
-    return _build_canonical_aliases()
+    enums. Cached because the table is immutable — returned as a read-only
+    `MappingProxyType` so the shared cached instance can't be mutated by a
+    caller. Lookup keys are normalized (lowercase, alphanumeric only)."""
+    return MappingProxyType(_build_canonical_aliases())
 
 
 def lookup_alias(raw_utm_source: str) -> NativeIntegration | None:

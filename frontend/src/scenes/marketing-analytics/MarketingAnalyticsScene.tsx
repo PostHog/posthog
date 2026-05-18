@@ -8,6 +8,7 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link } from '@posth
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -220,18 +221,30 @@ const MarketingAnalyticsMaxToolWrapper = ({ children }: { children: React.ReactN
     const { dateFilter, integrationFilter, compareFilter } = useValues(marketingAnalyticsLogic)
     const { conversion_goals, marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
 
+    // Shared context for every Marketing analytics Max tool — consumed by
+    // MARKETING_CONTEXT_PROMPT in products/marketing_analytics/backend/max_tools.py.
+    const maxContext = {
+        current_filters: { integrationFilter, compareFilter },
+        current_date_range: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+        custom_source_mappings_count: Object.keys(marketingAnalyticsConfig?.custom_source_mappings || {}).length,
+        campaign_name_mappings_count: Object.keys(marketingAnalyticsConfig?.campaign_name_mappings || {}).length,
+        existing_goal_count: (conversion_goals || []).length,
+    }
+
+    // Register the follow-up tools so Max can actually call them when the
+    // diagnostic recommends them. Only `marketing_diagnose_setup` gets the
+    // visible MaxTool button below — the rest are data tools with no UI anchor.
+    useMaxTool({ identifier: 'marketing_explain_conversion_goal', context: maxContext })
+    useMaxTool({ identifier: 'marketing_list_conversion_goals', context: maxContext })
+    useMaxTool({ identifier: 'marketing_list_data_sources', context: maxContext })
+    useMaxTool({ identifier: 'marketing_audit_utm', context: maxContext })
+    useMaxTool({ identifier: 'marketing_suggest_conversion_goals', context: maxContext })
+    useMaxTool({ identifier: 'marketing_suggest_utm_mappings', context: maxContext })
+
     return (
         <MaxTool
             identifier="marketing_diagnose_setup"
-            context={{
-                current_filters: { integrationFilter, compareFilter },
-                current_date_range: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
-                custom_source_mappings_count: Object.keys(marketingAnalyticsConfig?.custom_source_mappings || {})
-                    .length,
-                campaign_name_mappings_count: Object.keys(marketingAnalyticsConfig?.campaign_name_mappings || {})
-                    .length,
-                existing_goal_count: (conversion_goals || []).length,
-            }}
+            context={maxContext}
             contextDescription={{
                 text: 'Marketing analytics setup',
                 icon: <IconSparkles />,

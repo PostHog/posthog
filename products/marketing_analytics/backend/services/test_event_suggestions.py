@@ -132,9 +132,9 @@ class TestSuggestConversionGoals(APIBaseTest):
         signup = next(c for c in response.candidates if c.event_name == "signup")
         assert purchase.is_already_a_goal is True
         assert signup.is_already_a_goal is False
-        # Even if purchase has higher volume, the not-a-goal bonus may flip ranking.
-        # Always: the score reflects the bonus.
-        assert purchase.suggestion_score < (purchase.suggestion_score + 0.2)  # sanity vs theoretical no-goal version
+        # The not-a-goal bonus is surfaced in the reason text for each candidate.
+        assert "already configured as a goal" in purchase.suggestion_reason
+        assert "not yet a goal" in signup.suggestion_reason
 
     @pytest.mark.asyncio
     async def test_top_n_caps_results(self):

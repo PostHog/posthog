@@ -12,7 +12,7 @@ count or diverge on what counts as "unmatched".
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from difflib import SequenceMatcher
-from typing import Literal
+from typing import Any, Literal
 
 import structlog
 
@@ -46,12 +46,6 @@ DEFAULT_MIN_EVENT_COUNT = 10
 
 # Cap suggestions per integration to keep the output digestible by LLMs and UIs.
 MAX_SUGGESTIONS_PER_INTEGRATION = 10
-
-# Campaign clustering: two raw `utm_campaign` values are treated as the same
-# logical campaign if their normalized similarity exceeds this. Higher than the
-# source threshold because campaign names are longer and tolerate stricter cuts.
-CAMPAIGN_CLUSTER_SIMILARITY = 0.85
-CAMPAIGN_MIN_CLUSTER_EVENTS = 20
 
 
 @dataclass
@@ -123,7 +117,7 @@ class UtmMappingSuggestionsResponse:
     confidence_threshold_used: float = DEFAULT_CONFIDENCE_THRESHOLD
     notes: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -149,16 +143,19 @@ async def suggest_utm_mappings(
     # 1. High-confidence suggestions: raw values where fuzzy match crosses the
     # threshold. These are safe to apply directly. Aggregate across integrations
     # so each raw value appears once with its best-confidence target.
+    # Source candidates from the global unmatched list (capped at
+    # MAX_GLOBAL_UNMATCHED), not each integration's per-entry samples — those
+    # are capped at the much smaller MAX_SAMPLE_UNMATCHED, which would make
+    # `max_per_integration` unreachable.
     by_raw: dict[str, SourceMappingSuggestion] = {}
-    for entry in attribution.integrations:
-        for sample in entry.sample_unmatched_utm_sources:
-            if sample.event_count < min_event_count:
-                continue
-            if sample.suggested_integration is None or sample.fuzzy_ratio < confidence_threshold:
-                continue
-            current = by_raw.get(sample.raw_value)
-            if current is None or sample.fuzzy_ratio > current.confidence:
-                by_raw[sample.raw_value] = _to_source_suggestion(sample, sample.suggested_integration)
+    for sample in attribution.sample_globally_unmatched:
+        if sample.event_count < min_event_count:
+            continue
+        if sample.suggested_integration is None or sample.fuzzy_ratio < confidence_threshold:
+            continue
+        current = by_raw.get(sample.raw_value)
+        if current is None or sample.fuzzy_ratio > current.confidence:
+            by_raw[sample.raw_value] = _to_source_suggestion(sample, sample.suggested_integration)
 
     # Cap per integration to keep output digestible.
     grouped: dict[NativeIntegration, list[SourceMappingSuggestion]] = defaultdict(list)
@@ -267,7 +264,7 @@ async def _read_current_mappings(team: Team) -> list[CurrentMapping]:
             )
         )
     if custom:
-        for integration_type, raw_values in (custom or {}).items():
+        for integration_type, raw_values in custom.items():
             try:
                 native = NativeMarketingSource(integration_type)
             except ValueError:

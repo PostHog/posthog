@@ -12,6 +12,7 @@ from products.marketing_analytics.backend.services.mapping_suggester import (
     _closest_alias,
     suggest_utm_mappings,
 )
+from products.marketing_analytics.backend.services.native_integrations import aliases_for
 
 
 def _entry_with_samples(integration_key: str, samples: list[UnmatchedUtmSample]) -> AttributionHealthEntry:
@@ -32,10 +33,11 @@ class TestClosestAlias:
         alias = _closest_alias("fcebook", "meta_ads")
         assert alias in ("facebook", "facebookads", "fb", "fbads")
 
-    def test_no_aliases_returns_empty_string_for_unknown_target(self):
-        # Synthetic: pass a key that has aliases — basic invariant.
+    def test_closest_alias_is_always_an_alias_of_the_target(self):
+        # Even for a raw value that resembles nothing, the returned alias must
+        # belong to the target integration (or be "" when it has no aliases).
         alias = _closest_alias("abc", "google_ads")
-        assert isinstance(alias, str)
+        assert alias == "" or alias in aliases_for("google_ads")
 
 
 class TestSuggestUtmMappings(APIBaseTest):

@@ -63,6 +63,10 @@ GoalKind = Literal["EventsNode", "ActionsNode", "DataWarehouseNode"]
 DEFAULT_LOOKBACK_DAYS = 30
 EXPLAIN_SAMPLE_LIMIT = 10
 EXPLAIN_BREAKDOWN_LIMIT = 20
+# Max events scanned by `explain_conversion_goal`. When a goal exceeds this in
+# the period, total_count and the breakdowns are a most-recent sample, not the
+# full count — the response carries a note saying so.
+EXPLAIN_EVENT_SCAN_LIMIT = 5000
 
 
 @dataclass
@@ -101,7 +105,7 @@ class ConversionGoalsListResponse:
     attribution_mode: str = "last_touch"
     has_misconfigured: bool = False
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -134,7 +138,7 @@ class GoalExplanation:
     samples: list[GoalEventSample]
     notes: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -195,6 +199,12 @@ async def explain_conversion_goal(
         )
 
     rows = await _query_goal_events(team, goal, resolved_period)
+    notes: list[str] = []
+    if len(rows) >= EXPLAIN_EVENT_SCAN_LIMIT:
+        notes.append(
+            f"Only the {EXPLAIN_EVENT_SCAN_LIMIT} most recent events in the period were scanned. "
+            "total_count and the breakdowns below are a recent-events sample, not the full count."
+        )
 
     by_event: dict[str, int] = {}
     by_utm: dict[str, int] = {}
@@ -249,6 +259,7 @@ async def explain_conversion_goal(
         by_utm_source=sorted(by_utm.items(), key=lambda kv: kv[1], reverse=True)[:EXPLAIN_BREAKDOWN_LIMIT],
         by_matched_integration=sorted(by_integration.items(), key=lambda kv: kv[1], reverse=True),
         samples=samples,
+        notes=notes,
     )
 
 
@@ -598,12 +609,13 @@ async def _query_goal_events(team: Team, goal: dict[str, Any], period: DateRange
                 FROM events
                 WHERE event = {event_name} AND timestamp >= {since} AND timestamp <= {until}
                 ORDER BY timestamp DESC
-                LIMIT 5000
+                LIMIT {scan_limit}
             """
             placeholders = {
                 "event_name": ast.Constant(value=event_name),
                 "since": ast.Constant(value=since),
                 "until": ast.Constant(value=until),
+                "scan_limit": ast.Constant(value=EXPLAIN_EVENT_SCAN_LIMIT),
             }
         else:
             hogql = """
@@ -612,11 +624,12 @@ async def _query_goal_events(team: Team, goal: dict[str, Any], period: DateRange
                 FROM events
                 WHERE timestamp >= {since} AND timestamp <= {until}
                 ORDER BY timestamp DESC
-                LIMIT 5000
+                LIMIT {scan_limit}
             """
             placeholders = {
                 "since": ast.Constant(value=since),
                 "until": ast.Constant(value=until),
+                "scan_limit": ast.Constant(value=EXPLAIN_EVENT_SCAN_LIMIT),
             }
         return await _run_hogql(team, hogql, placeholders)
 
@@ -634,12 +647,13 @@ async def _query_goal_events(team: Team, goal: dict[str, Any], period: DateRange
             FROM events
             WHERE event IN {events} AND timestamp >= {since} AND timestamp <= {until}
             ORDER BY timestamp DESC
-            LIMIT 5000
+            LIMIT {scan_limit}
         """
         placeholders = {
             "events": ast.Tuple(exprs=[ast.Constant(value=e) for e in step_events]),
             "since": ast.Constant(value=since),
             "until": ast.Constant(value=until),
+            "scan_limit": ast.Constant(value=EXPLAIN_EVENT_SCAN_LIMIT),
         }
         return await _run_hogql(team, hogql, placeholders)
 

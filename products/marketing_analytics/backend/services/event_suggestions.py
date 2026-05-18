@@ -24,6 +24,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 logger = structlog.get_logger(__name__)
 
@@ -51,8 +52,6 @@ _TAXONOMY_OVERLAY_EXCLUDED: frozenset[str] = frozenset(
 
 
 def _build_default_excluded_events() -> frozenset[str]:
-    from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-
     taxonomy_events = {key for key in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}) if key.startswith("$")}
     return frozenset(taxonomy_events | _TAXONOMY_OVERLAY_EXCLUDED)
 
@@ -85,7 +84,7 @@ class EventSuggestionsResponse:
     lookback_days: int = DEFAULT_LOOKBACK_DAYS
     excluded_events_count: int = 0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -101,13 +100,14 @@ async def suggest_conversion_goals(
     existing_goal_events = await _read_existing_goal_event_names(team)
     excluded = DEFAULT_EXCLUDED_EVENTS if exclude_autocapture else frozenset()
 
-    max_volume = max((r["count"] for r in rows), default=1)
+    # Compute max_volume over the post-exclusion set: an excluded high-volume
+    # event (e.g. $pageview) must not inflate the denominator and deflate the
+    # volume score of every real candidate.
+    candidate_rows = [r for r in rows if r["event_name"] not in excluded]
+    max_volume = max((r["count"] for r in candidate_rows), default=1)
     candidates: list[CandidateEvent] = []
-    for row in rows:
+    for row in candidate_rows:
         event_name: str = row["event_name"]
-        if event_name in excluded:
-            continue
-
         count = row["count"]
         users = row["users"]
         with_utm_source = row["with_utm_source"]

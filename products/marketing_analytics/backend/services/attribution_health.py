@@ -12,12 +12,13 @@ fine but no UTM events arrive") is the job of `marketing_diagnostic`.
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
-from typing import cast
+from typing import Any, cast
 
 from django.utils import timezone
 
 import structlog
 
+from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -54,8 +55,10 @@ MAX_SAMPLE_UNMATCHED = 5
 # `mapping_suggester` need the full unmatched catalogue to reason about it.
 MAX_GLOBAL_UNMATCHED = 50
 
-# Cap on how many distinct utm_source values we pull from ClickHouse.
-# Anything beyond this is long-tail typos — counts still aggregate correctly.
+# Cap on how many distinct utm_source values we pull from ClickHouse, ordered
+# by event count. Beyond this is long-tail typos; the response flags
+# `utm_source_catalogue_truncated` when the cap is hit so callers know the
+# totals are top-N subtotals rather than the full count.
 HOGQL_GROUP_LIMIT = 500
 
 
@@ -107,8 +110,15 @@ class AttributionHealthResponse:
     # both matched and unmatched. Lets callers answer "what utm_sources arrive
     # on this team's events?" without a separate SQL roundtrip.
     all_utm_source_samples: list[UtmSourceSample] = field(default_factory=list)
+    # Total distinct utm_source values seen in the window. `all_utm_source_samples`
+    # is capped at MAX_GLOBAL_UNMATCHED, so this is the honest distinct count.
+    total_distinct_utm_sources: int = 0
+    # True when the ClickHouse aggregation hit HOGQL_GROUP_LIMIT distinct
+    # utm_source values: the long tail beyond that is uncounted, so
+    # `total_events_with_utm` is a top-N subtotal, not the full total.
+    utm_source_catalogue_truncated: bool = False
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -205,6 +215,8 @@ async def get_attribution_health(
         total_events_unmatched=total_unmatched,
         sample_globally_unmatched=globally_unmatched[:MAX_GLOBAL_UNMATCHED],
         all_utm_source_samples=all_samples[:MAX_GLOBAL_UNMATCHED],
+        total_distinct_utm_sources=len(all_samples),
+        utm_source_catalogue_truncated=len(rows) >= HOGQL_GROUP_LIMIT,
     )
 
 
@@ -283,8 +295,8 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
             hogql,
             team,
             placeholders={
-                "since": _hogql_constant(since),
-                "limit": _hogql_constant(HOGQL_GROUP_LIMIT),
+                "since": ast.Constant(value=since),
+                "limit": ast.Constant(value=HOGQL_GROUP_LIMIT),
             },
         )
     rows: list[_UtmRow] = []
@@ -300,12 +312,6 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
             )
         )
     return rows
-
-
-def _hogql_constant(value):
-    from posthog.hogql import ast
-
-    return ast.Constant(value=value)
 
 
 def _fuzzy_best_integration(

@@ -21,8 +21,9 @@ get a single source of truth for the cross-domain decision.
 """
 
 import asyncio
+from collections.abc import Coroutine
 from dataclasses import asdict, dataclass, field
-from typing import Literal
+from typing import Any, Literal, cast
 
 import structlog
 
@@ -113,7 +114,7 @@ class MarketingDiagnosticResponse:
     conversion_goals: ConversionGoalsListResponse | None = None
     recommended_actions: list[RecommendedAction] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -132,7 +133,7 @@ async def get_marketing_diagnostic(
     """
     sources_map, custom_source_mappings = await _load_marketing_config_snapshot(team)
 
-    coros: list = [
+    coros: list[Coroutine[Any, Any, Any]] = [
         get_data_source_health(team, source_type=source_type, sources_map=sources_map),
         get_attribution_health(
             team,
@@ -144,10 +145,29 @@ async def get_marketing_diagnostic(
     if include_conversion_goals:
         coros.append(list_conversion_goals(team))
 
-    results = await asyncio.gather(*coros)
-    data_source: DataSourceHealthResponse = results[0]
-    attribution: AttributionHealthResponse = results[1]
-    goals: ConversionGoalsListResponse | None = results[2] if include_conversion_goals else None
+    # `return_exceptions=True` so one failing sub-service doesn't abort the whole
+    # diagnostic. Data-source and attribution health are required to diagnose, so
+    # we re-raise those; conversion goals are supplementary and degrade to None.
+    results = await asyncio.gather(*coros, return_exceptions=True)
+
+    data_source_result = results[0]
+    if isinstance(data_source_result, BaseException):
+        logger.error("marketing_diagnostic.data_source_health_failed", team_id=team.pk, error=str(data_source_result))
+        raise data_source_result
+    attribution_result = results[1]
+    if isinstance(attribution_result, BaseException):
+        logger.error("marketing_diagnostic.attribution_health_failed", team_id=team.pk, error=str(attribution_result))
+        raise attribution_result
+    data_source = cast(DataSourceHealthResponse, data_source_result)
+    attribution = cast(AttributionHealthResponse, attribution_result)
+
+    goals: ConversionGoalsListResponse | None = None
+    if include_conversion_goals:
+        goals_result = results[2]
+        if isinstance(goals_result, BaseException):
+            logger.warning("marketing_diagnostic.conversion_goals_failed", team_id=team.pk, error=str(goals_result))
+        else:
+            goals = cast(ConversionGoalsListResponse, goals_result)
 
     integrations = _build_integration_diagnostics(data_source, attribution)
     overall = _compute_overall_status(integrations)
@@ -387,7 +407,7 @@ def _compute_overall_status(integrations: list[IntegrationDiagnostic]) -> Overal
         return "no_sources"
     if all(s == "healthy" for s in relevant):
         return "healthy"
-    if any(s == "sync_broken" or s == "schema_misconfigured" for s in relevant) and not any(
+    if any(s in ("sync_broken", "schema_misconfigured") for s in relevant) and not any(
         s == "healthy" for s in relevant
     ):
         return "broken"
