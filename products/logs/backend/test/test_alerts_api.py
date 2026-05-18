@@ -373,9 +373,11 @@ class TestLogsAlertAPI(APIBaseTest):
             ("filter_group_is_string", {"filterGroup": "AND"}),
             ("filter_group_missing_type", {"filterGroup": {"values": []}}),
             ("filter_group_invalid_operator", {"filterGroup": {"type": "XOR", "values": []}}),
+            ("severity_levels_not_a_list", {"severityLevels": "error"}),
+            ("unknown_top_level_key", {"unknownKey": "value", "severityLevels": ["error"]}),
         ]
     )
-    def test_create_rejects_malformed_filter_group(self, _name, filters):
+    def test_create_rejects_malformed_filters_shape(self, _name, filters):
         response = self.client.post(
             self.base_url,
             self._valid_payload(filters=filters),
