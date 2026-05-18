@@ -44,6 +44,26 @@ from gates import detect_deny_categories
             "fix: routing logic for dashboard",
             id="routing-logic-not-infra",
         ),
+        pytest.param(
+            ["products/signals/backend/temporal/backfill_error_tracking.py"],
+            "chore(sig): scopes and tags for exception capture",
+            id="temporal-backfill-workflow-not-migration",
+        ),
+        pytest.param(
+            ["posthog/management/commands/backfill_distinct_id_overrides.py"],
+            "feat: backfill distinct id overrides",
+            id="backfill-management-command-not-migration",
+        ),
+        pytest.param(
+            ["posthog/dags/backfill_materialized_column.py"],
+            "fix: dagster backfill dag",
+            id="dagster-backfill-dag-not-migration",
+        ),
+        pytest.param(
+            ["posthog/management/commands/migrate_team.py"],
+            "fix: team migration command",
+            id="migrate-operator-command-not-migration",
+        ),
     ],
 )
 def test_no_false_positive(files: list[str], subject: str) -> None:
@@ -109,6 +129,12 @@ def test_no_false_positive(files: list[str], subject: str) -> None:
             "feat: add new column",
             "migrations",
             id="migration-file",
+        ),
+        pytest.param(
+            ["rust/persons_migrations/20260206000001_add_last_seen_at.sql"],
+            "feat: add last_seen_at to persons",
+            "migrations",
+            id="rust-sqlx-migration",
         ),
         pytest.param(
             [".github/workflows/ci.yml"],

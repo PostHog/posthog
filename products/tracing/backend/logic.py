@@ -13,15 +13,24 @@ from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
+    CachedTraceSpansAggregationQueryResponse,
     CachedTraceSpansQueryResponse,
+    CachedTraceSpansTreeQueryResponse,
+    CompareFilter,
     DateRange,
     HogQLFilters,
+    HogQLQueryModifiers,
     IntervalType,
+    PropertyGroupFilter,
     PropertyGroupsMode,
     SpanPropertyFilter,
     SpanPropertyFilterType,
+    TraceSpansAggregationQuery,
+    TraceSpansAggregationQueryResponse,
     TraceSpansQuery,
     TraceSpansQueryResponse,
+    TraceSpansTreeQuery,
+    TraceSpansTreeQueryResponse,
 )
 
 from posthog.hogql import ast
@@ -32,7 +41,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
@@ -71,6 +80,55 @@ _STATUS_CODE_LABEL_TO_INTS: dict[str, list[int]] = {
     "OK": [0, 1],
     "Error": [2],
 }
+
+
+def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
+    """Translate UI/API filter values into ClickHouse column representations, in place.
+
+    The filter UI stores human-readable forms — hex ids, seconds for duration, label
+    strings for `kind`/`status_code` — but the ClickHouse columns are base64 bytes,
+    nanoseconds, and integers. Every code path that turns a `SpanPropertyFilter` into
+    a WHERE clause must apply this translation before calling `property_to_expr`,
+    otherwise filters like `{key: "kind", value: "Server"}` silently match zero rows.
+
+    Idempotent — safe to call repeatedly on the same filter. Compare-mode invokes
+    `_where_without_date_range()` once per window on the same `SpanPropertyFilter`
+    instances; without the post-translation guards on `kind`/`status_code` the second
+    pass would map the already-translated integers back to `[]` and silently drop the
+    filter for the compare window.
+    """
+    if span_filter.key in ("trace_id", "span_id"):
+        # `_normalise_to_base64` is a no-op on already-base64 values (16/8-byte ids
+        # always encode to padding-suffixed strings that fail `int(_, 16)`).
+        if isinstance(span_filter.value, list):
+            span_filter.value = [_normalise_to_base64(str(v)) for v in span_filter.value]
+        else:
+            span_filter.value = _normalise_to_base64(str(span_filter.value))
+
+    if span_filter.key == "duration":
+        # Key flips to `duration_nano` after first pass, so this block is unreachable
+        # on subsequent invocations.
+        span_filter.key = "duration_nano"
+        if isinstance(span_filter.value, list):
+            span_filter.value = [
+                str(decimal.Decimal(str(v)) * 1000000) for v in span_filter.value if _is_number(str(v))
+            ]
+        elif _is_number(str(span_filter.value)):
+            span_filter.value = str(decimal.Decimal(str(span_filter.value)) * 1000000)
+
+    if span_filter.key == "kind" and span_filter.value is not None:
+        values: list = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]
+        if not all(isinstance(v, int) for v in values):
+            span_filter.value = [_SPAN_KIND_LABEL_TO_INT[str(v)] for v in values if str(v) in _SPAN_KIND_LABEL_TO_INT]
+
+    if span_filter.key == "status_code" and span_filter.value is not None:
+        values = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]
+        if not all(isinstance(v, str) and v.isdigit() for v in values):
+            expanded: list[int] = []
+            for v in values:
+                if str(v) in _STATUS_CODE_LABEL_TO_INTS:
+                    expanded.extend(_STATUS_CODE_LABEL_TO_INTS[str(v)])
+            span_filter.value = [str(v) for v in expanded]
 
 
 class TraceSpansQueryRunnerMixin(QueryRunner):
@@ -158,39 +216,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
         if self.span_filters:
             for span_filter in self.span_filters:
-                if span_filter.key in ("trace_id", "span_id"):
-                    if isinstance(span_filter.value, list):
-                        span_filter.value = [_normalise_to_base64(str(v)) for v in span_filter.value]
-                    else:
-                        span_filter.value = _normalise_to_base64(str(span_filter.value))
-
-                if span_filter.key in ("duration"):
-                    span_filter.key = "duration_nano"
-
-                    if isinstance(span_filter.value, list):
-                        span_filter.value = [
-                            str(decimal.Decimal(str(v)) * 1000000) for v in span_filter.value if _is_number(str(v))
-                        ]
-                    else:
-                        if _is_number(str(span_filter.value)):
-                            span_filter.value = str(decimal.Decimal(str(span_filter.value)) * 1000000)
-
-                # Filter UI stores human labels for kind/status_code so the applied-filter
-                # chip reads naturally. Translate labels to the integer column values here.
-                if span_filter.key == "kind":
-                    values = span_filter.value if isinstance(span_filter.value, list) else [str(span_filter.value)]
-                    span_filter.value = [
-                        _SPAN_KIND_LABEL_TO_INT[str(v)] for v in values if str(v) in _SPAN_KIND_LABEL_TO_INT
-                    ]
-
-                if span_filter.key == "status_code":
-                    values = span_filter.value if isinstance(span_filter.value, list) else [str(span_filter.value)]
-                    expanded: list[int] = []
-                    for v in values:
-                        if str(v) in _STATUS_CODE_LABEL_TO_INTS:
-                            expanded.extend(_STATUS_CODE_LABEL_TO_INTS[str(v)])
-                    span_filter.value = [str(v) for v in expanded]
-
+                translate_span_filter(span_filter)
                 exprs.append(property_to_expr(span_filter, team=self.team))
 
         if self.span_attribute_filters:
@@ -472,6 +498,7 @@ def run_service_names_query(
         team=team,
         workload=Workload.LOGS,
         filters=HogQLFilters(dateRange=date_range),
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             allow_experimental_object_type=False,
             allow_experimental_join_condition=False,
@@ -487,7 +514,7 @@ def run_service_names_query(
 def run_attribute_names_query(
     team: "Team",
     date_range: DateRange,
-    attribute_type: str = "span",
+    attribute_type: str = "span_attribute",
     search: str = "",
     limit: int = 100,
     offset: int = 0,
@@ -503,7 +530,7 @@ def run_attribute_names_query(
     )
 
     property_filter_type = (
-        attribute_type if attribute_type in ("span", "span_attribute", "span_resource_attribute") else "span_attribute"
+        attribute_type if attribute_type in ("span_attribute", "span_resource_attribute") else "span_attribute"
     )
 
     query = parse_select(
@@ -540,6 +567,7 @@ def run_attribute_names_query(
         team=team,
         workload=Workload.LOGS,
         filters=HogQLFilters(dateRange=date_range),
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",
             max_bytes_to_read=5_000_000_000,
@@ -559,7 +587,7 @@ def run_attribute_names_query(
 def run_attribute_values_query(
     team: "Team",
     date_range: DateRange,
-    attribute_type: str = "span",
+    attribute_type: str = "span_attribute",
     attribute_key: str = "",
     search: str = "",
     limit: int = 100,
@@ -611,6 +639,7 @@ def run_attribute_values_query(
         team=team,
         workload=Workload.LOGS,
         filters=HogQLFilters(dateRange=date_range),
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",
             max_bytes_to_read=5_000_000_000,
@@ -623,3 +652,53 @@ def run_attribute_values_query(
             results.append({"id": value, "name": value})
 
     return results
+
+
+# Imported below the helpers above (and `translate_span_filter`) because the runners
+# import `translate_span_filter` from this module. Keeping this import at the bottom
+# avoids a partial-load circular import.
+from .aggregation_query_runner import TraceSpansAggregationQueryRunner, TraceSpansTreeQueryRunner  # noqa: E402
+
+
+def run_aggregation_query(
+    *,
+    team: "Team",
+    date_range: DateRange,
+    compare_filter: CompareFilter | None = None,
+    filter_group: PropertyGroupFilter | None = None,
+    service_names: list[str] | None = None,
+) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
+    """Facade-friendly entry point for running a flat span aggregation query."""
+    query = TraceSpansAggregationQuery(
+        dateRange=date_range,
+        compareFilter=compare_filter,
+        filterGroup=filter_group,
+        serviceNames=service_names,
+    )
+    runner = TraceSpansAggregationQueryRunner(query, team)
+    response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+    assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
+    return response
+
+
+def run_tree_query(
+    *,
+    team: "Team",
+    date_range: DateRange,
+    span_name: str,
+    compare_filter: CompareFilter | None = None,
+    filter_group: PropertyGroupFilter | None = None,
+    service_names: list[str] | None = None,
+) -> TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse:
+    """Facade-friendly entry point for running a span call-tree aggregation query."""
+    query = TraceSpansTreeQuery(
+        dateRange=date_range,
+        spanName=span_name,
+        compareFilter=compare_filter,
+        filterGroup=filter_group,
+        serviceNames=service_names,
+    )
+    runner = TraceSpansTreeQueryRunner(query, team)
+    response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+    assert isinstance(response, TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse)
+    return response

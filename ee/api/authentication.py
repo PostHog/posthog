@@ -188,7 +188,7 @@ class MultitenantSAMLAuth(SAMLAuth):
 
         return output or ""
 
-    def get_user_details(self, response):
+    def get_user_details(self, response) -> dict[str, str | None]:
         """
         Overridden to find attributes across multiple possible names.
         """
@@ -287,14 +287,14 @@ class MultitenantSAMLAuth(SAMLAuth):
 class CustomGoogleOAuth2(GoogleOAuth2):
     def auth_extra_arguments(self):
         extra_args = super().auth_extra_arguments()
-        is_reauth = self.strategy.request.GET.get("reauth") == "true"
+        is_reauth = self.strategy.request_get().get("reauth") == "true"
         if not is_reauth:
             prompt_tokens = [token for token in str(extra_args.get("prompt", "")).split() if token]
             if "select_account" not in prompt_tokens:
                 prompt_tokens.append("select_account")
             extra_args["prompt"] = " ".join(prompt_tokens)
 
-        email = self.strategy.request.GET.get("email")
+        email = self.strategy.request_get().get("email")
 
         if email:
             extra_args["login_hint"] = email
@@ -577,12 +577,14 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
             logger.exception("Billing service auth failed: invalid license key format")
             raise AuthenticationFailed("Invalid license key format")
 
-        return jwt.decode(
+        decoded_payload = jwt.decode(
             token,
             license_secret,
             algorithms=["HS256"],
             audience=self.EXPECTED_AUDIENCE,
         )
+
+        return cast(BillingServiceJWTPayload, decoded_payload)
 
 
 def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:
