@@ -5,10 +5,14 @@ declare namespace Cloudflare {
     }
 }
 
-// ioredis v4 ships without bundled type declarations. We only use the default
-// export (constructor) — typed loosely as `any` so TS can still check call sites
-// that interact with it via the local `RedisLike` interface.
+// ioredis v4 ships without bundled type declarations. Declare a minimal ambient
+// module so the default export can be used both as a constructor (`new Redis()`)
+// and as a type annotation (`redis: Redis`). Methods are loose because callers
+// interact via the local `RedisLike` interface.
 declare module 'ioredis' {
-    const Redis: any
+    interface Redis {
+        [key: string]: any
+    }
+    const Redis: new (...args: any[]) => Redis
     export default Redis
 }
