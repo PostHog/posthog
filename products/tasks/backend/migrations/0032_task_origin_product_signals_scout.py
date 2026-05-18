@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
                     ("support_queue", "Support Queue"),
                     ("session_summaries", "Session Summaries"),
                     ("signal_report", "Signal Report"),
-                    ("signals_agent", "Signals Agent"),
+                    ("signals_scout", "Signals Scout"),
                 ],
                 max_length=20,
             ),

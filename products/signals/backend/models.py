@@ -23,7 +23,7 @@ class SignalSourceConfig(UUIDModel):
         CONVERSATIONS = "conversations", "Conversations"
         ERROR_TRACKING = "error_tracking", "Error tracking"
         PGANALYZE = "pganalyze", "pganalyze"
-        SIGNALS_AGENT = "signals_agent", "Signals agent"
+        SIGNALS_SCOUT = "signals_scout", "Signals scout"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
@@ -371,31 +371,31 @@ class SignalReportTask(UUIDModel):
         verbose_name_plural = "Signal report tasks"
 
 
-# ── Signals agent (headless cross-source scout) ─────────────────────────────────
+# ── Signals scout (headless cross-source explorer) ──────────────────────────────
 #
-# Three tables back the v1 Signals agent:
-#   - SignalAgentConfig: per-team binding (one row per team).
-#   - SignalAgentRun:    run diary, one row per scheduled agent run.
-#   - SignalMemory:      durable learnings the agent reads in future runs.
+# Three tables back the v1 Signals scout:
+#   - SignalScoutConfig: per-team binding (one row per team).
+#   - SignalScoutRun:    run diary, one row per scheduled scout run.
+#   - SignalScratchpad:  working notes the scout reads in future runs.
 #
 # These are Postgres-only and never written by non-Django systems, so no
 # table-level DEFAULT clauses are needed for the jsonb columns with `default=list`
 # / `default=dict` (Django applies the default Python-side on every INSERT).
 
 
-class SignalAgentConfig(UUIDModel):
-    """Per-team binding for the headless Signals agent. One row per team."""
+class SignalScoutConfig(UUIDModel):
+    """Per-team binding for the headless Signals scout. One row per team."""
 
     team = models.OneToOneField(
         "posthog.Team",
         on_delete=models.CASCADE,
-        related_name="signal_agent_config",
+        related_name="signal_scout_config",
     )
     enabled = models.BooleanField(default=False)
-    # When true, runs persist findings to `signal_agent_run.findings` but the emit
+    # When true, runs persist findings to `signal_scout_run.findings` but the emit
     # adapter no-ops. Defaults to true so a freshly-bound team starts in shadow.
     shadow_mode = models.BooleanField(default=True)
-    # null = run all `signals-agent-*` skills the team has access to. A list narrows
+    # null = run all `signals-scout-*` skills the team has access to. A list narrows
     # the set; the harness still intersects with what's available in PHS.
     enabled_skill_names = ArrayField(
         base_field=models.CharField(max_length=200),
@@ -418,12 +418,12 @@ class SignalAgentConfig(UUIDModel):
     )
 
     class Meta:
-        verbose_name = "Signal agent config"
-        verbose_name_plural = "Signal agent configs"
+        verbose_name = "Signal scout config"
+        verbose_name_plural = "Signal scout configs"
 
 
-class SignalAgentRun(UUIDModel):
-    """Run diary — one row per scheduled agent run. Holds everything per-run."""
+class SignalScoutRun(UUIDModel):
+    """Run diary — one row per scheduled scout run. Holds everything per-run."""
 
     class Status(models.TextChoices):
         SCHEDULED = "scheduled", "Scheduled"
@@ -435,12 +435,12 @@ class SignalAgentRun(UUIDModel):
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
-        related_name="signal_agent_runs",
+        related_name="signal_scout_runs",
     )
     # SET_NULL so deleting a config row (e.g. recreating from scratch) doesn't
     # destroy the run history we want for audit and dedupe.
-    agent_config = models.ForeignKey(
-        SignalAgentConfig,
+    scout_config = models.ForeignKey(
+        SignalScoutConfig,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -456,7 +456,7 @@ class SignalAgentRun(UUIDModel):
     summary = models.TextField(default="", blank=True)
     # Structured findings emitted via emit_signal during the run.
     findings = models.JSONField(default=list, blank=True)
-    # Hypotheses considered (including the ones the agent decided not to chase),
+    # Hypotheses considered (including the ones the scout decided not to chase),
     # with reasoning.
     hypotheses_considered = models.JSONField(default=list, blank=True)
     # Measured quantities about how the run went, e.g. {"runtime_s": float, "findings": int}.
@@ -466,39 +466,55 @@ class SignalAgentRun(UUIDModel):
     metadata = models.JSONField(default=dict, blank=True)
 
     class Meta:
-        verbose_name = "Signal agent run"
-        verbose_name_plural = "Signal agent runs"
+        verbose_name = "Signal scout run"
+        verbose_name_plural = "Signal scout runs"
         indexes = [
-            models.Index(fields=["team", "-started_at"], name="signal_agent_run_recent_idx"),
-            models.Index(fields=["team", "status"], name="signal_agent_run_status_idx"),
+            models.Index(fields=["team", "-started_at"], name="signal_scout_run_recent_idx"),
+            models.Index(fields=["team", "status"], name="signal_scout_run_status_idx"),
         ]
 
 
-class SignalMemory(UUIDModel):
-    """Durable learnings the agent reads in future runs (known issues, false positives, team steering)."""
+class SignalScratchpad(UUIDModel):
+    """Scout working notes — ephemeral by default, durable when explicitly scoped to the team.
+
+    Scratchpads are the scout's place to write down things mid-run (and across runs) that
+    don't belong in the run summary itself — classifications it doesn't want to re-derive,
+    dedupe fingerprints, allowlists. The `scope` field is the lever: `RUN` entries are
+    tied to a single run and are safe to garbage-collect when that run finalizes; `TEAM`
+    entries persist as durable steering until they expire or are manually deleted.
+    """
 
     class Authority(models.TextChoices):
-        AGENT_INFERENCE = "agent_inference", "Agent inference"
+        SCOUT_INFERENCE = "scout_inference", "Scout inference"
         HUMAN_CONFIRMED = "human_confirmed", "Human confirmed"
+
+    class Scope(models.TextChoices):
+        # Tied to a specific run. Default. Cleaned up once the run finalizes (or after
+        # `expires_at`, whichever comes first). Cheap to write, expected to churn.
+        RUN = "run", "Run"
+        # Persisted as durable cross-run steering for the team. Use sparingly — these
+        # entries shape every future run's prompt and erode trust fast if wrong.
+        TEAM = "team", "Team"
 
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
-        related_name="signal_memories",
+        related_name="signal_scratchpads",
     )
-    # Semantic key, agent-chosen. Unique per team.
+    # Semantic key, scout-chosen. Unique per team.
     key = models.CharField(max_length=300)
-    # Prose for prompt injection — the agent reads this verbatim.
+    # Prose for prompt injection — the scout reads this verbatim.
     content = models.TextField()
-    authority = models.CharField(max_length=30, choices=Authority, default=Authority.AGENT_INFERENCE)
+    authority = models.CharField(max_length=30, choices=Authority, default=Authority.SCOUT_INFERENCE)
+    scope = models.CharField(max_length=10, choices=Scope, default=Scope.RUN)
     tags = ArrayField(base_field=models.CharField(max_length=100), default=list, blank=True)
-    # null = human-authored. Agent-written entries point back to the run that created them.
+    # null = human-authored. Scout-written entries point back to the run that created them.
     created_by_run = models.ForeignKey(
-        SignalAgentRun,
+        SignalScoutRun,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="memories_created",
+        related_name="scratchpads_created",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -506,12 +522,12 @@ class SignalMemory(UUIDModel):
     expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        verbose_name = "Signal memory"
-        verbose_name_plural = "Signal memories"
+        verbose_name = "Signal scratchpad"
+        verbose_name_plural = "Signal scratchpads"
         constraints = [
-            models.UniqueConstraint(fields=["team", "key"], name="signal_memory_unique_team_key"),
+            models.UniqueConstraint(fields=["team", "key"], name="signal_scratchpad_unique_team_key"),
         ]
         indexes = [
-            models.Index(fields=["team", "expires_at"], name="signal_memory_expiry_idx"),
-            GinIndex(fields=["tags"], name="signal_memory_tags_gin"),
+            models.Index(fields=["team", "expires_at"], name="signal_scratchpad_expiry_idx"),
+            GinIndex(fields=["tags"], name="signal_scratchpad_tags_gin"),
         ]

@@ -12,13 +12,13 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1129_userintegration"),
-        ("signals", "0020_add_signals_agent_source"),
+        ("signals", "0020_add_signals_scout_source"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.CreateModel(
-            name="SignalAgentConfig",
+            name="SignalScoutConfig",
             fields=[
                 (
                     "id",
@@ -58,18 +58,18 @@ class Migration(migrations.Migration):
                     "team",
                     models.OneToOneField(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="signal_agent_config",
+                        related_name="signal_scout_config",
                         to="posthog.team",
                     ),
                 ),
             ],
             options={
-                "verbose_name": "Signal agent config",
-                "verbose_name_plural": "Signal agent configs",
+                "verbose_name": "Signal scout config",
+                "verbose_name_plural": "Signal scout configs",
             },
         ),
         migrations.CreateModel(
-            name="SignalAgentRun",
+            name="SignalScoutRun",
             fields=[
                 (
                     "id",
@@ -104,31 +104,31 @@ class Migration(migrations.Migration):
                 ("run_metrics", models.JSONField(blank=True, default=dict)),
                 ("metadata", models.JSONField(blank=True, default=dict)),
                 (
-                    "agent_config",
+                    "scout_config",
                     models.ForeignKey(
                         blank=True,
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="runs",
-                        to="signals.signalagentconfig",
+                        to="signals.signalscoutconfig",
                     ),
                 ),
                 (
                     "team",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="signal_agent_runs",
+                        related_name="signal_scout_runs",
                         to="posthog.team",
                     ),
                 ),
             ],
             options={
-                "verbose_name": "Signal agent run",
-                "verbose_name_plural": "Signal agent runs",
+                "verbose_name": "Signal scout run",
+                "verbose_name_plural": "Signal scout runs",
             },
         ),
         migrations.CreateModel(
-            name="SignalMemory",
+            name="SignalScratchpad",
             fields=[
                 (
                     "id",
@@ -145,11 +145,22 @@ class Migration(migrations.Migration):
                     "authority",
                     models.CharField(
                         choices=[
-                            ("agent_inference", "Agent inference"),
+                            ("scout_inference", "Scout inference"),
                             ("human_confirmed", "Human confirmed"),
                         ],
-                        default="agent_inference",
+                        default="scout_inference",
                         max_length=30,
+                    ),
+                ),
+                (
+                    "scope",
+                    models.CharField(
+                        choices=[
+                            ("run", "Run"),
+                            ("team", "Team"),
+                        ],
+                        default="run",
+                        max_length=10,
                     ),
                 ),
                 (
@@ -170,42 +181,42 @@ class Migration(migrations.Migration):
                         blank=True,
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="memories_created",
-                        to="signals.signalagentrun",
+                        related_name="scratchpads_created",
+                        to="signals.signalscoutrun",
                     ),
                 ),
                 (
                     "team",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="signal_memories",
+                        related_name="signal_scratchpads",
                         to="posthog.team",
                     ),
                 ),
             ],
             options={
-                "verbose_name": "Signal memory",
-                "verbose_name_plural": "Signal memories",
+                "verbose_name": "Signal scratchpad",
+                "verbose_name_plural": "Signal scratchpads",
             },
         ),
         migrations.AddIndex(
-            model_name="signalagentrun",
-            index=models.Index(fields=["team", "-started_at"], name="signal_agent_run_recent_idx"),
+            model_name="signalscoutrun",
+            index=models.Index(fields=["team", "-started_at"], name="signal_scout_run_recent_idx"),
         ),
         migrations.AddIndex(
-            model_name="signalagentrun",
-            index=models.Index(fields=["team", "status"], name="signal_agent_run_status_idx"),
+            model_name="signalscoutrun",
+            index=models.Index(fields=["team", "status"], name="signal_scout_run_status_idx"),
         ),
         migrations.AddIndex(
-            model_name="signalmemory",
-            index=models.Index(fields=["team", "expires_at"], name="signal_memory_expiry_idx"),
+            model_name="signalscratchpad",
+            index=models.Index(fields=["team", "expires_at"], name="signal_scratchpad_expiry_idx"),
         ),
         migrations.AddIndex(
-            model_name="signalmemory",
-            index=django.contrib.postgres.indexes.GinIndex(fields=["tags"], name="signal_memory_tags_gin"),
+            model_name="signalscratchpad",
+            index=django.contrib.postgres.indexes.GinIndex(fields=["tags"], name="signal_scratchpad_tags_gin"),
         ),
         migrations.AddConstraint(
-            model_name="signalmemory",
-            constraint=models.UniqueConstraint(fields=("team", "key"), name="signal_memory_unique_team_key"),
+            model_name="signalscratchpad",
+            constraint=models.UniqueConstraint(fields=("team", "key"), name="signal_scratchpad_unique_team_key"),
         ),
     ]

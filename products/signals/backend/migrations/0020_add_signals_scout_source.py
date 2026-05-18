@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
                     ("conversations", "Conversations"),
                     ("error_tracking", "Error tracking"),
                     ("pganalyze", "pganalyze"),
-                    ("signals_agent", "Signals agent"),
+                    ("signals_scout", "Signals scout"),
                 ],
                 max_length=100,
             ),
