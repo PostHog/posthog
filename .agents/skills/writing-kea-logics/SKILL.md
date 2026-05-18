@@ -144,6 +144,25 @@ Generated `*LogicType.ts` files are produced by `kea-typegen` (we use the
 - `pnpm --filter=@posthog/frontend typegen:write` — one-shot write
 - `pnpm --filter=@posthog/frontend typegen:check` — CI parity check
 
+### Iterating on one logic — skip the full scan
+
+Full typegen + `tsc --noEmit` over the whole codebase is slow. When you're iterating
+on a single logic, scope both to that file:
+
+```sh
+# Regenerate the type for one logic
+pnpm --filter=@posthog/frontend exec kea-typegen write \
+    -f frontend/src/scenes/foo/fooLogic.ts -r ./frontend/src
+
+# Type-check just that file (and its imports — fast, but won't catch downstream
+# breakage in other files that consume the new types)
+pnpm --filter=@posthog/frontend exec tsc --noEmit \
+    frontend/src/scenes/foo/fooLogic.ts
+```
+
+Use this loop while writing the logic; run the full `typegen:check` /
+`typescript:check` once at the end to confirm nothing else broke.
+
 Never edit a `*LogicType.ts` file by hand — change the logic and re-run typegen.
 
 For keyed logics, annotate the export explicitly:
