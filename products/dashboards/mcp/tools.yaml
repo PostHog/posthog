@@ -282,7 +282,66 @@ tools:
         enabled: false
     dashboards-create-from-template-json-create:
         operation: dashboards_create_from_template_json_create
-        enabled: false
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create dashboard from template JSON
+        description: >
+            Create a fully-assembled dashboard in one call from a template JSON payload. The body must
+            include a `template` field matching the DashboardTemplate schema — it carries the dashboard
+            name, description, tags, optional dashboard-level filters, and an array of `tiles` with their
+            queries and grid layouts (each tile is either `type: INSIGHT` with a `query` or `type: TEXT`
+            with a `body`). Prefer this over `dashboard-create` whenever you already have the full set of
+            tiles assembled, to avoid the N+1 round-trips of creating an empty dashboard and then
+            attaching tiles one by one. The optional `creation_context` field tags the action for
+            analytics. Returned tiles omit insight results to save context — use `dashboard-insights-run`
+            to fetch the actual data for each insight.
+        exclude_params:
+            - _create_in_folder
+        response:
+            exclude:
+                - effective_restriction_level
+                - effective_privilege_level
+                - user_access_level
+                - access_control_version
+                - restriction_level
+                - creation_mode
+                - deleted
+                - breakdown_colors
+                - data_color_theme_id
+                - quick_filter_ids
+                - tiles.*.color
+                - tiles.*.transparent_background
+                - tiles.*.show_description
+                - tiles.*.button_tile
+                - tiles.*.insight.result
+                - tiles.*.insight.hasMore
+                - tiles.*.insight.columns
+                - tiles.*.insight.hogql
+                - tiles.*.insight.types
+                - tiles.*.insight.query_status
+                - tiles.*.insight.cache_target_age
+                - tiles.*.insight.next_allowed_client_refresh
+                - tiles.*.insight.filters_hash
+                - tiles.*.insight.dashboards
+                - tiles.*.insight.dashboard_tiles
+                - tiles.*.insight.effective_restriction_level
+                - tiles.*.insight.effective_privilege_level
+                - tiles.*.insight.user_access_level
+                - tiles.*.insight.filters
+                - tiles.*.insight.is_sample
+                - tiles.*.insight.saved
+                - tiles.*.insight.order
+                - tiles.*.insight.deleted
+                - tiles.*.insight.alerts
+                - tiles.*.insight.last_viewed_at
+                - tiles.*.insight.timezone
+                - tiles.*.insight.resolved_date_range
     dashboards-create-unlisted-dashboard-create:
         operation: dashboards_create_unlisted_dashboard_create
         enabled: false
