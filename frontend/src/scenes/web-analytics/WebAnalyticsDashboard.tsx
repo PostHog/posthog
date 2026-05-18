@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import posthog from 'posthog-js'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSegmentedDropdown, LemonSkeleton } from '@posthog/lemon-ui'
@@ -44,6 +43,7 @@ import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAna
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
+import { webAnalyticsLoadTimeLogic } from 'scenes/web-analytics/webAnalyticsLoadTimeLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 
@@ -588,30 +588,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
 }
 
 const WebAnalyticsLoadTimeTracker = (): null => {
-    const { areAnyLoading } = useValues(dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const mountStartRef = useRef<number>(performance.now())
-    const hasObservedLoadingRef = useRef<boolean>(false)
-    const hasCapturedLoadedRef = useRef<boolean>(false)
-
-    useOnMountEffect(() => {
-        posthog.capture('web_analytics_dashboard_mounted', {
-            tile_skeletons_enabled: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_SKELETONS],
-        })
-    })
-
-    useEffect(() => {
-        if (areAnyLoading) {
-            hasObservedLoadingRef.current = true
-        } else if (hasObservedLoadingRef.current && !hasCapturedLoadedRef.current) {
-            hasCapturedLoadedRef.current = true
-            posthog.capture('web_analytics_dashboard_loaded', {
-                duration_ms: Math.round(performance.now() - mountStartRef.current),
-                tile_skeletons_enabled: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_SKELETONS],
-            })
-        }
-    }, [areAnyLoading, featureFlags])
-
+    useMountedLogic(webAnalyticsLoadTimeLogic)
     return null
 }
 
