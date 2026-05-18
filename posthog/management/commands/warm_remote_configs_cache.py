@@ -9,9 +9,10 @@ for teams that haven't been organically re-synced. This command warms it from th
 persisted RemoteConfig.config column without calling build_config(), avoiding the
 expense and side effects of a full rebuild across tens of thousands of teams.
 
-This command writes to Redis only. S3 already has fresh data via the normal
+Writes go through `HyperCache.set_cache_value_redis_only`, which writes to Redis
+only and skips S3 and expiry tracking. S3 already has fresh data via the normal
 sync() path, and the goal here is specifically to populate the Redis tier the
-Rust service reads first. Doing a per-row S3 PUT would turn a fast Redis backfill
+Rust service reads first. A per-row S3 PUT would turn a fast Redis backfill
 into hours of synchronous boto3 round-trips for tens of thousands of teams.
 
 Usage:
@@ -30,10 +31,12 @@ Usage:
 
 import time
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.remote_config import RemoteConfig
 
 logger = structlog.get_logger(__name__)
@@ -70,10 +73,18 @@ class Command(BaseCommand):
         if batch_size <= 0 or batch_size > 10_000:
             raise CommandError("--batch-size must be between 1 and 10000")
 
+        if FLAGS_DEDICATED_CACHE_ALIAS not in settings.CACHES:
+            raise CommandError(
+                "FLAGS_REDIS_URL is not configured. This command backfills the dedicated "
+                "flags Redis the Rust feature-flags service reads. Without FLAGS_REDIS_URL "
+                "set, RemoteConfig.get_hypercache() falls back to the default cache and "
+                "this backfill would target the wrong Redis. Set FLAGS_REDIS_URL and re-run."
+            )
+
         hypercache = RemoteConfig.get_hypercache()
 
         # Read api_token from the related Team in the same query to avoid N+1 lookups.
-        queryset = RemoteConfig.objects.select_related("team").only("team__api_token", "config")
+        queryset = RemoteConfig.objects.select_related("team").only("team__api_token", "config").order_by("team_id")
         if team_ids is not None:
             queryset = queryset.filter(team_id__in=team_ids)
 
@@ -97,11 +108,7 @@ class Command(BaseCommand):
                 continue
 
             try:
-                # Redis-only write — see module docstring. set_cache_value() would
-                # also do a synchronous S3 PUT per row, which is unnecessary work
-                # here (S3 is already populated by the normal sync() path) and
-                # would dominate runtime at the scale this command is built for.
-                hypercache._set_cache_value_redis(team.api_token, remote_config.config)
+                hypercache.set_cache_value_redis_only(team.api_token, remote_config.config)
                 warmed += 1
             except Exception:
                 failed += 1

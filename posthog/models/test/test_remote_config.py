@@ -485,7 +485,16 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                 },
             }
         ):
-            assert RemoteConfig.get_hypercache().cache_client is caches[FLAGS_DEDICATED_CACHE_ALIAS]
+            hypercache = RemoteConfig.get_hypercache()
+            assert hypercache.cache_client is caches[FLAGS_DEDICATED_CACHE_ALIAS]
+
+            # Roundtrip: a value written via the hypercache must land in the
+            # dedicated backend (not just be reachable through cache_client) and
+            # be readable through both direct access and the hypercache reader.
+            hypercache.set_cache_value_redis_only(self.team.api_token, {"token": self.team.api_token, "v": 1})
+            direct_value = caches[FLAGS_DEDICATED_CACHE_ALIAS].get(hypercache.get_cache_key(self.team.api_token))
+            assert direct_value is not None
+            assert hypercache.get_from_cache(self.team.api_token) == {"token": self.team.api_token, "v": 1}
 
     def test_hypercache_falls_back_to_default_cache_when_alias_absent(self):
         from django.core.cache import cache

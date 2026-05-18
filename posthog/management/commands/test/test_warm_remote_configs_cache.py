@@ -5,19 +5,33 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.test import override_settings
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig
 
 
+@override_settings(
+    CACHES={
+        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+        FLAGS_DEDICATED_CACHE_ALIAS: {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "redis://stub:6379/",
+        },
+    }
+)
 class TestWarmRemoteConfigsCache(BaseTest):
     """
     Tests for the warm_remote_configs_cache management command.
 
-    The hypercache writes to whichever cache `RemoteConfig.get_hypercache().cache_client`
-    resolves to — that's the dedicated flags cache when FLAGS_REDIS_URL is configured
-    (the test environment sets it) and the default cache otherwise. Tests read back
-    through the same cache_client so they exercise whichever backend prod would use.
+    In CI, `FLAGS_REDIS_URL` is unset, so `RemoteConfig.get_hypercache().cache_client`
+    resolves to the default LocMemCache. The roundtrip assertions in
+    `test_remote_config.py` cover the dedicated-alias path under `override_settings`.
+
+    These tests register the dedicated alias via `override_settings` so the
+    command's fail-fast guard passes and exercise the writer path the dedicated
+    alias selects.
     """
 
     def setUp(self):
@@ -100,3 +114,8 @@ class TestWarmRemoteConfigsCache(BaseTest):
         mock_s3_write.assert_not_called()
         # Sanity: cache was populated
         assert self._cached_value(self.team.api_token) is not None
+
+    def test_raises_when_dedicated_cache_not_configured(self):
+        with override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}):
+            with self.assertRaisesMessage(CommandError, "FLAGS_REDIS_URL is not configured"):
+                call_command("warm_remote_configs_cache", stdout=StringIO())
