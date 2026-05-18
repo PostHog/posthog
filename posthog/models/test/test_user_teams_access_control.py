@@ -18,15 +18,15 @@ class TestUserTeamsAccessControl(BaseTest):
 
     def setUp(self):
         super().setUp()
-        # Enable advanced permissions for the organization
+        # Enable access control for the organization
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
 
-    def test_user_teams_without_advanced_permissions(self):
-        """Test that without advanced permissions, user sees all teams in their organization."""
-        # Disable advanced permissions
+    def test_user_teams_without_access_control(self):
+        """Test that without access control, user sees all teams in their organization."""
+        # Disable access control
         self.organization.available_product_features = []
         self.organization.save()
 

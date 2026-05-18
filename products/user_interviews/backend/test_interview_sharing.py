@@ -568,15 +568,28 @@ class TestVapiWebhook(APIBaseTest):
         )
         return SharingConfiguration.objects.create(team=self.team, interviewee_context=ic, enabled=True)
 
-    def _end_of_call_payload(self, access_token: str | None, call_id: str = "call_abc") -> dict:
+    def _end_of_call_payload(
+        self, access_token: str | None, call_id: str = "call_abc", metadata_path: str = "top"
+    ) -> dict:
+        # Vapi can surface our `assistant_overrides.metadata` either at `call.metadata`
+        # (top-level) or `call.assistantOverrides.metadata` (nested). The handler must
+        # find it in either path; parameterised tests cover both.
+        if metadata_path == "nested":
+            call: dict[str, Any] = {
+                "id": call_id,
+                "assistantOverrides": {"metadata": {"sharing_access_token": access_token}},
+                "duration": 120,
+            }
+        else:
+            call = {
+                "id": call_id,
+                "metadata": {"sharing_access_token": access_token},
+                "duration": 120,
+            }
         return {
             "message": {
                 "type": "end-of-call-report",
-                "call": {
-                    "id": call_id,
-                    "metadata": {"sharing_access_token": access_token},
-                    "duration": 120,
-                },
+                "call": call,
                 "transcript": "Hi! ...",
                 "summary": "User talked about replay.",
                 "recording": {"url": "https://vapi.example/recording.mp3"},
@@ -593,11 +606,15 @@ class TestVapiWebhook(APIBaseTest):
             HTTP_X_VAPI_SIGNATURE=signature,
         )
 
+    @parameterized.expand([("top",), ("nested",)])
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    def test_webhook_creates_user_interview(self):
+    def test_webhook_creates_user_interview(self, metadata_path: str):
         share = self._create_share()
         self.client.logout()
-        response = self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
+        response = self._signed_post(
+            "topsecret",
+            self._end_of_call_payload(share.access_token, metadata_path=metadata_path),
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         interview = UserInterview.objects.get(team=self.team)
         assert share.interviewee_context is not None
