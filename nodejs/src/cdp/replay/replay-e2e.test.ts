@@ -206,7 +206,7 @@ describe('CDP hog invocation replay e2e', () => {
         cyclotronWorker = new CdpCyclotronWorker(cyclotronConfig, createCdpConsumerDeps(hub, kafkaProducer))
         await cyclotronWorker.start()
 
-        replayManager = new ReplayJobManager({ dbUrl: NODE_DB_URL })
+        replayManager = new ReplayJobManager({ dbUrl: NODE_DB_URL, maxCount: 10000 })
         await replayManager.connect()
 
         globals = createHogExecutionGlobals({

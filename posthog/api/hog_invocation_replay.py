@@ -12,9 +12,13 @@ from datetime import timedelta
 
 from rest_framework import serializers
 
+from posthog.settings.utils import get_from_env
+
 # Hard cap on how many invocations can be queued for replay in a single request.
-# The Node side enforces the same limit defensively — keep both in sync.
-HOG_INVOCATION_REPLAY_MAX_COUNT = 1000
+# Configurable via env so on-callers can bump it without a deploy if a batch
+# replay legitimately needs to drain more rows. The Node side reads the same
+# env var from its CDP config — keep both in sync if you tweak the default.
+HOG_INVOCATION_REPLAY_MAX_COUNT = get_from_env("HOG_INVOCATION_REPLAY_MAX_COUNT", default=10000, type_cast=int)
 
 # Matches the ClickHouse TTL on `hog_invocation_results` (30 days). A replay
 # window any longer would point at partitions that have already been dropped.

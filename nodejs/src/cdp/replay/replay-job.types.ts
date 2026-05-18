@@ -101,6 +101,3 @@ export interface ReplayJobState {
 
 /** Hard cap on rows fetched per replay page (also caps a by-IDs request slice). */
 export const REPLAY_PAGE_SIZE = 200
-
-/** Hard cap on total rows replayed by a single wrapper job. Mirrors HOG_INVOCATION_REPLAY_MAX_COUNT in Django. */
-export const HOG_INVOCATION_REPLAY_MAX_COUNT = 1000

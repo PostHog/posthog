@@ -18,8 +18,9 @@ import type { hogInvocationsLogicType } from './hogInvocationsLogicType'
 
 export const HOG_INVOCATIONS_PAGE_SIZE = 200
 
-/** Mirrors HOG_INVOCATION_REPLAY_MAX_COUNT in `nodejs/src/cdp/replay/replay-job.types.ts`. */
-export const HOG_INVOCATIONS_REPLAY_MAX_COUNT = 1000
+/** Display-side mirror of the backend cap. Backend enforces the actual limit via the
+ * `HOG_INVOCATION_REPLAY_MAX_COUNT` env var (Django serializer + Node CDP config). */
+export const HOG_INVOCATIONS_REPLAY_MAX_COUNT = 10000
 
 export type RunStatus = 'running' | 'succeeded' | 'failed'
 

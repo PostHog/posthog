@@ -100,7 +100,8 @@ export class CdpReplayWorkerConsumer extends CdpConsumerBase<PluginsServerConfig
             this.hogInputsService,
             this.invocationResultsService.invocationResultsRowsService,
             this.cyclotronJobQueue,
-            this.invocationResultsService.monitoringService
+            this.invocationResultsService.monitoringService,
+            this.config.HOG_INVOCATION_REPLAY_MAX_COUNT
         )
 
         this.worker = new CyclotronV2Worker({

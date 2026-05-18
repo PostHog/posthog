@@ -96,6 +96,7 @@ export type CdpConfig = ClickhouseConfig & {
     HOG_INVOCATION_RESULTS_TOPIC: string
     HOG_INVOCATION_RESULTS_PRODUCER: CdpProducerName
     HOG_INVOCATION_RESULTS_ENABLED: boolean
+    HOG_INVOCATION_REPLAY_MAX_COUNT: number
     CDP_PREFILTERED_EVENTS_TOPIC: string
     CDP_PREFILTERED_EVENTS_PRODUCER: CdpProducerName
     CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: string
@@ -205,6 +206,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Off by default — flip to true once the table is migrated and we want to start writing.
         // Per-team rollout still happens at the call site.
         HOG_INVOCATION_RESULTS_ENABLED: isDevEnv() ? true : false,
+        // Hard cap on rows a single replay wrapper job will drain. Mirrors the
+        // Django serializer's HOG_INVOCATION_REPLAY_MAX_COUNT (same env var).
+        HOG_INVOCATION_REPLAY_MAX_COUNT: 10000,
         CDP_PREFILTERED_EVENTS_TOPIC: KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
         CDP_PREFILTERED_EVENTS_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
         CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,

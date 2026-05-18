@@ -203,7 +203,8 @@ describe('ReplayPaginatorService integration', () => {
             hogInputsService,
             paginatorLifecycleService,
             cyclotronJobQueue,
-            paginatorMonitoringService
+            paginatorMonitoringService,
+            10000
         )
     })
 
@@ -508,7 +509,8 @@ describe('ReplayPaginatorService integration', () => {
                 hogInputsService,
                 paginatorLifecycleService,
                 cyclotronJobQueue,
-                paginatorMonitoringService
+                paginatorMonitoringService,
+                10000
             )
 
             const state = buildState({

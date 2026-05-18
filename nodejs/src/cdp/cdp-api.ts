@@ -153,6 +153,7 @@ export class CdpApi {
         if (this.config.CYCLOTRON_NODE_DATABASE_URL) {
             this.replayJobManager = new ReplayJobManager({
                 dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
+                maxCount: this.config.HOG_INVOCATION_REPLAY_MAX_COUNT,
             })
             await this.replayJobManager.connect()
         }

@@ -3,7 +3,6 @@ import { v7 as uuidv7 } from 'uuid'
 import { logger } from '../../utils/logger'
 import { CyclotronV2Manager } from '../services/cyclotron-v2'
 import {
-    HOG_INVOCATION_REPLAY_MAX_COUNT,
     REPLAY_MAX_WINDOW_DAYS,
     REPLAY_QUEUE_NAME,
     ReplayFunctionKind,
@@ -16,6 +15,8 @@ export interface ReplayJobManagerConfig {
     maxConnections?: number
     idleTimeoutMs?: number
     depthLimit?: number
+    /** Mirror of the Django serializer cap (HOG_INVOCATION_REPLAY_MAX_COUNT env var). */
+    maxCount: number
 }
 
 /**
@@ -77,7 +78,7 @@ export class ReplayJobManager {
             )
         }
 
-        const trimmedIds = request.filter.invocation_ids?.slice(0, HOG_INVOCATION_REPLAY_MAX_COUNT)
+        const trimmedIds = request.filter.invocation_ids?.slice(0, this.config.maxCount)
         const filter = { ...request.filter, invocation_ids: trimmedIds }
 
         const state: ReplayJobState = {

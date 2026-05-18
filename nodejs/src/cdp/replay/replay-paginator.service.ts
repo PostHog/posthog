@@ -20,13 +20,7 @@ import {
     HogFunctionInvocationGlobals,
 } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
-import {
-    HOG_INVOCATION_REPLAY_MAX_COUNT,
-    REPLAY_PAGE_SIZE,
-    ReplayFunctionKind,
-    ReplayJobProgress,
-    ReplayJobState,
-} from './replay-job.types'
+import { REPLAY_PAGE_SIZE, ReplayFunctionKind, ReplayJobProgress, ReplayJobState } from './replay-job.types'
 
 const counterReplayPageProcessed = new Counter({
     name: 'cdp_hog_invocation_replay_pages_processed_total',
@@ -102,7 +96,9 @@ export class ReplayPaginatorService {
         private hogInputsService: HogInputsService,
         private invocationResultsRowsService: HogInvocationResultsService,
         private cyclotronJobQueue: CyclotronJobQueue,
-        private monitoringService: HogFunctionMonitoringService
+        private monitoringService: HogFunctionMonitoringService,
+        // Mirror of the Django serializer cap (HOG_INVOCATION_REPLAY_MAX_COUNT env var).
+        private maxCount: number
     ) {}
 
     /**
@@ -326,10 +322,7 @@ export class ReplayPaginatorService {
     }
 
     private remainingBudget(state: ReplayJobState): number {
-        const cap = Math.min(
-            state.request.filter.max_count ?? HOG_INVOCATION_REPLAY_MAX_COUNT,
-            HOG_INVOCATION_REPLAY_MAX_COUNT
-        )
+        const cap = Math.min(state.request.filter.max_count ?? this.maxCount, this.maxCount)
         return Math.max(0, cap - state.progress.queued - state.progress.skipped)
     }
 

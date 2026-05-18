@@ -3,9 +3,10 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '../../utils/json-parse'
 import { ReplayJobManager } from './replay-job.manager'
-import { HOG_INVOCATION_REPLAY_MAX_COUNT, REPLAY_QUEUE_NAME, ReplayJobState } from './replay-job.types'
+import { REPLAY_QUEUE_NAME, ReplayJobState } from './replay-job.types'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
+const TEST_MAX_COUNT = 1000
 
 describe('ReplayJobManager', () => {
     let assertPool: Pool
@@ -13,7 +14,7 @@ describe('ReplayJobManager', () => {
 
     beforeAll(async () => {
         assertPool = new Pool({ connectionString: DB_URL })
-        manager = new ReplayJobManager({ dbUrl: DB_URL })
+        manager = new ReplayJobManager({ dbUrl: DB_URL, maxCount: TEST_MAX_COUNT })
         await manager.connect()
     })
 
@@ -91,14 +92,14 @@ describe('ReplayJobManager', () => {
     })
 
     it('trims oversized invocation_ids lists to the server-side cap', async () => {
-        const ids = Array.from({ length: HOG_INVOCATION_REPLAY_MAX_COUNT + 50 }, (_, i) => `id-${i}`)
+        const ids = Array.from({ length: TEST_MAX_COUNT + 50 }, (_, i) => `id-${i}`)
 
         const jobId = await manager.enqueue(1, 'hog_function', uuidv7(), {
             filter: { ...baseFilter, invocation_ids: ids },
         })
 
         const state = fetchState(await queryJob(jobId))
-        expect(state.request.filter.invocation_ids).toHaveLength(HOG_INVOCATION_REPLAY_MAX_COUNT)
+        expect(state.request.filter.invocation_ids).toHaveLength(TEST_MAX_COUNT)
     })
 
     it('serializes a window-only request (no invocation_ids) with undefined cursor', async () => {
