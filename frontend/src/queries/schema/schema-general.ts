@@ -3128,6 +3128,12 @@ export interface TraceSpansTreeQuery extends DataNode<TraceSpansTreeQueryRespons
      * matched traces — at high name cardinality the query becomes unsafe to run.
      */
     spanName: string
+    /**
+     * Service name that scopes the returned tree. Applied to the spans CTE so the
+     * call-tree only contains spans from this service, even when matched traces
+     * span multiple services.
+     */
+    serviceName: string
     /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
     compareFilter?: CompareFilter
     filterGroup?: PropertyGroupFilter
