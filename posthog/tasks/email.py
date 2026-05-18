@@ -1524,7 +1524,7 @@ def send_oauth_token_exposed(user_id: int, token_type: str, mask_value: str, mor
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_content: str) -> None:
+def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_content: str = "") -> None:
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Skipping new ticket notification: email service not available")
         return
@@ -1560,6 +1560,15 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
 
     if not memberships_to_email:
         return
+
+    # Fetch first message if not provided (signal-based callers don't pass it)
+    if not first_message_content:
+        first_comment = (
+            Comment.objects.filter(team=team, scope="conversations_ticket", item_id=ticket_id, deleted=False)
+            .order_by("created_at")
+            .first()
+        )
+        first_message_content = first_comment.content if first_comment else ""
 
     # Extract customer info from anonymous_traits
     traits = ticket.anonymous_traits or {}

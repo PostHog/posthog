@@ -12,6 +12,7 @@ from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.comment import Comment
+from posthog.tasks.email import send_new_ticket_notification
 
 from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_ticket_created
@@ -57,6 +58,16 @@ def emit_ticket_created_event(sender, instance: Ticket, created: bool, **kwargs)
     def do_emit():
         try:
             capture_ticket_created(instance)
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(instance.id)})
+
+        try:
+            conversations_settings = instance.team.conversations_settings or {}
+            if conversations_settings.get("notification_recipients"):
+                send_new_ticket_notification.delay(
+                    ticket_id=str(instance.id),
+                    team_id=instance.team_id,
+                )
         except Exception as e:
             capture_exception(e, {"ticket_id": str(instance.id)})
 
