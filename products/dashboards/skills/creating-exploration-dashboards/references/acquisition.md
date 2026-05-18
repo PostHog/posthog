@@ -18,17 +18,32 @@ If no signup-shaped event exists, drop tiles 4 and 5 entirely — do **not** sub
 
 ## Canonical tile set (5 tiles)
 
-| #   | Tile                              | Source                                                                                           | Layout       |
-| --- | --------------------------------- | ------------------------------------------------------------------------------------------------ | ------------ |
-| 1   | New users over time               | TrendsQuery, `$pageview`, `math: dau`, daily, -30d (canonical DAU shape with `$pageview` as key) | `pair-left`  |
-| 2   | Traffic by referring domain (14d) | Template below                                                                                   | `pair-right` |
-| 3   | UTM source breakdown (30d)        | Template below                                                                                   | `pair-left`  |
-| 4   | Signup funnel                     | Template below                                                                                   | `pair-right` |
-| 5   | Signups by channel                | Template below                                                                                   | `full`       |
+| #   | Tile                              | Source                                                                           | Layout       |
+| --- | --------------------------------- | -------------------------------------------------------------------------------- | ------------ |
+| 1   | New users over time               | Template below — `math: first_time_for_user` (true first-time visitors, not DAU) | `pair-left`  |
+| 2   | Traffic by referring domain (14d) | Template below                                                                   | `pair-right` |
+| 3   | UTM source breakdown (30d)        | Template below                                                                   | `pair-left`  |
+| 4   | Signup funnel                     | Template below                                                                   | `pair-right` |
+| 5   | Signups by channel                | Template below                                                                   | `full`       |
 
 ## Archetype-specific templates
 
 Substitute `{SIGNUP_EVENT}`, `{ACTIVATION_EVENT}`.
+
+### Tile 1 — New users over time
+
+`math: first_time_for_user` counts each user only on their first occurrence of the event — true acquisition semantics, not "daily active users".
+
+```json
+{
+  "kind": "TrendsQuery",
+  "series": [{ "kind": "EventsNode", "event": "$pageview", "name": "New users", "math": "first_time_for_user" }],
+  "interval": "day",
+  "dateRange": { "date_from": "-30d", "explicitDate": false },
+  "trendsFilter": { "display": "ActionsLineGraph" },
+  "filterTestAccounts": false
+}
+```
 
 ### Tile 2 — Referring domain (14d, bar)
 

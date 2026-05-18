@@ -285,6 +285,7 @@ tools:
         enabled: true
         scopes:
             - dashboard:write
+            - insight:write
         annotations:
             readOnly: false
             destructive: false
@@ -296,11 +297,13 @@ tools:
             include a `template` field matching the DashboardTemplate schema — it carries the dashboard
             name, description, tags, optional dashboard-level filters, and an array of `tiles` with their
             queries and grid layouts (each tile is either `type: INSIGHT` with a `query` or `type: TEXT`
-            with a `body`). Prefer this over `dashboard-create` whenever you already have the full set of
-            tiles assembled, to avoid the N+1 round-trips of creating an empty dashboard and then
-            attaching tiles one by one. The optional `creation_context` field tags the action for
-            analytics. Returned tiles omit insight results to save context — use `dashboard-insights-run`
-            to fetch the actual data for each insight.
+            with a `body`). Each `INSIGHT` tile creates a saved `Insight` record server-side, which is
+            why this tool requires both `dashboard:write` and `insight:write` scopes. Prefer this over
+            `dashboard-create` whenever you already have the full set of tiles assembled, to avoid the
+            N+1 round-trips of creating an empty dashboard and then attaching tiles one by one. The
+            optional `creation_context` field tags the action for analytics. Returned tiles omit insight
+            results to save context — use `dashboard-insights-run` to fetch the actual data for each
+            insight.
         exclude_params:
             - _create_in_folder
         response:

@@ -32,7 +32,7 @@ Prefer custom properties on the feature event (`format`, `plan_type`, `team_size
 
 ### Tile 2 — Adoption funnel
 
-Funnel steps do not accept a per-step `math`; "used again" is naturally captured by the funnel running an event sequence that ends in a second occurrence of `{FEATURE_EVENT}` after `{TRIED_EVENT}`. If `{TRIED_EVENT}` and `{FEATURE_EVENT}` are the same event, drop step 2 and use a 2-step funnel instead.
+Funnel steps accept only the restricted `FunnelMathType` set (`total`, `first_time_for_user`, `first_time_for_user_with_filters`) — never the broader event-math values like `dau`, `sum`, or `unique_session`. For this funnel, omitting `math` is fine: "used again" is naturally captured by the sequence ending in a second occurrence of `{FEATURE_EVENT}` after `{TRIED_EVENT}`. If `{TRIED_EVENT}` and `{FEATURE_EVENT}` are the same event, drop step 2 and use a 2-step funnel instead. (See `revenue.md` tile 5 for an example of `math: first_time_for_user` on a funnel step where first-time semantics matter.)
 
 ```json
 {
