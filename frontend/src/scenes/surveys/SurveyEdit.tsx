@@ -1362,6 +1362,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                       />
                                                       {hasTargetingSet && (
                                                           <>
+                                                              <h3 className="text-xs font-semibold text-secondary uppercase tracking-wider mt-3 mb-0">
+                                                                  Targeting
+                                                              </h3>
                                                               <LemonField
                                                                   name="linked_flag_id"
                                                                   label="Link feature flag (optional)"
@@ -1683,29 +1686,31 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                       }}
                                                                                       label="Don't show this survey if another one was shown to the user in the last"
                                                                                   />
-                                                                                  <LemonInput
-                                                                                      type="number"
-                                                                                      size="xsmall"
-                                                                                      min={1}
-                                                                                      value={
-                                                                                          value?.seenSurveyWaitPeriodInDays ??
-                                                                                          undefined
-                                                                                      }
-                                                                                      onChange={(val) =>
-                                                                                          onChange({
-                                                                                              ...value,
-                                                                                              seenSurveyWaitPeriodInDays:
-                                                                                                  val && val > 0
-                                                                                                      ? val
-                                                                                                      : null,
-                                                                                          })
-                                                                                      }
-                                                                                      className="w-16 tabular-nums"
-                                                                                      id="survey-wait-period-input"
-                                                                                  />
-                                                                                  <span className="text-secondary">
-                                                                                      days.
-                                                                                  </span>
+                                                                                  <div className="flex items-center gap-2">
+                                                                                      <LemonInput
+                                                                                          type="number"
+                                                                                          size="xsmall"
+                                                                                          min={1}
+                                                                                          value={
+                                                                                              value?.seenSurveyWaitPeriodInDays ??
+                                                                                              undefined
+                                                                                          }
+                                                                                          onChange={(val) =>
+                                                                                              onChange({
+                                                                                                  ...value,
+                                                                                                  seenSurveyWaitPeriodInDays:
+                                                                                                      val && val > 0
+                                                                                                          ? val
+                                                                                                          : null,
+                                                                                              })
+                                                                                          }
+                                                                                          className="w-16 tabular-nums"
+                                                                                          id="survey-wait-period-input"
+                                                                                      />
+                                                                                      <span className="text-secondary">
+                                                                                          days.
+                                                                                      </span>
+                                                                                  </div>
                                                                               </div>
                                                                           </LemonField.Pure>
                                                                       </>
@@ -1782,6 +1787,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                       )}
                                                                   </BindLogic>
                                                               </LemonField.Pure>
+                                                              <h3 className="text-xs font-semibold text-secondary uppercase tracking-wider mt-4 mb-0">
+                                                                  Triggers
+                                                              </h3>
                                                               {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] ? (
                                                                   <LemonField.Pure
                                                                       label="Activation triggers"
