@@ -59,8 +59,7 @@ const ALERT_FIELD_MAPPINGS: FieldMapping<Partial<AlertType>, AlertHclExportOptio
     {
         source: 'config',
         target: 'series_index',
-        shouldInclude: (_, alert) =>
-            isTrendsAlertConfig(alert.config) && alert.config.series_index !== undefined,
+        shouldInclude: (_, alert) => isTrendsAlertConfig(alert.config) && alert.config.series_index !== undefined,
         transform: (_, alert) =>
             formatHclValue(isTrendsAlertConfig(alert.config) ? alert.config.series_index : undefined),
     },

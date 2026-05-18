@@ -13,11 +13,11 @@ import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
 export type AlertConfig = TrendsAlertConfig | HogQLAlertConfig
 
-export const isTrendsAlertConfig = (config: AlertConfig): config is TrendsAlertConfig =>
-    config.type === 'TrendsAlertConfig'
+export const isTrendsAlertConfig = (config: AlertConfig | null | undefined): config is TrendsAlertConfig =>
+    config?.type === 'TrendsAlertConfig'
 
-export const isHogQLAlertConfig = (config: AlertConfig): config is HogQLAlertConfig =>
-    config.type === 'HogQLAlertConfig'
+export const isHogQLAlertConfig = (config: AlertConfig | null | undefined): config is HogQLAlertConfig =>
+    config?.type === 'HogQLAlertConfig'
 
 export type BlockedWindow = AlertScheduleRestrictionWindow
 
