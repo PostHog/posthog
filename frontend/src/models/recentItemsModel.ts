@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api, { ApiConfig } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -31,12 +31,21 @@ export const recentItemsModel = kea<recentItemsModelType>([
                         return []
                     }
 
-                    const response = await api.fileSystem.list({
-                        orderBy: '-last_viewed_at',
-                        notType: 'folder',
-                        limit: RECENTS_FETCH_LIMIT,
-                    })
-                    return response.results
+                    try {
+                        const response = await api.fileSystem.list({
+                            orderBy: '-last_viewed_at',
+                            notType: 'folder',
+                            limit: RECENTS_FETCH_LIMIT,
+                        })
+                        return response.results
+                    } catch (e) {
+                        // The team/org may have been deleted in another tab or via the danger zone.
+                        // Swallow the 404 so we don't surface a toast on a permanently-mounted model.
+                        if (e instanceof ApiError && e.status === 404) {
+                            return []
+                        }
+                        throw e
+                    }
                 },
             },
         ],
@@ -48,7 +57,15 @@ export const recentItemsModel = kea<recentItemsModelType>([
                         return {}
                     }
 
-                    const results = await api.fileSystemLogView.list({ type: 'scene' })
+                    let results
+                    try {
+                        results = await api.fileSystemLogView.list({ type: 'scene' })
+                    } catch (e) {
+                        if (e instanceof ApiError && e.status === 404) {
+                            return {}
+                        }
+                        throw e
+                    }
                     const record: Record<string, string> = {}
                     for (const { ref, viewed_at } of results) {
                         const current = record[ref]

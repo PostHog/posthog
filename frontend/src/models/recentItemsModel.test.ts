@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import api, { ApiConfig } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -47,6 +47,39 @@ describe('recentItemsModel', () => {
         expect(listSceneLogViews).not.toHaveBeenCalled()
         expect(logic.values.recents).toEqual([])
         expect(logic.values.sceneLogViewsByRef).toEqual({})
+    })
+
+    it('swallows 404 from list APIs (e.g. after the current team is deleted)', async () => {
+        jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
+        const listRecents = jest
+            .spyOn(api.fileSystem, 'list')
+            .mockRejectedValue(new ApiError('Project not found.', 404))
+        const listSceneLogViews = jest
+            .spyOn(api.fileSystemLogView, 'list')
+            .mockRejectedValue(new ApiError('Project not found.', 404))
+
+        logic = recentItemsModel()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecentsSuccess', 'loadSceneLogViewsSuccess'])
+            .toMatchValues({
+                recents: [],
+                sceneLogViewsByRef: {},
+            })
+        expect(listRecents).toHaveBeenCalledTimes(1)
+        expect(listSceneLogViews).toHaveBeenCalledTimes(1)
+    })
+
+    it('still surfaces non-404 errors from the list APIs', async () => {
+        jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
+        jest.spyOn(api.fileSystem, 'list').mockRejectedValue(new ApiError('Server error', 500))
+        jest.spyOn(api.fileSystemLogView, 'list').mockRejectedValue(new ApiError('Server error', 500))
+
+        logic = recentItemsModel()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadRecentsFailure', 'loadSceneLogViewsFailure'])
     })
 
     it('loads recent items when the current team becomes available after mount', async () => {
