@@ -189,9 +189,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     size="small"
                     tooltip="Refresh list"
                     disabledReason={
-                        noEventsIngested
-                            ? 'No events ingested yet — set up tracking to see recordings'
-                            : undefined
+                        noEventsIngested ? 'No events ingested yet — set up tracking to see recordings' : undefined
                     }
                     data-attr="refresh-recordings-list"
                 />
