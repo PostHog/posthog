@@ -111,7 +111,14 @@ def discover_oauth_metadata(server_url: str) -> dict:
     return _resolve_issuer(_fetch_auth_server_metadata(origin), origin)
 
 
-def register_dcr_client(metadata: dict, redirect_uri: str) -> str:
+def register_dcr_client(metadata: dict, redirect_uri: str) -> tuple[str, str | None]:
+    """Run RFC 7591 Dynamic Client Registration.
+
+    Returns ``(client_id, client_secret)``. Some servers (e.g. Supabase) ignore
+    our ``token_endpoint_auth_method: "none"`` request and register a
+    confidential client — in which case we must keep the returned secret or
+    token exchange fails with ``Required parameter: client_secret``.
+    """
     registration_endpoint = metadata.get("registration_endpoint")
     if not registration_endpoint:
         raise ValueError("Authorization server does not support Dynamic Client Registration")
@@ -137,13 +144,15 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> str:
         )
         resp.raise_for_status()
     data = resp.json()
-    data.pop("client_secret", None)  # Not used for public clients; don't store in plaintext
 
     client_id = data.get("client_id")
     if not client_id:
         raise ValueError("No client_id in DCR response")
 
-    return client_id
+    returned_secret = data.get("client_secret")
+    client_secret = returned_secret if returned_secret and data.get("token_endpoint_auth_method") != "none" else None
+
+    return client_id, client_secret
 
 
 def generate_pkce() -> tuple[str, str]:

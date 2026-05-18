@@ -481,6 +481,62 @@ class TestSSRFProtection(TestCase):
             func(**kwargs)  # type: ignore[operator]
 
 
+class TestRegisterDCRClient(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "drops_secret_when_server_honors_public_client",
+                {"client_id": "abc", "token_endpoint_auth_method": "none"},
+                ("abc", None),
+            ),
+            (
+                "drops_secret_when_server_omits_it",
+                {"client_id": "abc", "token_endpoint_auth_method": "none", "client_secret": ""},
+                ("abc", None),
+            ),
+            (
+                "keeps_secret_when_server_registered_confidential_client_post",
+                {
+                    "client_id": "abc",
+                    "client_secret": "minted-secret",
+                    "token_endpoint_auth_method": "client_secret_post",
+                },
+                ("abc", "minted-secret"),
+            ),
+            (
+                "keeps_secret_when_server_registered_confidential_client_basic",
+                {
+                    "client_id": "abc",
+                    "client_secret": "minted-secret",
+                    "token_endpoint_auth_method": "client_secret_basic",
+                },
+                ("abc", "minted-secret"),
+            ),
+            (
+                "keeps_secret_when_auth_method_unspecified",
+                {"client_id": "abc", "client_secret": "minted-secret"},
+                ("abc", "minted-secret"),
+            ),
+        ]
+    )
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, ""))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_returns_client_secret_only_when_server_requires_it(
+        self, _name, response_body, expected, mock_post, _allow
+    ):
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.json.return_value = response_body
+        mock_post.return_value = mock_response
+
+        result = register_dcr_client(
+            {"registration_endpoint": "https://auth.example.com/register"},
+            "https://app.posthog.com/callback",
+        )
+
+        assert result == expected
+
+
 class TestResolveInstallationOauthContext(BaseTest):
     def test_template_backed_install_returns_template_creds(self):
         template = MCPServerTemplate.objects.create(
