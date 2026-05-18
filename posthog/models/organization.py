@@ -74,10 +74,10 @@ class ProductFeature(TypedDict):
 def _enterprise_only_feature_keys() -> frozenset[str]:
     """Enterprise-plan-only feature keys, computed once per process.
 
-    Sourced from `License.ENTERPRISE_FEATURES - SCALE_FEATURES`. Falls back to
-    `{ACCESS_CONTROL}` when the ee package isn't importable.
+    Sourced from `License.ENTERPRISE_FEATURES - SCALE_FEATURES`. Returns an empty
+    set when the ee package isn't importable.
     """
-    keys: set[str] = {str(AvailableFeature.ACCESS_CONTROL)}
+    keys: set[str] = set()
     try:
         from ee.models.license import License
 
