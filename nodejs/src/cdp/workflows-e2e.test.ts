@@ -4,21 +4,26 @@
  * These tests exercise the full hogflow lifecycle:
  *   event → CdpEventsConsumer → CyclotronJobQueue (produces to v2 DB)
  *   → CdpCyclotronWorkerHogFlow (polls v2 DB) → HogFlowExecutorService
- *   → results written back to v2 DB
+ *   → results written back to v2 DB → logs/metrics to Kafka
  *
- * Only `fetch` and Kafka producers are mocked. The v2 database, Postgres,
- * Redis, person loading, filter evaluation, and state serialization are real.
+ * Only `fetch` is mocked. Everything else is real: v2 database, Kafka
+ * producers, Postgres, Redis, person loading, filter evaluation, and
+ * state serialization.
  */
-// Mock Kafka producers (must be imported before anything that uses KafkaProducerWrapper)
-import '~/tests/helpers/mocks/producer.mock'
+import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
+import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { Pool } from 'pg'
 
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { resetKafka } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
+import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
+import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
@@ -37,6 +42,7 @@ jest.mock('@posthog/cyclotron', () => ({
     CyclotronWorker: jest.fn(),
 }))
 
+const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
 const CYCLOTRON_NODE_DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 
 describe('Workflows E2E (postgres-v2)', () => {
@@ -46,6 +52,8 @@ describe('Workflows E2E (postgres-v2)', () => {
     let hogflowWorker: CdpCyclotronWorkerHogFlow
 
     let hub: Hub
+    let kafkaProducer: KafkaProducerWrapper
+    let mockProducerObserver: KafkaProducerObserver
     let team: Team
     let globals: HogFunctionInvocationGlobals
     let cyclotronPool: Pool
@@ -59,11 +67,22 @@ describe('Workflows E2E (postgres-v2)', () => {
     })
 
     beforeEach(async () => {
+        // Real Kafka producers for all CDP producer slots
+        MockKafkaProducerWrapper.create = jest.fn((...args) => {
+            return ActualKafkaProducerWrapper.create(...args)
+        })
+
+        await resetKafka()
         await resetTestDatabase()
         await cyclotronPool.query('DELETE FROM cyclotron_jobs')
 
         hub = await createHub()
+
+        kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+        mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
+
         team = await getFirstTeam(hub.postgres)
+        mockProducerObserver.resetKafkaProducer()
 
         // Route hogflow to postgres-v2, everything else to kafka
         hub.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = 'hogflow:postgres-v2,*:kafka'
@@ -85,8 +104,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             ],
         })
 
-        // Mock producers — we're testing the v2 DB path, not Kafka output
-        const deps = createCdpConsumerDeps(hub)
+        const deps = createCdpConsumerDeps(hub, kafkaProducer)
 
         // Events consumer — only start as producer (skip Kafka consumer connection).
         // We call processBatch() directly so the Kafka consumer is not needed.
@@ -111,7 +129,9 @@ describe('Workflows E2E (postgres-v2)', () => {
 
     afterEach(async () => {
         await Promise.all([eventsConsumer?.stop().then(() => void 0), hogflowWorker?.stop().then(() => void 0)])
+        await kafkaProducer.disconnect()
         await closeHub(hub)
+        mockProducerObserver.resetKafkaProducer()
     })
 
     function createGlobals(
@@ -188,6 +208,18 @@ describe('Workflows E2E (postgres-v2)', () => {
                 'https://example.com/webhook',
                 expect.objectContaining({ method: 'POST' })
             )
+
+            // Verify metrics were produced to Kafka
+            await waitForExpect(() => {
+                const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(metrics.length).toBeGreaterThanOrEqual(1)
+            }, 5000)
+
+            // Verify logs were produced to Kafka
+            await waitForExpect(() => {
+                const logs = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                expect(logs.length).toBeGreaterThanOrEqual(1)
+            }, 5000)
         })
     })
 
@@ -604,8 +636,8 @@ describe('Workflows E2E (postgres-v2)', () => {
 
     describe('wait_until_time_window: window in the future', () => {
         beforeEach(async () => {
-            // Use a time window far in the future (23:00-23:59 tomorrow) so the job
-            // is always rescheduled. We then fast-forward by updating the DB directly.
+            // Use a time window far in the future so the job is always rescheduled.
+            // We then fast-forward by updating the DB directly.
             await insertHogFlow(
                 hub.postgres,
                 new FixtureHogFlowBuilder()
@@ -744,6 +776,102 @@ describe('Workflows E2E (postgres-v2)', () => {
                 )
                 expect(terminal.length).toBeGreaterThanOrEqual(1)
             }, 5000)
+        })
+    })
+
+    describe('cross-routing: v2 source job released when result routes to kafka', () => {
+        // This test reproduces the root cause of the March 2026 ghost run incident.
+        // The hogflow worker consumed from v2 but had a wrong producer mapping (*:kafka),
+        // causing results to route to Kafka. Without the fix (PR #51599), the v2 source
+        // job was never released — the janitor reset it, creating duplicate executions.
+        let crossRoutingWorker: CdpCyclotronWorkerHogFlow
+
+        beforeEach(async () => {
+            await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: {
+                                type: 'trigger',
+                                config: {
+                                    type: 'event',
+                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                                },
+                            },
+                            function_1: {
+                                type: 'function',
+                                config: {
+                                    template_id: 'template-workflows-e2e-fetch',
+                                    inputs: {
+                                        url: { value: 'https://example.com/cross-route' },
+                                        method: { value: 'POST' },
+                                    },
+                                },
+                            },
+                            exit: { type: 'exit', config: {} },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'function_1', type: 'continue' },
+                            { from: 'function_1', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    .build()
+            )
+
+            // Stop the normal worker — we'll use one with a wrong mapping.
+            // Null it out so the top-level afterEach doesn't try to stop it again.
+            await hogflowWorker.stop()
+            hogflowWorker = undefined as any
+
+            // Create a worker that consumes from v2 but routes ALL results to Kafka.
+            // This simulates the misconfiguration that caused the ghost run incident.
+            const deps = createCdpConsumerDeps(hub, kafkaProducer)
+            crossRoutingWorker = new CdpCyclotronWorkerHogFlow(
+                {
+                    ...hub,
+                    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres-v2',
+                    CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: '*:kafka',
+                },
+                deps
+            )
+            await crossRoutingWorker.start()
+
+            globals = createGlobals()
+        })
+
+        afterEach(async () => {
+            await crossRoutingWorker?.stop()
+            crossRoutingWorker = undefined as any
+        })
+
+        it('should release the v2 source job and execute exactly once', async () => {
+            const { backgroundTask } = await eventsConsumer.processBatch([globals])
+            await backgroundTask
+
+            // Wait for the cross-routing worker to process the job
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+
+            // The v2 source job must be released (acked/completed), NOT left as 'running'.
+            // Before the fix (PR #51599), the job stayed 'running' and the janitor would
+            // reset it, causing 4x duplicate executions.
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                const running = jobs.filter((j: any) => j.status === 'running')
+                expect(running.length).toBe(0)
+            }, 5000)
+
+            // Verify the job was properly released (completed, not stuck)
+            const jobs = await queryCyclotronJobs()
+            const stuckJobs = jobs.filter((j: any) => j.status === 'running' || j.status === 'available')
+            expect(stuckJobs.length).toBe(0)
+
+            // The function should have been called exactly once — no ghost runs
+            expect(mockFetch).toHaveBeenCalledTimes(1)
         })
     })
 })
