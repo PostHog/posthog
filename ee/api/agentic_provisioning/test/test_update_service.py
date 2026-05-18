@@ -320,6 +320,7 @@ class TestProvisioningUpdateService(ProvisioningTestBase):
         from posthog.constants import AvailableFeature
         from posthog.models.oauth import OAuthAccessToken
         from posthog.models.organization import OrganizationMembership
+        from posthog.models.team.team import Team
 
         from ee.models.rbac.access_control import AccessControl
 
@@ -330,19 +331,28 @@ class TestProvisioningUpdateService(ProvisioningTestBase):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
+        # Use a fresh team rather than self.team so AC isn't shadowed by any
+        # implicit grant the test base seeds for the default project.
+        scoped_team = Team.objects.create_with_data(
+            initiating_user=self.user,
+            organization=self.organization,
+            name="Stale-scope project",
+        )
+
         token = self._get_bearer_token()
         access_token = OAuthAccessToken.objects.get(token=token)
-        assert self.team.id in (access_token.scoped_teams or [])
+        access_token.scoped_teams = [*access_token.scoped_teams, scoped_team.id]
+        access_token.save(update_fields=["scoped_teams"])
 
         AccessControl.objects.create(
-            team=self.team,
+            team=scoped_team,
             access_level="none",
             resource="project",
-            resource_id=str(self.team.id),
+            resource_id=str(scoped_team.id),
         )
 
         res = self._post_signed_with_bearer(
-            f"/api/agentic/provisioning/resources/{self.team.id}/update_service",
+            f"/api/agentic/provisioning/resources/{scoped_team.id}/update_service",
             data={"service_id": "analytics"},
             token=token,
         )
