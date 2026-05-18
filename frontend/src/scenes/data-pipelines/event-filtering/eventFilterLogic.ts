@@ -395,17 +395,24 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
     // Load existing config from the API on mount
     afterMount(({ actions, values }) => {
         const { currentTeamId } = values
-        api.get(`api/environments/${currentTeamId}/event_filter/`).then((data) => {
-            actions.setFilterFormValue('id', data.id)
-            actions.setFilterFormValue('mode', data.mode ?? 'disabled')
-            if (data.filter_tree?.type) {
-                actions.setFilterFormValue('filter_tree', data.filter_tree)
-            }
-            const testCases = (data.test_cases ?? []).map((tc: Omit<TestCase, '_key'>) => ({
-                ...tc,
-                _key: nextTestCaseKey(),
-            }))
-            actions.setFilterFormValue('test_cases', testCases)
-        })
+        api.get(`api/environments/${currentTeamId}/event_filter/`)
+            .then((data) => {
+                if (!data) {
+                    return
+                }
+                actions.setFilterFormValue('id', data.id)
+                actions.setFilterFormValue('mode', data.mode ?? 'disabled')
+                if (data.filter_tree?.type) {
+                    actions.setFilterFormValue('filter_tree', data.filter_tree)
+                }
+                const testCases = (data.test_cases ?? []).map((tc: Omit<TestCase, '_key'>) => ({
+                    ...tc,
+                    _key: nextTestCaseKey(),
+                }))
+                actions.setFilterFormValue('test_cases', testCases)
+            })
+            .catch((error) => {
+                lemonToast.error(`Failed to load event filter config: ${error.message ?? error}`)
+            })
     }),
 ])
