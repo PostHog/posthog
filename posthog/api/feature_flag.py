@@ -2356,7 +2356,7 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
         help_text="Filter by flag type.",
     )
     evaluation_runtime = serializers.ChoiceField(
-        choices=["server", "client", "all"],
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
         required=False,
         help_text="Filter by evaluation runtime.",
     )
@@ -2412,7 +2412,10 @@ class BulkDeleteErrorItemSerializer(serializers.Serializer):
 
 class BulkDeleteResponseSerializer(serializers.Serializer):
     deleted = BulkDeleteDeletedItemSerializer(many=True, help_text="Flags successfully soft-deleted.")
-    errors = BulkDeleteErrorItemSerializer(many=True, help_text="Flags that could not be deleted, with reasons.")
+    # Shadows the inherited Serializer.errors property — mypy complains about the type mismatch.
+    errors: serializers.ListSerializer = BulkDeleteErrorItemSerializer(  # type: ignore[assignment]
+        many=True, help_text="Flags that could not be deleted, with reasons."
+    )
 
 
 # ClickHouse cost attribution: this viewset currently has no direct ClickHouse calls —
