@@ -262,10 +262,34 @@ export default function ExporterInterviewScene({
                     lastPhaseRef.current = next
                     setConversationPhase(next)
                 }
-                vapi.on('call-end', () => setState('ended'))
+                // Daily.co's normal end-of-call eviction surfaces as an `error` event in the
+                // Vapi SDK ("Meeting ended due to ejection: Meeting has ended"), often racing
+                // with the `call-end` event. Suppress that race so the error panel doesn't
+                // flash as the interview wraps up — but ONLY when the call actually got off
+                // the ground. A pre-connection failure that happens to mention "Meeting has
+                // ended" (e.g. joining an already-ended room) must still surface as an
+                // error so the user gets the retry affordance.
+                const callEndedRef = { current: false }
+                const callConnectedRef = { current: false }
+                const isBenignEndOfCallError = (msg: string): boolean =>
+                    msg.includes('Meeting has ended') || msg.includes('Meeting ended due to ejection')
+                vapi.on('call-end', () => {
+                    callEndedRef.current = true
+                    setState('ended')
+                })
                 vapi.on('error', (e: unknown) => {
+                    const message = e instanceof Error ? e.message : ''
+                    // call-end already fired — definitely post-end, swallow.
+                    if (callEndedRef.current) {
+                        return
+                    }
+                    // Benign message + we'd reached in-call → call is ending, swallow.
+                    // Benign message but never connected → real failure, surface it.
+                    if (callConnectedRef.current && isBenignEndOfCallError(message)) {
+                        return
+                    }
                     vapi.stop()
-                    setErrorMessage(e instanceof Error ? e.message : 'Vapi reported an error during the call.')
+                    setErrorMessage(message || 'Vapi reported an error during the call.')
                     setState('error')
                 })
                 vapi.on('speech-start', () => {
@@ -300,6 +324,9 @@ export default function ExporterInterviewScene({
                     vapi.stop()
                     return
                 }
+                // Mark that the call actually connected — gates the benign-error suppression
+                // so pre-connection "Meeting has ended" failures still surface to the user.
+                callConnectedRef.current = true
                 setState((current) => (current === 'connecting' ? 'in-call' : current))
             } catch (e) {
                 if (!isMountedRef.current) {

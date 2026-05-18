@@ -310,6 +310,11 @@ export const TracingSpansTreeCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'Span name to scope the matched trace set. Required because the (trace_id, parent_span_id) self-join is unsafe without bounding the matched traces.'
                 ),
+            serviceName: zod
+                .string()
+                .describe(
+                    'Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services.'
+                ),
             dateRange: zod
                 .object({
                     date_from: zod
