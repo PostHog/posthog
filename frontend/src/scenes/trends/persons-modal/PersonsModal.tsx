@@ -454,25 +454,27 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                             {matchedRecordings.length} recordings
                         </LemonButton>
                     </div>
-                ) : (
+                ) : matchedRecordings.length === 1 ? (
                     <ViewRecordingButton
-                        sessionId={matchedRecordings[0]?.session_id}
-                        checkIfViewed={matchedRecordings.length > 0}
-                        matchingEvents={
-                            matchedRecordings[0]
-                                ? [
-                                      {
-                                          events: matchedRecordings[0].events,
-                                          session_id: matchedRecordings[0].session_id,
-                                      },
-                                  ]
-                                : undefined
-                        }
+                        sessionId={matchedRecordings[0].session_id}
+                        checkIfViewed={true}
+                        matchingEvents={[
+                            {
+                                events: matchedRecordings[0].events,
+                                session_id: matchedRecordings[0].session_id,
+                            },
+                        ]}
                         type="secondary"
                         size="small"
                         openPlayerIn={RecordingPlayerType.Modal}
-                        hasRecording={matchedRecordings.length > 0}
+                        hasRecording={true}
                     />
+                ) : (
+                    <Tooltip title="No session replay was captured for this event">
+                        <span className="text-xs text-secondary shrink-0 cursor-default select-none">
+                            No recording
+                        </span>
+                    </Tooltip>
                 )}
             </div>
 
