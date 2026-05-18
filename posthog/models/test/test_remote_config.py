@@ -468,6 +468,25 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         self.remote_config.sync()
         assert RemoteConfig.get_hypercache().get_from_cache(self.team.api_token) is not None
 
+    def test_hypercache_uses_dedicated_cache_when_alias_registered(self):
+        from django.core.cache import caches
+
+        from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
+
+        with override_settings(
+            CACHES={
+                "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+                FLAGS_DEDICATED_CACHE_ALIAS: {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+            }
+        ):
+            assert RemoteConfig.get_hypercache().cache_client is caches[FLAGS_DEDICATED_CACHE_ALIAS]
+
+    def test_hypercache_falls_back_to_default_cache_when_alias_absent(self):
+        from django.core.cache import cache
+
+        with override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}):
+            assert RemoteConfig.get_hypercache().cache_client is cache
+
     @patch("posthog.models.remote_config.requests.post")
     def test_purges_cdn_cache_on_sync(self, mock_post):
         with self.settings(
