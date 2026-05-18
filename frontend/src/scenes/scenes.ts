@@ -373,6 +373,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: false,
     },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true, layout: 'plain' },
+    [Scene.Pulse]: {
+        projectBased: true,
+        name: 'Pulse',
+        description: 'Proactive insights surfaced by Max from your team\'s key metrics.',
+    },
     [Scene.ProjectCreateFirst]: {
         name: 'Project creation',
         organizationBased: true,
@@ -883,6 +888,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],
     [urls.preflight()]: [Scene.PreflightCheck, 'preflight'],
+    [urls.pulse()]: [Scene.Pulse, 'pulse'],
     [urls.signup()]: [Scene.Signup, 'signup'],
     [urls.inviteSignup(':id')]: [Scene.InviteSignup, 'inviteSignup'],
     [urls.passwordReset()]: [Scene.PasswordReset, 'passwordReset'],

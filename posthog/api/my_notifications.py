@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from django.db.models import Q
 
@@ -14,6 +14,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ServerTimingsGathered, action
 from posthog.models import ActivityLog, Cohort, NotificationViewed, User
 from posthog.models.comment import Comment
+from posthog.models.pulse import PULSE_ACTIVITY_SCOPE
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -34,7 +35,7 @@ class MyNotificationsSerializer(serializers.ModelSerializer):
         if "user" not in self.context:
             return False
 
-        user_bookmark: Optional[NotificationViewed] = NotificationViewed.objects.filter(
+        user_bookmark: NotificationViewed | None = NotificationViewed.objects.filter(
             user=self.context["user"]
         ).first()
 
@@ -223,6 +224,8 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         | Q(Q(scope="Comment") & Q(item_id__in=my_comments))
                         | Q(Q(scope="Cohort") & Q(item_id__in=my_cohorts))
                         | Q(Q(scope="HogFunction") & Q(item_id__in=my_hog_functions))
+                        # Pulse findings are system-generated and surface to every team member.
+                        | Q(scope=PULSE_ACTIVITY_SCOPE)
                     )
                     | Q(
                         # don't want to see creation of these things since that was before the user edited these things

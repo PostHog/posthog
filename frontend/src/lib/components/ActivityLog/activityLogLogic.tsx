@@ -32,6 +32,7 @@ import { hogFunctionActivityDescriber } from 'scenes/hog-functions/misc/activity
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { productTourActivityDescriber } from 'scenes/product-tours/activityDescriptions'
+import { pulseActivityDescriber } from 'scenes/pulse/activityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import {
@@ -179,6 +180,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return externalDataSourceActivityDescriber
         case ActivityScope.USER:
             return userActivityDescriber
+        case ActivityScope.PULSE:
+            return pulseActivityDescriber
         case ActivityScope.ENDPOINT:
         case ActivityScope.ENDPOINT_VERSION:
             return endpointActivityDescriber

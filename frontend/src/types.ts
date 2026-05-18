@@ -5597,6 +5597,7 @@ export enum ActivityScope {
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
+    PULSE = 'Pulse',
     TICKET = 'Ticket',
     INSTANCE_SETTING = 'InstanceSetting',
 }

@@ -57,6 +57,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.HogFunction]: () => import('./hog-functions/HogFunctionScene'),
     [Scene.Insight]: () => import('./insights/InsightScene'),
     [Scene.InsightQuickStart]: () => import('./insights/InsightQuickStart/InsightQuickStart'),
+    [Scene.Pulse]: () => import('./pulse/Pulse'),
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.StripeConfirmInstall]: () => import('./StripeConfirmInstall/StripeConfirmInstall'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),

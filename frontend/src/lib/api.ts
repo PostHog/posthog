@@ -249,6 +249,12 @@ import { AgentMode } from '../queries/schema'
 import type { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
+    PulseDigestDetail,
+    PulseDigestSummary,
+    PulseFindingType,
+    PulseSubscriptionType,
+} from 'scenes/pulse/pulseTypes'
+import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
     ErrorTrackingSettings,
@@ -679,6 +685,25 @@ export class ApiRequest {
         return this.comments(teamId).addPathComponent(id)
     }
 
+    // # Pulse
+    public pulseDigests(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('pulse_digests')
+    }
+    public pulseDigest(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.pulseDigests(teamId).addPathComponent(id)
+    }
+    public pulseFindings(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('pulse_findings')
+    }
+    public pulseFinding(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.pulseFindings(teamId).addPathComponent(id)
+    }
+    public pulseSubscriptions(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('pulse_subscriptions')
+    }
+    public pulseSubscription(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.pulseSubscriptions(teamId).addPathComponent(id)
+    }
     // # Exports
     public exports(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('exports')
@@ -2745,6 +2770,38 @@ const api = {
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {
             return new ApiRequest().comment(id, teamId).withAction('reopen').create()
+        },
+    },
+
+    pulse: {
+        async listDigests(): Promise<{ results: PulseDigestSummary[]; count: number }> {
+            return new ApiRequest().pulseDigests().get()
+        },
+        async getDigest(id: string): Promise<PulseDigestDetail> {
+            return new ApiRequest().pulseDigest(id).get()
+        },
+        async listFindings(digestId?: string): Promise<{ results: PulseFindingType[]; count: number }> {
+            const req = new ApiRequest().pulseFindings()
+            return digestId ? req.withQueryString({ digest: digestId }).get() : req.get()
+        },
+        async submitFeedback(
+            findingId: string,
+            action: 'pending' | 'up' | 'down' | 'dismissed' | 'snoozed',
+            snoozed_until?: string
+        ): Promise<PulseFindingType> {
+            return new ApiRequest()
+                .pulseFinding(findingId)
+                .withAction('feedback')
+                .create({ data: { action, snoozed_until } })
+        },
+        async currentSubscription(): Promise<PulseSubscriptionType> {
+            return new ApiRequest().pulseSubscriptions().withAction('current').get()
+        },
+        async createSubscription(data: Partial<PulseSubscriptionType>): Promise<PulseSubscriptionType> {
+            return new ApiRequest().pulseSubscriptions().create({ data })
+        },
+        async updateSubscription(id: string, data: Partial<PulseSubscriptionType>): Promise<PulseSubscriptionType> {
+            return new ApiRequest().pulseSubscription(id).update({ data })
         },
     },
 

@@ -164,6 +164,7 @@ export const urls = {
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
     twoFactorReset: (userUuid: string, token: string): string => `/reset_2fa/${userUuid}/${token}`,
     preflight: (): string => '/preflight',
+    pulse: (): string => '/pulse',
     signup: (): string => '/signup',
     verifyEmail: (userUuid: string = '', token: string = ''): string =>
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
