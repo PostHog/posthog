@@ -2536,18 +2536,22 @@ def numberLiteral_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str
                 parts.append("+")
             if group_idx == 1:
                 parts.append("-")
-        group_idx = draw(st.integers(min_value=0, max_value=5))
+        group_idx = draw(st.integers(min_value=0, max_value=7))
         if group_idx == 0:
             parts.append(draw(floatingLiteral_strategy(_dec(depth))))
         if group_idx == 1:
-            parts.append(draw(octal_literal_token))
+            parts.append("<unresolved:BINARY_LITERAL>")
         if group_idx == 2:
-            parts.append(draw(decimal_literal_token))
+            parts.append(draw(octal_literal_token))
         if group_idx == 3:
-            parts.append(draw(hexadecimal_literal_token))
+            parts.append("<unresolved:OCTAL_PREFIX_LITERAL>")
         if group_idx == 4:
-            parts.append(draw(st.sampled_from(["inf", "infinity"])))
+            parts.append(draw(decimal_literal_token))
         if group_idx == 5:
+            parts.append(draw(hexadecimal_literal_token))
+        if group_idx == 6:
+            parts.append(draw(st.sampled_from(["inf", "infinity"])))
+        if group_idx == 7:
             parts.append("nan")
         return " ".join(p for p in parts if p)
 

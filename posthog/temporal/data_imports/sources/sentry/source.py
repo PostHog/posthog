@@ -98,7 +98,12 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
         }
 
     def get_schemas(
-        self, config: SentrySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: SentrySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = []
         for endpoint in ENDPOINTS:

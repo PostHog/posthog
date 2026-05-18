@@ -14,7 +14,21 @@ import { Autocomplete } from '@base-ui/react/autocomplete'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconChevronRight } from '@posthog/icons'
-import { Button, cn, InputGroup, InputGroupInput, MenuLabel, ScrollArea, Separator } from '@posthog/quill'
+import {
+    cn,
+    InputGroup,
+    InputGroupAddon,
+    InputGroupInput,
+    MenuLabel,
+    ScrollArea,
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+    Separator,
+} from '@posthog/quill'
 
 import { createFuse } from 'lib/utils/fuseSearch'
 
@@ -156,6 +170,19 @@ export function MenuFilterCombobox({
     // category and hide the chip row per spec.
     const showChips = drillTo === 'all'
     const visibleChipGroups = useMemo(() => groups.filter((g) => !HIDDEN_FROM_CHIPS.has(g.type)), [groups])
+
+    // Ordered category list — drives the category dropdown and Tab cycling
+    // (kept in sync so the dropdown trigger reflects the active scope).
+    const categoryOptions = useMemo<{ value: DrillCategory; label: string }[]>(() => {
+        const opts: { value: DrillCategory; label: string }[] = [{ value: 'all', label: 'All' }]
+        if (suggestedItems && suggestedItems.length > 0) {
+            opts.push({ value: 'suggested', label: 'Suggested' })
+        }
+        for (const g of visibleChipGroups) {
+            opts.push({ value: g.type, label: g.name })
+        }
+        return opts
+    }, [suggestedItems, visibleChipGroups])
 
     // Resolve which groups feed the visible list, based on the active chip
     // (or the drill scope when chips are hidden).
@@ -335,12 +362,10 @@ export function MenuFilterCombobox({
             return
         }
         if (e.key === 'Tab' && showChips && visibleChipGroups.length > 0) {
-            // Cycle chips while focus stays on input. Wraps both directions.
-            const ordered: DrillCategory[] = [
-                'all',
-                ...(suggestedItems && suggestedItems.length > 0 ? (['suggested'] as const) : []),
-                ...visibleChipGroups.map((g) => g.type),
-            ]
+            // Cycle categories while focus stays on input. Wraps both
+            // directions. Shares `categoryOptions` with the dropdown so the
+            // trigger label stays in sync.
+            const ordered = categoryOptions.map((o) => o.value)
             const idx = ordered.indexOf(activeChip)
             const dir = e.shiftKey ? -1 : 1
             const next = ordered[(idx + dir + ordered.length) % ordered.length]
@@ -395,45 +420,45 @@ export function MenuFilterCombobox({
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                 />
+                                {/* Category dropdown — trailing addon. Picks
+                                    the active scope; replaces the old
+                                    flex-wrapped chip row. Only shown when
+                                    there's more than the implicit "All"
+                                    category to choose between. */}
+                                {showChips && categoryOptions.length > 1 && (
+                                    <InputGroupAddon align="inline-end">
+                                        <Select<DrillCategory>
+                                            value={activeChip}
+                                            onValueChange={(value) => {
+                                                setActiveChip(value ?? 'all')
+                                                inputRef.current?.focus()
+                                            }}
+                                            itemToStringLabel={(value) =>
+                                                categoryOptions.find((o) => o.value === value)?.label ?? 'All'
+                                            }
+                                        >
+                                            <SelectTrigger
+                                                size="sm"
+                                                aria-label="Filter category"
+                                                data-attr="menu-filter-category"
+                                                className="mr-0.5"
+                                            >
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent align="end">
+                                                <SelectGroup>
+                                                    {categoryOptions.map((o) => (
+                                                        <SelectItem key={o.value} value={o.value}>
+                                                            {o.label}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectGroup>
+                                            </SelectContent>
+                                        </Select>
+                                    </InputGroupAddon>
+                                )}
                             </InputGroup>
                         </div>
-                        {showChips && (
-                            <div role="tablist" className="flex flex-wrap gap-1 px-2 py-1 border-b">
-                                <ChipButton
-                                    label="All"
-                                    active={activeChip === 'all'}
-                                    onSelect={() => {
-                                        setActiveChip('all')
-                                        inputRef.current?.focus()
-                                    }}
-                                />
-                                {/* `Suggested` chip = Recent ∪ Pinned across
-                                    groups. Only render when there's something
-                                    to surface — empty Suggested just adds
-                                    visual noise. */}
-                                {suggestedItems && suggestedItems.length > 0 && (
-                                    <ChipButton
-                                        label="Suggested"
-                                        active={activeChip === 'suggested'}
-                                        onSelect={() => {
-                                            setActiveChip('suggested')
-                                            inputRef.current?.focus()
-                                        }}
-                                    />
-                                )}
-                                {visibleChipGroups.map((g) => (
-                                    <ChipButton
-                                        key={g.type}
-                                        label={g.name}
-                                        active={activeChip === g.type}
-                                        onSelect={() => {
-                                            setActiveChip(g.type)
-                                            inputRef.current?.focus()
-                                        }}
-                                    />
-                                ))}
-                            </div>
-                        )}
                         {!drillItems &&
                             targetGroups.map((g) => <Fetcher key={g.type} group={g} onItems={reportItems} />)}
                         <ScrollArea className="flex-1 min-h-0 scroll-py-8" alwaysShowScrollbars>
@@ -565,28 +590,6 @@ function Row({ entry, showCategory, opensSubmenu, selectedRowId, onCommit }: Row
             {isSelected && <IconCheck className="size-3.5 text-foreground shrink-0" />}
             {opensSubmenu && <IconChevronRight className="size-3.5 text-tertiary shrink-0" />}
         </Autocomplete.Item>
-    )
-}
-
-interface ChipButtonProps {
-    label: string
-    active: boolean
-    onSelect: () => void
-}
-
-function ChipButton({ label, active, onSelect }: ChipButtonProps): JSX.Element {
-    return (
-        <Button
-            type="button"
-            role="tab"
-            size="sm"
-            aria-selected={active}
-            variant={active ? 'primary' : 'outline'}
-            onMouseDown={(e: React.MouseEvent<HTMLButtonElement>) => e.preventDefault()}
-            onClick={onSelect}
-        >
-            {label}
-        </Button>
     )
 }
 
