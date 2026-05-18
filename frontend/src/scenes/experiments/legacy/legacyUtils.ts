@@ -63,8 +63,15 @@ export const getTabularExperimentResults =
 
         const tabularResults = []
         const metricType = isSecondary
-            ? getInsightType(experiment.metrics_secondary?.[index])
-            : getInsightType(experiment.metrics?.[index])
+            ? getInsightType(
+                  experiment.metrics_secondary?.[index] as
+                      | ExperimentTrendsQuery
+                      | ExperimentFunnelsQuery
+                      | undefined
+              )
+            : getInsightType(
+                  experiment.metrics?.[index] as ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined
+              )
         const result = isSecondary ? legacySecondaryMetricsResults?.[index] : legacyPrimaryMetricsResults?.[index]
 
         if (result) {
