@@ -27,10 +27,10 @@ export interface TestFormData {
 
 const EMPTY_FORM: TestFormData = { person_id: '', timestamp: '', groups: '' }
 
-function validateAndParseGroups(groups: string): string {
+function validateAndParseGroups(groups: string): Record<string, any> {
     const trimmed = groups.trim()
     if (!trimmed) {
-        return '{}'
+        return {}
     }
 
     try {
@@ -38,7 +38,7 @@ function validateAndParseGroups(groups: string): string {
         if (typeof parsed !== 'object' || Array.isArray(parsed)) {
             throw new Error('groups must be a JSON object')
         }
-        return trimmed
+        return parsed
     } catch (e) {
         throw e instanceof SyntaxError ? new Error('Invalid JSON format for groups') : e
     }
