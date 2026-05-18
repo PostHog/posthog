@@ -411,12 +411,18 @@ class OAuthValidator(OAuth2Validator):
         valid until expiry. ``revoke_oauth_session`` deletes by
         ``(user, application)``, which is the same semantics the UI revoke flow
         in ``connected_apps`` uses.
+
+        ``token_type_hint`` is OPTIONAL per RFC 7009 §2.1 and the server MUST
+        fall back to searching all token types when the hint doesn't locate the
+        token. We always probe the refresh-token table so the sweep fires for
+        omitted, ``refresh_token``, and (incorrect) ``access_token`` hints
+        alike; a single indexed lookup is cheap and the cost of getting this
+        wrong is leaving compromised tokens valid.
         """
-        if token_type_hint == "refresh_token":
-            rt = OAuthRefreshToken.objects.filter(token=token, revoked__isnull=True).first()
-            if rt and self._is_dynamic_client(request):
-                revoke_oauth_session(refresh_token=rt)
-                return
+        rt = OAuthRefreshToken.objects.filter(token=token, revoked__isnull=True).first()
+        if rt and self._is_dynamic_client(request):
+            revoke_oauth_session(refresh_token=rt)
+            return
         return super().revoke_token(token, token_type_hint, request, *args, **kwargs)
 
     def get_additional_claims(self, request):

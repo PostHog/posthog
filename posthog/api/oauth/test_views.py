@@ -2776,8 +2776,16 @@ class TestOAuthAPI(APIBaseTest):
             "the post-grant lookup at oauth2_provider/views/base.py:309 depends on it",
         )
 
+    @parameterized.expand(
+        [
+            # RFC 7009 §4.1.2 makes token_type_hint optional; the sweep must fire in all three cases.
+            ("with_refresh_token_hint", "refresh_token"),
+            ("with_no_hint", None),
+            ("with_wrong_access_token_hint", "access_token"),
+        ]
+    )
     @freeze_time("2025-01-01 00:00:00")
-    def test_dcr_refresh_token_revoke_sweeps_all_refresh_issued_access_tokens(self):
+    def test_dcr_refresh_token_revoke_sweeps_all_refresh_issued_access_tokens(self, _name, hint):
         # Revoking a non-rotating refresh token via /oauth/revoke/ must invalidate every
         # access_token issued from it, not just the original authorization_code-issued
         # row. Refresh-issued rows carry source_refresh_token=None, so the upstream
@@ -2831,14 +2839,13 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(OAuthAccessToken.objects.filter(token=refresh_issued_access_token).exists())
         self.assertNotEqual(original_access_token, refresh_issued_access_token)
 
-        revoke_response = self.post(
-            "/oauth/revoke/",
-            {
-                "token": refresh_token,
-                "token_type_hint": "refresh_token",
-                "client_id": self.public_application.client_id,
-            },
-        )
+        revoke_body = {
+            "token": refresh_token,
+            "client_id": self.public_application.client_id,
+        }
+        if hint is not None:
+            revoke_body["token_type_hint"] = hint
+        revoke_response = self.post("/oauth/revoke/", revoke_body)
         self.assertEqual(revoke_response.status_code, status.HTTP_200_OK)
 
         self.assertFalse(OAuthAccessToken.objects.filter(token=original_access_token).exists())
