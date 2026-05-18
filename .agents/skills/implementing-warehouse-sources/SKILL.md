@@ -359,30 +359,51 @@ From `posthog/temporal/data_imports/sources/common/mixins.py`:
 
 ## Testing expectations
 
-Add at least two test modules:
+Guiding principle: **test behavior and contracts, not wiring.** A test whose only failure
+mode is "someone changed the code on purpose" — and which is fixed by editing the test to
+match — adds maintenance cost without catching regressions. Mocking a collaborator and
+asserting it was called with the arguments you just fed it restates the implementation; it
+does not verify it.
 
-- `tests/test_<source>_source.py` (source-class level):
-  - `source_type`
-  - `get_source_config` fields and labels
-  - `get_schemas` outputs
-  - `validate_credentials` success/failure
-  - `source_for_pipeline` argument plumbing
-  - for resumable sources: `get_resumable_source_manager` returns a manager bound to the right data class
-  - for webhook sources: `create_webhook` / `delete_webhook` / `get_external_webhook_info` behavior, `webhook_resource_map` correctness, `webhook_template` presence
-- `tests/test_<source>.py` (transport level):
-  - paginator behavior from response headers/body
+Add two test modules:
+
+- `tests/test_<source>.py` (transport level) — **this is where most of the value is.** Cover:
+  - paginator behavior from response headers/body (next-page detection, termination, the
+    `has_more`-but-missing-cursor failure path)
   - resource generation for incremental vs non-incremental
   - endpoint-specific primary key mapping
-  - credential validation status mapping
-  - mapper/filter helpers if present
+  - credential validation status mapping (parameterize over status codes)
+  - row normalization / mapper / filter helpers — one case per branch, including input
+    shapes that intentionally flatten to `null`
   - fan-out endpoint row format assertions (dict shape + parent identifiers)
-  - for dependent-resource fan-out: mock `rest_api_resources`, pass rows with `_<parent>_<field>` keys to exercise parent-field injection and rename behavior
+  - for dependent-resource fan-out: mock `rest_api_resources`, pass rows with
+    `_<parent>_<field>` keys to exercise parent-field injection and rename behavior
   - expected return schema checks for each declared endpoint in `settings.py`
-  - for resumable sources: resume-from-saved-state path (manager returns state, transport uses it as starting point); state is saved after each batch
+  - for resumable sources: resume-from-saved-state path (manager returns state, transport
+    uses it as the starting point); state is saved _after_ each batch
 
-Prefer behavior tests over config-shape tests. Avoid brittle assertions on internal config dict structure unless they protect a known regression that cannot be asserted via output behavior.
+- `tests/test_<source>_source.py` (source-class level) — only the parts with real logic or
+  downstream coupling:
+  - `get_schemas` outputs — real branching (static vs dynamic discovery, `names` filtering,
+    per-id vs full enumeration, error propagation). Test it thoroughly.
+  - for webhook sources: `create_webhook` / `delete_webhook` / `get_external_webhook_info`
+    behavior, `webhook_resource_map` correctness, `webhook_template` presence — real logic.
+  - `get_source_config` **only** for field values that are a contract other code depends
+    on: the OAuth/input field `name` (must match the generated config key) and `kind`
+    (must match the `Integration` lookup). A rename there breaks the source silently, so
+    pin it. Do **not** assert labels, captions, `releaseStatus`, or `featureFlag` — that's
+    copy that changes for product reasons; the assertion would just mirror the code.
+  - any real conditional in `source_for_pipeline` (e.g. full refresh must _not_ leak the
+    incremental cursor field/value) — test the resulting behavior, not kwarg pass-through.
 
-Use parameterized tests for status codes and edge cases. Lean toward over-covering.
+  Skip the tautology tests this layer attracts: asserting `source_type` returns its
+  constant, asserting `validate_credentials`/`source_for_pipeline` "delegates" by checking
+  a mock was called with what you passed, or reaching into a private attribute
+  (`manager._data_class`) to assert wiring. A type checker plus the transport tests cover
+  that wiring already — more cheaply and without lock-step maintenance.
+
+Use parameterized tests for status codes and edge cases. Lean toward over-covering the
+transport layer; lean toward under-covering pure wiring.
 
 ## Implementation checklist
 
