@@ -1367,11 +1367,11 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                               <LemonField
                                                                   name="linked_flag_id"
                                                                   label="Feature flag targeting"
-                                                                  info="Optionally limit this survey to users who have a specific feature flag enabled. Connecting a flag enables the survey for everyone the flag is on for."
+                                                                  help="Optionally limit this survey to users who have a specific feature flag enabled. Connecting a flag enables the survey for everyone the flag is on for."
                                                               >
                                                                   {({ value, onChange }) => (
                                                                       <div
-                                                                          className="flex"
+                                                                          className="flex items-center gap-2"
                                                                           data-attr="survey-display-conditions-linked-flag"
                                                                       >
                                                                           <FlagSelector
@@ -1428,7 +1428,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                           />
                                                                           {value && (
                                                                               <LemonButton
-                                                                                  className="ml-2"
                                                                                   type="tertiary"
                                                                                   size="small"
                                                                                   icon={<IconTrash />}
@@ -1498,10 +1497,11 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                           <LemonField.Pure
                                                                               label="URL targeting"
                                                                               error={urlMatchTypeValidationError}
-                                                                              info="Targeting by regex or exact match requires at least version 1.82 of posthog-js"
+                                                                              help="Match the current URL against the pattern you provide. Regex and exact match require posthog-js 1.82 or later."
                                                                           >
                                                                               <div className="flex flex-row gap-2 items-center">
                                                                                   <LemonSelect
+                                                                                      className="w-40 shrink-0"
                                                                                       value={
                                                                                           value?.urlMatchType ||
                                                                                           SurveyMatchType.Contains
@@ -1547,22 +1547,22 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               error={
                                                                                   deviceTypesMatchTypeValidationError
                                                                               }
-                                                                              info={
+                                                                              help={
                                                                                   <>
-                                                                                      Add the device types to show the
-                                                                                      survey on. Possible values:
-                                                                                      'Desktop', 'Mobile', 'Tablet'. For
-                                                                                      the full list and caveats,{' '}
+                                                                                      Restrict the survey to specific
+                                                                                      devices. Common values: Desktop,
+                                                                                      Mobile, Tablet — see the{' '}
                                                                                       <Link to="https://posthog.com/docs/surveys/creating-surveys#display-conditions">
-                                                                                          check the documentation here
+                                                                                          full list and caveats
                                                                                       </Link>
-                                                                                      . Requires at least version 1.214
-                                                                                      of posthog-js
+                                                                                      . Requires posthog-js 1.214 or
+                                                                                      later.
                                                                                   </>
                                                                               }
                                                                           >
                                                                               <div className="flex flex-row gap-2 items-center">
                                                                                   <LemonSelect
+                                                                                      className="w-40 shrink-0"
                                                                                       value={
                                                                                           value?.deviceTypesMatchType ||
                                                                                           SurveyMatchType.Contains
@@ -1614,37 +1614,39 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                           placeholder="ex: Desktop|Mobile"
                                                                                       />
                                                                                   ) : (
-                                                                                      <PropertyValue
-                                                                                          propertyKey={getPropertyKey(
-                                                                                              'Device Type',
-                                                                                              TaxonomicFilterGroupType.EventProperties
-                                                                                          )}
-                                                                                          type={
-                                                                                              PropertyFilterType.Event
-                                                                                          }
-                                                                                          onSet={(
-                                                                                              deviceTypes:
-                                                                                                  | string
-                                                                                                  | string[]
-                                                                                          ) => {
-                                                                                              onChange({
-                                                                                                  ...value,
+                                                                                      <div className="flex-1 min-w-0">
+                                                                                          <PropertyValue
+                                                                                              propertyKey={getPropertyKey(
+                                                                                                  'Device Type',
+                                                                                                  TaxonomicFilterGroupType.EventProperties
+                                                                                              )}
+                                                                                              type={
+                                                                                                  PropertyFilterType.Event
+                                                                                              }
+                                                                                              onSet={(
                                                                                                   deviceTypes:
-                                                                                                      Array.isArray(
-                                                                                                          deviceTypes
-                                                                                                      )
-                                                                                                          ? deviceTypes
-                                                                                                          : [
-                                                                                                                deviceTypes,
-                                                                                                            ],
-                                                                                              })
-                                                                                          }}
-                                                                                          operator={
-                                                                                              PropertyOperator.Exact
-                                                                                          }
-                                                                                          value={value?.deviceTypes}
-                                                                                          inputClassName="flex-1"
-                                                                                      />
+                                                                                                      | string
+                                                                                                      | string[]
+                                                                                              ) => {
+                                                                                                  onChange({
+                                                                                                      ...value,
+                                                                                                      deviceTypes:
+                                                                                                          Array.isArray(
+                                                                                                              deviceTypes
+                                                                                                          )
+                                                                                                              ? deviceTypes
+                                                                                                              : [
+                                                                                                                    deviceTypes,
+                                                                                                                ],
+                                                                                                  })
+                                                                                              }}
+                                                                                              operator={
+                                                                                                  PropertyOperator.Exact
+                                                                                              }
+                                                                                              value={value?.deviceTypes}
+                                                                                              inputClassName="w-full"
+                                                                                          />
+                                                                                      </div>
                                                                                   )}
                                                                               </div>
                                                                           </LemonField.Pure>
@@ -1662,7 +1664,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                           </LemonField.Pure>
                                                                           <LemonField.Pure
                                                                               label="Survey wait period"
-                                                                              info="Only reliable for identified users within a single browser session. Anonymous users, browser switches, incognito sessions, or log out / log back in flows may still see the survey again. Responses submitted while anonymous may be associated with the account if the user logs in during the same session."
+                                                                              help="Only reliable for identified users in a single browser session. Anonymous users, browser switches, incognito sessions, or log out / log back in flows may still see the survey again. Responses submitted while anonymous may be linked to the account if the user logs in during the same session."
                                                                           >
                                                                               <div className="flex flex-wrap gap-2 items-center text-sm">
                                                                                   <LemonCheckbox
@@ -1713,7 +1715,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                               </LemonField>
                                                               <LemonField.Pure
                                                                   label="Audience filters"
-                                                                  info="Limit this survey to users (or groups) whose properties match the conditions below."
+                                                                  help="Limit this survey to users (or groups) whose properties match the conditions below."
                                                               >
                                                                   <BindLogic
                                                                       logic={featureFlagLogic}
