@@ -136,6 +136,8 @@ describe('Workflows E2E (postgres-v2)', () => {
         mockProducerObserver.resetKafkaProducer()
     })
 
+    // ── Helpers ──────────────────────────────────────────────────────
+
     function createGlobals(
         overrides: Partial<HogFunctionInvocationGlobals['event']> = {}
     ): HogFunctionInvocationGlobals {
@@ -159,48 +161,66 @@ describe('Workflows E2E (postgres-v2)', () => {
         return result.rows
     }
 
+    /** Send an event through the events consumer and wait for it to be queued to v2 */
+    async function triggerWorkflow(eventGlobals: HogFunctionInvocationGlobals): Promise<void> {
+        const { backgroundTask } = await eventsConsumer.processBatch([eventGlobals])
+        await backgroundTask
+    }
+
+    /** Insert an active hogflow for the current team */
+    async function createWorkflow(
+        workflow: Parameters<FixtureHogFlowBuilder['withWorkflow']>[0],
+        opts?: { name?: string }
+    ): Promise<string> {
+        const builder = new FixtureHogFlowBuilder().withTeamId(team.id).withStatus('active').withWorkflow(workflow)
+        if (opts?.name) {
+            builder.withName(opts.name)
+        }
+        const flow = builder.build()
+        await insertHogFlow(hub.postgres, flow)
+        return flow.id
+    }
+
+    // Reusable action configs
+    const trigger = () =>
+        ({
+            type: 'trigger' as const,
+            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+        }) as const
+
+    const fetchAction = (url: string, method = 'POST') => ({
+        type: 'function' as const,
+        config: {
+            template_id: 'template-workflows-e2e-fetch',
+            inputs: { url: { value: url }, method: { value: method } },
+        },
+    })
+
+    const delayAction = (duration: string) => ({
+        type: 'delay' as const,
+        config: { delay_duration: duration },
+    })
+
+    const exitAction = () => ({ type: 'exit' as const, config: {} })
+
     describe('simple workflow: trigger → function → exit', () => {
         beforeEach(async () => {
-            await insertHogFlow(
-                hub.postgres,
-                new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withStatus('active')
-                    .withWorkflow({
-                        actions: {
-                            trigger: {
-                                type: 'trigger',
-                                config: {
-                                    type: 'event',
-                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
-                                },
-                            },
-                            function_1: {
-                                type: 'function',
-                                config: {
-                                    template_id: 'template-workflows-e2e-fetch',
-                                    inputs: {
-                                        url: { value: 'https://example.com/webhook' },
-                                        method: { value: 'POST' },
-                                    },
-                                },
-                            },
-                            exit: { type: 'exit', config: {} },
-                        },
-                        edges: [
-                            { from: 'trigger', to: 'function_1', type: 'continue' },
-                            { from: 'function_1', to: 'exit', type: 'continue' },
-                        ],
-                    })
-                    .build()
-            )
-
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    function_1: fetchAction('https://example.com/webhook'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
             globals = createGlobals()
         })
 
         it('should execute the workflow end-to-end through v2', async () => {
-            const { backgroundTask } = await eventsConsumer.processBatch([globals])
-            await backgroundTask
+            await triggerWorkflow(globals)
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -227,51 +247,24 @@ describe('Workflows E2E (postgres-v2)', () => {
 
     describe('delay workflow: trigger → delay → function → exit', () => {
         beforeEach(async () => {
-            await insertHogFlow(
-                hub.postgres,
-                new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withStatus('active')
-                    .withWorkflow({
-                        actions: {
-                            trigger: {
-                                type: 'trigger',
-                                config: {
-                                    type: 'event',
-                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
-                                },
-                            },
-                            delay_1: {
-                                type: 'delay',
-                                config: { delay_duration: '1s' },
-                            },
-                            function_1: {
-                                type: 'function',
-                                config: {
-                                    template_id: 'template-workflows-e2e-fetch',
-                                    inputs: {
-                                        url: { value: 'https://example.com/delayed-webhook' },
-                                        method: { value: 'POST' },
-                                    },
-                                },
-                            },
-                            exit: { type: 'exit', config: {} },
-                        },
-                        edges: [
-                            { from: 'trigger', to: 'delay_1', type: 'continue' },
-                            { from: 'delay_1', to: 'function_1', type: 'continue' },
-                            { from: 'function_1', to: 'exit', type: 'continue' },
-                        ],
-                    })
-                    .build()
-            )
-
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    delay_1: delayAction('1s'),
+                    function_1: fetchAction('https://example.com/delayed-webhook'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
             globals = createGlobals()
         })
 
         it('should reschedule on delay and execute function after delay passes', async () => {
-            const { backgroundTask } = await eventsConsumer.processBatch([globals])
-            await backgroundTask
+            await triggerWorkflow(globals)
 
             // First: worker picks up job and hits the delay — job gets rescheduled
             await waitForExpect(async () => {
@@ -308,78 +301,38 @@ describe('Workflows E2E (postgres-v2)', () => {
 
     describe('conditional branch workflow', () => {
         beforeEach(async () => {
-            await insertHogFlow(
-                hub.postgres,
-                new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withStatus('active')
-                    .withWorkflow({
-                        actions: {
-                            trigger: {
-                                type: 'trigger',
-                                config: {
-                                    type: 'event',
-                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
-                                },
-                            },
-                            branch: {
-                                type: 'conditional_branch',
-                                config: {
-                                    conditions: [
-                                        {
-                                            // Branch 0: matches $pageview events with posthog in URL
-                                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
-                                        },
-                                        {
-                                            // Branch 1: matches elements_chain_texts (won't match our event)
-                                            filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters,
-                                        },
-                                    ],
-                                },
-                            },
-                            function_a: {
-                                type: 'function',
-                                config: {
-                                    template_id: 'template-workflows-e2e-fetch',
-                                    inputs: {
-                                        url: { value: 'https://example.com/branch-a' },
-                                        method: { value: 'POST' },
-                                    },
-                                },
-                            },
-                            function_b: {
-                                type: 'function',
-                                config: {
-                                    template_id: 'template-workflows-e2e-fetch',
-                                    inputs: {
-                                        url: { value: 'https://example.com/branch-b' },
-                                        method: { value: 'POST' },
-                                    },
-                                },
-                            },
-                            exit: { type: 'exit', config: {} },
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    branch: {
+                        type: 'conditional_branch',
+                        config: {
+                            conditions: [
+                                { filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters },
+                                { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                            ],
                         },
-                        edges: [
-                            { from: 'trigger', to: 'branch', type: 'continue' },
-                            { from: 'branch', to: 'function_a', type: 'branch', index: 0 },
-                            { from: 'branch', to: 'function_b', type: 'branch', index: 1 },
-                            { from: 'function_a', to: 'exit', type: 'continue' },
-                            { from: 'function_b', to: 'exit', type: 'continue' },
-                        ],
-                    })
-                    .build()
-            )
+                    },
+                    function_a: fetchAction('https://example.com/branch-a'),
+                    function_b: fetchAction('https://example.com/branch-b'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'branch', type: 'continue' },
+                    { from: 'branch', to: 'function_a', type: 'branch', index: 0 },
+                    { from: 'branch', to: 'function_b', type: 'branch', index: 1 },
+                    { from: 'function_a', to: 'exit', type: 'continue' },
+                    { from: 'function_b', to: 'exit', type: 'continue' },
+                ],
+            })
         })
 
         it('should take branch A when event matches the first condition', async () => {
-            // $pageview with posthog in $current_url matches branch 0
             globals = createGlobals({
                 event: '$pageview',
                 properties: { $current_url: 'https://posthog.com/pricing' },
             })
-
-            const { backgroundTask } = await eventsConsumer.processBatch([globals])
-            await backgroundTask
+            await triggerWorkflow(globals)
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -393,50 +346,24 @@ describe('Workflows E2E (postgres-v2)', () => {
         let hogFlowId: string
 
         beforeEach(async () => {
-            const hogFlow = new FixtureHogFlowBuilder()
-                .withTeamId(team.id)
-                .withStatus('active')
-                .withWorkflow({
-                    actions: {
-                        trigger: {
-                            type: 'trigger',
-                            config: {
-                                type: 'event',
-                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
-                            },
-                        },
-                        delay_1: {
-                            type: 'delay',
-                            config: { delay_duration: '1s' },
-                        },
-                        function_1: {
-                            type: 'function',
-                            config: {
-                                template_id: 'template-workflows-e2e-fetch',
-                                inputs: {
-                                    url: { value: 'https://example.com/should-not-fire' },
-                                    method: { value: 'POST' },
-                                },
-                            },
-                        },
-                        exit: { type: 'exit', config: {} },
-                    },
-                    edges: [
-                        { from: 'trigger', to: 'delay_1', type: 'continue' },
-                        { from: 'delay_1', to: 'function_1', type: 'continue' },
-                        { from: 'function_1', to: 'exit', type: 'continue' },
-                    ],
-                })
-                .build()
-
-            hogFlowId = hogFlow.id
-            await insertHogFlow(hub.postgres, hogFlow)
+            hogFlowId = await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    delay_1: delayAction('1s'),
+                    function_1: fetchAction('https://example.com/should-not-fire'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
             globals = createGlobals()
         })
 
         it('should cancel the job when workflow is archived during delay', async () => {
-            const { backgroundTask } = await eventsConsumer.processBatch([globals])
-            await backgroundTask
+            await triggerWorkflow(globals)
 
             // Wait for the delay step to be hit (job rescheduled)
             await waitForExpect(async () => {
@@ -468,83 +395,26 @@ describe('Workflows E2E (postgres-v2)', () => {
     })
 
     describe('multiple workflows matching same event', () => {
+        const simpleFetchWorkflow = (url: string) => ({
+            actions: {
+                trigger: trigger(),
+                function_1: fetchAction(url),
+                exit: exitAction(),
+            },
+            edges: [
+                { from: 'trigger', to: 'function_1', type: 'continue' as const },
+                { from: 'function_1', to: 'exit', type: 'continue' as const },
+            ],
+        })
+
         beforeEach(async () => {
-            await insertHogFlow(
-                hub.postgres,
-                new FixtureHogFlowBuilder()
-                    .withName('Workflow A')
-                    .withTeamId(team.id)
-                    .withStatus('active')
-                    .withWorkflow({
-                        actions: {
-                            trigger: {
-                                type: 'trigger',
-                                config: {
-                                    type: 'event',
-                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
-                                },
-                            },
-                            function_1: {
-                                type: 'function',
-                                config: {
-                                    template_id: 'template-workflows-e2e-fetch',
-                                    inputs: {
-                                        url: { value: 'https://example.com/workflow-a' },
-                                        method: { value: 'POST' },
-                                    },
-                                },
-                            },
-                            exit: { type: 'exit', config: {} },
-                        },
-                        edges: [
-                            { from: 'trigger', to: 'function_1', type: 'continue' },
-                            { from: 'function_1', to: 'exit', type: 'continue' },
-                        ],
-                    })
-                    .build()
-            )
-
-            await insertHogFlow(
-                hub.postgres,
-                new FixtureHogFlowBuilder()
-                    .withName('Workflow B')
-                    .withTeamId(team.id)
-                    .withStatus('active')
-                    .withWorkflow({
-                        actions: {
-                            trigger: {
-                                type: 'trigger',
-                                config: {
-                                    type: 'event',
-                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
-                                },
-                            },
-                            function_1: {
-                                type: 'function',
-                                config: {
-                                    template_id: 'template-workflows-e2e-fetch',
-                                    inputs: {
-                                        url: { value: 'https://example.com/workflow-b' },
-                                        method: { value: 'POST' },
-                                    },
-                                },
-                            },
-                            exit: { type: 'exit', config: {} },
-                        },
-                        edges: [
-                            { from: 'trigger', to: 'function_1', type: 'continue' },
-                            { from: 'function_1', to: 'exit', type: 'continue' },
-                        ],
-                    })
-                    .build()
-            )
-
+            await createWorkflow(simpleFetchWorkflow('https://example.com/workflow-a'), { name: 'Workflow A' })
+            await createWorkflow(simpleFetchWorkflow('https://example.com/workflow-b'), { name: 'Workflow B' })
             globals = createGlobals()
         })
 
         it('should execute both workflows independently', async () => {
-            const { backgroundTask } = await eventsConsumer.processBatch([globals])
-            await backgroundTask
+            await triggerWorkflow(globals)
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(2)
@@ -558,61 +428,34 @@ describe('Workflows E2E (postgres-v2)', () => {
 
     describe('wait_until_condition: condition never matches, times out', () => {
         beforeEach(async () => {
-            await insertHogFlow(
-                hub.postgres,
-                new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withStatus('active')
-                    .withWorkflow({
-                        actions: {
-                            trigger: {
-                                type: 'trigger',
-                                config: {
-                                    type: 'event',
-                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
-                                },
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    wait_condition: {
+                        type: 'wait_until_condition',
+                        config: {
+                            condition: {
+                                // Requires $autocapture with "reload" in elements_chain_texts — won't match
+                                filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters,
                             },
-                            wait_condition: {
-                                type: 'wait_until_condition',
-                                config: {
-                                    condition: {
-                                        // This filter requires $autocapture with "reload" in elements_chain_texts
-                                        // — our $pageview event will never match
-                                        filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters,
-                                    },
-                                    max_wait_duration: '2s',
-                                },
-                            },
-                            function_1: {
-                                type: 'function',
-                                config: {
-                                    template_id: 'template-workflows-e2e-fetch',
-                                    inputs: {
-                                        url: { value: 'https://example.com/after-wait-timeout' },
-                                        method: { value: 'POST' },
-                                    },
-                                },
-                            },
-                            exit: { type: 'exit', config: {} },
+                            max_wait_duration: '2s',
                         },
-                        edges: [
-                            { from: 'trigger', to: 'wait_condition', type: 'continue' },
-                            // Branch 0 = condition matched (won't happen)
-                            { from: 'wait_condition', to: 'exit', type: 'branch', index: 0 },
-                            // Continue = condition timed out → go to function
-                            { from: 'wait_condition', to: 'function_1', type: 'continue' },
-                            { from: 'function_1', to: 'exit', type: 'continue' },
-                        ],
-                    })
-                    .build()
-            )
-
+                    },
+                    function_1: fetchAction('https://example.com/after-wait-timeout'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'exit', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
             globals = createGlobals()
         })
 
         it('should reschedule while polling, then continue after max_wait expires', async () => {
-            const { backgroundTask } = await eventsConsumer.processBatch([globals])
-            await backgroundTask
+            await triggerWorkflow(globals)
 
             // Job should be rescheduled (condition doesn't match, waiting for next poll)
             await waitForExpect(async () => {
@@ -638,57 +481,28 @@ describe('Workflows E2E (postgres-v2)', () => {
 
     describe('wait_until_time_window: window in the future', () => {
         beforeEach(async () => {
-            // Use a time window far in the future so the job is always rescheduled.
-            // We then fast-forward by updating the DB directly.
-            await insertHogFlow(
-                hub.postgres,
-                new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withStatus('active')
-                    .withWorkflow({
-                        actions: {
-                            trigger: {
-                                type: 'trigger',
-                                config: {
-                                    type: 'event',
-                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
-                                },
-                            },
-                            wait_window: {
-                                type: 'wait_until_time_window',
-                                config: {
-                                    timezone: 'Pacific/Kiritimati', // UTC+14, ensures the window is always in the future from UTC perspective
-                                    day: 'any',
-                                    time: ['23:50', '23:59'],
-                                },
-                            },
-                            function_1: {
-                                type: 'function',
-                                config: {
-                                    template_id: 'template-workflows-e2e-fetch',
-                                    inputs: {
-                                        url: { value: 'https://example.com/after-time-window' },
-                                        method: { value: 'POST' },
-                                    },
-                                },
-                            },
-                            exit: { type: 'exit', config: {} },
-                        },
-                        edges: [
-                            { from: 'trigger', to: 'wait_window', type: 'continue' },
-                            { from: 'wait_window', to: 'function_1', type: 'continue' },
-                            { from: 'function_1', to: 'exit', type: 'continue' },
-                        ],
-                    })
-                    .build()
-            )
-
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    wait_window: {
+                        type: 'wait_until_time_window',
+                        // UTC+14 with late-night window ensures it's always in the future
+                        config: { timezone: 'Pacific/Kiritimati', day: 'any', time: ['23:50', '23:59'] },
+                    },
+                    function_1: fetchAction('https://example.com/after-time-window'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_window', type: 'continue' },
+                    { from: 'wait_window', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
             globals = createGlobals()
         })
 
         it('should reschedule to the time window start and execute after it opens', async () => {
-            const { backgroundTask } = await eventsConsumer.processBatch([globals])
-            await backgroundTask
+            await triggerWorkflow(globals)
 
             // Job should be rescheduled to the future time window
             await waitForExpect(async () => {
@@ -715,39 +529,17 @@ describe('Workflows E2E (postgres-v2)', () => {
 
     describe('fetch failure with retries', () => {
         beforeEach(async () => {
-            await insertHogFlow(
-                hub.postgres,
-                new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withStatus('active')
-                    .withWorkflow({
-                        actions: {
-                            trigger: {
-                                type: 'trigger',
-                                config: {
-                                    type: 'event',
-                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
-                                },
-                            },
-                            function_1: {
-                                type: 'function',
-                                config: {
-                                    template_id: 'template-workflows-e2e-fetch',
-                                    inputs: {
-                                        url: { value: 'https://example.com/failing-endpoint' },
-                                        method: { value: 'POST' },
-                                    },
-                                },
-                            },
-                            exit: { type: 'exit', config: {} },
-                        },
-                        edges: [
-                            { from: 'trigger', to: 'function_1', type: 'continue' },
-                            { from: 'function_1', to: 'exit', type: 'continue' },
-                        ],
-                    })
-                    .build()
-            )
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    function_1: fetchAction('https://example.com/failing-endpoint'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
 
             mockFetch.mockResolvedValue({
                 status: 500,
@@ -761,8 +553,7 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
 
         it('should retry the fetch and eventually complete with error', async () => {
-            const { backgroundTask } = await eventsConsumer.processBatch([globals])
-            await backgroundTask
+            await triggerWorkflow(globals)
 
             // Hogflow function actions retry fetch within a single execution cycle.
             // We expect at least 2 calls (initial + retry) before the workflow completes.
@@ -783,7 +574,6 @@ describe('Workflows E2E (postgres-v2)', () => {
 
     describe('person data survives v2 round-trip', () => {
         beforeEach(async () => {
-            // Create a person with properties that the workflow will use
             const personRepository = new PostgresPersonRepository(hub.postgres)
             await personRepository.createPerson(
                 DateTime.utc(),
@@ -797,68 +587,45 @@ describe('Workflows E2E (postgres-v2)', () => {
                 { distinctId: 'test-distinct-id' }
             )
 
-            // Template that includes person properties in the fetch body
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-workflows-e2e-person',
                 name: 'Workflows E2E Person',
-                code: `
-                fetch(inputs.url, {
-                    'method': 'POST',
-                    'body': inputs.body
-                });
-                `,
+                code: `fetch(inputs.url, { 'method': 'POST', 'body': inputs.body });`,
                 inputs_schema: [
                     { key: 'url', type: 'string', required: true },
                     { key: 'body', type: 'string', required: true },
                 ],
             })
 
-            await insertHogFlow(
-                hub.postgres,
-                new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withStatus('active')
-                    .withWorkflow({
-                        actions: {
-                            trigger: {
-                                type: 'trigger',
-                                config: {
-                                    type: 'event',
-                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    function_1: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-workflows-e2e-person',
+                            inputs: {
+                                url: { value: 'https://example.com/person-test' },
+                                body: {
+                                    value: '{person.properties.email}',
+                                    bytecode: ['_H', 1, 32, 'email', 32, 'properties', 32, 'person', 1, 3, 38],
                                 },
                             },
-                            function_1: {
-                                type: 'function',
-                                config: {
-                                    template_id: 'template-workflows-e2e-person',
-                                    inputs: {
-                                        url: { value: 'https://example.com/person-test' },
-                                        body: {
-                                            value: '{person.properties.email}',
-                                            // Bytecode: return person?.properties?.email
-                                            bytecode: ['_H', 1, 32, 'email', 32, 'properties', 32, 'person', 1, 3, 38],
-                                        },
-                                    },
-                                },
-                            },
-                            exit: { type: 'exit', config: {} },
                         },
-                        edges: [
-                            { from: 'trigger', to: 'function_1', type: 'continue' },
-                            { from: 'function_1', to: 'exit', type: 'continue' },
-                        ],
-                    })
-                    .build()
-            )
-
-            globals = createGlobals({
-                distinct_id: 'test-distinct-id',
+                    },
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
             })
+
+            globals = createGlobals({ distinct_id: 'test-distinct-id' })
         })
 
         it('should load person and pass properties to function action', async () => {
-            const { backgroundTask } = await eventsConsumer.processBatch([globals])
-            await backgroundTask
+            await triggerWorkflow(globals)
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
