@@ -1,6 +1,14 @@
 from datetime import timedelta
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_person,
+    get_index_from_explain,
+    materialized,
+    snapshot_clickhouse_queries,
+)
 from unittest.mock import patch
 
 from django.db import transaction
@@ -9,13 +17,17 @@ from django.utils import timezone
 from parameterized import parameterized, parameterized_class
 from rest_framework import status
 
+from posthog.schema import HogQLQueryModifiers, MaterializationMode
+
 from posthog.models import ActivityLog, Comment, Organization, User
 from posthog.models.person import Person
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
+from products.conversations.backend.api.tickets import _get_persons_by_email
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 
+from ee.clickhouse.materialized_columns.columns import get_ngram_lower_index_name
 from ee.models.rbac.role import Role
 
 
@@ -1190,3 +1202,152 @@ class TestTicketPersonData(PersonhogTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["person"] is None
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
+    """Tests the email-property fallback in _attach_persons_to_tickets.
+
+    When an email-channel ticket's distinct_id doesn't match any person,
+    the fallback queries ClickHouse for persons whose properties.email
+    matches the ticket's email_from field.
+    """
+
+    def _create_email_ticket(self, email_from, distinct_id=None):
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.EMAIL,
+            distinct_id=distinct_id or email_from,
+            email_from=email_from,
+            status=Status.NEW,
+        )
+
+    def test_email_fallback_matches_person_by_email_property(self, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["some-other-id"],
+            properties={"email": "alice@example.com"},
+            immediate=True,
+        )
+        self._create_email_ticket(email_from="alice@example.com", distinct_id="alice@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        person_data = response.json()["results"][0]["person"]
+        assert person_data is not None
+        assert person_data["properties"]["email"] == "alice@example.com"
+
+    def test_email_fallback_not_triggered_when_distinct_id_matches(self, mock_on_commit):
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["alice@example.com"],
+            properties={"email": "alice@example.com"},
+            immediate=True,
+        )
+        self._create_email_ticket(email_from="alice@example.com", distinct_id="alice@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        person_data = response.json()["results"][0]["person"]
+        assert person_data is not None
+        assert person_data["id"] == str(person.uuid)
+
+    def test_email_fallback_no_match_returns_null_person(self, mock_on_commit):
+        self._create_email_ticket(email_from="nobody@example.com", distinct_id="nobody@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["person"] is None
+
+    def test_email_fallback_batch_multiple_tickets(self, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["uid-a"],
+            properties={"email": "a@example.com"},
+            immediate=True,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["uid-b"],
+            properties={"email": "b@example.com"},
+            immediate=True,
+        )
+        self._create_email_ticket(email_from="a@example.com", distinct_id="a@example.com")
+        self._create_email_ticket(email_from="b@example.com", distinct_id="b@example.com")
+        self._create_email_ticket(email_from="c@example.com", distinct_id="c@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        person_emails = {
+            r["email_from"]: r["person"]["properties"]["email"] for r in results if r["person"] is not None
+        }
+        assert person_emails == {
+            "a@example.com": "a@example.com",
+            "b@example.com": "b@example.com",
+        }
+        no_person = [r for r in results if r["person"] is None]
+        assert len(no_person) == 1
+        assert no_person[0]["email_from"] == "c@example.com"
+
+    def test_email_fallback_scoped_to_team(self, mock_on_commit):
+        other_team = self.organization.teams.create(name="Other Team")
+        _create_person(
+            team=other_team,
+            distinct_ids=["uid-other"],
+            properties={"email": "scoped@example.com"},
+            immediate=True,
+        )
+        self._create_email_ticket(email_from="scoped@example.com", distinct_id="scoped@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["person"] is None
+
+    def test_email_fallback_skipped_for_non_email_channels(self, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["uid-widget"],
+            properties={"email": "widget@example.com"},
+            immediate=True,
+        )
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            distinct_id="unmatched-did",
+            status=Status.NEW,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["person"] is None
+
+    @snapshot_clickhouse_queries
+    def test_email_fallback_uses_ngram_skip_index(self, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["idx-test-id"],
+            properties={"email": "indexed@example.com"},
+            immediate=True,
+        )
+
+        with materialized("person", "email", create_ngram_lower_index=True) as mat_col:
+            index_name = get_ngram_lower_index_name(mat_col.name)
+
+            result = _get_persons_by_email(
+                self.team,
+                ["indexed@example.com"],
+                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
+            )
+            assert len(result) == 1
+            assert "indexed@example.com" in result
+
+            raw_query = f"SELECT id FROM person WHERE lower({mat_col.name}) IN ('indexed@example.com')"
+            index_info = get_index_from_explain(raw_query, index_name)
+            assert index_info is not None, f"Expected skip index {index_name} to be used"

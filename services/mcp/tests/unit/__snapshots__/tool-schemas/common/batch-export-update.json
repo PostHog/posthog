@@ -111,6 +111,42 @@
                     },
                     "required": ["type", "integration_id", "config"],
                     "type": "object"
+                },
+                {
+                    "description": "Request shape for creating or updating a BigQuery batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products/batch_exports/backend/service.py`.",
+                            "properties": {
+                                "dataset_id": {
+                                    "description": "BigQuery dataset ID to write to.",
+                                    "type": "string"
+                                },
+                                "table_id": {
+                                    "default": "events",
+                                    "description": "BigQuery table ID inside the dataset.",
+                                    "type": "string"
+                                },
+                                "use_json_type": {
+                                    "default": false,
+                                    "description": "Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type rather than STRING. Cannot be changed after the export is created.",
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": ["dataset_id"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of a google-cloud-service-account-kind Integration. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["BigQuery"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "integration_id", "config"],
+                    "type": "object"
                 }
             ],
             "description": "Destination configuration. Required integration_id is enforced per destination type."
