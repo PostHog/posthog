@@ -123,14 +123,16 @@ export class ReplayPaginatorService {
 
             let conflictSkipped = 0
             if (queuedInvocations.length > 0) {
-                // Replay re-uses the original invocation_id, so the prior
-                // cyclotron job row may still be lurking in `cyclotron_jobs`.
-                // `overwriteExisting: true` routes via cyclotron-v2 and
-                // upserts ONLY when the existing row is in a terminal state
-                // (completed/failed/canceled). If the existing row is still
-                // active ('available'/'running'), the v2 manager raises a
-                // CyclotronJobConflictError listing the conflicting ids —
-                // skip those (with a warning), still queue the rest.
+                // Replay re-uses the original invocation_id. Routing is the
+                // same as cdp-events-consumer (`getTarget()` per invocation —
+                // hog → kafka, hog_flow → postgres-v2). `overwriteExisting`
+                // only matters for the v2 path: it upserts ONLY when the
+                // existing cyclotron row is in a terminal state. If a v2-
+                // routed invocation's row is still active, the v2 manager
+                // raises CyclotronJobConflictError listing the conflicting
+                // ids — skip those, still queue the rest. Kafka-routed
+                // invocations can't conflict (no PK) and v1 is unsupported
+                // for replay (throws at the queue boundary).
                 let invocationsToEnqueue = queuedInvocations
                 try {
                     await this.cyclotronJobQueue.queueInvocations(invocationsToEnqueue, {

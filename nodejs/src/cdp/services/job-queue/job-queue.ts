@@ -261,28 +261,6 @@ export class CyclotronJobQueue {
             sanitizeInvocationForPersistence(inv, { stripPerson: this.stripPersonMatcher(inv.teamId) })
         )
 
-        // Overwrite mode only makes sense on cyclotron-v2 (the Rust v1 path and
-        // the Kafka path can't express an ON CONFLICT semantic). The replay
-        // path uses this so a re-enqueue of an already-completed
-        // `invocation_id` resets the existing row to 'available' rather than
-        // colliding on the PK. Routing this through v2 unconditionally avoids
-        // the deployment-mapping dance — the cyclotron worker just needs to be
-        // configured to consume from v2 for the replay rollout.
-        if (options.overwriteExisting) {
-            if (!this.jobQueuePostgresV2) {
-                throw new Error('queueInvocations({ overwriteExisting: true }) requires cyclotron-v2 to be configured')
-            }
-            await instrumentFn(
-                {
-                    key: 'cyclotron.queue_invocations.postgres_v2',
-                    sendException: false,
-                    getLoggingContext: () => ({ count: sanitized.length, overwriteExisting: true }),
-                },
-                () => this.jobQueuePostgresV2!.queueInvocations(sanitized, { overwriteExisting: true })
-            )
-            return
-        }
-
         const postgresInvocations: CyclotronJobInvocation[] = []
         const postgresV2Invocations: CyclotronJobInvocation[] = []
         const kafkaInvocations: CyclotronJobInvocation[] = []
@@ -290,13 +268,28 @@ export class CyclotronJobQueue {
         for (const invocation of sanitized) {
             const target = this.getTarget(invocation)
 
+            // Replays carry `overwriteExisting: true` so a re-enqueue of an
+            // `invocation_id` that already has a cyclotron row doesn't fail
+            // on the PK. v2 supports it via ON CONFLICT, kafka doesn't need
+            // it (no PK at all), v1 has neither — so v1 + overwrite is an
+            // error rather than a silent fall-through.
             if (target === 'postgres') {
+                if (options.overwriteExisting) {
+                    throw new Error(
+                        `Replay routing to postgres-v1 is unsupported (queue=${invocation.queue}). ` +
+                            `Route hog workloads to kafka and hog_flow workloads to postgres-v2.`
+                    )
+                }
                 postgresInvocations.push(invocation)
             } else if (target === 'postgres-v2') {
                 postgresV2Invocations.push(invocation)
             } else {
                 kafkaInvocations.push(invocation)
             }
+        }
+
+        if (postgresV2Invocations.length > 0 && !this.jobQueuePostgresV2) {
+            throw new Error(`Invocations routed to postgres-v2 but cyclotron-v2 is not configured`)
         }
 
         await Promise.all([
@@ -313,9 +306,15 @@ export class CyclotronJobQueue {
                       {
                           key: 'cyclotron.queue_invocations.postgres_v2',
                           sendException: false,
-                          getLoggingContext: () => ({ count: postgresV2Invocations.length }),
+                          getLoggingContext: () => ({
+                              count: postgresV2Invocations.length,
+                              overwriteExisting: !!options.overwriteExisting,
+                          }),
                       },
-                      () => this.jobQueuePostgresV2!.queueInvocations(postgresV2Invocations)
+                      () =>
+                          this.jobQueuePostgresV2!.queueInvocations(postgresV2Invocations, {
+                              overwriteExisting: options.overwriteExisting,
+                          })
                   )
                 : Promise.resolve(),
             instrumentFn(
