@@ -234,6 +234,71 @@ func TestStopViaPidfile_missingGeneratedDirIsIdempotent(t *testing.T) {
 	}
 }
 
+// Regression: a stopped proc with `autostart: false` must not block
+// `phrocs wait`. `StartAll` never launches it, so it sits at "stopped"
+// for the whole run and the wait would always time out.
+func TestClassify_stoppedNonAutostartCountsAsReady(t *testing.T) {
+	tests := []struct {
+		name       string
+		procs      map[string]any
+		wantStatus string
+		wantReady  []string
+	}{
+		{
+			name: "all autostart procs ready",
+			procs: map[string]any{
+				"web":    map[string]any{"status": "running", "ready": true, "autostart": true},
+				"worker": map[string]any{"status": "running", "ready": true, "autostart": true},
+			},
+			wantStatus: "ready",
+		},
+		{
+			name: "autostart ready, non-autostart stopped",
+			procs: map[string]any{
+				"web":       map[string]any{"status": "running", "ready": true, "autostart": true},
+				"storybook": map[string]any{"status": "stopped", "ready": false, "autostart": false},
+				"typegen":   map[string]any{"status": "stopped", "ready": false, "autostart": false},
+			},
+			wantStatus: "ready",
+		},
+		{
+			name: "autostart proc stuck pending",
+			procs: map[string]any{
+				"web":       map[string]any{"status": "pending", "ready": false, "autostart": true},
+				"storybook": map[string]any{"status": "stopped", "ready": false, "autostart": false},
+			},
+			wantStatus: "pending",
+			wantReady:  []string{"web (pending)"},
+		},
+		{
+			// Reachable when a proc started by StartAll is stopped mid-run
+			// (e.g. via `phrocs stop <name>` or toggle-proc). Its config still
+			// has autostart=true, so it must register as notReady — only the
+			// `autostart: false` config opt-out should be silenced.
+			name: "autostart proc stopped mid-run",
+			procs: map[string]any{
+				"web": map[string]any{"status": "stopped", "ready": false, "autostart": true},
+			},
+			wantStatus: "pending",
+			wantReady:  []string{"web (stopped)"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			verdict, crashed, notReady := classify(tt.procs)
+			if verdict != tt.wantStatus {
+				t.Fatalf("verdict: got %q, want %q", verdict, tt.wantStatus)
+			}
+			if len(crashed) != 0 {
+				t.Fatalf("crashed: got %v, want empty", crashed)
+			}
+			if !reflect.DeepEqual(notReady, tt.wantReady) {
+				t.Fatalf("notReady: got %v, want %v", notReady, tt.wantReady)
+			}
+		})
+	}
+}
+
 // Regression: a one-shot proc that exits cleanly (status="done") must not
 // block `phrocs wait` forever. Pre-fix `classify` only treated "crashed" as
 // terminal, so a config with any one-shot setup proc would always time out.
