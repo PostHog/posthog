@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 import structlog
@@ -651,6 +652,36 @@ class OrganizationInviteViewSet(
                 "A maximum of 20 invites can be sent in a single request.",
                 code="max_length",
             )
+
+        # Silently drop rows whose target_email already belongs to an org member. The serializer
+        # would otherwise raise "A user with this email address already belongs to the organization."
+        # for the first such row and fail the entire batch, which surfaces as a confusing red toast
+        # when an inviter types their own email or an existing teammate's. Defense-in-depth alongside
+        # the client-side pre-submit guard in inviteLogic.
+        normalized_incoming_emails = {
+            EmailNormalizer.normalize(entry["target_email"])
+            for entry in data
+            if isinstance(entry, dict)
+            and isinstance(entry.get("target_email"), str)
+            and entry["target_email"]
+        }
+        if normalized_incoming_emails:
+            existing_member_emails = set(
+                OrganizationMembership.objects.filter(organization_id=self.organization_id)
+                .annotate(email_lower=Lower("user__email"))
+                .filter(email_lower__in=normalized_incoming_emails)
+                .values_list("email_lower", flat=True)
+            )
+            if existing_member_emails:
+                data = [
+                    entry
+                    for entry in data
+                    if not (
+                        isinstance(entry, dict)
+                        and isinstance(entry.get("target_email"), str)
+                        and EmailNormalizer.normalize(entry["target_email"]) in existing_member_emails
+                    )
+                ]
 
         serializer = OrganizationInviteSerializer(
             data=data,

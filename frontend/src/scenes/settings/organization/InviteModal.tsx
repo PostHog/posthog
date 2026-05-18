@@ -195,7 +195,7 @@ export function InviteRow({
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPermissions = hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)
 
-    const { invitesToSend } = useValues(inviteLogic)
+    const { invitesToSend, inviteRowDuplicates } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -211,6 +211,14 @@ export function InviteRow({
         label: OrganizationMembershipLevel[level],
     }))
 
+    const duplicateReason = inviteRowDuplicates[index]
+    const duplicateMessage =
+        duplicateReason === 'self'
+            ? "You're already a member"
+            : duplicateReason === 'member'
+              ? 'Already in this organization'
+              : null
+
     return (
         <div className="space-y-4 bg-surface-secondary py-4 px-4 rounded-md">
             <div className="flex gap-2">
@@ -218,7 +226,9 @@ export function InviteRow({
                     <LemonInput
                         placeholder={`${name.toLowerCase()}@posthog.com`}
                         type="email"
-                        className={`error-on-blur${!invitesToSend[index]?.isValid ? ' errored' : ''}`}
+                        className={`error-on-blur${
+                            !invitesToSend[index]?.isValid || duplicateMessage ? ' errored' : ''
+                        }`}
                         onChange={(v) => {
                             let isValid = true
                             if (v && !isEmail(v)) {
@@ -235,6 +245,11 @@ export function InviteRow({
                         autoFocus={index === 0}
                         data-attr="invite-email-input"
                     />
+                    {duplicateMessage && (
+                        <div className="text-danger text-xs mt-1" data-attr="invite-email-duplicate-helper">
+                            {duplicateMessage}
+                        </div>
+                    )}
                 </div>
                 {preflight?.email_service_available && (
                     <div className="flex-1 flex gap-1 items-center justify-between">
@@ -272,7 +287,7 @@ export function InviteRow({
                         <LemonButton
                             type="primary"
                             className="flex-1"
-                            disabled={!isEmail(invitesToSend[index].target_email)}
+                            disabled={!isEmail(invitesToSend[index].target_email) || !!duplicateMessage}
                             onClick={() => {
                                 inviteTeamMembers()
                             }}

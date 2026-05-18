@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders, loaders } from 'kea-loaders'
 
 import api, { PaginatedResponse } from 'lib/api'
@@ -6,10 +6,12 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { bindModalToUrl } from 'lib/logic/bindModalToUrl'
 import { pluralize } from 'lib/utils'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, OrganizationInviteType } from '~/types'
+import { AccessControlLevel, OrganizationInviteType, OrganizationMemberType, UserType } from '~/types'
 
 import type { inviteLogicType } from './inviteLogicType'
 
@@ -34,7 +36,8 @@ const EMPTY_INVITE: InviteRowState = {
 export const inviteLogic = kea<inviteLogicType>([
     path(['scenes', 'organization', 'Settings', 'inviteLogic']),
     connect(() => ({
-        values: [preflightLogic, ['preflight']],
+        values: [preflightLogic, ['preflight'], userLogic, ['user'], membersLogic, ['members']],
+        actions: [membersLogic, ['ensureAllMembersLoaded']],
     })),
     actions({
         showInviteModal: true,
@@ -195,13 +198,66 @@ export const inviteLogic = kea<inviteLogicType>([
                 return invites.filter(({ level }) => level === OrganizationMembershipLevel.Owner).length > 0
             },
         ],
+        existingOrgEmails: [
+            (selectors) => [selectors.user, selectors.members],
+            (user: UserType | null, members: OrganizationMemberType[] | null): Set<string> => {
+                const emails = new Set<string>()
+                if (user?.email) {
+                    emails.add(user.email.toLowerCase())
+                }
+                for (const member of members ?? []) {
+                    if (member.user?.email) {
+                        emails.add(member.user.email.toLowerCase())
+                    }
+                }
+                return emails
+            },
+        ],
+        inviteRowDuplicates: [
+            (selectors) => [selectors.invitesToSend, selectors.existingOrgEmails, selectors.user],
+            (
+                invites: InviteRowState[],
+                existingOrgEmails: Set<string>,
+                user: UserType | null
+            ): (null | 'self' | 'member')[] => {
+                const ownEmail = user?.email?.toLowerCase()
+                return invites.map((invite) => {
+                    const email = invite.target_email?.trim().toLowerCase()
+                    if (!email) {
+                        return null
+                    }
+                    if (ownEmail && email === ownEmail) {
+                        return 'self'
+                    }
+                    if (existingOrgEmails.has(email)) {
+                        return 'member'
+                    }
+                    return null
+                })
+            },
+        ],
+        hasDuplicateInviteRow: [
+            (selectors) => [selectors.inviteRowDuplicates],
+            (duplicates: (null | 'self' | 'member')[]) => duplicates.some((d) => d !== null),
+        ],
         canSubmit: [
-            (selectors) => [selectors.invitesToSend, selectors.inviteContainsOwnerLevel, selectors.isInviteConfirmed],
-            (invites: InviteRowState[], inviteContainsOwnerLevel: boolean, isInviteConfirmed: boolean) => {
+            (selectors) => [
+                selectors.invitesToSend,
+                selectors.inviteContainsOwnerLevel,
+                selectors.isInviteConfirmed,
+                selectors.hasDuplicateInviteRow,
+            ],
+            (
+                invites: InviteRowState[],
+                inviteContainsOwnerLevel: boolean,
+                isInviteConfirmed: boolean,
+                hasDuplicateInviteRow: boolean
+            ) => {
                 const ownerLevelConfirmed = inviteContainsOwnerLevel ? isInviteConfirmed : true
                 return (
                     invites.filter(({ target_email }) => !!target_email).length > 0 &&
                     invites.filter(({ isValid }) => !isValid).length == 0 &&
+                    !hasDuplicateInviteRow &&
                     ownerLevelConfirmed
                 )
             },
@@ -218,6 +274,12 @@ export const inviteLogic = kea<inviteLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
+        showInviteModal: () => {
+            // Load org members so we can flag rows that would be rejected server-side
+            // ("A user with this email address already belongs to the organization.")
+            // before the user submits and sees a confusing red toast.
+            actions.ensureAllMembersLoaded()
+        },
         inviteTeamMembersSuccess: (): void => {
             const inviteCount = values.invitedTeamMembersInternal.length
             if (values.preflight?.email_service_available) {
@@ -243,5 +305,11 @@ export const inviteLogic = kea<inviteLogicType>([
         openActionKey: 'showInviteModal',
         closeActionKey: 'hideInviteModal',
         isOpenKey: 'isInviteModalShown',
+    }),
+    afterMount(({ actions }) => {
+        // Eagerly load org members so the duplicate-email guard has data to check
+        // against in both the settings modal and onboarding flow. membersLogic is
+        // permanentlyMount()'d, so this is idempotent across remounts.
+        actions.ensureAllMembersLoaded()
     }),
 ])

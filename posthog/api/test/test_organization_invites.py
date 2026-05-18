@@ -563,6 +563,66 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # No emails should be sent
         self.assertEqual(len(mail.outbox), 0)
 
+    def test_bulk_silently_skips_existing_member_emails(self):
+        # Defense-in-depth: when an inviter types their own email or an existing teammate's,
+        # the bulk endpoint should drop those rows rather than 400-ing the entire batch.
+        set_instance_setting("EMAIL_HOST", "localhost")
+
+        self._create_user("existing@posthog.com")
+
+        count = OrganizationInvite.objects.count()
+        payload = [
+            {"target_email": "fresh+1@posthog.com", "first_name": "Fresh1"},
+            # Self — inviter is already a member of the org.
+            {"target_email": self.user.email, "first_name": "Self"},
+            # Casing differs but should still be detected as already-a-member.
+            {"target_email": "Existing@posthog.com", "first_name": "Existing"},
+            {"target_email": "fresh+2@posthog.com", "first_name": "Fresh2"},
+        ]
+
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
+            response = self.client.post(
+                "/api/organizations/@current/invites/bulk/",
+                payload,
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_data = response.json()
+
+        # Only the two non-member emails should have been created.
+        self.assertEqual(len(response_data), 2)
+        self.assertEqual(OrganizationInvite.objects.count(), count + 2)
+
+        created_emails = sorted(item["target_email"] for item in response_data)
+        self.assertEqual(created_emails, ["fresh+1@posthog.com", "fresh+2@posthog.com"])
+
+        # Only the two non-member emails should have been emailed.
+        self.assertEqual(len(mail.outbox), 2)
+
+    def test_bulk_with_only_existing_member_emails_returns_empty_success(self):
+        # When every submitted email already belongs to the org, the bulk endpoint
+        # should return a 201 with an empty list (no toast) rather than the prior 400.
+        self._create_user("existing@posthog.com")
+
+        count = OrganizationInvite.objects.count()
+        payload = [
+            {"target_email": self.user.email, "first_name": "Self"},
+            {"target_email": "EXISTING@posthog.com", "first_name": "Existing"},
+        ]
+
+        with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
+            response = self.client.post(
+                "/api/organizations/@current/invites/bulk/",
+                payload,
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json(), [])
+        self.assertEqual(OrganizationInvite.objects.count(), count)
+        self.assertEqual(len(mail.outbox), 0)
+
     def test_cannot_bulk_create_invites_for_another_organization(self):
         another_org = Organization.objects.create()
 
