@@ -8,7 +8,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.models.subscription import Subscription
 from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyQuery
-from posthog.temporal.subscriptions.prompt_sanitization import sanitize_core_memory_text
+from posthog.temporal.subscriptions.prompt_sanitization import sanitize_core_memory_text, sanitize_user_text
 
 from ee.hogai.llm import MaxChatOpenAI
 from ee.tasks.subscriptions.ai_subscription.prompts import PLAN_GENERATION_PROMPT
@@ -19,6 +19,21 @@ logger = structlog.get_logger(__name__)
 
 PROMPT_MAX_LENGTH = 4000
 EVENT_NAMES_SAMPLE_LIMIT = 20
+EVENT_NAME_MAX_LENGTH = 120
+
+DEFAULT_PLANNER_MODEL = "gpt-4.1-mini"
+DEFAULT_SYNTHESIS_MODEL = "gpt-4.1-mini"
+# Whitelist of models a user can opt their subscription into via `ai_config`.
+# Without this, any authenticated user could PATCH `ai_config: {"model": ...}` and
+# force scheduled deliveries to use an arbitrarily expensive model.
+ALLOWED_AI_MODELS = frozenset({"gpt-4.1-mini", "gpt-4.1-nano", "gpt-4.1"})
+
+
+def resolve_ai_model(ai_config: dict | None, key: str, default: str) -> str:
+    requested = (ai_config or {}).get(key)
+    if isinstance(requested, str) and requested in ALLOWED_AI_MODELS:
+        return requested
+    return default
 
 # Layered on top of `sanitize_core_memory_text` (which strips invisible chars and structural
 # LLM markers like `<system>`). Best-effort only; the real defenses are response-side
@@ -72,7 +87,11 @@ def _top_event_names(team: Team, limit: int) -> list[str]:
     )
     if not isinstance(response, CachedTeamTaxonomyQueryResponse):
         return []
-    return [item.event for item in response.results]
+    # Event names are user-controlled (project tokens are public — anyone can fire
+    # events with arbitrary names). Sanitize so an attacker can't seed the LLM
+    # context with prompt-injection payloads via crafted event names.
+    sanitized = (sanitize_user_text(item.event, EVENT_NAME_MAX_LENGTH) for item in response.results)
+    return [name for name in sanitized if name]
 
 
 def build_context_blob(team: Team, frequency: str) -> str:
@@ -80,9 +99,14 @@ def build_context_blob(team: Team, frequency: str) -> str:
     window_days = _window_days_for(frequency)
     now_iso = datetime.now(tz=UTC).isoformat(timespec="seconds")
 
+    # Team / org names are also user-controlled and end up in the LLM context, so
+    # apply the same sanitization as event names.
+    team_name = sanitize_user_text(team.name, EVENT_NAME_MAX_LENGTH) or "(unnamed)"
+    org_name = sanitize_user_text(team.organization.name, EVENT_NAME_MAX_LENGTH) or "(unnamed)"
+
     lines = [
-        f"- Project: {team.name}",
-        f"- Organization: {team.organization.name}",
+        f"- Project: {team_name}",
+        f"- Organization: {org_name}",
         f"- Project timezone: {team.timezone}",
         f"- Current UTC time: {now_iso}",
         f"- Suggested analysis window: last {window_days} day(s)",
@@ -100,7 +124,7 @@ def generate_query_plan(*, cleaned_prompt: str, context_blob: str, subscription:
     if user is None:
         raise PromptRejectedError("AI subscription must have a creator to run.")
 
-    model_name = (subscription.ai_config or {}).get("planner_model", "gpt-4.1-mini")
+    model_name = resolve_ai_model(subscription.ai_config, "planner_model", DEFAULT_PLANNER_MODEL)
     llm = MaxChatOpenAI(
         model=model_name,
         temperature=0,

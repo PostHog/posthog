@@ -18,7 +18,11 @@ from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
 from ee.tasks.subscriptions.ai_subscription.prompts import AI_SUBSCRIPTION_SYNTHESIS_PROMPT
 from ee.tasks.subscriptions.ai_subscription.schemas import EnrichedPromptSpec
-from ee.tasks.subscriptions.ai_subscription.spec_generator import build_enriched_prompt
+from ee.tasks.subscriptions.ai_subscription.spec_generator import (
+    DEFAULT_SYNTHESIS_MODEL,
+    build_enriched_prompt,
+    resolve_ai_model,
+)
 from ee.tasks.subscriptions.slack_subscriptions import UTM_TAGS_BASE, get_slack_integration_for_team
 
 logger = structlog.get_logger(__name__)
@@ -95,7 +99,7 @@ def generate_ai_subscription_markdown(subscription: Subscription) -> str:
     spec = build_enriched_prompt(subscription)
     rendered_results = asyncio.run(_arun_plan(spec, subscription))
 
-    model_name = (subscription.ai_config or {}).get("model", "gpt-4.1-mini")
+    model_name = resolve_ai_model(subscription.ai_config, "model", DEFAULT_SYNTHESIS_MODEL)
     chat = MaxChatOpenAI(
         model=model_name,
         temperature=0.2,
