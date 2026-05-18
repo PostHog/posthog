@@ -18,7 +18,8 @@ export type SchedulingSnapshot = {
     calculation_interval: AlertCalculationInterval
     schedule_restriction?: ScheduleRestriction | null
     skip_weekend?: boolean | null
-    config?: { check_ongoing_interval?: boolean } | null
+    // Trends-style config provides check_ongoing_interval; HogQL config carries no scheduling-relevant field.
+    config?: { type?: string; check_ongoing_interval?: boolean } | null
 }
 
 export function isNextPlannedEvaluationStale(

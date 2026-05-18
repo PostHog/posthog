@@ -203,10 +203,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     if (!detectorConfig || !props.insightId) {
                         return null
                     }
+                    const formConfig = values.alertForm.config
                     return await api.alerts.simulate({
                         insight: props.insightId,
                         detector_config: detectorConfig,
-                        series_index: values.alertForm.config?.series_index ?? 0,
+                        series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
                         date_from:
                             values.simulationDateFrom ??
                             getDefaultSimulationRange(values.alertForm.calculation_interval),
@@ -449,7 +450,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         }))
                     )
                 } else {
-                    const seriesIndex = values.alertForm.config?.series_index ?? 0
+                    const formConfig = values.alertForm.config
+                    const seriesIndex = isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0
                     anomalyPoints = simulationResult.triggered_indices.map((idx) => ({
                         index: idx,
                         date: simulationResult.dates[idx] ?? '',

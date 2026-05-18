@@ -1,6 +1,6 @@
 import { formatHclValue, sanitizeResourceName } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
 
-import { AlertType } from '~/lib/components/Alerts/types'
+import { AlertType, isTrendsAlertConfig } from '~/lib/components/Alerts/types'
 import { HogFunctionType } from '~/types'
 
 import { FieldMapping, HclExportOptions, HclExportResult, ResourceExporter, generateHCL } from './hclExporter'
@@ -59,14 +59,18 @@ const ALERT_FIELD_MAPPINGS: FieldMapping<Partial<AlertType>, AlertHclExportOptio
     {
         source: 'config',
         target: 'series_index',
-        shouldInclude: (_, alert) => alert.config?.series_index !== undefined,
-        transform: (_, alert) => formatHclValue(alert.config?.series_index),
+        shouldInclude: (_, alert) =>
+            isTrendsAlertConfig(alert.config) && alert.config.series_index !== undefined,
+        transform: (_, alert) =>
+            formatHclValue(isTrendsAlertConfig(alert.config) ? alert.config.series_index : undefined),
     },
     {
         source: 'config',
         target: 'check_ongoing_interval',
-        shouldInclude: (_, alert) => alert.config?.check_ongoing_interval !== undefined,
-        transform: (_, alert) => formatHclValue(alert.config?.check_ongoing_interval),
+        shouldInclude: (_, alert) =>
+            isTrendsAlertConfig(alert.config) && alert.config.check_ongoing_interval !== undefined,
+        transform: (_, alert) =>
+            formatHclValue(isTrendsAlertConfig(alert.config) ? alert.config.check_ongoing_interval : undefined),
     },
     {
         source: 'skip_weekend',

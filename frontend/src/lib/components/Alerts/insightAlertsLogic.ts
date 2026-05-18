@@ -12,7 +12,7 @@ import { hasBreakdownFilter, isHogQLBackedQuery, isInsightVizNode, isTrendsQuery
 import { InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
-import { AlertType, AnomalyPoint } from './types'
+import { AlertType, AnomalyPoint, isTrendsAlertConfig } from './types'
 
 export interface InsightAlertsLogicProps {
     insightId: number
@@ -178,7 +178,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                     if (!alert.detector_config || !alert.checks?.length) {
                         return []
                     }
-                    const defaultSeriesIndex = alert.config?.series_index ?? 0
+                    const defaultSeriesIndex = isTrendsAlertConfig(alert.config) ? alert.config.series_index : 0
                     return alert.checks.flatMap((check) => {
                         if (!check.triggered_dates?.length) {
                             return []
