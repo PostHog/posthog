@@ -9,9 +9,12 @@ describe('formatHogQL', () => {
         expect(out.split('\n').length).toBeGreaterThan(1)
     })
 
-    it('returns empty input unchanged', () => {
-        expect(formatHogQL('')).toBe('')
-        expect(formatHogQL('   ')).toBe('   ')
+    it.each([
+        ['empty string', ''],
+        ['whitespace only', '   '],
+        ['tab and newline only', '\t\n'],
+    ])('returns %s unchanged', (_label, input) => {
+        expect(formatHogQL(input)).toBe(input)
     })
 
     it('preserves HogQL property accessor', () => {
@@ -19,8 +22,11 @@ describe('formatHogQL', () => {
         expect(out).toContain('person.properties.email')
     })
 
-    it('falls through on parse failure', () => {
-        const broken = 'select from where ((('
-        expect(() => formatHogQL(broken)).not.toThrow()
+    it.each([
+        ['unbalanced parens', 'select from where ((('],
+        ['stray keyword', 'select where group'],
+        ['truncated expression', 'select * from events where event ='],
+    ])('does not throw on %s', (_label, input) => {
+        expect(() => formatHogQL(input)).not.toThrow()
     })
 })

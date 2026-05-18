@@ -881,7 +881,11 @@ export function initHogQLLanguage(monaco: Monaco, lang: HogLanguage = HogLanguag
         monaco.languages.registerCodeActionProvider(lang, hogQLMetadataProvider())
         monaco.languages.registerDocumentFormattingEditProvider(lang, {
             provideDocumentFormattingEdits(model) {
-                const formatted = formatHogQL(model.getValue())
+                const original = model.getValue()
+                const formatted = formatHogQL(original)
+                if (formatted === original) {
+                    return []
+                }
                 return [{ range: model.getFullModelRange(), text: formatted }]
             },
         })
