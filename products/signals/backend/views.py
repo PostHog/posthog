@@ -977,14 +977,46 @@ class SignalUserAutonomyConfigView(APIView):
 
     @extend_schema(responses={200: SignalUserAutonomyConfigSerializer})
     def post(self, request, user_id, **kwargs):
+        from posthog.models.integration import Integration
+
         from products.signals.backend.serializers import SignalUserAutonomyConfigCreateSerializer
 
         user = self._resolve_user(request, user_id)
         serializer = SignalUserAutonomyConfigCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+        # Partial update: only touch fields the client explicitly sent. This lets the
+        # auto-start setting and the Slack notification settings be edited
+        # independently from separate UI surfaces without one wiping the other.
+        defaults: dict = {}
+        if "autostart_priority" in serializer.initial_data:
+            defaults["autostart_priority"] = validated.get("autostart_priority")
+        if "slack_notification_min_priority" in serializer.initial_data:
+            defaults["slack_notification_min_priority"] = validated.get("slack_notification_min_priority")
+        if "slack_notification_channel" in serializer.initial_data:
+            defaults["slack_notification_channel"] = validated.get("slack_notification_channel") or None
+        if "slack_notification_integration_id" in serializer.initial_data:
+            integration_id = validated.get("slack_notification_integration_id")
+            integration = None
+            if integration_id is not None:
+                # Scope integration to teams the caller has access to.
+                accessible_team_ids = list(
+                    user.organization_memberships.values_list("organization__teams__id", flat=True)
+                )
+                try:
+                    integration = Integration.objects.get(
+                        pk=integration_id,
+                        kind="slack",
+                        team_id__in=accessible_team_ids,
+                    )
+                except Integration.DoesNotExist:
+                    raise serializers.ValidationError(
+                        {"slack_notification_integration_id": "Unknown Slack integration for this user."}
+                    )
+            defaults["slack_notification_integration"] = integration
         config, _created = SignalUserAutonomyConfig.objects.update_or_create(
             user=user,
-            defaults={"autostart_priority": serializer.validated_data.get("autostart_priority")},
+            defaults=defaults,
         )
         return Response(SignalUserAutonomyConfigSerializer(config).data)
 

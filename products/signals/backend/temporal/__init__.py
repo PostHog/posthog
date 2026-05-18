@@ -46,6 +46,7 @@ from products.signals.backend.temporal.signal_queries import (
 )
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
+    dispatch_inbox_slack_notifications_activity,
     mark_report_failed_activity,
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
@@ -68,6 +69,7 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    dispatch_inbox_slack_notifications_activity,
     emit_backfill_signal_activity,
     fetch_error_tracking_issues_activity,
     assign_and_emit_signal_activity,
