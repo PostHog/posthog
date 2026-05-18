@@ -98,8 +98,10 @@ const AssistantDataVisualizationDisplayType = z.enum([
     'BoldNumber',
     'ActionsLineGraph',
     'ActionsBar',
+    'ActionsBarValue',
     'ActionsStackedBar',
     'ActionsAreaGraph',
+    'ActionsPie',
     'TwoDimensionalHeatmap',
 ])
 

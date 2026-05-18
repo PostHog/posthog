@@ -30,6 +30,12 @@ const AssistantEventMultipleBreakdownFilterType = z.enum([
 ])
 
 const AssistantGenericMultipleBreakdownFilter = z.object({
+    group_type_index: z
+        .null()
+        .describe(
+            'Only meaningful when `type` is `group`; ignored for event/person/session breakdowns. Accepted as `null` here so a tolerant LLM payload that always emits the key still routes to this variant via the `type` discriminator instead of failing schema validation.'
+        )
+        .optional(),
     property: z.string().describe('Property name from the plan to break down by.'),
     type: AssistantEventMultipleBreakdownFilterType,
 })
