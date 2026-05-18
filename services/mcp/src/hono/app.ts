@@ -2,7 +2,6 @@ import { Hono } from 'hono'
 
 import { httpMetrics, securityHeaders } from './middleware'
 import { registerPublicRoutes } from './public-routes'
-import { SessionStore } from './session-store'
 import { StreamableMcpHandler } from './streamable-handler'
 import type { HonoCtx, RedisWithPing } from './types'
 
@@ -10,14 +9,11 @@ export type Lifecycle = { shuttingDown: boolean }
 
 export type App = {
     app: Hono
-    store: SessionStore
     lifecycle: Lifecycle
 }
 
 export function createApp(redis: RedisWithPing): App {
     const app = new Hono()
-    const store = new SessionStore()
-    store.startGc()
     const lifecycle: Lifecycle = { shuttingDown: false }
 
     app.use('*', securityHeaders)
@@ -34,10 +30,10 @@ export function createApp(redis: RedisWithPing): App {
     app.all('/sse', sseRedirect)
     app.all('/sse/*', sseRedirect)
 
-    const streamable = new StreamableMcpHandler(redis, store, lifecycle)
+    const streamable = new StreamableMcpHandler(redis, lifecycle)
     app.all('/mcp', streamable.fetch)
     app.all('/mcp/*', streamable.fetch)
 
     app.all('*', (c) => c.notFound())
-    return { app, store, lifecycle }
+    return { app, lifecycle }
 }

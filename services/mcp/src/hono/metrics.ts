@@ -24,13 +24,6 @@ export const httpRequestDurationSeconds = new Histogram({
     buckets: [0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
 })
 
-// Active streamable-HTTP sessions on this pod. Pair with the cap to dashboard
-// "headroom" — `mcp_sessions_active / MAX_SESSIONS_PER_INSTANCE`.
-export const sessionsActive = new Gauge({
-    name: 'mcp_sessions_active',
-    help: 'Active streamable HTTP sessions on this pod.',
-})
-
 // MCP tool dispatch outcomes. `status` is `success` | `error` | `validation_error`.
 // Cardinality on `tool` is bounded by the registered tool catalog.
 export const toolCallsTotal = new Counter({

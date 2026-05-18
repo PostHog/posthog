@@ -31,10 +31,6 @@ export function getEnv(): Env {
     }
 }
 
-export const SESSION_TTL_MS = 30 * 60 * 1000
-
-export const MAX_SESSIONS_PER_INSTANCE = 10_000
-
 export const AUTH_REDIRECT_PATHS = [
     '/.well-known/oauth-authorization-server',
     '/.well-known/jwks.json',

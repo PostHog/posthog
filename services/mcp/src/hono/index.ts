@@ -47,13 +47,13 @@ async function main(): Promise<void> {
         process.exit(1)
     }
 
-    const { app, store, lifecycle } = createApp(redis as unknown as Parameters<typeof createApp>[0])
+    const { app, lifecycle } = createApp(redis as unknown as Parameters<typeof createApp>[0])
 
     const server = serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
         console.info(`[MCP] Server started on ${HOST}:${info.port}`)
     })
 
-    registerShutdownHandlers({ server, store, lifecycle, redis })
+    registerShutdownHandlers({ server, lifecycle, redis })
 }
 
 main().catch((err) => {
