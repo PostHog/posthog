@@ -79,15 +79,15 @@ export const getLegalDocumentsDestroyUrl = (organizationId: string, id: string) 
 }
 
 /**
- * Delete an unsigned legal document. Voids the underlying PandaDoc
-envelope as part of the same operation so the original signer can no
-longer complete it, then removes the row — which frees the
-unique-per-org-per-type constraint so a fresh document can be
-generated with corrected details (e.g., a different signer).
+ * Delete an unsigned legal document. The PandaDoc envelope is voided
+first so the original signer can no longer complete it; only if that
+succeeds is the row removed, freeing the unique-per-org-per-type
+constraint so a fresh document can be generated.
 
-Signed documents are completed legal artifacts and stay admin-only;
-the API returns 403 rather than 204 for them. Staff can still delete
-signed rows from Django admin.
+Returns 503 if the PandaDoc void fails — the row stays in that case
+and the frontend should prompt the user to retry. Returns 403 for
+signed documents (legal artifacts; staff can still delete signed
+rows from Django admin).
  */
 export const legalDocumentsDestroy = async (
     organizationId: string,

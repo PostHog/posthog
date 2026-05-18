@@ -166,7 +166,12 @@ class TestLegalDocumentAdminSave(APIBaseTest):
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
     @patch("products.legal_documents.backend.logic.object_storage")
-    def test_delete_model_cleans_up_s3_and_voids_pandadoc(self, mock_storage: Any, mock_pandadoc_cls: Any) -> None:
+    def test_delete_model_for_signed_row_cleans_up_s3_and_skips_pandadoc(
+        self, mock_storage: Any, mock_pandadoc_cls: Any
+    ) -> None:
+        # Signed rows have a PDF in S3 (PandaDoc completion webhook stashed it,
+        # or admin uploaded it) and a completed envelope on PandaDoc that can't
+        # be voided. Helper deletes the S3 object and skips the PandaDoc call.
         document = LegalDocument.objects.create(
             organization=self.organization,
             document_type="MSA",
@@ -184,9 +189,31 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         self.admin.delete_model(self._request(), document)
 
         mock_storage.delete.assert_called_once_with(expected_key)
-        # Admin previously left the PandaDoc envelope alive — now wired through
-        # the shared logic helper so it gets voided too.
+        mock_pandadoc_cls.assert_not_called()
+        self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    @patch("products.legal_documents.backend.logic.object_storage")
+    def test_delete_model_for_unsigned_row_voids_pandadoc_and_skips_s3(
+        self, mock_storage: Any, mock_pandadoc_cls: Any
+    ) -> None:
+        # Unsigned rows have an in-flight PandaDoc envelope that should be
+        # voided so the original recipient can't still complete it. No PDF
+        # exists in S3 until completion, so the S3 call is skipped.
+        document = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="DPA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE,
+            pandadoc_document_id="doc_123",
+        )
+        document_id = document.id
+        self.admin.delete_model(self._request(), document)
+
         mock_pandadoc_cls.return_value.delete_document.assert_called_once_with(document_id="doc_123")
+        mock_storage.delete.assert_not_called()
         self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
@@ -228,9 +255,12 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         # subclass returned by modelform_factory has no extra non-model fields.)
         self.assertNotIn("signed_pdf", change_form_class.base_fields)
 
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
     @patch("products.legal_documents.backend.logic.object_storage")
-    def test_delete_model_swallows_s3_errors(self, mock_storage: Any) -> None:
+    def test_delete_model_swallows_s3_errors(self, mock_storage: Any, _mock_pandadoc_cls: Any) -> None:
         # If S3 cleanup fails the row should still be deleted — best-effort cleanup.
+        # PandaDocClient is patched as defense-in-depth so this test never makes
+        # a real network call if the fixture sprouts a pandadoc_document_id.
         mock_storage.delete.side_effect = RuntimeError("s3 down")
         document = LegalDocument.objects.create(
             organization=self.organization,
@@ -245,6 +275,45 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         self.admin.delete_model(self._request(), document)
 
         self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    @patch("products.legal_documents.backend.logic.object_storage")
+    def test_delete_queryset_fires_per_row_pandadoc_voids_and_deletes_rows(
+        self, _mock_storage: Any, mock_pandadoc_cls: Any
+    ) -> None:
+        # Bulk delete via the changelist must call the shared logic helper
+        # once per row (not queryset.delete()) so each envelope gets voided
+        # individually and each row fires its own activity-log entry.
+        other_org = type(self.organization).objects.create(name="Other Co")
+        first = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="DPA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE,
+            pandadoc_document_id="doc_111",
+        )
+        second = LegalDocument.objects.create(
+            organization=other_org,
+            document_type="DPA",
+            company_name="Other Co",
+            company_address="Elsewhere",
+            representative_email="bob@other.example",
+            status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE,
+            pandadoc_document_id="doc_222",
+        )
+
+        queryset = LegalDocument.objects.filter(id__in=[first.id, second.id])
+        self.admin.delete_queryset(self._request(), queryset)
+
+        # Two distinct PandaDoc void calls, one per row.
+        self.assertEqual(mock_pandadoc_cls.return_value.delete_document.call_count, 2)
+        called_ids = {
+            call.kwargs["document_id"] for call in mock_pandadoc_cls.return_value.delete_document.call_args_list
+        }
+        self.assertEqual(called_ids, {"doc_111", "doc_222"})
+        self.assertFalse(LegalDocument.objects.filter(id__in=[first.id, second.id]).exists())
 
 
 class TestLegalDocumentAdminPermissions(APIBaseTest):

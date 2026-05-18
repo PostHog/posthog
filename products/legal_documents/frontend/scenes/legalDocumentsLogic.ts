@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -63,6 +63,16 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
         setDocumentType: (documentType: LegalDocumentType) => ({ documentType }),
         setDpaMode: (dpaMode: DPAMode) => ({ dpaMode }),
         deleteLegalDocument: (id: string, documentType: LegalDocumentType) => ({ id, documentType }),
+        // Internal — used by the listener to drive the per-row spinner.
+        setDeletingId: (id: string | null) => ({ id }),
+    }),
+    reducers({
+        deletingId: [
+            null as string | null,
+            {
+                setDeletingId: (_, { id }) => id,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         legalDocuments: [
@@ -134,17 +144,21 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
             if (!values.currentOrganizationId) {
                 return
             }
+            actions.setDeletingId(id)
             try {
                 await api.legalDocumentsDestroy(values.currentOrganizationId, id)
                 actions.loadLegalDocuments()
-                lemonToast.success(
-                    `${documentType} deleted. You can now generate a new ${documentType} with the corrected details.`
-                )
+                lemonToast.success(`${documentType} deleted. You can now generate a new ${documentType}.`)
             } catch (error: any) {
+                // 503 from the backend means the PandaDoc envelope couldn't be
+                // cancelled and the row was NOT deleted — surface the backend's
+                // detail so the user knows to retry rather than assuming success.
                 lemonToast.error(
                     error?.detail ||
                         `Could not delete the ${documentType}. Please try again, or contact PostHog support.`
                 )
+            } finally {
+                actions.setDeletingId(null)
             }
         },
     })),

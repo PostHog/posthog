@@ -76,7 +76,7 @@ export const scene: SceneExport = {
 }
 
 export function LegalDocumentsScene(): JSX.Element {
-    const { legalDocuments, legalDocumentsLoading, existingDocumentTypes } = useValues(legalDocumentsLogic)
+    const { legalDocuments, legalDocumentsLoading, existingDocumentTypes, deletingId } = useValues(legalDocumentsLogic)
     const { deleteLegalDocument } = useActions(legalDocumentsLogic)
     const { isAdminOrOwner, currentOrganizationId } = useValues(organizationLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
@@ -218,6 +218,12 @@ export function LegalDocumentsScene(): JSX.Element {
                                     icon={<IconTrash />}
                                     status="danger"
                                     size="small"
+                                    loading={deletingId === row.id}
+                                    disabledReason={
+                                        deletingId && deletingId !== row.id
+                                            ? 'Another document is being deleted'
+                                            : undefined
+                                    }
                                     data-attr={`delete-legal-document-${row.id}`}
                                     tooltip={`Delete this ${row.document_type} and cancel the PandaDoc envelope`}
                                     onClick={() =>
@@ -225,10 +231,11 @@ export function LegalDocumentsScene(): JSX.Element {
                                             title: `Delete this ${row.document_type}?`,
                                             description: (
                                                 <>
-                                                    The pending PandaDoc envelope sent to{' '}
-                                                    <strong>{row.representative_email}</strong> will be cancelled so
-                                                    they can no longer sign it. You can then generate a fresh{' '}
-                                                    {row.document_type} with corrected details.
+                                                    We'll cancel the pending PandaDoc envelope sent to{' '}
+                                                    <strong>{row.representative_email}</strong> first. The{' '}
+                                                    {row.document_type} is only deleted if the cancellation succeeds, so
+                                                    you can safely retry if PandaDoc is unreachable. Once it's deleted
+                                                    you can generate a fresh {row.document_type}.
                                                 </>
                                             ),
                                             primaryButton: {
