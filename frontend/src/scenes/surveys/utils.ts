@@ -948,6 +948,14 @@ export const isThumbQuestion = (question: SurveyQuestion): boolean => {
 }
 
 /**
+ * A 2-point rating question always represents a binary thumbs up / thumbs down regardless of `display`,
+ * so we render the icon + label in response views to make the value readable at a glance.
+ */
+export const isScaleTwoRating = (question: SurveyQuestion): boolean => {
+    return question.type === SurveyQuestionType.Rating && question.scale === SURVEY_RATING_SCALE.THUMB_2_POINT
+}
+
+/**
  * Splits text pasted into a choice input on newlines or tabs (spreadsheet rows).
  * Returns the merged choices array, or `null` if there's nothing to split (the caller
  * should let the paste fall through to the default input behavior).
@@ -1148,7 +1156,10 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
     return parts
 }
 
-export function getSurveyNotificationFilters(surveyId: string): CyclotronJobFiltersType {
+export function getSurveyNotificationFilters(
+    surveyId: string,
+    extraSentEventProperties: EventPropertyFilter[] = []
+): CyclotronJobFiltersType {
     const sentEventProperties: EventPropertyFilter[] = [
         {
             key: SurveyEventProperties.SURVEY_ID,
@@ -1162,6 +1173,7 @@ export function getSurveyNotificationFilters(surveyId: string): CyclotronJobFilt
             value: true,
             operator: PropertyOperator.Exact,
         },
+        ...extraSentEventProperties,
     ]
 
     return {

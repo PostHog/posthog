@@ -53,6 +53,7 @@ from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
 HOURLY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
+MAX_ACTIVE_HOURLY_SUBSCRIPTIONS_PER_ORG = 5
 
 
 def _summary_quota_cache_key(organization_id) -> str:
@@ -397,18 +398,20 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         )
         if self.instance is not None:
             existing = existing.exclude(pk=self.instance.pk)
-        if existing.exists():
-            self._capture_hourly_cap_hit(organization)
+        active_count = existing.count()
+        limit = MAX_ACTIVE_HOURLY_SUBSCRIPTIONS_PER_ORG
+        if active_count >= limit:
+            self._capture_hourly_cap_hit(organization, active_count, limit)
             raise ValidationError(
                 {
                     "frequency": [
-                        "Only one active hourly subscription is allowed per organization. "
-                        "Disable or delete the existing hourly subscription before adding another."
+                        f"Your organization can have up to {limit} active hourly subscriptions. "
+                        "Disable or delete an existing hourly subscription before adding another."
                     ]
                 }
             )
 
-    def _capture_hourly_cap_hit(self, organization) -> None:
+    def _capture_hourly_cap_hit(self, organization, active_count: int, limit: int) -> None:
         # Rate-limited to one event per org per 10 minutes so a misbehaving
         # client retrying in a loop doesn't spam the analytics stream. Within
         # that window the user-visible 400 still fires every time.
@@ -430,6 +433,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 properties={
                     "team_id": self.context.get("team_id"),
                     "organization_id": str(organization.id),
+                    "active_count": active_count,
+                    "limit": limit,
                     "is_create": self.instance is None,
                 },
                 groups={"organization": str(organization.id)},

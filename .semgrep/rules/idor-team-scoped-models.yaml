@@ -55,6 +55,7 @@ rules:
                       regex: |
                           (?x)(
                               AccessControl
+                              |Account
                               |Action
                               |AgentArtifact
                               |Alert
@@ -92,6 +93,8 @@ rules:
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
                               |Deployment
+                              |DeploymentEvent
+                              |DeploymentProject
                               |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
@@ -142,6 +145,7 @@ rules:
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
+                              |IntervieweeContext
                               |KnowledgeChunk
                               |KnowledgeDocument
                               |KnowledgeSource
@@ -273,6 +277,7 @@ rules:
                 regex: |
                     (?x)(
                         AccessControl
+                        |Account
                         |Action
                         |AgentArtifact
                         |Alert
@@ -310,6 +315,8 @@ rules:
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
                         |Deployment
+                        |DeploymentEvent
+                        |DeploymentProject
                         |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping
@@ -360,6 +367,7 @@ rules:
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
+                        |IntervieweeContext
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeSource

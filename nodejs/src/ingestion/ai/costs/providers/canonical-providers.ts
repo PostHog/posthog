@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-12 10:48:44 UTC
+// Generated at: 2026-05-18 11:17:26 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -38,6 +38,7 @@ export type CanonicalProvider =
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
+    | 'crucible'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
@@ -46,7 +47,6 @@ export type CanonicalProvider =
     | 'deepinfra-turbo'
     | 'deepseek'
     | 'dekallm-bf16'
-    | 'dekallm-fp4'
     | 'dekallm-fp8'
     | 'featherless'
     | 'fireworks'
@@ -70,7 +70,7 @@ export type CanonicalProvider =
     | 'infermatic-bf16'
     | 'inflection'
     | 'io-net-bf16'
-    | 'io-net-fp16'
+    | 'io-net-fp8'
     | 'io-net-int4'
     | 'ionstream-fp8'
     | 'liquid'
@@ -104,6 +104,7 @@ export type CanonicalProvider =
     | 'parasail-fp8'
     | 'parasail-int4'
     | 'parasail-int8'
+    | 'perceptron'
     | 'perplexity'
     | 'phala'
     | 'poolside-fp8'
@@ -140,7 +141,6 @@ export type CanonicalProvider =
     | 'wandb-fp4'
     | 'wandb-fp8'
     | 'xai'
-    | 'xai-fast'
     | 'xiaomi-fp8'
     | 'z-ai'
     | 'z-ai-fp8'

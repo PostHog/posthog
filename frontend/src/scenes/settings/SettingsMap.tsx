@@ -41,6 +41,7 @@ import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 import { ChannelsSection } from 'products/conversations/frontend/scenes/settings/ChannelsSection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
+import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
@@ -393,18 +394,10 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-csp-reporting',
         title: 'CSP reporting',
-        flag: 'CSP_REPORTING',
         settings: [
             {
                 id: 'csp-reporting',
-                title: (
-                    <>
-                        CSP reporting{' '}
-                        <LemonTag type="warning" className="ml-1 uppercase">
-                            Beta
-                        </LemonTag>
-                    </>
-                ),
+                title: 'CSP reporting',
                 description:
                     'Collect Content Security Policy violation reports to monitor and debug CSP issues on your site.',
                 component: <CSPReportingSettings />,
@@ -442,6 +435,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CustomerAnalyticsDashboardEvents />,
                 flag: 'CUSTOMER_ANALYTICS',
                 keywords: ['dashboard', 'customer', 'events'],
+            },
+            {
+                id: 'customer-analytics-accounts',
+                title: 'Accounts',
+                description: 'Select which group type represents an account in customer analytics.',
+                component: <CustomerAnalyticsAccountConfig />,
+                flag: ['CUSTOMER_ANALYTICS', 'POSTHOG_CSP'],
+                keywords: ['accounts', 'group', 'b2b'],
             },
         ],
     },

@@ -68,6 +68,7 @@ import { SurveyResultsRefreshStatus } from '../components/SurveyResultsRefreshSt
 import { NEW_SURVEY } from '../constants'
 import { SurveyDraftContent } from './SurveyDraftContent'
 import { SurveyResultsFiltersBar } from './SurveyFilters'
+import { SurveyResponseExpandedRow } from './SurveyResponseExpandedRow'
 import { SurveyDetailsPanel, SurveyExportPanel } from './SurveySidebar'
 
 const RESOURCE_TYPE = 'survey'
@@ -665,15 +666,29 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
     )
 }
 
+function getUuidFromExpandableRecord(record: { result?: unknown }): string | undefined {
+    const result = record?.result
+    if (!Array.isArray(result)) {
+        return undefined
+    }
+    const event = result[0] as { uuid?: string } | undefined
+    return event?.uuid
+}
+
+// Don't trigger row expansion when the click originated from an interactive element inside the row.
+const INTERACTIVE_SELECTOR = 'a, button, input, select, textarea, [role="button"], [data-skip-row-expand]'
+
 function SurveyResponsesContent(): JSX.Element {
     const {
         dataTableQuery,
         survey,
         surveyLoading,
         archivedResponseUuids,
+        expandedResponseUuids,
         isAnyResultsLoading,
         resultsRequeryInProgress,
     } = useValues(surveyLogic)
+    const { setResponseExpanded, toggleResponseExpansion } = useActions(surveyLogic)
     const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
     const isRefreshingResults = resultsRequeryInProgress || isAnyResultsLoading
     const surveyColumnRenderers = useSurveyResponseColumns()
@@ -702,16 +717,45 @@ function SurveyResponsesContent(): JSX.Element {
                                 if (typeof record !== 'object' || !record || !('result' in record)) {
                                     return {}
                                 }
-                                const result = record.result
+                                const result = (record as { result?: unknown }).result
                                 if (!Array.isArray(result)) {
                                     return {}
                                 }
+                                const uuid = (result[0] as { uuid?: string } | undefined)?.uuid
+                                const isArchived = uuid ? archivedResponseUuids.has(uuid) : false
                                 return {
-                                    className:
-                                        result[0]?.uuid && archivedResponseUuids.has(result[0].uuid)
-                                            ? 'opacity-50'
-                                            : undefined,
+                                    className: `cursor-pointer ${isArchived ? 'opacity-50' : ''}`.trim(),
+                                    onClick: (e: React.MouseEvent<HTMLTableRowElement>) => {
+                                        if (!uuid) {
+                                            return
+                                        }
+                                        if ((e.target as HTMLElement).closest(INTERACTIVE_SELECTOR)) {
+                                            return
+                                        }
+                                        toggleResponseExpansion(uuid)
+                                    },
                                 }
+                            },
+                            expandable: {
+                                expandedRowRender: ({ result }) => <SurveyResponseExpandedRow result={result} />,
+                                rowExpandable: ({ result }) => !!result,
+                                isRowExpanded: (record) => {
+                                    const uuid = getUuidFromExpandableRecord(record)
+                                    return uuid ? expandedResponseUuids.has(uuid) : false
+                                },
+                                onRowExpand: (record) => {
+                                    const uuid = getUuidFromExpandableRecord(record)
+                                    if (uuid) {
+                                        setResponseExpanded(uuid, true)
+                                    }
+                                },
+                                onRowCollapse: (record) => {
+                                    const uuid = getUuidFromExpandableRecord(record)
+                                    if (uuid) {
+                                        setResponseExpanded(uuid, false)
+                                    }
+                                },
+                                noIndent: true,
                             },
                         }}
                     />

@@ -12,14 +12,19 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { allOperatorsMapping, hasFormErrors, isObject, objectClean } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import {
     branchingConfigToDropdownValue,
+    buildDeleteIndexMap,
+    buildReorderIndexMap,
     canQuestionHaveResponseBasedBranching,
     createBranchingConfig,
     getDefaultBranchingType,
+    remapBranchingIndices,
 } from 'scenes/surveys/components/question-branching/utils'
 import { getDemoDataForSurvey } from 'scenes/surveys/utils/demoDataGenerator'
 import { teamLogic } from 'scenes/teamLogic'
@@ -666,6 +671,8 @@ export const surveyLogic = kea<surveyLogicType>([
         }),
         resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
         deleteBranchingLogic: true,
+        moveQuestion: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
+        removeQuestion: (questionIndex: number) => ({ questionIndex }),
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSelectedPageIndex: (idx: number | null) => ({ idx }),
@@ -687,6 +694,8 @@ export const surveyLogic = kea<surveyLogicType>([
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
+        setResponseExpanded: (uuid: string, expanded: boolean) => ({ uuid, expanded }),
+        toggleResponseExpansion: (uuid: string) => ({ uuid }),
         setBaseStatsResults: (results: SurveyBaseStatsResult) => ({ results }),
         setDismissedAndSentCount: (count: DismissedAndSentCountResult) => ({ count }),
         setShowArchivedResponses: (show: boolean) => ({ show }),
@@ -698,6 +707,7 @@ export const surveyLogic = kea<surveyLogicType>([
             notificationId,
             enabled,
         }),
+        deleteSurveyNotification: (notification: HogFunctionType) => ({ notification }),
         setPersonNames: (personNames: Record<string, string>) => ({ personNames }),
         generateTranslationDrafts: (language: string, overwrite: boolean = true) => ({ language, overwrite }),
         setGeneratingTranslationDrafts: (generating: boolean) => ({ generating }),
@@ -1488,6 +1498,28 @@ export const surveyLogic = kea<surveyLogicType>([
                     })
                 }
             },
+            deleteSurveyNotification: async ({ notification }) => {
+                const previous = values.surveyNotifications
+                // Optimistically remove the row; restore on undo or on a swallowed API error.
+                actions.loadSurveyNotificationsSuccess(previous.filter((n) => n.id !== notification.id))
+
+                let callbackFired = false
+                await deleteWithUndo({
+                    endpoint: `projects/${projectLogic.values.currentProjectId}/hog_functions`,
+                    object: { id: notification.id, name: notification.name },
+                    callback: (undo) => {
+                        callbackFired = true
+                        if (undo) {
+                            actions.loadSurveyNotifications()
+                        }
+                    },
+                })
+
+                if (!callbackFired) {
+                    // deleteWithUndo swallows API errors and only fires the callback on success.
+                    actions.loadSurveyNotificationsSuccess(previous)
+                }
+            },
         }
     }),
     events(({ cache }) => ({
@@ -1514,6 +1546,32 @@ export const surveyLogic = kea<surveyLogicType>([
             {} as Record<string, string>,
             {
                 setPersonNames: (state, { personNames }) => ({ ...state, ...personNames }),
+            },
+        ],
+        expandedResponseUuids: [
+            new Set<string>(),
+            {
+                setResponseExpanded: (state, { uuid, expanded }) => {
+                    if (expanded === state.has(uuid)) {
+                        return state
+                    }
+                    const next = new Set(state)
+                    if (expanded) {
+                        next.add(uuid)
+                    } else {
+                        next.delete(uuid)
+                    }
+                    return next
+                },
+                toggleResponseExpansion: (state, { uuid }) => {
+                    const next = new Set(state)
+                    if (next.has(uuid)) {
+                        next.delete(uuid)
+                    } else {
+                        next.add(uuid)
+                    }
+                    return next
+                },
             },
         ],
         editingLanguage: [
@@ -1783,6 +1841,27 @@ export const surveyLogic = kea<surveyLogicType>([
                     return {
                         ...state,
                         questions: newQuestions,
+                    }
+                },
+                moveQuestion: (state, { oldIndex, newIndex }) => {
+                    if (oldIndex === newIndex) {
+                        return state
+                    }
+                    const reordered = [...state.questions]
+                    const [moved] = reordered.splice(oldIndex, 1)
+                    reordered.splice(newIndex, 0, moved)
+                    const indexMap = buildReorderIndexMap(state.questions.length, oldIndex, newIndex)
+                    return {
+                        ...state,
+                        questions: remapBranchingIndices(reordered, indexMap),
+                    }
+                },
+                removeQuestion: (state, { questionIndex }) => {
+                    const filtered = state.questions.filter((_, i) => i !== questionIndex)
+                    const indexMap = buildDeleteIndexMap(state.questions.length, questionIndex)
+                    return {
+                        ...state,
+                        questions: remapBranchingIndices(filtered, indexMap),
                     }
                 },
             },
@@ -2167,9 +2246,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     }),
                     'timestamp',
                     'person',
-                    `coalesce(JSONExtractString(properties, '$lib_version')) -- Library Version`,
-                    `coalesce(JSONExtractString(properties, '$lib')) -- Library`,
-                    `coalesce(JSONExtractString(properties, '$current_url')) -- URL`,
                 ]
 
                 return {
@@ -2195,7 +2271,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     propertiesViaUrl: true,
                     showExport: true,
                     showReload: true,
-                    showRecordingColumn: true,
+                    showRecordingColumn: false,
                     showEventFilter: false,
                     showPropertyFilter: false,
                     showTimings: false,
@@ -3156,8 +3232,10 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     })),
     afterMount(({ props, actions, values }) => {
-        const shouldPreserveLocalChanges =
-            router.values.hashParams.preserveLocalChanges && values.surveyChanged && values.survey.id === props.id
+        // Preserve any in-memory edits when re-mounting on the same survey id (e.g.
+        // navigating between the guided wizard and the full editor). No URL flag —
+        // surveyChanged is in-memory only, so a fresh session can never trigger this.
+        const shouldPreserveLocalChanges = values.surveyChanged && values.survey.id === props.id
 
         if (props.id !== 'new' && !shouldPreserveLocalChanges) {
             actions.loadSurvey()

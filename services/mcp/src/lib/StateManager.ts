@@ -1,4 +1,5 @@
 import type { ApiClient, GroupType } from '@/api/client'
+import { hasScope } from '@/lib/api'
 import { getPostHogClient } from '@/lib/analytics'
 import { ErrorCode, MissingOrganizationContextError, MissingProjectContextError, wrapError } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
@@ -38,7 +39,14 @@ export class StateManager {
     private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
         const apiKeyResult = await this._api.apiKeys().current()
         if (apiKeyResult.success) {
-            return apiKeyResult.data
+            const { scopes, scoped_teams, scoped_organizations } = apiKeyResult.data
+            // The DRF serializer returns `null` (not `[]`) for unscoped keys, so
+            // normalize at the boundary — downstream code treats these as arrays.
+            return {
+                scopes,
+                scoped_teams: scoped_teams ?? [],
+                scoped_organizations: scoped_organizations ?? [],
+            }
         }
 
         const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })
@@ -60,8 +68,8 @@ export class StateManager {
 
         return {
             scopes: scope ? scope.split(' ') : [],
-            scoped_teams,
-            scoped_organizations,
+            scoped_teams: scoped_teams ?? [],
+            scoped_organizations: scoped_organizations ?? [],
         }
     }
 
@@ -275,6 +283,14 @@ export class StateManager {
         // consent checks treat "no org" as "skip", not as a hard error.
         const orgId = await this._resolveOrganizationId()
         if (!orgId) {
+            return undefined
+        }
+        // `/api/organizations/{id}/` requires `organization:read`. Project-scoped
+        // personal API keys do not carry that scope, so the fetch would 403 on
+        // every session init and dogpile error tracking. Mirror the `group:read`
+        // gate in `mcp.ts` and skip the fetch when the scope is absent.
+        const apiKey = await this.getApiKey()
+        if (!hasScope(apiKey.scopes, 'organization:read')) {
             return undefined
         }
         return this.getOrFetchCached({
