@@ -377,14 +377,16 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       json["right"] = visitAsJSON(ctx->expression(1));
       return json;
     }
-    // `columnExpr` matches `name := value` as a NamedArgument, so a bare-identifier
-    // assignment arrives pre-folded; at statement level it is a variable assignment.
+    // `columnExpr` matches `name := value` as a NamedArgument; a directly named-arg-shaped
+    // statement is a variable assignment. Checked on the parse tree, so parens are not
+    // unwrapped: `(x := 1)` stays an expression statement.
     auto* named_arg = dynamic_cast<HogQLParser::ColumnExprNamedArgContext*>(ctx->expression(0)->columnExpr());
     if (named_arg) {
       json["node"] = "VariableAssignment";
       if (!is_internal) addPositionInfo(json, ctx);
       Json left = Json::object();
       left["node"] = "Field";
+      if (!is_internal) addPositionInfo(left, named_arg->identifier());
       Json chain = Json::array();
       chain.pushBack(visitAsString(named_arg->identifier()));
       left["chain"] = std::move(chain);

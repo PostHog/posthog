@@ -3430,6 +3430,19 @@ def parser_test_factory(backend: HogQLParserBackend):
             declaration = self._program("f(x := 1);").declarations[0]
             assert type(declaration).__name__ == "ExprStatement"
 
+        def test_parenthesized_named_arg_is_an_expression_statement(self):
+            # `(x := 9)` is a parenthesised named-argument expression, not a statement-level
+            # assignment; the fold does not unwrap parens, so both backends agree.
+            for code in ("(x := 9);", "((y := 2));"):
+                assert type(self._program(code).declarations[0]).__name__ == "ExprStatement"
+
+        def test_promoted_assignment_target_carries_position(self):
+            # The Field synthesised for a bare-identifier assignment target carries the
+            # identifier's source position, matching a non-folded target.
+            assignment = parse_program("xyz := 1", backend=backend).declarations[0]
+            assert assignment.left.start is not None
+            assert assignment.left.end is not None
+
         def test_program_variable_declarations_with_sql_expr(self):
             code = """
                 let query := (select id, properties.email from events where timestamp > now() - interval 1 day);
