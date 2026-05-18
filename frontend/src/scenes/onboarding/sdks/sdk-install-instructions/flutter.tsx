@@ -18,7 +18,7 @@ export interface FlutterInstallProps {
 }
 
 function FlutterInstallSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.YAML}>posthog_flutter: ^5.0.0</CodeSnippet>
+    return <CodeSnippet language={Language.YAML}>posthog_flutter: ^5.24.0</CodeSnippet>
 }
 
 function FlutterDartSetup(props: FlutterSetupProps & FlutterInstallProps): JSX.Element {
@@ -143,12 +143,12 @@ function FlutterAndroidSetupSnippet({ requiresManualInstall }: FlutterSetupProps
     const minSdkVersionInstructions = (
         <>
             <p>
-                Update the minimum Android SDK version to <strong>21</strong> in{' '}
+                Update the minimum Android SDK version to <strong>23</strong> in{' '}
                 <strong>android/app/build.gradle</strong>:
             </p>
             <CodeSnippet language={Language.Groovy}>
                 {`defaultConfig {
-    minSdkVersion 21
+    minSdkVersion 23
     // rest of your config
 }`}
             </CodeSnippet>
@@ -170,7 +170,7 @@ function FlutterAndroidSetupSnippet({ requiresManualInstall }: FlutterSetupProps
     return (
         <>
             <CodeSnippet language={Language.XML}>
-                {'<application>\n\t<activity>\n\t\t[...]\n\t</activity>\n\t<meta-data android:name="com.posthog.posthog.API_KEY" android:value="' +
+                {'<application>\n\t<activity>\n\t\t[...]\n\t</activity>\n\t<meta-data android:name="com.posthog.posthog.PROJECT_TOKEN" android:value="' +
                     currentTeam?.api_token +
                     '" />\n\t<meta-data android:name="com.posthog.posthog.POSTHOG_HOST" android:value="' +
                     url +
@@ -210,7 +210,7 @@ function FlutterIOSSetupSnippet({ requiresManualInstall }: FlutterSetupProps): J
     return (
         <>
             <CodeSnippet language={Language.XML}>
-                {'<dict>\n\t[...]\n\t<key>com.posthog.posthog.API_KEY</key>\n\t<string>' +
+                {'<dict>\n\t[...]\n\t<key>com.posthog.posthog.PROJECT_TOKEN</key>\n\t<string>' +
                     currentTeam?.api_token +
                     '</string>\n\t<key>com.posthog.posthog.POSTHOG_HOST</key>\n\t<string>' +
                     url +

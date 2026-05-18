@@ -1,1 +1,1 @@
-0009_drop_mcpserver_created_by_fk
+0011_normalize_mcp_template_icon_keys

@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -196,10 +196,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (values.featureFlags[FEATURE_FLAGS.AI_FIRST]) {
-            actions.loadConversationHistory()
-        }
+    afterMount(({ actions }) => {
+        actions.loadConversationHistory()
     }),
 
     selectors({

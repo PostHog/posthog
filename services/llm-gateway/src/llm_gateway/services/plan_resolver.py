@@ -27,6 +27,7 @@ logger = structlog.get_logger(__name__)
 
 POSTHOG_CODE_PRODUCT = "posthog_code"
 PLAN_CACHE_PREFIX = f"plan:{POSTHOG_CODE_PRODUCT}"
+# Duplicated in products/tasks/backend/seat_api.py
 PRO_PLAN_PREFIXES = ("posthog-code-200", "posthog-code-pro-")
 
 
@@ -200,7 +201,7 @@ class PlanResolver:
         url = f"{settings.posthog_api_base_url.rstrip('/')}/api/seats/me/"
         resp = await self._http.get(
             url,
-            params={"product_key": POSTHOG_CODE_PRODUCT},
+            params={"product_key": POSTHOG_CODE_PRODUCT, "best": "true"},
             headers={"Authorization": auth_header},
             timeout=2.0,
         )

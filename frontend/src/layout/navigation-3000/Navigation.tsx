@@ -65,6 +65,16 @@ export function Navigation({
         }
     }, [sidePanelOpen, registerScenePanelElement])
 
+    // Null the registration on Navigation unmount so the detached inline
+    // panel div is not pinned by sceneLayoutLogic's reducer. Kept in its own
+    // empty-deps effect so it fires only on final unmount, not on every
+    // sidePanelOpen toggle (which would briefly blank SceneLayout's portal).
+    useEffect(() => {
+        return () => {
+            registerScenePanelElement(null)
+        }
+    }, [registerScenePanelElement])
+
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
         if (mainRef.current) {

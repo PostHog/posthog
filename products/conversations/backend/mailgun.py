@@ -5,10 +5,6 @@ import time
 import hashlib
 from typing import Any
 
-from django.conf import settings as django_settings
-from django.core import mail
-from django.utils.module_loading import import_string
-
 import requests
 import structlog
 
@@ -19,6 +15,8 @@ logger = structlog.get_logger(__name__)
 MAILGUN_API_BASE = "https://api.mailgun.net/v3"
 
 WEBHOOK_TIMESTAMP_MAX_AGE_SECONDS = 300  # 5 minutes
+
+MAILGUN_SEND_TIMEOUT = 30  # seconds
 
 
 class MailgunError(Exception):
@@ -31,6 +29,27 @@ class MailgunNotConfigured(MailgunError):
 
 class MailgunDomainConflict(MailgunError):
     """Mailgun refuses to register the domain because it already exists (in our account or another)."""
+
+
+class MailgunDomainNotRegistered(MailgunError):
+    """Mailgun returned 404 when sending — the domain no longer exists in the account.
+
+    Caller should treat this as a signal to flip domain_verified=False and prompt the
+    user to reconnect. Non-retriable.
+    """
+
+
+class MailgunPermanentError(MailgunError):
+    """Non-retriable 4xx from Mailgun (bad recipient, oversized payload, compliance reject,
+    or a Mailgun-side unverified state). Lumpy bucket — response body is included so
+    operators can triage from logs.
+    """
+
+
+class MailgunTransientError(MailgunError):
+    """Retriable failure — 429, 5xx, or any pre-response RequestException (connection,
+    timeout, chunked-encoding). Callers should bounce these back through Celery retry.
+    """
 
 
 def validate_webhook_signature(token: str, timestamp: str, signature: str) -> bool:
@@ -164,22 +183,79 @@ def delete_domain(domain: str) -> None:
     resp.raise_for_status()
 
 
-def get_smtp_connection():
-    """Create an SMTP connection from instance settings.
+def send_mime(domain: str, mime_bytes: bytes, recipients: list[str]) -> str:
+    """Send a pre-built MIME message through Mailgun's per-domain endpoint.
 
-    Raises a clear error if the email backend is misconfigured.
+    Posts to /v3/<domain>/messages.mime so Mailgun DKIM-signs with the customer's
+    domain key (d=<domain>) and uses an envelope return-path under that domain,
+    which is required for DMARC alignment.
+
+    `recipients` must contain every envelope target (To + Cc). Mailgun uses the
+    `to=` form field as SMTP RCPT regardless of what's in the MIME headers; any
+    address not listed here won't be delivered, even if it appears in the Cc: header.
+
+    Tracking rewrites are force-disabled per-message because we intentionally strip
+    tracking CNAMEs during domain setup — account-level tracking would rewrite links
+    to unconfigured CNAMEs.
+
+    Returns Mailgun's message id from the response body.
     """
-    backend_path = django_settings.EMAIL_BACKEND
-    try:
-        klass = import_string(backend_path) if backend_path else mail.get_connection().__class__
-    except ImportError:
-        raise ValueError(f"Invalid EMAIL_BACKEND: {backend_path!r}")
+    api_key = _get_api_key()
 
-    return klass(
-        host=get_instance_setting("EMAIL_HOST"),
-        port=get_instance_setting("EMAIL_PORT"),
-        username=get_instance_setting("EMAIL_HOST_USER"),
-        password=get_instance_setting("EMAIL_HOST_PASSWORD"),
-        use_tls=get_instance_setting("EMAIL_USE_TLS"),
-        use_ssl=get_instance_setting("EMAIL_USE_SSL"),
+    data = [
+        *(("to", addr) for addr in recipients),
+        ("o:tracking", "no"),
+        ("o:tracking-clicks", "no"),
+        ("o:tracking-opens", "no"),
+    ]
+
+    try:
+        resp = requests.post(
+            f"{MAILGUN_API_BASE}/{domain}/messages.mime",
+            auth=("api", api_key),
+            data=data,
+            files={"message": ("message.mime", mime_bytes)},
+            timeout=MAILGUN_SEND_TIMEOUT,
+        )
+    except requests.exceptions.RequestException as e:
+        # Any failure before we've seen a response is transient — the request may
+        # or may not have reached Mailgun, and a retry is the safe call.
+        raise MailgunTransientError(f"Mailgun send request failed: {e}") from e
+
+    status = resp.status_code
+
+    if 200 <= status < 300:
+        try:
+            message_id = resp.json().get("id", "")
+        except ValueError:
+            message_id = ""
+        logger.info(
+            "mailgun_send_succeeded",
+            domain=domain,
+            mailgun_message_id=message_id,
+            recipient_count=len(recipients),
+        )
+        return message_id
+
+    if status == 404:
+        raise MailgunDomainNotRegistered(f"Domain {domain} is not registered with Mailgun")
+
+    # Lumpy bucket: dump the response body so humans can triage from logs.
+    body_snippet = resp.text[:500] if resp.text else ""
+
+    if status == 429 or 500 <= status < 600:
+        logger.warning(
+            "mailgun_send_transient_error",
+            domain=domain,
+            status=status,
+            body=body_snippet,
+        )
+        raise MailgunTransientError(f"Mailgun {status}: {body_snippet}")
+
+    logger.error(
+        "mailgun_send_permanent_error",
+        domain=domain,
+        status=status,
+        body=body_snippet,
     )
+    raise MailgunPermanentError(f"Mailgun {status}: {body_snippet}")

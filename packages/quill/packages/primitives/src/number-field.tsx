@@ -3,6 +3,7 @@ import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { cn } from './lib/utils'
+import './number-field.css'
 
 function NumberFieldRoot({
     className,
@@ -25,10 +26,7 @@ function NumberFieldGroup({
     return (
         <NumberFieldPrimitive.Group
             data-slot="number-field-group"
-            className={cn(
-                'flex h-8 items-center rounded-md border border-input bg-input/20 dark:bg-input/30 transition-colors has-[:focus-visible]:border-ring/50 has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/30 has-[:disabled]:opacity-50',
-                className
-            )}
+            className={cn('quill-number-field__group flex items-center', className)}
             {...props}
         />
     )
@@ -40,10 +38,7 @@ const NumberFieldInput = React.forwardRef<HTMLInputElement, NumberFieldPrimitive
             <NumberFieldPrimitive.Input
                 ref={ref}
                 data-slot="number-field-input"
-                className={cn(
-                    'h-full w-full min-w-0 flex-1 bg-transparent px-2 py-0.5 text-center text-xs tabular-nums outline-none placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed',
-                    className
-                )}
+                className={cn('quill-number-field__input', className)}
                 {...props}
             />
         )
@@ -59,10 +54,7 @@ function NumberFieldIncrement({
     return (
         <NumberFieldPrimitive.Increment
             data-slot="number-field-increment"
-            className={cn(
-                'flex h-full items-center justify-center border-l border-input px-1 text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-50',
-                className
-            )}
+            className={cn('quill-number-field__increment flex items-center justify-center', className)}
             {...props}
         >
             {children ?? <ChevronUpIcon className="size-3.5" />}
@@ -78,10 +70,7 @@ function NumberFieldDecrement({
     return (
         <NumberFieldPrimitive.Decrement
             data-slot="number-field-decrement"
-            className={cn(
-                'flex h-full items-center justify-center border-r border-input px-1 text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-50',
-                className
-            )}
+            className={cn('quill-number-field__decrement flex items-center justify-center', className)}
             {...props}
         >
             {children ?? <ChevronDownIcon className="size-3.5" />}

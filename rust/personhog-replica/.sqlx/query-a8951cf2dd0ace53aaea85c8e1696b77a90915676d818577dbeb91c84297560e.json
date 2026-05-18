@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO posthog_group (team_id, group_type_index, group_key, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)\n            VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, '{}'::jsonb, 0)\n            RETURNING id::bigint as \"id!\", team_id::bigint as \"team_id!\",\n                      group_type_index, group_key, group_properties,\n                      created_at,\n                      properties_last_updated_at as \"properties_last_updated_at?: serde_json::Value\",\n                      properties_last_operation as \"properties_last_operation?: serde_json::Value\",\n                      version\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "team_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "group_type_index",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "group_key",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "group_properties",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "properties_last_updated_at?: serde_json::Value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "properties_last_operation?: serde_json::Value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "version",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4",
+        "Varchar",
+        "Jsonb",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a8951cf2dd0ace53aaea85c8e1696b77a90915676d818577dbeb91c84297560e"
+}

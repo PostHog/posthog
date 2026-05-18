@@ -235,6 +235,12 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             (s) => [s.breakdownFilter, s.localBreakdownLimit],
             (breakdownFilter, localBreakdownLimit) => localBreakdownLimit || breakdownFilter?.breakdown_limit || 25,
         ],
+        // Cohort breakdowns are over a user-picked set, so there's nothing to truncate
+        // and no long-tail to bucket as "Other". The global options panel is empty in that case.
+        hasGlobalBreakdownOptions: [
+            (s) => [s.breakdownFilter],
+            (breakdownFilter) => breakdownFilter?.breakdown_type !== 'cohort',
+        ],
         normalizeBreakdownUrl: [
             (s) => [s.breakdownFilter, s.localNormalizeBreakdownURL],
             (breakdownFilter, localNormalizeBreakdownURL) =>

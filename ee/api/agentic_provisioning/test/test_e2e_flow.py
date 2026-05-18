@@ -13,11 +13,11 @@ from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.signature import compute_signature
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestE2EProvisioningFlow(StripeProvisioningTestBase):
+class TestE2EProvisioningFlow(ProvisioningTestBase):
     """Walk through the full APP 0.1d provisioning flow end-to-end."""
 
     def test_full_provisioning_flow(self):
@@ -60,8 +60,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
             "/api/agentic/oauth/token",
             data=token_body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"},
         )
         assert res.status_code == 200
         token_data = res.json()
@@ -138,8 +137,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
             "/api/agentic/oauth/token",
             data=refresh_body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"},
         )
         assert res.status_code == 200
         new_access_token = res.json()["access_token"]
@@ -200,8 +198,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
             "/api/agentic/oauth/token",
             data=token_body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"},
         )
         assert res.status_code == 200
         token_data = res.json()

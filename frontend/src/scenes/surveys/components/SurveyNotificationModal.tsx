@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 
+import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
@@ -23,6 +24,7 @@ import {
     getQuestionLabel,
     surveyNotificationModalLogic,
 } from 'scenes/surveys/surveyNotificationModalLogic'
+import { urls } from 'scenes/urls'
 
 import { SurveyQuestionType } from '~/types'
 
@@ -148,10 +150,11 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
         isNotificationFormSubmitting,
         selectedSlackIntegration,
         hasSlackIntegration,
-        canNotifyOnPartialResponses,
         templateGlobals,
         submitDisabledReason,
         notificationSubmissionError,
+        editingNotification,
+        copiedNotification,
     } = useValues(logic)
     const { closeDialog, setNotificationFormValue } = useActions(logic)
 
@@ -170,11 +173,32 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
         <LemonModal
             isOpen={isOpen}
             onClose={closeDialog}
-            title="Add survey notification"
-            description="Send survey responses to Slack, Discord, Microsoft Teams, or a webhook."
+            title={
+                editingNotification
+                    ? 'Edit survey notification'
+                    : copiedNotification
+                      ? 'Copy survey notification'
+                      : 'Add survey notification'
+            }
+            description={
+                editingNotification
+                    ? 'Update where this survey notification sends and what it includes.'
+                    : copiedNotification
+                      ? 'Review the copied notification before creating it for this survey.'
+                      : 'Send survey updates to Slack, Discord, Microsoft Teams, or a webhook.'
+            }
             width={720}
             footer={
                 <>
+                    {editingNotification ? (
+                        <LemonButton
+                            type="secondary"
+                            to={urls.hogFunction(editingNotification.id)}
+                            icon={<IconExternal />}
+                        >
+                            Open full editor
+                        </LemonButton>
+                    ) : null}
                     <LemonButton type="secondary" onClick={closeDialog}>
                         Cancel
                     </LemonButton>
@@ -185,7 +209,11 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                         loading={isNotificationFormSubmitting}
                         disabledReason={submitDisabledReason}
                     >
-                        Add notification
+                        {editingNotification
+                            ? 'Save changes'
+                            : copiedNotification
+                              ? 'Create notification'
+                              : 'Add notification'}
                     </LemonButton>
                 </>
             }
@@ -216,6 +244,7 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                                 <img src={option.iconUrl} alt="" className="h-5 w-5 object-contain" />
                                             ),
                                         }))}
+                                        disabled={!!editingNotification || !!copiedNotification}
                                         fullWidth
                                     />
                                 )}
@@ -223,22 +252,10 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                             <div className="text-xs text-muted">
                                 {destinationDeliveryDescription(notificationForm.destination)}
                             </div>
-                            {canNotifyOnPartialResponses ? (
-                                <>
-                                    <Field name="onlyCompletedResponses">
-                                        {({ value, onChange }) => (
-                                            <LemonSwitch
-                                                checked={value}
-                                                onChange={onChange}
-                                                label="Only notify for full responses"
-                                            />
-                                        )}
-                                    </Field>
-                                    <div className="text-xs text-muted">
-                                        Turn this off if partial responses matter for this survey.
-                                    </div>
-                                </>
-                            ) : null}
+                            <div className="text-xs text-muted">
+                                Notifications send when a survey is completed or dismissed after at least one response.
+                                If someone closes it without answering or leaves it open forever, nothing is sent.
+                            </div>
                         </div>
 
                         {notificationForm.destination === 'slack' ? (
@@ -406,8 +423,8 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                     <div className="space-y-1">
                                         <div className="text-sm font-medium text-default">Webhook request body</div>
                                         <div className="text-xs text-muted">
-                                            Survey webhooks send the survey metadata, person context, and one answer
-                                            field per question.
+                                            Survey webhooks send the trigger status, survey metadata, person context,
+                                            and one answer field per question.
                                         </div>
                                     </div>
                                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-4">

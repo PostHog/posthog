@@ -69,6 +69,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
             "cron_expression",
             "last_executed_at",
             "end_date",
+            "timezone",
         ]
         read_only_fields = [
             "id",
@@ -77,6 +78,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
             "updated_at",
             "last_executed_at",
             "executed_at",
+            "timezone",
         ]
 
     def get_failure_reason(self, obj: ScheduledChange) -> str | None:
@@ -204,6 +206,11 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         self._check_target_edit_permission(
             validated_data.get("model_name"), validated_data.get("record_id"), validated_data["team_id"]
         )
+
+        # Capture the project's timezone at creation time so cron recurrence resolves
+        # wall-clock fields in that timezone, independent of later team.timezone changes.
+        team = self.context["get_team"]()
+        validated_data["timezone"] = team.timezone
 
         return super().create(validated_data)
 

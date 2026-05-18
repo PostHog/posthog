@@ -36,6 +36,7 @@ class TestPandaDocClient(TestCase):
                 recipients=[pandadoc.PandaDocRecipient(email="ada@acme.example", role=pandadoc.PandaDocRole.CLIENT)],
                 tokens={"Client.Company": "Acme, Inc.", "Client.StreetAddress": "1 Analytics Way"},
                 metadata={"legal_document_id": "lid-1"},
+                sender_email="privacy@posthog.com",
             )
 
         mock_post.assert_called_once()
@@ -54,7 +55,66 @@ class TestPandaDocClient(TestCase):
             ],
         )
         self.assertEqual(body["metadata"], {"legal_document_id": "lid-1"})
+        self.assertEqual(body["sender"], {"email": "privacy@posthog.com"})
         self.assertEqual(result.id, "doc_123")
+
+    @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
+    def test_create_document_omits_sender_when_not_provided(self) -> None:
+        # When `sender_email` is None we leave the field off so PandaDoc falls
+        # back to the API key's owning user.
+        fake_response = MagicMock()
+        fake_response.status_code = 201
+        fake_response.content = b'{"id": "doc_123", "status": "document.uploaded", "name": "doc"}'
+        fake_response.json.return_value = {"id": "doc_123", "status": "document.uploaded", "name": "doc"}
+
+        with patch(
+            "products.legal_documents.backend.logic.pandadoc.requests.post", return_value=fake_response
+        ) as mock_post:
+            pandadoc.PandaDocClient().create_document_from_template(
+                template_id="tpl",
+                name="doc",
+                recipients=[pandadoc.PandaDocRecipient(email="ada@acme.example", role=pandadoc.PandaDocRole.CLIENT)],
+            )
+
+        body = mock_post.call_args.kwargs["json"]
+        self.assertNotIn("sender", body)
+
+    @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
+    def test_stream_document_yields_raw_binary_stream(self) -> None:
+        fake_response = MagicMock()
+        fake_response.status_code = 200
+        fake_response.raw = MagicMock()
+        fake_response.__enter__ = MagicMock(return_value=fake_response)
+        fake_response.__exit__ = MagicMock(return_value=False)
+
+        with patch(
+            "products.legal_documents.backend.logic.pandadoc.requests.get", return_value=fake_response
+        ) as mock_get:
+            client = pandadoc.PandaDocClient()
+            with client.stream_document(document_id="doc_123") as stream:
+                self.assertIs(stream, fake_response.raw)
+
+        mock_get.assert_called_once()
+        args, kwargs = mock_get.call_args
+        self.assertEqual(args[0], "https://api.pandadoc.com/public/v1/documents/doc_123/download")
+        self.assertEqual(kwargs["headers"]["Authorization"], "API-Key key")
+        self.assertTrue(kwargs["stream"])
+        # Transparent decompression so gzip'd responses look like raw bytes.
+        self.assertTrue(fake_response.raw.decode_content)
+
+    @override_settings(PANDADOC_API_KEY="key")
+    def test_stream_document_non_2xx_raises(self) -> None:
+        fake_response = MagicMock()
+        fake_response.status_code = 404
+        fake_response.text = "not found"
+        fake_response.__enter__ = MagicMock(return_value=fake_response)
+        fake_response.__exit__ = MagicMock(return_value=False)
+
+        with patch("products.legal_documents.backend.logic.pandadoc.requests.get", return_value=fake_response):
+            client = pandadoc.PandaDocClient()
+            with self.assertRaises(pandadoc.PandaDocError):
+                with client.stream_document(document_id="doc_123"):
+                    pass
 
     @override_settings(PANDADOC_API_KEY="key")
     def test_non_2xx_response_raises(self) -> None:
@@ -85,5 +145,5 @@ class TestPandaDocClient(TestCase):
         # minimal shape; tokens carry all template content.
         client = pandadoc.PandaDocRecipient(email="ada@acme.example", role=pandadoc.PandaDocRole.CLIENT)
         self.assertEqual(pandadoc._serialize_recipient(client), {"email": "ada@acme.example", "role": "Client"})
-        posthog = pandadoc.PandaDocRecipient(email="sales@posthog.com", role=pandadoc.PandaDocRole.POSTHOG)
-        self.assertEqual(pandadoc._serialize_recipient(posthog), {"email": "sales@posthog.com", "role": "PostHog"})
+        posthog = pandadoc.PandaDocRecipient(email="privacy@posthog.com", role=pandadoc.PandaDocRole.POSTHOG)
+        self.assertEqual(pandadoc._serialize_recipient(posthog), {"email": "privacy@posthog.com", "role": "PostHog"})

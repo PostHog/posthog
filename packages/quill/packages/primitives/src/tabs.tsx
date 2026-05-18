@@ -4,6 +4,7 @@ import * as React from 'react'
 
 import { Button } from './button'
 import { cn } from './lib/utils'
+import './tabs.css'
 
 function Tabs({ className, orientation = 'horizontal', ...props }: TabsPrimitive.Root.Props): React.ReactElement {
     return (
@@ -16,27 +17,23 @@ function Tabs({ className, orientation = 'horizontal', ...props }: TabsPrimitive
     )
 }
 
-const tabsListVariants = cva(
-    'group/tabs-list z-0 inline-flex w-fit items-center relative justify-center rounded-lg p-[3px] text-muted-foreground group-data-[orientation=horizontal]/tabs:h-[calc(28px+(3.5px*2))] group-data-[orientation=vertical]/tabs:h-fit group-data-[orientation=vertical]/tabs:flex-col data-[variant=line]:rounded-none',
-    {
-        variants: {
-            variant: {
-                default: 'bg-accent',
-                line: 'gap-1 bg-transparent',
-            },
-        },
-        defaultVariants: {
-            variant: 'default',
-        },
-    }
-)
-
-const tabsIndicatorVariants = cva('absolute transition-all duration-200 ease-in-out', {
+const tabsListVariants = cva('quill-tabs__list group/tabs-list inline-flex w-fit items-center justify-center relative', {
     variants: {
         variant: {
-            default:
-                'z-[-1] rounded-sm bg-background group-data-[orientation=horizontal]/tabs:top-1/2 group-data-[orientation=horizontal]/tabs:left-0 group-data-[orientation=horizontal]/tabs:h-7 group-data-[orientation=horizontal]/tabs:w-[var(--active-tab-width)] group-data-[orientation=horizontal]/tabs:translate-x-[var(--active-tab-left)] group-data-[orientation=horizontal]/tabs:-translate-y-1/2 group-data-[orientation=vertical]/tabs:left-1/2 group-data-[orientation=vertical]/tabs:top-0 group-data-[orientation=vertical]/tabs:w-[calc(100%-6px)] group-data-[orientation=vertical]/tabs:h-[var(--active-tab-height)] group-data-[orientation=vertical]/tabs:translate-y-[var(--active-tab-top)] group-data-[orientation=vertical]/tabs:-translate-x-1/2',
-            line: 'z-0 bg-foreground group-data-[orientation=horizontal]/tabs:bottom-0 group-data-[orientation=horizontal]/tabs:left-0 group-data-[orientation=horizontal]/tabs:h-0.5 group-data-[orientation=horizontal]/tabs:w-[var(--active-tab-width)] group-data-[orientation=horizontal]/tabs:translate-x-[var(--active-tab-left)] group-data-[orientation=vertical]/tabs:top-0 group-data-[orientation=vertical]/tabs:right-0 group-data-[orientation=vertical]/tabs:w-0.5 group-data-[orientation=vertical]/tabs:h-[var(--active-tab-height)] group-data-[orientation=vertical]/tabs:translate-y-[var(--active-tab-top)]',
+            default: 'quill-tabs__list--variant-default',
+            line: 'quill-tabs__list--variant-line',
+        },
+    },
+    defaultVariants: {
+        variant: 'default',
+    },
+})
+
+const tabsIndicatorVariants = cva('quill-tabs__indicator', {
+    variants: {
+        variant: {
+            default: 'quill-tabs__indicator--variant-default',
+            line: 'quill-tabs__indicator--variant-line',
         },
     },
     defaultVariants: {
@@ -68,8 +65,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props): React.Re
         <TabsPrimitive.Tab
             data-slot="tabs-trigger"
             className={cn(
-                "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-sm border border-transparent px-1.5 py-0.5 text-xs font-medium whitespace-nowrap text-foreground/60 transition-all group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start group-data-[orientation=vertical]/tabs:py-[calc(--spacing(1.25))] hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
-                'z-1 data-active:text-foreground hover:bg-transparent data-active:hover:bg-transparent data-active:active:translate-y-0',
+                'quill-tabs__trigger inline-flex items-center justify-center gap-1.5 whitespace-nowrap',
                 className
             )}
             {...props}
@@ -80,11 +76,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props): React.Re
 
 function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props): React.ReactElement {
     return (
-        <TabsPrimitive.Panel
-            data-slot="tabs-content"
-            className={cn('flex-1 text-xs/relaxed outline-none', className)}
-            {...props}
-        />
+        <TabsPrimitive.Panel data-slot="tabs-content" className={cn('quill-tabs__panel', className)} {...props} />
     )
 }
 

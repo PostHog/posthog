@@ -7,6 +7,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Node } from '~/queries/schema/schema-general'
@@ -63,7 +64,7 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
 
             // Report the insight being viewed to our '/viewed' endpoint.
             // Used for "recently viewed insights", and in insights dashboard.
-            if (values.insight.id) {
+            if (values.insight.id && !isSharedView()) {
                 void api.create(`api/environments/${values.currentProjectId}/insights/viewed`, {
                     insight_ids: [values.insight.id],
                 })

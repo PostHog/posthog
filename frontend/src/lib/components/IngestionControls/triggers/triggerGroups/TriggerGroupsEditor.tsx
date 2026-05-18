@@ -130,7 +130,12 @@ export function TriggerGroupsEditor(): JSX.Element {
                 {!isAddingGroup && !editingGroupId && (
                     <div className="flex gap-2">
                         {triggerGroups.length === 0 && (
-                            <LemonButton type="secondary" size="small" onClick={showCreateFromLegacyModal}>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={showCreateFromLegacyModal}
+                                data-attr="trigger-group-migrate-from-legacy"
+                            >
                                 Migrate from legacy recording conditions
                             </LemonButton>
                         )}
@@ -139,6 +144,7 @@ export function TriggerGroupsEditor(): JSX.Element {
                             icon={<IconPlus />}
                             size="small"
                             onClick={() => setIsAddingGroup(true)}
+                            data-attr="trigger-group-add"
                         >
                             Add
                         </LemonButton>
@@ -497,7 +503,7 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2 border-t">
-                    <LemonButton type="secondary" onClick={onCancel}>
+                    <LemonButton type="secondary" onClick={onCancel} data-attr="trigger-group-cancel">
                         Cancel
                     </LemonButton>
                     <LemonButton
@@ -505,6 +511,7 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                         htmlType="submit"
                         loading={isTriggerGroupSubmitting}
                         disabledReason={!triggerGroup.name.trim() ? 'Group name is required' : undefined}
+                        data-attr="trigger-group-save"
                     >
                         Save
                     </LemonButton>
@@ -600,7 +607,12 @@ function DeleteLastGroupModal({ isOpen, onClose, onConfirm, groupName }: DeleteL
                     <LemonButton type="secondary" onClick={onClose}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" status="danger" onClick={onConfirm}>
+                    <LemonButton
+                        type="primary"
+                        status="danger"
+                        onClick={onConfirm}
+                        data-attr="trigger-group-delete-last-confirm"
+                    >
                         Delete and use legacy trigger settings
                     </LemonButton>
                 </div>

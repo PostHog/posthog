@@ -1,9 +1,13 @@
+from typing import cast
+
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
 import requests
 from parameterized import parameterized
+from rest_framework import serializers
+from rest_framework.exceptions import ErrorDetail
 
 from posthog.helpers.email_utils import (
     ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS,
@@ -14,6 +18,8 @@ from posthog.helpers.email_utils import (
     ESPSuppressionReason,
     _get_esp_suppression_cache_key,
     check_esp_suppression,
+    validate_display_name,
+    validate_message_body,
 )
 from posthog.models.user import User
 
@@ -300,3 +306,111 @@ class TestESPSuppressionAnalytics(SimpleTestCase):
             self.assertEqual(call_kwargs["properties"]["api_status_code"], expected_status_code)
         if expected_error_type:
             self.assertEqual(call_kwargs["properties"]["error_type"], expected_error_type)
+
+
+class TestValidateDisplayName(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("plain", "Marius", "Marius"),
+            ("two_part", "Marius Andra", "Marius Andra"),
+            ("emoji", "Marius 🦔", "Marius 🦔"),
+            ("apostrophe", "O'Brien", "O'Brien"),
+            ("hyphen", "Jean-Luc", "Jean-Luc"),
+            ("unicode", "Михаил", "Михаил"),
+            ("amp", "Ben & Jerry's", "Ben & Jerry's"),
+            ("www_midword", "Wwwilliam", "Wwwilliam"),
+            ("dot_acronym", "St. John's, Inc.", "St. John's, Inc."),
+            ("trims", "   Marius   ", "Marius"),
+            ("empty", "", ""),
+            ("whitespace_only", "   ", ""),
+        ]
+    )
+    def test_accepts(self, _name: str, value: str, expected: str) -> None:
+        self.assertEqual(validate_display_name(value), expected)
+
+    def test_none_passes_through(self) -> None:
+        self.assertIsNone(validate_display_name(None))
+
+    @parameterized.expand(
+        [
+            ("https", "Visit https://evil.com", "invalid_url"),
+            ("http", "http://phish.me", "invalid_url"),
+            ("ftp", "grab ftp://phish.me", "invalid_url"),
+            ("file", "see file:///etc/passwd", "invalid_url"),
+            ("custom_scheme", "go slack://hack", "invalid_url"),
+            ("www", "www.scam.io", "invalid_url"),
+            ("full_payload", "GET A GIFT https://hicerento.reamaze.com", "invalid_url"),
+            ("newline", "Line1\nLine2", "invalid_control_char"),
+            ("carriage_return", "foo\rbar", "invalid_control_char"),
+            ("tab", "foo\tbar", "invalid_control_char"),
+            ("null", "foo\x00bar", "invalid_control_char"),
+            ("del", "foo\x7fbar", "invalid_control_char"),
+            ("line_separator", "foo\u2028bar", "invalid_control_char"),
+            ("paragraph_separator", "foo\u2029bar", "invalid_control_char"),
+            ("next_line", "foo\u0085bar", "invalid_control_char"),
+            ("www_embedded", "myname www.scam.io", "invalid_url"),
+            ("bare_domain", "join evil.com now", "invalid_url"),
+            ("bare_domain_at_start", "Acme.com", "invalid_url"),
+            ("javascript_scheme", "click javascript:alert(1)", "invalid_url"),
+            ("data_scheme", "see data:text/html,x", "invalid_url"),
+            ("vbscript_scheme", "run vbscript:msgbox", "invalid_url"),
+            ("fullwidth_url", "go \uff48\uff54\uff54\uff50\uff1a\uff0f\uff0fevil.com", "invalid_url"),
+            ("lt", "foo<bar", "invalid_bracket"),
+            ("gt", "link > here", "invalid_bracket"),
+            ("zero_width", "foo\u200bbar", "invalid_invisible_char"),
+            ("rtl_override", "foo\u202ebar", "invalid_invisible_char"),
+        ]
+    )
+    def test_rejects(self, _name: str, value: str, expected_code: str) -> None:
+        with self.assertRaises(serializers.ValidationError) as cm:
+            validate_display_name(value)
+        detail = cast(list[ErrorDetail], cm.exception.detail)
+        self.assertEqual(detail[0].code, expected_code)
+
+
+class TestValidateMessageBody(SimpleTestCase):
+    def test_allows_newlines(self) -> None:
+        value = "Hey!\nWelcome to the team.\nCheers."
+        self.assertEqual(validate_message_body(value), value)
+
+    @parameterized.expand(
+        [
+            ("bare_domain_filename", "check the foo.py file"),
+            ("bare_domain_doc", "see README.md"),
+            ("acronym", "contact us at St. John's"),
+        ]
+    )
+    def test_allows_bare_domains(self, _name: str, value: str) -> None:
+        self.assertEqual(validate_message_body(value), value)
+
+    @parameterized.expand(
+        [
+            ("url", "Check https://evil.com", "invalid_url"),
+            ("www", "Visit www.scam.io", "invalid_url"),
+            ("javascript_scheme", "click javascript:alert(1)", "invalid_url"),
+            ("data_scheme", "see data:text/html,x", "invalid_url"),
+            ("fullwidth_url", "go \uff48\uff54\uff54\uff50\uff1a\uff0f\uff0fevil.com", "invalid_url"),
+            ("bracket", "hello <there>", "invalid_bracket"),
+            ("invisible", "foo\u200bbar", "invalid_invisible_char"),
+            ("rtl_override", "foo\u202ebar", "invalid_invisible_char"),
+            ("non_newline_control", "foo\x01bar", "invalid_control_char"),
+            ("carriage_return", "foo\rbar", "invalid_control_char"),
+            ("del", "foo\x7fbar", "invalid_control_char"),
+            ("line_separator", "foo\u2028bar", "invalid_control_char"),
+        ]
+    )
+    def test_rejects(self, _name: str, value: str, expected_code: str) -> None:
+        with self.assertRaises(serializers.ValidationError) as cm:
+            validate_message_body(value)
+        detail = cast(list[ErrorDetail], cm.exception.detail)
+        self.assertEqual(detail[0].code, expected_code)
+
+    def test_allows_tab(self) -> None:
+        value = "Indented:\n\tline"
+        self.assertEqual(validate_message_body(value), value)
+
+    def test_blank_passes_through(self) -> None:
+        self.assertIsNone(validate_message_body(None))
+        self.assertEqual(validate_message_body(""), "")
+        self.assertEqual(validate_message_body("   "), "   ")
+        self.assertEqual(validate_message_body("   \n\t  "), "   \n\t  ")

@@ -9,10 +9,10 @@ from xml.etree.ElementTree import Comment
 
 import defusedxml.ElementTree as ET
 
-UDF_VERSION = 11  # Last modified by: @sampennington, 2026-03-23
+UDF_VERSION = 12  # Last modified by: @aspicer, 2026-04-20 (RowBinary default, JSON retained as _json mirrors)
 
 # Clean up all versions less than this
-EARLIEST_UDF_VERSION = 8
+EARLIEST_UDF_VERSION = 11
 
 CLICKHOUSE_XML_FILENAME = "user_defined_function.xml"
 ACTIVE_XML_CONFIG = "../../docker/clickhouse/user_defined_function.xml"

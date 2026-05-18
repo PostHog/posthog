@@ -35,14 +35,21 @@ var (
 	ColorMagenta       color.Color = lipgloss.Magenta                                   // ANSI 5: (unused)
 	ColorCyan          color.Color = lipgloss.Cyan                                      // ANSI 6: (unused)
 	ColorWhite         color.Color = lipgloss.White                                     // ANSI 7: secondary text, inactive items
-	ColorBrightBlack   color.Color = brightOr(lipgloss.BrightBlack, lipgloss.Black)     // ANSI 8: selection background (dark)
+	ColorBrightBlack   color.Color = brightOr(lipgloss.BrightBlack, lipgloss.Black)     // ANSI 8: subtle text/borders (dark)
 	ColorBrightRed     color.Color = brightOr(lipgloss.BrightRed, lipgloss.Red)         // ANSI 9: (unused)
 	ColorBrightGreen   color.Color = brightOr(lipgloss.BrightGreen, lipgloss.Green)     // ANSI 10: (unused)
 	ColorBrightYellow  color.Color = brightOr(lipgloss.BrightYellow, lipgloss.Yellow)   // ANSI 11: (unused)
 	ColorBrightBlue    color.Color = brightOr(lipgloss.BrightBlue, lipgloss.Blue)       // ANSI 12: (unused)
 	ColorBrightMagenta color.Color = brightOr(lipgloss.BrightMagenta, lipgloss.Magenta) // ANSI 13: (unused)
 	ColorBrightCyan    color.Color = brightOr(lipgloss.BrightCyan, lipgloss.Cyan)       // ANSI 14: (unused)
-	ColorBrightWhite   color.Color = brightOr(lipgloss.BrightWhite, lipgloss.White)     // ANSI 15: selection background (light)
+	ColorBrightWhite   color.Color = brightOr(lipgloss.BrightWhite, lipgloss.White)     // ANSI 15: subtle text/borders (light)
+
+	// Selection backgrounds use explicit RGB to dodge the Cursor terminal's
+	// SGR 100-107 (bright background) rendering bug — the regular-variant
+	// fallback above is invisible against typical dark/light terminal bgs,
+	// and TrueColor (SGR 48;2;r;g;b) is unaffected by the bug.
+	SelectionBgDark  color.Color = lipgloss.Color("#3a3a3a")
+	SelectionBgLight color.Color = lipgloss.Color("#d4d4d4")
 )
 
 const (

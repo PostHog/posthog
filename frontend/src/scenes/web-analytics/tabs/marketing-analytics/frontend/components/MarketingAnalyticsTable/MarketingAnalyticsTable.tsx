@@ -4,7 +4,7 @@ import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
@@ -14,6 +14,7 @@ import {
     DataTableNode,
     MARKETING_ANALYTICS_DRILL_DOWN_CONFIG,
     MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsConstants,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
@@ -70,11 +71,23 @@ export const MarketingAnalyticsTable = ({
                     (c) => c.columnAlias
                 )
                 // Include every column the backend could ever return, not just the current select.
-                // When drill-down level changes, stale response data lingers briefly; without a
-                // render fn for those columns, cells fall through to the raw JSON viewer.
+                // When drill-down level changes, stale response data lingers in kea-cached state
+                // briefly; without a render fn for those stale columns, cells fall through to the
+                // raw JSON viewer. We register render functions for:
+                //   - all base columns (ID, Cost, Clicks, …)
+                //   - all grouping aliases (Channel, Medium, Ad group, …)
+                //   - all configured conversion goals + their "Cost per" variants — these are
+                //     dynamic per team and only exist in some levels, so they're the most likely
+                //     to flash through during a level switch
+                //   - the current select (covers draft conversion goals and any ad-hoc columns)
+                const conversionGoalColumns = conversion_goals.flatMap((goal) => [
+                    goal.conversion_goal_name,
+                    `${MarketingAnalyticsConstants.CostPer} ${goal.conversion_goal_name}`,
+                ])
                 const allKnownColumns = new Set<string>([
                     ...Object.values(MarketingAnalyticsBaseColumns),
                     ...allGroupingAliases,
+                    ...conversionGoalColumns,
                     ...((query.source as MarketingAnalyticsTableQuery).select ?? []),
                 ])
                 return Array.from(allKnownColumns).reduce(
@@ -96,7 +109,7 @@ export const MarketingAnalyticsTable = ({
                 )
             })(),
         }),
-        [insightProps, query.source, searchTerm]
+        [insightProps, query.source, searchTerm, conversion_goals]
     )
 
     return (
@@ -153,6 +166,19 @@ export const MarketingAnalyticsTable = ({
                                                       },
                                                   ],
                                               },
+                                              {
+                                                  title: 'Ad level',
+                                                  options: [
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.AdGroup,
+                                                          label: 'Ad group',
+                                                      },
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Ad,
+                                                          label: 'Ad',
+                                                      },
+                                                  ],
+                                              },
                                           ]
                                         : []),
                                 ]}
@@ -171,6 +197,16 @@ export const MarketingAnalyticsTable = ({
             {validationWarnings && validationWarnings.length > 0 && (
                 <div className="pt-2">
                     <MarketingAnalyticsValidationWarningBanner warnings={validationWarnings} />
+                </div>
+            )}
+            {(drillDownLevel === MarketingAnalyticsDrillDownLevel.AdGroup ||
+                drillDownLevel === MarketingAnalyticsDrillDownLevel.Ad) && (
+                <div className="pt-2 px-2">
+                    <LemonBanner type="info" dismissKey="marketing-analytics-ad-level-info">
+                        Ad group and ad metrics come directly from your ad platform. Conversion goals aren't shown at
+                        this level because events can't be attributed to a specific ad. Make sure the ad group and ad
+                        tables are enabled in your source sync settings to see data here.
+                    </LemonBanner>
                 </div>
             )}
             <div className="relative marketing-analytics-table-container">

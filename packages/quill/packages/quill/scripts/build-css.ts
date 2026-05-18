@@ -39,11 +39,22 @@ const tokensSource = resolve(packageRoot, 'node_modules/@posthog/quill-tokens/di
 const colorsSource = resolve(packageRoot, 'node_modules/@posthog/quill-tokens/dist/color-system.css')
 const tokensScopedSource = resolve(packageRoot, 'node_modules/@posthog/quill-tokens/dist/tailwind-lib.scoped.css')
 const colorsScopedSource = resolve(packageRoot, 'node_modules/@posthog/quill-tokens/dist/color-system.scoped.css')
+/*
+ * Primitive BEM CSS. Primitives build with `cssCodeSplit: false` so every
+ * `.quill-*` rule across every primitive lands in this single file. It MUST
+ * be shipped with the umbrella — without it consumers see the BEM class
+ * names but no styling.
+ */
+const primitivesSource = resolve(
+    packageRoot,
+    'node_modules/@posthog/quill-primitives/dist/quill-primitives.css'
+)
 
-for (const path of [tokensSource, colorsSource, tokensScopedSource, colorsScopedSource]) {
+for (const path of [tokensSource, colorsSource, tokensScopedSource, colorsScopedSource, primitivesSource]) {
     if (!existsSync(path)) {
         throw new Error(
-            `Cannot build quill CSS: ${path} missing. Run @posthog/quill-tokens build first ` +
+            `Cannot build quill CSS: ${path} missing. Run @posthog/quill-tokens and ` +
+                `@posthog/quill-primitives builds first ` +
                 `(\`pnpm --filter '@posthog/quill...' build\`).`
         )
     }
@@ -168,6 +179,10 @@ writeFileSync(
 // Ship the raw light/dark CSS custom property file alongside too, for
 // consumers that only want colour values without the @theme registration.
 copyFileSync(colorsSource, resolve(distDir, 'color-system.css'))
+
+// Ship the primitive BEM CSS alongside tokens/base — consumers import
+// `@posthog/quill/primitives.css` to register the `.quill-*` component rules.
+copyFileSync(primitivesSource, resolve(distDir, 'primitives.css'))
 
 // ── Scoped variants ──────────────────────────────────────
 // Gated behind [data-quill] with [theme="dark"] dark mode for

@@ -181,12 +181,26 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> t
 
     template = installation.template
     if template is not None:
-        metadata = dict(template.oauth_metadata or {})
         credentials = template.oauth_credentials or {}
-        client_id = credentials.get("client_id", "")
-        client_secret = credentials.get("client_secret") or None
+        shared_client_id = credentials.get("client_id", "")
+        if shared_client_id:
+            # Shared-creds template: every installation of this template
+            # authenticates with the same client against the admin-seeded
+            # metadata on the template.
+            metadata = dict(template.oauth_metadata or {})
+            if not metadata:
+                raise ValueError("Template missing OAuth metadata")
+            client_secret = credentials.get("client_secret") or None
+            return metadata, shared_client_id, client_secret
+        # DCR template: each installation ran discovery + DCR at install
+        # time. Both the metadata and the minted client live on the
+        # installation — the template is never written back to, so a
+        # first-installer can't poison state for other users of the template.
+        metadata = dict(installation.oauth_metadata or {})
+        client_id = sensitive.get("dcr_client_id", "")
+        client_secret = sensitive.get("dcr_client_secret") or None
         if not metadata or not client_id:
-            raise ValueError("Template missing OAuth metadata or client_id")
+            raise ValueError("DCR template installation missing OAuth metadata or dcr_client_id")
         return metadata, client_id, client_secret
 
     metadata = dict(installation.oauth_metadata or {})

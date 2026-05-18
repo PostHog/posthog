@@ -35,7 +35,7 @@ class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAut
         return SourceConfig(
             name=SchemaExternalDataSourceType.LINEAR,
             label="Linear",
-            betaSource=True,
+            releaseStatus="beta",
             caption="Connect your Linear workspace to sync issues, projects, teams, and more.",
             iconPath="/static/services/linear.png",
             fields=cast(

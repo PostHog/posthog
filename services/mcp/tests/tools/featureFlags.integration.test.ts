@@ -13,6 +13,7 @@ import {
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
 import { GENERATED_TOOLS } from '@/tools/generated/feature_flags'
+import { GENERATED_TOOLS as PERSONS_GENERATED_TOOLS } from '@/tools/generated/persons'
 import type { Context } from '@/tools/types'
 
 describe('Feature flags', { concurrent: false }, () => {
@@ -280,6 +281,50 @@ describe('Feature flags', { concurrent: false }, () => {
             const listResult = await getAllTool.handler(context, { limit: 100, offset: 0 })
             const listResponse = parseToolResponse(listResult)
             expect(listResponse.results.some((flag: { id: number }) => flag.id === createdFlag.id)).toBe(false)
+        })
+    })
+
+    describe('feature-flags-test-evaluation-create tool', () => {
+        const testEvaluationTool = GENERATED_TOOLS['feature-flags-test-evaluation-create']!()
+        const createTool = GENERATED_TOOLS['create-feature-flag']!()
+        const personsListTool = PERSONS_GENERATED_TOOLS['persons-list']!()
+
+        it('should evaluate a feature flag for a real distinct_id', async () => {
+            const personsResult = await personsListTool.handler(context, { limit: 100 })
+            const personsResponse = parseToolResponse(personsResult)
+            const personWithDistinctId = personsResponse.results.find(
+                (p: { distinct_ids?: string[] }) => p.distinct_ids && p.distinct_ids.length > 0
+            )
+
+            if (!personWithDistinctId) {
+                console.warn('No persons with distinct_ids found in project, skipping test')
+                return
+            }
+
+            const distinctId: string = personWithDistinctId.distinct_ids[0]
+
+            const createResult = await createTool.handler(context, {
+                name: 'Test evaluation flag',
+                key: generateUniqueKey('test-eval'),
+                filters: {
+                    groups: [{ properties: [], rollout_percentage: 100 }],
+                },
+                active: true,
+            })
+            const createdFlag = parseToolResponse(createResult)
+            createdResources.featureFlags.push(createdFlag.id)
+
+            const result = await testEvaluationTool.handler(context, {
+                id: createdFlag.id,
+                distinct_id: distinctId,
+            })
+            const evaluation = parseToolResponse(result)
+
+            expect(evaluation.flag_key).toBe(createdFlag.key)
+            expect(evaluation.result).toBe(true)
+            expect(typeof evaluation.reason).toBe('string')
+            expect(Array.isArray(evaluation.conditions)).toBe(true)
+            expect(evaluation.person_properties).toBeTruthy()
         })
     })
 

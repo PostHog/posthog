@@ -69,6 +69,35 @@ function deliveryTriggerLabel(triggerType: string): string {
 /** LemonTag and text cells share a row height; middle-align `td` so badges line up with copy. */
 const DELIVERY_TABLE_CELL_CLASS = 'align-middle'
 
+function ExpandedSummaryRow({ summary }: { summary: string }): JSX.Element {
+    return (
+        <div className="px-4 py-3 text-sm whitespace-pre-wrap">
+            <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
+            {summary}
+        </div>
+    )
+}
+
+// Module-scope const keeps the reference stable across parent re-renders.
+const DELIVERY_TABLE_EXPANDABLE = {
+    rowExpandable: (row: SubscriptionDeliveryApi) => Boolean(row.change_summary),
+    expandedRowRender: (row: SubscriptionDeliveryApi) =>
+        row.change_summary ? <ExpandedSummaryRow summary={row.change_summary} /> : <></>,
+}
+
+// Only called from storybook visual tests — production use ignores the optional set.
+function buildExpandable(initiallyExpandedIds?: ReadonlySet<string>): typeof DELIVERY_TABLE_EXPANDABLE & {
+    isRowExpanded?: (row: SubscriptionDeliveryApi) => number
+} {
+    if (!initiallyExpandedIds || initiallyExpandedIds.size === 0) {
+        return DELIVERY_TABLE_EXPANDABLE
+    }
+    return {
+        ...DELIVERY_TABLE_EXPANDABLE,
+        isRowExpanded: (row) => (initiallyExpandedIds.has(row.id) ? 1 : -1),
+    }
+}
+
 function buildDeliveryColumns(): LemonTableColumns<SubscriptionDeliveryApi> {
     return [
         {
@@ -215,6 +244,12 @@ export type SubscriptionDeliveryHistoryProps = {
     /** When set, empty table shows this as the primary action (e.g. send a test delivery). */
     onTestDelivery?: () => void
     testDeliveryLoading?: boolean
+    /**
+     * STORYBOOK-ONLY: delivery ids whose AI summary row should render pre-expanded
+     * on first render. Used exclusively by visual regression tests to capture the
+     * expanded-row state; production callers should not pass this prop.
+     */
+    __storyOnlyInitiallyExpandedDeliveryIds?: ReadonlySet<string>
 }
 
 export function SubscriptionDeliveryHistory({
@@ -225,6 +260,7 @@ export function SubscriptionDeliveryHistory({
     onDeliveryStatusFilterChange,
     onTestDelivery,
     testDeliveryLoading = false,
+    __storyOnlyInitiallyExpandedDeliveryIds,
 }: SubscriptionDeliveryHistoryProps): JSX.Element {
     const rowCount = deliveriesPage?.results.length ?? 0
     const hasPagination = Boolean(deliveriesPage?.next || deliveriesPage?.previous)
@@ -235,6 +271,7 @@ export function SubscriptionDeliveryHistory({
         (deliveryStatusFilter != null && deliveriesPage != null)
     const showStatusFilter = Boolean(onDeliveryStatusFilterChange)
     const tableEmptyState = deliveryStatusFilter != null ? 'No deliveries match this filter' : 'No deliveries yet'
+    const expandable = buildExpandable(__storyOnlyInitiallyExpandedDeliveryIds)
 
     return (
         <>
@@ -281,6 +318,7 @@ export function SubscriptionDeliveryHistory({
                         nouns={['delivery', 'deliveries']}
                         emptyState={tableEmptyState}
                         data-attr="subscription-deliveries-table"
+                        expandable={expandable}
                         pagination={{
                             controlled: true,
                             pageSize: 50,

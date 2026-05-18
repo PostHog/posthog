@@ -2380,7 +2380,7 @@
                     "hidden": false,
                     "secret": false,
                     "required": true,
-                    "description": "Select the channel to post to (e.g. #general). The PostHog app must be installed in the workspace.",
+                    "description": "Select the channel to post to (e.g. #general). The PostHog app must be installed in the workspace. For private channels, the PostHog app must be a member of the channel.",
                     "integration_key": "slack_workspace",
                     "integration_field": "slack_channel"
                 },

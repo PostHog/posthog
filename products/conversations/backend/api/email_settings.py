@@ -21,10 +21,12 @@ from posthog.rate_limit import EmailSendTestThrottle, EmailVerifyDomainThrottle
 
 from products.conversations.backend.mailgun import (
     MailgunDomainConflict,
+    MailgunDomainNotRegistered,
+    MailgunError,
     MailgunNotConfigured,
     add_domain as mailgun_add_domain,
     delete_domain as mailgun_delete_domain,
-    get_smtp_connection,
+    send_mime,
     verify_domain as mailgun_verify_domain,
 )
 from products.conversations.backend.models import EmailChannel
@@ -289,20 +291,31 @@ class EmailSendTestView(APIView):
         )
         email_message.attach_alternative(html_body, "text/html")
 
-        connection = None
+        mime_bytes = email_message.message().as_bytes(linesep="\r\n")
+
         try:
-            connection = get_smtp_connection()
-            connection.open()
-            connection.send_messages([email_message])
-        except Exception:
+            send_mime(config.domain, mime_bytes, recipients=[user.email])
+        except MailgunNotConfigured:
+            logger.exception("email_send_test_not_configured", team_id=team.id, config_id=config.id)
+            return Response(
+                {"error": "Conversations email not configured on this instance"},
+                status=500,
+            )
+        except MailgunDomainNotRegistered:
+            logger.exception(
+                "email_send_test_domain_not_registered",
+                team_id=team.id,
+                config_id=config.id,
+                domain=config.domain,
+            )
+            config.mark_domain_unverified()
+            return Response(
+                {"error": "Domain not registered with Mailgun. Please reconnect."},
+                status=502,
+            )
+        except MailgunError:
             logger.exception("email_send_test_failed", team_id=team.id, config_id=config.id)
-            return Response({"error": "Failed to send test email. Check SMTP settings."}, status=502)
-        finally:
-            if connection:
-                try:
-                    connection.close()
-                except Exception:
-                    pass
+            return Response({"error": "Failed to send test email"}, status=502)
 
         logger.info("email_test_sent", team_id=team.id, to=user.email, config_id=config.id, user_id=user.id)
 

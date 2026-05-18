@@ -54,7 +54,7 @@ class TraceReviewScore(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
                 name="llma_tr_score_def_uniq",
             ),
             models.CheckConstraint(
-                check=(
+                condition=(
                     (
                         Q(categorical_values__isnull=False)
                         & Q(numeric_value__isnull=True)

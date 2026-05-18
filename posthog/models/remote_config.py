@@ -1,13 +1,10 @@
-import copy
 import json
-import hashlib
-from typing import Any, NamedTuple, Optional
+from typing import Any
 
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
-from django.http import HttpRequest
 from django.utils import timezone
 
 import requests
@@ -19,12 +16,7 @@ from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.js_snippet_versioning import (
-    DEFAULT_SNIPPET_VERSION,
-    get_disk_js_hash,
-    get_js_content,
-    resolve_version,
-)
+from posthog.models.js_snippet_versioning import DEFAULT_SNIPPET_VERSION
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
@@ -44,12 +36,6 @@ CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
     labelnames=["result"],
 )
 
-REMOTE_CONFIG_CACHE_COUNTER = Counter(
-    "posthog_remote_config_via_cache",
-    "Metric tracking whether a remote config was fetched from cache or not",
-    labelnames=["result"],
-)
-
 REMOTE_CONFIG_CDN_PURGE_COUNTER = Counter(
     "posthog_remote_config_cdn_purge",
     "Number of times the remote config CDN purge task has been run",
@@ -65,33 +51,6 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
 
     return joined
-
-
-@tracer.start_as_current_span("RemoteConfig.sanitize_config_for_public_cdn")
-def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] = None) -> dict:
-    from posthog.api.utils import on_permitted_recording_domain
-
-    # Remove domains from session recording
-    if config.get("sessionRecording"):
-        if "domains" in config["sessionRecording"]:
-            domains = config["sessionRecording"].pop("domains")
-
-            # Empty list of domains means always permitted
-            if request and domains:
-                if not on_permitted_recording_domain(domains, request=request):
-                    config["sessionRecording"] = False
-
-    # Remove site apps JS
-    config.pop("siteAppsJS", None)
-
-    return config
-
-
-class ArrayJSMetadata(NamedTuple):
-    etag: str  # ETag derived from resolved version + config hash
-    requested_version: str  # The snippet version pin (e.g. "1", "1.358") for Cache-Tag
-    resolved_version: Optional[str]  # Exact version the request resolved to (e.g. "1.360.1")
-    config: dict  # Pre-loaded config — pass to build_array_js_content to avoid a second cache read
 
 
 class RemoteConfig(UUIDTModel):
@@ -419,127 +378,6 @@ class RemoteConfig(UUIDTModel):
 
         return site_apps_js + site_functions_js
 
-    @classmethod
-    def _get_config_via_cache(cls, token: str) -> dict:
-        # source tells us where the result came from ("redis", "s3", or None).
-        # When data is None, source disambiguates: a cache hit returning None means
-        # the team was explicitly cached as missing, while no source means a true cache miss.
-        data, source = cls.get_hypercache().get_from_cache_with_source(token)
-
-        if data is None:
-            if source in ("redis", "s3"):
-                REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit_but_missing").inc()
-            else:
-                REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
-            raise cls.DoesNotExist()
-
-        if source in ("redis", "s3"):
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit").inc()
-        else:
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
-        return data
-
-    @staticmethod
-    def _resolve_version_info(config: dict, resolved_version: Optional[str] = None) -> dict:
-        """Resolve version info at request time so it reflects the live manifest.
-
-        If resolved_version is provided, it is used directly instead of calling
-        resolve_version() again (avoids redundant manifest lookups when the
-        caller has already resolved the version).
-        """
-        sdk_version = config.get("sdkVersion")
-        if not sdk_version:
-            return config
-
-        resolved = resolved_version or resolve_version(sdk_version["requested"])
-        if not resolved:
-            return config
-
-        enriched = {**sdk_version, "resolved": resolved}
-        return {**config, "sdkVersion": enriched}
-
-    @classmethod
-    @tracer.start_as_current_span("RemoteConfig.get_config_via_token")
-    def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
-        config = cls._get_config_via_cache(token)
-        config = cls._resolve_version_info(config)
-        config = sanitize_config_for_public_cdn(config, request=request)
-
-        return config
-
-    @classmethod
-    def _build_config_js(
-        cls,
-        config: dict,
-        token: str,
-        request: Optional[HttpRequest] = None,
-        resolved_version: Optional[str] = None,
-    ) -> str:
-        """Build the config JS wrapper from an already-loaded config dict."""
-        # Deep copy: sanitize_config_for_public_cdn mutates nested dicts (e.g. sessionRecording.domains)
-        config = copy.deepcopy(config)
-        config = cls._resolve_version_info(config, resolved_version=resolved_version)
-        # Get the site apps JS so we can render it in the JS
-        site_apps_js = config.pop("siteAppsJS", None)
-        # We don't want to include the minimal site apps content as we have the JS now
-        config.pop("siteApps", None)
-        config = sanitize_config_for_public_cdn(config, request=request)
-
-        return f"""(function() {{
-  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {{}};
-  window._POSTHOG_REMOTE_CONFIG['{token}'] = {{
-    config: {json.dumps(config, sort_keys=True)},
-    siteApps: [{",".join(site_apps_js)}]
-  }}
-}})();
-        """.strip()
-
-    @classmethod
-    @tracer.start_as_current_span("RemoteConfig.get_config_js_via_token")
-    def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
-        config = cls._get_config_via_cache(token)
-        return cls._build_config_js(config, token, request=request)
-
-    @classmethod
-    @tracer.start_as_current_span("RemoteConfig.compute_array_js_metadata")
-    def compute_array_js_metadata(cls, token: str) -> ArrayJSMetadata:
-        """Compute an ETag for the array.js response without building it.
-
-        Returns metadata including the pre-loaded config. Pass this to
-        build_array_js_content to build the response without a second cache read.
-        """
-        config = cls._get_config_via_cache(token)
-        sdk_version = config.get("sdkVersion", {})
-        requested = sdk_version.get("requested", DEFAULT_SNIPPET_VERSION)
-
-        # ETag derived from inputs (resolved version + config hash) rather than
-        # hashing the full ~200KB response body.
-        resolved = resolve_version(requested)
-        etag_version = resolved or get_disk_js_hash()
-        config_hash = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:16]
-        etag = f'"{etag_version}:{config_hash}"'
-
-        return ArrayJSMetadata(etag=etag, requested_version=requested, resolved_version=resolved, config=config)
-
-    @classmethod
-    @tracer.start_as_current_span("RemoteConfig.build_array_js_content")
-    def build_array_js_content(
-        cls,
-        token: str,
-        config: dict,
-        resolved_version: Optional[str] = None,
-        request: Optional[HttpRequest] = None,
-    ) -> str:
-        """Build the full array.js + config JS response body.
-
-        Takes a pre-loaded config dict (from compute_array_js_metadata) to avoid
-        a redundant cache read. resolved_version is the exact version string
-        (e.g. "1.360.1") from ArrayJSMetadata.
-        """
-        array_js = get_js_content(resolved_version)
-        config_js = cls._build_config_js(config, token, request=request, resolved_version=resolved_version)
-        return f"""{config_js}\n\n{array_js}"""
-
     def sync(self, force: bool = False):
         """
         When called we sync to any configured CDNs as well as redis for the /decide endpoint
@@ -590,7 +428,6 @@ class RemoteConfig(UUIDTModel):
             full_domain = domain if domain.startswith("https://") else f"https://{domain}"
             data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config"})
             data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config.js"})
-            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/array.js"})
 
         logger.info(f"Purging CDN for team {self.team_id}", {"data": data})
 

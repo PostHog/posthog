@@ -3,13 +3,14 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { CheckIcon } from 'lucide-react'
 import * as React from 'react'
 
+import './checkbox.css'
 import { cn } from './lib/utils'
 
-const checkboxIndicatorVariants = cva('flex shrink-0 items-center justify-center border border-accent', {
+const checkboxIndicatorVariants = cva('quill-checkbox-indicator flex shrink-0 items-center justify-center', {
     variants: {
         size: {
-            default: 'size-4 rounded-[4px]',
-            sm: 'size-3.5 rounded-[3px]',
+            default: 'quill-checkbox-indicator--size-default',
+            sm: 'quill-checkbox-indicator--size-sm',
         },
     },
     defaultVariants: {
@@ -20,8 +21,8 @@ const checkboxIndicatorVariants = cva('flex shrink-0 items-center justify-center
 const checkIconVariants = cva('', {
     variants: {
         size: {
-            default: 'size-3',
-            sm: 'size-2.5',
+            default: 'quill-checkbox-icon--size-default',
+            sm: 'quill-checkbox-icon--size-sm',
         },
     },
     defaultVariants: {
@@ -39,7 +40,7 @@ function CheckboxIndicator({
             data-slot="checkbox-indicator"
             className={cn(
                 checkboxIndicatorVariants({ size }),
-                checked && 'border-primary bg-primary text-primary-foreground',
+                checked && 'quill-checkbox-indicator--checked',
                 className
             )}
         >
@@ -48,20 +49,17 @@ function CheckboxIndicator({
     )
 }
 
-const checkboxVariants = cva(
-    'peer relative flex shrink-0 items-center justify-center border border-input transition-shadow outline-none group-has-disabled/field:opacity-50 after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 aria-invalid:aria-checked:border-primary dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground dark:data-checked:bg-primary not-disabled:cursor-pointer hover:border-ring/50',
-    {
-        variants: {
-            size: {
-                default: 'size-4 rounded-[4px]',
-                sm: 'size-3.5 rounded-[3px]',
-            },
+const checkboxVariants = cva('quill-checkbox peer flex shrink-0 items-center justify-center', {
+    variants: {
+        size: {
+            default: 'quill-checkbox--size-default',
+            sm: 'quill-checkbox--size-sm',
         },
-        defaultVariants: {
-            size: 'default',
-        },
-    }
-)
+    },
+    defaultVariants: {
+        size: 'default',
+    },
+})
 
 function Checkbox({
     className,

@@ -23,7 +23,6 @@ class LegalDocumentDTO:
     company_name: str
     representative_email: str
     status: str
-    signed_document_url: str
     created_by: LegalDocumentCreator | None
     created_at: datetime
 

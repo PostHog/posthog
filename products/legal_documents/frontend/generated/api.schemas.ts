@@ -21,7 +21,6 @@ export interface LegalDocumentDTOApi {
     company_name: string
     representative_email: string
     status: string
-    signed_document_url: string
     created_by: LegalDocumentCreatorApi | null
     created_at: string
 }
@@ -54,8 +53,8 @@ organization and submitting user.
 export interface CreateLegalDocumentApi {
     /** Either 'BAA' or 'DPA'.
 
-* `BAA` - BAA
-* `DPA` - DPA */
+  * `BAA` - BAA
+  * `DPA` - DPA */
     document_type: DocumentTypeEnumApi
     /**
      * The customer legal entity entering the agreement (PandaDoc's Client.Company).

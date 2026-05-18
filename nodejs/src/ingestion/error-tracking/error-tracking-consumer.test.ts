@@ -1,12 +1,13 @@
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { KafkaConsumer } from '~/kafka/consumer'
+import { KafkaConsumer } from '~/kafka/consumer/consumer-v1'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, PipelineEvent, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
+import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 import { parseJSON } from '~/utils/json-parse'
 import { UUIDT } from '~/utils/utils'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
@@ -155,7 +156,16 @@ describe('ErrorTrackingConsumer', () => {
             statefulOverflowEnabled: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
             statefulOverflowRedisTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
             statefulOverflowLocalCacheTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-            pipeline: hub.INGESTION_PIPELINE ?? 'error_tracking',
+            pipeline: hub.INGESTION_PIPELINE ?? 'errortracking',
+            rateLimiterEnabled: hub.ERROR_TRACKING_RATE_LIMITER_ENABLED,
+            rateLimiterReportingMode: hub.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE,
+            rateLimiterRedisHost: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_HOST,
+            rateLimiterRedisPort: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
+            rateLimiterRedisTls: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
+            rateLimiterTtlSeconds: hub.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
+            fallbackRedisUrl: hub.REDIS_URL,
+            rateLimiterRedisPoolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            rateLimiterRedisPoolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         }
         // Create and store the mock so tests can configure it
         mockHogTransformer = createMockHogTransformer()
@@ -164,25 +174,32 @@ describe('ErrorTrackingConsumer', () => {
                 events: new SingleIngestionOutput(
                     'events',
                     hub.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
-                    hub.kafkaProducer,
+                    mockProducer,
                     'test'
                 ),
                 ingestion_warnings: new SingleIngestionOutput(
                     'ingestion_warnings',
                     'clickhouse_ingestion_warnings_test',
-                    hub.kafkaProducer,
+                    mockProducer,
                     'test'
                 ),
-                dlq: new SingleIngestionOutput('dlq', hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC, hub.kafkaProducer, 'test'),
+                dlq: new SingleIngestionOutput('dlq', hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC, mockProducer, 'test'),
                 overflow: new SingleIngestionOutput(
                     'overflow',
                     hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC || '',
-                    hub.kafkaProducer,
+                    mockProducer,
                     'test'
                 ),
-                tophog: new SingleIngestionOutput('tophog', 'clickhouse_tophog_test', hub.kafkaProducer, 'test'),
+                tophog: new SingleIngestionOutput('tophog', 'clickhouse_tophog_test', mockProducer, 'test'),
+                app_metrics: new SingleIngestionOutput(
+                    'app_metrics',
+                    'clickhouse_app_metrics2_test',
+                    mockProducer,
+                    'test'
+                ),
             }),
             teamManager: hub.teamManager,
+            errorTrackingSettingsManager: new ErrorTrackingSettingsManager(hub.postgres),
             hogTransformer: mockHogTransformer,
             groupTypeManager: hub.groupTypeManager,
             redisPool: hub.redisPool,

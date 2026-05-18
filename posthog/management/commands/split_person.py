@@ -52,7 +52,7 @@ def run(options):
     person_id = options["person_id"]
     max_splits = options["max_splits"]
 
-    person = Person.objects.get(team_id=team_id, pk=person_id)
+    person = Person.objects.get(team_id=team_id, pk=person_id)  # nosemgrep: no-direct-persons-db-orm
     if person.team_id != team_id:
         logger.error(f"Specified person belongs to different team {person.team_id}")
         exit(1)

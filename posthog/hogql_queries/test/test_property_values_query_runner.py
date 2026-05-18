@@ -136,6 +136,34 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         assert {r.name for r in results} == expected_names
 
+    def test_person_property_values_distinct_id_suggestions(self):
+        _create_person(distinct_ids=["alice", "alice-alias"], team=self.team, properties={})
+        _create_person(distinct_ids=["bob"], team=self.team, properties={})
+        _create_person(distinct_ids=["carol"], team=self.team, properties={})
+        flush_persons_and_events()
+
+        results = self._run(PropertyValuesQuery(property_type=PropertyType.PERSON, property_key="distinct_id"))
+        assert {r.name for r in results} == {"alice", "alice-alias", "bob", "carol"}
+
+    @parameterized.expand(
+        [
+            ("no_filter", None, {"alice", "bob", "carol"}),
+            ("matching_filter", "al", {"alice"}),
+            ("non_matching_filter", "zzz", set()),
+        ]
+    )
+    def test_person_property_values_distinct_id_search(self, _name, search_value, expected_names):
+        for did in ["alice", "bob", "carol"]:
+            _create_person(distinct_ids=[did], team=self.team, properties={})
+        flush_persons_and_events()
+
+        results = self._run(
+            PropertyValuesQuery(
+                property_type=PropertyType.PERSON, property_key="distinct_id", search_value=search_value
+            )
+        )
+        assert {r.name for r in results} == expected_names
+
     def test_event_property_values_is_column_none_behaves_like_false(self):
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
         flush_persons_and_events()
@@ -205,7 +233,7 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("poll", ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, "force_cache"),
         ]
     )
-    def test_execution_mode_recorded_in_query_executed_event(self, _name, execution_mode, expected_value):
+    def test_execution_mode_recorded_in_slo_started_event(self, _name, execution_mode, expected_value):
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
         flush_persons_and_events()
 
@@ -219,6 +247,8 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with patch("posthog.hogql_queries.query_runner.posthoganalytics.capture") as mock_capture:
             runner.run(execution_mode)
 
-        mock_capture.assert_called_once()
-        captured_props = mock_capture.call_args.kwargs["properties"]
+        mock_capture.assert_called()
+        slo_started_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "slo_operation_started"]
+        assert len(slo_started_calls) == 1
+        captured_props = slo_started_calls[0].kwargs["properties"]
         assert captured_props["execution_mode"] == expected_value

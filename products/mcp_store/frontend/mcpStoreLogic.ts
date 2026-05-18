@@ -1,7 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -15,6 +15,8 @@ import type {
 import type { mcpStoreLogicType } from './mcpStoreLogicType'
 
 export type ToolApprovalState = 'approved' | 'needs_approval' | 'do_not_use'
+
+export type McpSceneView = 'marketplace' | 'detail'
 
 export interface CustomServerFormValues {
     name: string
@@ -61,6 +63,19 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             toolName: string
             approvalState: ToolApprovalState
         }) => ({ installationId, toolName, approvalState }),
+        setBulkApprovalState: ({
+            installationId,
+            approvalState,
+        }: {
+            installationId: string
+            approvalState: ToolApprovalState
+        }) => ({ installationId, approvalState }),
+        // Scene actions
+        setSceneView: (view: McpSceneView) => ({ view }),
+        selectServer: (serverId: string | null) => ({ serverId }),
+        setSearchQuery: (query: string) => ({ query }),
+        setCategoryFilter: (category: string) => ({ category }),
+        clearFilters: true,
     }),
 
     reducers({
@@ -115,6 +130,45 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                         ),
                     }
                 },
+                setBulkApprovalState: (
+                    state: Record<string, MCPServerInstallationToolApi[]>,
+                    { installationId, approvalState }: { installationId: string; approvalState: ToolApprovalState }
+                ) => {
+                    const existing = state[installationId]
+                    if (!existing) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        [installationId]: existing.map((tool) => ({ ...tool, approval_state: approvalState })),
+                    }
+                },
+            },
+        ],
+        sceneView: [
+            'marketplace' as McpSceneView,
+            {
+                setSceneView: (_, { view }) => view,
+            },
+        ],
+        selectedServerId: [
+            null as string | null,
+            {
+                selectServer: (_, { serverId }) => serverId,
+            },
+        ],
+        searchQuery: [
+            '',
+            {
+                setSearchQuery: (_, { query }) => query,
+                clearFilters: () => '',
+            },
+        ],
+        categoryFilter: [
+            'all',
+            {
+                setCategoryFilter: (_, { category }) => category,
+                clearFilters: () => 'all',
             },
         ],
     }),
@@ -232,6 +286,66 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 new Set(installations.map((i) => i.url).filter((url): url is string => !!url)),
         ],
         recommendedServers: [(s) => [s.servers], (servers: MCPServerTemplateApi[]): MCPServerTemplateApi[] => servers],
+        filteredServers: [
+            (s) => [s.servers, s.searchQuery, s.categoryFilter],
+            (servers: MCPServerTemplateApi[], searchQuery: string, categoryFilter: string): MCPServerTemplateApi[] => {
+                const q = searchQuery.trim().toLowerCase()
+                return servers.filter((server) => {
+                    if (categoryFilter !== 'all' && (server.category ?? 'dev') !== categoryFilter) {
+                        return false
+                    }
+                    if (!q) {
+                        return true
+                    }
+                    return server.name.toLowerCase().includes(q) || (server.description ?? '').toLowerCase().includes(q)
+                })
+            },
+        ],
+        filteredInstallations: [
+            (s) => [s.installations, s.searchQuery],
+            (installations: MCPServerInstallationApi[], searchQuery: string): MCPServerInstallationApi[] => {
+                const q = searchQuery.trim().toLowerCase()
+                if (!q) {
+                    return installations
+                }
+                return installations.filter(
+                    (installation) =>
+                        installation.name.toLowerCase().includes(q) ||
+                        (installation.description ?? '').toLowerCase().includes(q)
+                )
+            },
+        ],
+        selectedInstallation: [
+            (s) => [s.installations, s.selectedServerId],
+            (
+                installations: MCPServerInstallationApi[],
+                selectedServerId: string | null
+            ): MCPServerInstallationApi | null =>
+                selectedServerId ? (installations.find((i) => i.id === selectedServerId) ?? null) : null,
+        ],
+        selectedTemplate: [
+            (s) => [s.servers, s.selectedServerId, s.selectedInstallation],
+            (
+                servers: MCPServerTemplateApi[],
+                selectedServerId: string | null,
+                selectedInstallation: MCPServerInstallationApi | null
+            ): MCPServerTemplateApi | null => {
+                if (!selectedServerId) {
+                    return null
+                }
+                // Direct template selection from the marketplace grid.
+                const direct = servers.find((t) => t.id === selectedServerId)
+                if (direct) {
+                    return direct
+                }
+                // Detail opened for an installation — resolve its template so the
+                // panel can still surface template-only fields (e.g. docs_url).
+                if (selectedInstallation?.template_id) {
+                    return servers.find((t) => t.id === selectedInstallation.template_id) ?? null
+                }
+                return null
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -269,6 +383,22 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 actions.loadInstallationTools({ installationId })
             }
         },
+        setBulkApprovalState: async ({ installationId, approvalState }) => {
+            // Reducer already applied the bulk change optimistically. Fire one API
+            // call per tool in parallel; on any failure, reload to reconcile.
+            const tools = values.installationTools[installationId] ?? []
+            try {
+                await Promise.all(
+                    tools.map((tool) =>
+                        api.mcpServerInstallations.updateToolApproval(installationId, tool.tool_name, approvalState)
+                    )
+                )
+                lemonToast.success(`Updated ${tools.length} tools`)
+            } catch (e: any) {
+                lemonToast.error(e.detail || 'Failed to update some tools')
+                actions.loadInstallationTools({ installationId })
+            }
+        },
         openAddCustomServerModalWithDefaults: ({ defaults }) => {
             actions.resetCustomServerForm()
             for (const [key, value] of Object.entries(defaults)) {
@@ -291,21 +421,69 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 }
             }
         },
+        selectServer: ({ serverId }) => {
+            // Keep the scene view in sync with the selection so callers don't
+            // have to remember to dispatch both actions (and so the Settings
+            // page, where URL-driven view changes are suppressed, still works).
+            const nextView: McpSceneView = serverId ? 'detail' : 'marketplace'
+            if (values.sceneView !== nextView) {
+                actions.setSceneView(nextView)
+            }
+        },
     })),
 
-    urlToAction(({ actions }) => ({
-        '/settings/mcp-servers': (_, searchParams) => {
+    // MCP lives as a Settings section only — the scene has no URL of its own.
+    // We piggyback on the current Settings URL + a ?mcp=<id> search param so
+    // selecting a server adds a history entry and browser-back returns to the
+    // marketplace view. The pathname is read live from the router so we never
+    // hardcode the settings path here (SettingsMap owns the section id).
+    actionToUrl(() => ({
+        selectServer: ({ serverId }) => {
+            const { pathname } = router.values.location
+            const searchParams: Record<string, any> = { ...router.values.searchParams }
+            const hashParams = router.values.hashParams ?? {}
+            const currentMcp = searchParams.mcp ?? null
+            if (currentMcp === (serverId ?? null)) {
+                return undefined
+            }
+            if (serverId) {
+                searchParams.mcp = serverId
+            } else {
+                delete searchParams.mcp
+            }
+            return [pathname, searchParams, hashParams]
+        },
+    })),
+
+    urlToAction(({ actions, values }) => {
+        const handleOAuthCallback = (searchParams: Record<string, any>): void => {
             if (searchParams.oauth_complete === 'true') {
                 lemonToast.success('Server connected')
                 actions.loadInstallations()
                 actions.loadServers()
-                router.actions.replace('/settings/mcp-servers')
+                router.actions.replace(router.values.location.pathname)
             } else if (searchParams.oauth_error) {
                 lemonToast.error('OAuth authorization failed')
-                router.actions.replace('/settings/mcp-servers')
+                router.actions.replace(router.values.location.pathname)
             }
-        },
-    })),
+        }
+
+        return {
+            // Match any settings section and filter to ours in-body. The
+            // literal 'mcp-servers' matches the section id in SettingsMap.tsx;
+            // it's not a URL path, so there's no duplication with urls.ts.
+            '/settings/:section': ({ section }, searchParams) => {
+                if (section !== 'mcp-servers') {
+                    return
+                }
+                const mcpId = searchParams?.mcp ?? null
+                if (values.selectedServerId !== mcpId) {
+                    actions.selectServer(mcpId)
+                }
+                handleOAuthCallback(searchParams ?? {})
+            },
+        }
+    }),
 
     afterMount(({ actions }) => {
         actions.loadServers()

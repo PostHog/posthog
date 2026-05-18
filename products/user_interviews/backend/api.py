@@ -41,7 +41,7 @@ class UserInterviewSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id", "created_by", "created_at", "transcript")
 
-    def create(self, validated_data):
+    def create(self, validated_data: dict) -> UserInterview:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
@@ -50,7 +50,7 @@ class UserInterviewSerializer(serializers.ModelSerializer):
         validated_data["summary"] = self._summarize_transcript(validated_data["transcript"])
         return super().create(validated_data)
 
-    def _transcribe_audio(self, audio: File, interviewee_emails: list[str]):
+    def _transcribe_audio(self, audio: File, interviewee_emails: list[str]) -> str:
         transcript = elevenlabs_client.speech_to_text.convert(
             model_id="scribe_v1",
             file=audio,
@@ -161,7 +161,7 @@ Map the speakers in the following transcript:
             posthoganalytics.capture_exception(e)
             return None
 
-    def _summarize_transcript(self, transcript: str):
+    def _summarize_transcript(self, transcript: str) -> str:
         summary_response = OpenAI(posthog_client=posthoganalytics.default_client).responses.create(  # type: ignore
             model="gpt-4.1-mini",
             posthog_trace_id=self._ai_trace_id,
@@ -215,7 +215,7 @@ Record the agreed-upon next steps, including any additional actions that need to
         return summary_response.output_text
 
     @cached_property
-    def _ai_trace_id(self):
+    def _ai_trace_id(self) -> str:
         return str(uuid4())
 
 
