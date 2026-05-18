@@ -46,7 +46,7 @@ export const getTabularExperimentResults =
             | CachedExperimentTrendsQueryResponse
             | null
         )[],
-        getInsightType: (metric: ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
+        getInsightType: (metric: ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined | null) => InsightType
     ) =>
     (metricIdentifier: number | string = 0, isSecondary: boolean = false): any[] => {
         let index: number
@@ -63,8 +63,8 @@ export const getTabularExperimentResults =
 
         const tabularResults = []
         const metricType = isSecondary
-            ? getInsightType(experiment.metrics_secondary?.[index] as ExperimentTrendsQuery | ExperimentFunnelsQuery)
-            : getInsightType(experiment.metrics?.[index] as ExperimentTrendsQuery | ExperimentFunnelsQuery)
+            ? getInsightType(experiment.metrics_secondary?.[index])
+            : getInsightType(experiment.metrics?.[index])
         const result = isSecondary ? legacySecondaryMetricsResults?.[index] : legacyPrimaryMetricsResults?.[index]
 
         if (result) {
