@@ -292,45 +292,45 @@ export function TaxonomicPropertyFilter({
     )
 
     // The rebuilt menu is a self-contained popover, so it only replaces the
-    // dropdown variant — not the inline-search mode, and not when the picker
-    // is already nested inside another dropdown (`disablePopover`).
-    const editablePicker =
-        menuRebuildEnabled && !disablePopover ? (
-            <span className="relative inline-flex min-w-0">
-                {useNewMenu ? (
-                    <TaxonomicPopoverMenu
-                        groupType={filterTaxonomicGroupType ?? groupTypes[0]}
-                        value={cohortOrOtherValue}
-                        groupTypes={groupTypes}
-                        onChange={(value, _groupType, item, group) => taxonomicOnChange(group, value, item)}
-                        renderValue={() => <span className="truncate">{filterContent}</span>}
-                        placeholder={addText || 'Add filter'}
-                        metadataSource={metadataSource}
-                        eventNames={eventNames}
-                        schemaColumns={schemaColumns}
-                        excludedProperties={excludedProperties}
-                        propertyAllowList={propertyAllowList}
-                        optionsFromProp={taxonomicFilterOptionsFromProp}
-                        hideBehavioralCohorts={hideBehavioralCohorts}
-                        endpointFilters={endpointFilters}
-                        hogQLGlobals={hogQLGlobals}
-                        enableKeywordShortcuts
-                        triggerButtonProps={{
-                            type: 'secondary',
-                            size,
-                            truncate: true,
-                            sideIcon: null,
-                            icon: !valuePresent ? <IconPlusSmall /> : undefined,
-                        }}
-                    />
-                ) : (
-                    legacyDropdown
-                )}
-                <TaxonomicMenuToggle />
-            </span>
-        ) : (
-            legacyDropdown
-        )
+    // row-branch dropdown variant. The truly inline mode is already routed
+    // away via `showInitialSearchInline`; `disablePopover` still renders a
+    // button + dropdown here, so it's fine to swap.
+    const editablePicker = menuRebuildEnabled ? (
+        <span className="relative inline-flex min-w-0">
+            {useNewMenu ? (
+                <TaxonomicPopoverMenu
+                    groupType={filterTaxonomicGroupType ?? groupTypes[0]}
+                    value={cohortOrOtherValue}
+                    groupTypes={groupTypes}
+                    onChange={(value, _groupType, item, group) => taxonomicOnChange(group, value, item)}
+                    renderValue={() => <span className="truncate">{filterContent}</span>}
+                    placeholder={addText || 'Add filter'}
+                    metadataSource={metadataSource}
+                    eventNames={eventNames}
+                    schemaColumns={schemaColumns}
+                    excludedProperties={excludedProperties}
+                    propertyAllowList={propertyAllowList}
+                    optionsFromProp={taxonomicFilterOptionsFromProp}
+                    hideBehavioralCohorts={hideBehavioralCohorts}
+                    endpointFilters={endpointFilters}
+                    hogQLGlobals={hogQLGlobals}
+                    enableKeywordShortcuts
+                    triggerButtonProps={{
+                        type: 'secondary',
+                        size,
+                        truncate: true,
+                        sideIcon: null,
+                        icon: !valuePresent ? <IconPlusSmall /> : undefined,
+                    }}
+                />
+            ) : (
+                legacyDropdown
+            )}
+            <TaxonomicMenuToggle />
+        </span>
+    ) : (
+        legacyDropdown
+    )
 
     return (
         <div
