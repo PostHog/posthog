@@ -298,7 +298,7 @@ export function Settings({
                                                 value={result}
                                                 data-attr={`settings-search-result-${result.settingId}`}
                                                 render={
-                                                    <Button size="sm" left className="text-primary hover:underline">
+                                                    <Button left className="text-primary hover:underline">
                                                         {result.settingTitle}
                                                     </Button>
                                                 }
@@ -320,7 +320,7 @@ export function Settings({
         <div className={clsx('Settings flex items-start', isCompact && 'Settings--compact')} ref={ref}>
             {hideSections ? null : isCompact ? (
                 <>
-                    <Button variant="outline" size="sm" left className="w-full" onClick={() => openCompactNavigation()}>
+                    <Button variant="outline" left className="w-full" onClick={() => openCompactNavigation()}>
                         <IconList className="stroke-2 size-4 mr-1" />{' '}
                         <span className="flex-1 truncate text-left font-semibold text-base">Settings menu</span>
                     </Button>
@@ -428,8 +428,8 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
 }
 
 const depthMap: Record<number, string> = {
-    1: 'pl-5',
-    2: 'pl-7 -ml-3',
+    1: 'pl-6',
+    2: 'pl-6.5 -ml-3',
 }
 
 const OptionGroup = ({ options, depth = 0 }: { options: SettingOption[]; depth?: number }): JSX.Element => {
@@ -444,7 +444,10 @@ const OptionGroup = ({ options, depth = 0 }: { options: SettingOption[]; depth?:
                             className="bg-transparent!"
                             variant="folder"
                         >
-                            <CollapsibleTrigger className={cn(depth !== 0 && '-ml-2 w-[calc(100%+var(--spacing)*2)]')}>
+                            <CollapsibleTrigger
+                                render={<Button left className="w-full" />}
+                                className={cn(depth !== 0 && '-ml-2 w-[calc(100%+var(--spacing)*2)]')}
+                            >
                                 <span className="flex-1 truncate text-left font-semibold">
                                     {option.collapsible.label}
                                 </span>
@@ -490,7 +493,6 @@ const OptionButton = ({
 
     const button = (
         <Button
-            size="sm"
             left
             className="w-full font-normal"
             disabled={isDisabled}
