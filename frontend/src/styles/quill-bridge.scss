@@ -73,8 +73,6 @@
      */
     --color-bg-primary: var(--primary);
     --color-bg-surface-primary: var(--background);
-    --color-bg-surface-secondary: var(--card);
-    --color-bg-surface-tertiary: var(--muted);
     --color-text-primary: var(--foreground);
     --color-text-secondary: var(--muted-foreground);
     --color-border-primary: var(--border);
@@ -220,8 +218,6 @@
     --muted-3000: var(--muted-3000-light);
     --color-bg-primary: var(--color-posthog-3000-50);
     --color-bg-surface-primary: var(--color-white);
-    --color-bg-surface-secondary: var(--color-posthog-3000-100);
-    --color-bg-surface-tertiary: var(--color-posthog-3000-150);
     --color-text-primary: var(--color-neutral-950);
     --color-text-secondary: var(--color-neutral-750);
     --color-border-primary: var(--color-posthog-3000-200);
@@ -247,8 +243,6 @@
     --muted-3000: var(--muted-3000-dark);
     --color-bg-primary: var(--color-neutral-cool-950);
     --color-bg-surface-primary: var(--color-neutral-cool-850);
-    --color-bg-surface-secondary: var(--color-neutral-cool-900);
-    --color-bg-surface-tertiary: var(--color-neutral-cool-950);
     --color-text-primary: var(--color-neutral-100);
     --color-text-secondary: var(--color-neutral-350);
     --color-border-primary: var(--color-neutral-cool-800);

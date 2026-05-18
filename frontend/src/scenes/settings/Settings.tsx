@@ -359,7 +359,7 @@ export function Settings({
                 <div
                     data-quill
                     className={clsx(
-                        'bg-muted border rounded w-[var(--settings-nav-width)] flex flex-col',
+                        'bg-surface-tertiary border rounded w-[var(--settings-nav-width)] flex flex-col',
                         isFullScene
                             ? 'fixed top-[calc(var(--scene-layout-header-height)+var(--scene-padding))] bottom-[var(--scene-padding)]'
                             : 'sticky top-[var(--scene-layout-header-height)] self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
@@ -522,13 +522,7 @@ const OptionButton = ({
             {...(to && !isDisabled
                 ? {
                       render: (
-                          <Link
-                              to={to}
-                              className={cn(
-                                  'no-underline hover:underline px-1',
-                                  active && 'bg-fill-button-tertiary-active font-bold'
-                              )}
-                          />
+                          <Link to={to} className={cn('no-underline px-1', active && 'bg-fill-selected font-bold')} />
                       ),
                   }
                 : {})}
