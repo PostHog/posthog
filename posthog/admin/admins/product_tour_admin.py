@@ -5,6 +5,7 @@ from django.utils.html import format_html
 from products.product_tours.backend.models import ProductTour
 
 
+@admin.register(ProductTour)
 class ProductTourAdmin(admin.ModelAdmin):
     list_display = (
         "id",

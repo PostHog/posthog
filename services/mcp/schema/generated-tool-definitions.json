@@ -1595,6 +1595,81 @@
             "readOnlyHint": false
         }
     },
+    "experiment-saved-metrics-create": {
+        "description": "Create a reusable shared metric. Requires name (unique per project, case-insensitive) and query (kind='ExperimentMetric', metric_type one of 'mean', 'funnel', 'ratio', 'retention'). Optional: description, tags.\n\nLoad the configuring-experiment-analytics skill before constructing the query, and use read-data-schema to confirm event names. Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected.\n\nTo attach to an experiment, call experiment-update with saved_metrics_ids — each item has 'id' and 'metadata.type' ('primary' or 'secondary').",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Create shared experiment metric",
+        "title": "Create shared experiment metric",
+        "required_scopes": ["experiment_saved_metric:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-saved-metrics-destroy": {
+        "description": "Delete a shared metric by ID. REQUIRES EXPLICIT USER CONFIRMATION — confirm by name first, and warn that any experiments using it will lose access.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Delete shared experiment metric",
+        "title": "Delete shared experiment metric",
+        "required_scopes": ["experiment_saved_metric:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-saved-metrics-list": {
+        "description": "List shared metrics in the current project. Returns paginated results with id, name, description, query, created_at, updated_at, tags. Use experiment-saved-metrics-retrieve for a single metric by ID, or this listing to resolve by name.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "List shared experiment metrics",
+        "title": "List shared experiment metrics",
+        "required_scopes": ["experiment_saved_metric:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-saved-metrics-partial-update": {
+        "description": "Partially update a shared metric. Only name, description, and query are mutable. Edits propagate to every experiment the metric is attached to — REQUIRES EXPLICIT USER CONFIRMATION before changing query or name on a metric attached to running experiments.\n\nLegacy-format metrics (kind=ExperimentTrendsQuery / ExperimentFunnelsQuery) cannot be updated.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Update shared experiment metric",
+        "title": "Update shared experiment metric",
+        "required_scopes": ["experiment_saved_metric:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-saved-metrics-retrieve": {
+        "description": "Get a single shared metric by ID. Returns the full query JSON (metric_type, source, math, filters, etc.). If you don't have the ID, call experiment-saved-metrics-list first.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get shared experiment metric",
+        "title": "Get shared experiment metric",
+        "required_scopes": ["experiment_saved_metric:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "experiment-ship-variant": {
         "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nREQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This permanently rewrites the feature flag for 100% of users and cannot be undone via the API. Even when the user has asked you to ship a specific variant, ask them to confirm with the variant key and target experiment before invoking this tool.\n\nShip a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant to ship (e.g. \"test\" or \"control\"). The flag is rewritten so the selected variant gets 100% rollout via a new catch-all release group prepended to existing groups (preserved for rollback).\n\nCan be called on both running and stopped experiments. If the experiment is still running, it is also ended (end_date set, status becomes stopped). If already stopped, only the flag is rewritten — supports the \"end first, ship later\" workflow.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), variant_key not found on the flag, or no linked feature flag. Returns 409 if an approval policy requires review before the flag change takes effect — includes a change_request_id in the response.",
         "category": "Experiments",

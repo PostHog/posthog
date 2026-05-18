@@ -3197,6 +3197,7 @@ export type FileSystemIconType =
     | 'error_tracking'
     | 'heatmap'
     | 'session_replay'
+    | 'replay_vision'
     | 'session_profile'
     | 'survey'
     | 'product_tour'
@@ -6389,6 +6390,7 @@ export enum ProductKey {
     PRODUCT_TOURS = 'product_tours',
     REVENUE_ANALYTICS = 'revenue_analytics',
     SESSION_REPLAY = 'session_replay',
+    REPLAY_VISION = 'replay_vision',
     SITE_APPS = 'site_apps',
     SUBSCRIPTIONS = 'subscriptions',
     STREAMLIT_APPS = 'streamlit_apps',
