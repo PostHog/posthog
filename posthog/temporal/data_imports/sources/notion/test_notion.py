@@ -323,6 +323,26 @@ class TestFlattenProperty:
             ("date_returns_start", {"type": "date", "date": {"start": "2026-04-01"}}, "2026-04-01"),
             ("checkbox_passthrough", {"type": "checkbox", "checkbox": True}, True),
             ("url_passthrough", {"type": "url", "url": "https://example.com"}, "https://example.com"),
+            (
+                "formula_string_resolves_inner_value",
+                {"type": "formula", "formula": {"type": "string", "string": "computed text"}},
+                "computed text",
+            ),
+            (
+                "formula_boolean_resolves_inner_value",
+                {"type": "formula", "formula": {"type": "boolean", "boolean": False}},
+                False,
+            ),
+            (
+                "formula_number_resolves_inner_value",
+                {"type": "formula", "formula": {"type": "number", "number": 42}},
+                42,
+            ),
+            (
+                "formula_date_resolves_inner_start",
+                {"type": "formula", "formula": {"type": "date", "date": {"start": "2026-01-01"}}},
+                "2026-01-01",
+            ),
             ("null_value_returns_none", {"type": "select", "select": None}, None),
             ("unknown_type_returns_none", {"type": "weird_new_type", "weird_new_type": "x"}, None),
         ]

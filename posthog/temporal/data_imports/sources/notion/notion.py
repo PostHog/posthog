@@ -51,6 +51,9 @@ def _execute_get(sess: requests.Session, url: str, params: dict[str, Any]) -> di
     )
     def _do() -> dict[str, Any]:
         response = sess.get(url, params=params, timeout=60)
+        # Retry on 429 (rate limit) and any 5xx. A 5xx is frequently an upstream
+        # gateway/proxy fronting Notion (502/503/504) rather than Notion itself —
+        # transient either way, so back off and retry.
         if response.status_code >= 500 or response.status_code == 429:
             raise NotionRetryableError(f"Notion: server/rate-limit error {response.status_code}")
         try:
@@ -77,6 +80,9 @@ def _execute_post(sess: requests.Session, url: str, json_body: dict[str, Any] | 
     def _do() -> dict[str, Any]:
         response = sess.post(url, json=json_body, timeout=60)
 
+        # Retry on 429 (rate limit) and any 5xx. A 5xx is frequently an upstream
+        # gateway/proxy fronting Notion (502/503/504) rather than Notion itself —
+        # transient either way, so back off and retry.
         if response.status_code >= 500 or response.status_code == 429:
             raise NotionRetryableError(f"Notion: server/rate-limit error {response.status_code}")
 
@@ -178,9 +184,12 @@ def _flatten_property(prop: dict[str, Any]) -> Any:
         if isinstance(value, dict):
             return value.get("start")
         return None
-    if ptype == "checkbox":
+    if ptype in ("checkbox", "boolean"):
+        # `checkbox` is a property type; `boolean` is the inner type a formula
+        # property resolves to (reached via the recursive `formula` branch).
         return bool(value)
-    if ptype in ("url", "email", "phone_number"):
+    if ptype in ("string", "url", "email", "phone_number"):
+        # `string` is the inner type a text formula resolves to (via `formula`).
         return value
     if ptype == "people":
         return [p.get("id") for p in value] if isinstance(value, list) else None
