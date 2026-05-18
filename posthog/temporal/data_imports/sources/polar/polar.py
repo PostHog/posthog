@@ -29,11 +29,6 @@ def _get_polar_session() -> requests.Session:
     return make_tracked_session(retry=Retry(total=0))
 
 
-def polar_request(session: requests.Session, method: str, url: str, **kwargs) -> requests.Response:
-    response = session.request(method, url, **kwargs)
-    return response
-
-
 def _build_url(endpoint: str, page: int) -> str:
     params: dict[str, str | int] = {"limit": PAGE_SIZE, "page": page}
     sort_field = ENDPOINT_SORT_FIELDS.get(endpoint)
@@ -75,7 +70,7 @@ def get_rows(
             break
         seen_urls.add(url)
 
-        response = polar_request(session, "GET", url, headers=headers)
+        response = session.request("GET", url, headers=headers)
         response.raise_for_status()
         data = response.json()
 
@@ -144,9 +139,9 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
         endpoints_to_check = list(ENDPOINTS)
 
     forbidden: list[str] = []
+    last_failure: Optional[requests.Response] = None
     for endpoint in endpoints_to_check:
-        response = polar_request(
-            session,
+        response = session.request(
             "GET",
             f"{POLAR_BASE_URL}/v1/{endpoint}/",
             headers=headers,
@@ -157,13 +152,26 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
                 forbidden.append(endpoint)
                 continue
             raise PolarPermissionError(f"Missing permissions for {endpoint}")
-        response.raise_for_status()
-        # First non-403 success is proof enough — stop probing so a transient
-        # 5xx on a later endpoint can't block source creation.
         if is_create_probe:
-            return True
+            # First non-403 success is proof enough — stop probing so a transient
+            # 5xx on a later endpoint can't block source creation.
+            if response.ok:
+                return True
+            # Transient non-403 (e.g. 5xx, 401) during create-probe: don't blow
+            # up the whole validation — record it and let later endpoints answer.
+            last_failure = response
+            continue
+        response.raise_for_status()
 
-    if is_create_probe and len(forbidden) == len(endpoints_to_check):
-        raise PolarPermissionError(f"token has no readable scope for any supported endpoint ({', '.join(forbidden)})")
+    if is_create_probe:
+        if forbidden and not last_failure:
+            raise PolarPermissionError(
+                f"token has no readable scope for any supported endpoint ({', '.join(forbidden)})"
+            )
+        if last_failure is not None:
+            # Only transient errors (and possibly some 403s) — no endpoint
+            # confirmed the token works. Surface the underlying HTTP error so
+            # the user gets actionable feedback rather than a silent success.
+            last_failure.raise_for_status()
 
     return True
