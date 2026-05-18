@@ -21,6 +21,7 @@ export interface SharingLogicProps {
     recordingId?: string
     notebookShortId?: string
     additionalParams?: Record<string, any>
+    onSharingEnabledChange?: (enabled: boolean) => void
 }
 
 export interface EmbedConfig {
@@ -85,7 +86,11 @@ export const sharingLogic = kea<sharingLogicType>([
                     return await api.sharing.get(await propsToApiParams(props))
                 },
                 setIsEnabled: async (enabled: boolean) => {
-                    return await api.sharing.update(await propsToApiParams(props), { enabled })
+                    const sharingConfiguration = await api.sharing.update(await propsToApiParams(props), { enabled })
+                    if (sharingConfiguration) {
+                        props.onSharingEnabledChange?.(sharingConfiguration.enabled)
+                    }
+                    return sharingConfiguration
                 },
                 setPasswordRequired: async (password_required: boolean) => {
                     return await api.sharing.update(await propsToApiParams(props), {
@@ -153,9 +158,9 @@ export const sharingLogic = kea<sharingLogicType>([
             () => [userLogic.selectors.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.WHITE_LABELLING),
         ],
-        advancedPermissionsAvailable: [
+        accessControlAvailable: [
             () => [userLogic.selectors.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS),
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ACCESS_CONTROL),
         ],
 
         sharingAllowed: [

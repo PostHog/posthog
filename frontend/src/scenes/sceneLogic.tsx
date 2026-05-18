@@ -13,6 +13,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
@@ -1366,10 +1367,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     window.ESBUILD_LOAD_CHUNKS?.(sceneId)
                     importedScene = await props.scenes[sceneId]()
                 } catch (error: any) {
-                    if (
-                        error.name === 'ChunkLoadError' || // webpack
-                        error.message?.includes('Failed to fetch dynamically imported module') // esbuild
-                    ) {
+                    if (isChunkLoadError(error)) {
                         // Reloaded once in the last 20 seconds and now reloading again? Show network error
                         if (
                             values.lastReloadAt &&
@@ -1729,12 +1727,27 @@ export const sceneLogic = kea<sceneLogicType>([
                     if (event.key !== getStorageKey(PINNED_TAB_STATE_KEY)) {
                         return
                     }
+                    // Skip while hidden so backgrounded tabs don't re-mount on every remote nav.
+                    // The visibilitychange handler below catches up when the tab is foregrounded.
+                    if (document.visibilityState !== 'visible') {
+                        return
+                    }
                     syncPinnedTabsFromStorage()
+                }
+
+                const onVisibility = (): void => {
+                    if (document.visibilityState === 'visible') {
+                        syncPinnedTabsFromStorage()
+                    }
                 }
 
                 syncPinnedTabsFromStorage()
                 window.addEventListener('storage', onStorage)
-                return () => window.removeEventListener('storage', onStorage)
+                document.addEventListener('visibilitychange', onVisibility)
+                return () => {
+                    window.removeEventListener('storage', onStorage)
+                    document.removeEventListener('visibilitychange', onVisibility)
+                }
             },
             'pinnedTabsStorageListener',
             // Passive storage listener — no need to tear down/re-setup on visibility change.

@@ -261,6 +261,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
                     {categoryDropdown}
                     {showNumericalPropsOnly && (
                         <Tooltip
+                            interactive
                             title={
                                 <span>
                                     This filter only shows numerical properties. If you're not seeing your property

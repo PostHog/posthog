@@ -21,11 +21,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
-# Max rows per FETCH when reading a partitioned parent table. A partitioned
-# parent scan dispatches across every child partition; a large chunk size can
-# blow past the source's statement_timeout even when per-row payload is small.
-PARTITIONED_TABLE_MAX_CHUNK_SIZE = 30_000
-
 # Retry budgets for iterate_date_windows. Counters reset on every successful
 # window. Exhausting QueryCanceled surfaces QueryTimeoutException; exhausting
 # SerializationFailure re-raises the original error so the caller can decide
@@ -637,7 +632,6 @@ def is_supported_incremental_type_for_window(field_type: Optional[IncrementalFie
 
 
 __all__ = [
-    "PARTITIONED_TABLE_MAX_CHUNK_SIZE",
     "WINDOW_MAX_QUERY_CANCELED_RETRIES",
     "WINDOW_MAX_SERIALIZATION_RETRIES",
     "ChildPartition",
