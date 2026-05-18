@@ -691,6 +691,8 @@ class InsightSerializer(InsightBasicSerializer):
 
         if validated_data.get("deleted", False):
             DashboardTile.objects_including_soft_deleted.filter(insight__id=instance.id).update(deleted=True)
+            for alert in instance.alertconfiguration_set.all():
+                alert.delete()
         else:
             dashboards = validated_data.pop("dashboards", None)
             if dashboards is not None:
@@ -698,7 +700,8 @@ class InsightSerializer(InsightBasicSerializer):
 
         updated_insight = super().update(instance, validated_data)
         if not updated_insight.are_alerts_supported:
-            instance.alertconfiguration_set.all().delete()
+            for alert in instance.alertconfiguration_set.all():
+                alert.delete()
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
