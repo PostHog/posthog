@@ -544,7 +544,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     create_user_interview_topic: {
         name: 'Set up user interviews',
-        description: 'Plan a user research topic, target participants, and draft interview questions',
+        description: 'Set up user interviews — plan a research topic, target participants, and draft questions',
         product: Scene.UserInterviews,
         flag: FEATURE_FLAGS.USER_INTERVIEWS,
         icon: iconForType('user_interview'),

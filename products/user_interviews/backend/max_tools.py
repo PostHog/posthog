@@ -245,9 +245,7 @@ class CreateUserInterviewTopicTool(MaxTool):
         if emails:
             targeting_summary_parts.append(f"{len(emails)} email{'s' if len(emails) != 1 else ''}")
         if distinct_ids:
-            targeting_summary_parts.append(
-                f"{len(distinct_ids)} distinct ID{'s' if len(distinct_ids) != 1 else ''}"
-            )
+            targeting_summary_parts.append(f"{len(distinct_ids)} distinct ID{'s' if len(distinct_ids) != 1 else ''}")
         targeting_summary = " + ".join(targeting_summary_parts) or "no interviewees"
 
         message = (
