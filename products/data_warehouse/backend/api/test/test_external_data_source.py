@@ -138,6 +138,90 @@ class TestExternalDataSource(APIBaseTest):
             len(STRIPE_ENDPOINTS),
         )
 
+    @patch("products.data_warehouse.backend.api.external_data_source.sync_discover_schemas_schedule")
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_creates_discovery_schedule(self, _mock_validate, mock_sync_discover):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_SUBSCRIPTION_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == 201, response.json()
+        mock_sync_discover.assert_called_once()
+        assert mock_sync_discover.call_args.kwargs == {"create": True}
+        # First positional arg is the freshly created ExternalDataSource model
+        created_source = mock_sync_discover.call_args.args[0]
+        assert str(created_source.id) == response.json()["id"]
+
+    @patch("products.data_warehouse.backend.api.external_data_source.sync_discover_schemas_schedule")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_direct_query_source_skips_discovery_schedule(self, mock_get_source, mock_sync_discover):
+        # Direct-query sources resolve schemas at query time and opt out of all
+        # background sync — no discovery schedule should be created.
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_connection_metadata.return_value = {
+            "database": "app",
+            "version": "Duckgres/DuckDB",
+            "engine": "duckdb",
+            "function_source": "duckdb_functions",
+            "available_functions": ["duckdb_functions", "date_bin"],
+        }
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "access_method": "direct",
+                "prefix": "Primary database",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [{"name": "accounts", "should_sync": True, "sync_type": None}],
+                },
+            },
+        )
+
+        assert response.status_code == 201, response.json()
+        mock_sync_discover.assert_not_called()
+
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
@@ -1116,6 +1200,16 @@ class TestExternalDataSource(APIBaseTest):
 
         assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
         assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.delete_discover_schemas_schedule")
+    def test_delete_external_data_source_tears_down_discovery_schedule(self, mock_delete_discover):
+        source = self._create_external_data_source()
+        self._create_external_data_schema(source.pk)
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        mock_delete_discover.assert_called_once_with(str(source.pk))
 
     @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
     @patch(

@@ -116,22 +116,25 @@ function AppScene(): JSX.Element | null {
         sceneElement = <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
     }
 
+    const sceneContent = activeExportedScene?.logic ? (
+        <BindLogic
+            key={`bind-${activeSceneLogicPropsWithTabId.tabId}`}
+            logic={activeExportedScene.logic}
+            props={activeSceneLogicPropsWithTabId}
+        >
+            {sceneElement}
+        </BindLogic>
+    ) : (
+        sceneElement
+    )
+
     const wrappedSceneElement = (
         <ErrorBoundary
             key={`error-${activeSceneLogicPropsWithTabId.tabId}`}
             exceptionProps={{ feature: activeSceneId }}
         >
-            {activeExportedScene?.logic ? (
-                <BindLogic
-                    key={`bind-${activeSceneLogicPropsWithTabId.tabId}`}
-                    logic={activeExportedScene.logic}
-                    props={activeSceneLogicPropsWithTabId}
-                >
-                    {sceneElement}
-                </BindLogic>
-            ) : (
-                sceneElement
-            )}
+            {/* Keep chunk-load failures out of the scene error reporter so stale assets reload once instead. */}
+            <ChunkLoadErrorBoundary>{sceneContent}</ChunkLoadErrorBoundary>
         </ErrorBoundary>
     )
 

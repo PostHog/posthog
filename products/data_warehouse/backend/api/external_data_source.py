@@ -58,9 +58,11 @@ from products.data_warehouse.backend.api.external_data_schema import (
 )
 from products.data_warehouse.backend.data_load.service import (
     cancel_external_data_workflow,
+    delete_discover_schemas_schedule,
     delete_external_data_schedule,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
+    sync_discover_schemas_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
@@ -1156,6 +1158,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
 
+        # Per-source schema discovery schedule. Runs every 6h so newly added
+        # upstream resources (Slack channels, Postgres tables, …) get picked up
+        # without re-discovering on every per-schema sync tick. Direct-query
+        # sources resolve schemas at query time, so they opt out of all
+        # background sync — including this discovery cadence.
+        if new_source_model.supports_scheduled_sync:
+            try:
+                sync_discover_schemas_schedule(new_source_model, create=True)
+            except Exception as e:
+                logger.exception("Could not create schema discovery schedule", exc_info=e)
+
         # Start CDC extraction schedule if any CDC schemas are active
         if cdc_enabled:
             try:
@@ -1366,6 +1379,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             delete_external_data_schedule(str(instance.id))
+        except Exception as e:
+            capture_exception(e)
+
+        try:
+            delete_discover_schemas_schedule(str(instance.id))
         except Exception as e:
             capture_exception(e)
 
