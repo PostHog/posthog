@@ -1,8 +1,9 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useMemo } from 'react'
 
-import { IconEllipsis, IconInfo } from '@posthog/icons'
+import { IconCheckCircle, IconEllipsis, IconInfo, IconWarning, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -25,9 +26,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { isKeyOf } from 'lib/utils'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { ProxyRecord, proxyLogic } from './proxyLogic'
+import { DiagnosticCheckResult, DiagnosticCheckStatus, DiagnosticReport, ProxyRecord, proxyLogic } from './proxyLogic'
 import { ProxySDKSetup } from './ProxySDKSetup'
 
 const statusText = {
@@ -36,9 +38,17 @@ const statusText = {
 }
 
 export function ManagedReverseProxy(): JSX.Element {
-    const { cloudflareOptInAcknowledged, formState, proxyRecords, proxyRecordsLoading, maxProxyRecords } =
-        useValues(proxyLogic)
-    const { acknowledgeCloudflareOptIn, deleteRecord, retryRecord, showForm } = useActions(proxyLogic)
+    const {
+        cloudflareOptInAcknowledged,
+        formState,
+        proxyRecords,
+        proxyRecordsLoading,
+        maxProxyRecords,
+        diagnoseLoadingIds,
+        expandedRecordIds,
+    } = useValues(proxyLogic)
+    const { acknowledgeCloudflareOptIn, deleteRecord, retryRecord, diagnose, setRecordExpanded, showForm } =
+        useActions(proxyLogic)
     const { preflight } = useValues(preflightLogic)
 
     const cloudflareProxyEnabled = preflight?.instance_preferences?.cloudflare_proxy_enabled
@@ -52,6 +62,31 @@ export function ManagedReverseProxy(): JSX.Element {
 
     const recordsWithMessages = proxyRecords.filter((record) => !!record.message)
     const validProxyRecords = proxyRecords.filter((record) => record.status === 'valid')
+
+    // Surface the diagnose_proxy MaxTool while this scene is mounted, with the visible
+    // records as context so Max can resolve "diagnose e.foo.com" to a record id.
+    useMaxTool({
+        identifier: 'diagnose_proxy',
+        active: proxyRecords.length > 0 && !restrictionReason,
+        context: useMemo(
+            () => ({
+                proxy_records: proxyRecords.map((r) => ({
+                    id: r.id,
+                    domain: r.domain,
+                    status: r.status,
+                    message: r.message,
+                })),
+            }),
+            [proxyRecords]
+        ),
+        suggestions: useMemo(() => {
+            const erroring = proxyRecords.find((r) => r.status === 'erroring' || r.status === 'timed_out')
+            if (erroring) {
+                return [`Why is ${erroring.domain} erroring?`]
+            }
+            return proxyRecords.length > 0 ? [`Diagnose ${proxyRecords[0].domain}`] : []
+        }, [proxyRecords]),
+    })
 
     const columns: LemonTableColumns<ProxyRecord> = [
         {
@@ -98,11 +133,17 @@ export function ManagedReverseProxy(): JSX.Element {
             width: 20,
             className: 'flex justify-center',
             render: function Render(_, { id, status }) {
+                const isDiagnosing = diagnoseLoadingIds.includes(id)
                 return (
                     status != 'deleting' &&
                     !restrictionReason && (
                         <LemonMenu
                             items={[
+                                {
+                                    label: isDiagnosing ? 'Running diagnostics…' : 'Diagnose',
+                                    onClick: () => diagnose(id),
+                                    disabledReason: isDiagnosing ? 'A diagnostic is already running' : undefined,
+                                },
                                 ...(status === 'erroring' || status === 'timed_out'
                                     ? [
                                           {
@@ -161,6 +202,9 @@ export function ManagedReverseProxy(): JSX.Element {
                 dataSource={proxyRecords}
                 expandable={{
                     expandedRowRender: (record) => <ExpandedRow record={record} />,
+                    isRowExpanded: (record) => (expandedRecordIds.includes(record.id) ? true : -1),
+                    onRowExpand: (record) => setRecordExpanded(record.id, true),
+                    onRowCollapse: (record) => setRecordExpanded(record.id, false),
                 }}
             />
 
@@ -264,22 +308,40 @@ function CloudflareOptInBanner({
 }
 
 const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
+    const { diagnosticReports, recordActiveTabs } = useValues(proxyLogic)
+    const { setRecordActiveTab } = useActions(proxyLogic)
+
+    const report = diagnosticReports[record.id]
+    const activeKey = recordActiveTabs[record.id] ?? 'cname'
+
+    const tabs = [
+        {
+            label: 'CNAME',
+            key: 'cname',
+            content: (
+                <CodeSnippet key={record.id} language={Language.HTTP}>
+                    {record.target_cname}
+                </CodeSnippet>
+            ),
+        },
+        ...(report
+            ? [
+                  {
+                      label: 'Diagnosis',
+                      key: 'diagnosis',
+                      content: <DiagnosticReportContent report={report} />,
+                  },
+              ]
+            : []),
+    ]
+
     return (
         <div className="pb-4 pr-4 space-y-2">
             <LemonTabs
                 size="small"
-                activeKey="cname"
-                tabs={[
-                    {
-                        label: 'CNAME',
-                        key: 'cname',
-                        content: (
-                            <CodeSnippet key={record.id} language={Language.HTTP}>
-                                {record.target_cname}
-                            </CodeSnippet>
-                        ),
-                    },
-                ]}
+                activeKey={activeKey}
+                onChange={(key) => setRecordActiveTab(record.id, key)}
+                tabs={tabs}
             />
             {record.status === 'waiting' && (
                 <DomainConnectBanner
@@ -391,6 +453,59 @@ const WaitingRecords = (): JSX.Element | null => {
                 (orange cloud), make sure the proxy is <strong>disabled</strong> (gray cloud) for this domain. Enabling
                 the proxy at your DNS provider may interfere with the managed reverse proxy functionality.
             </div>
+        </div>
+    )
+}
+
+const checkStatusIcon = (status: DiagnosticCheckStatus): JSX.Element => {
+    switch (status) {
+        case 'passed':
+            return <IconCheckCircle className="text-success" />
+        case 'warned':
+            return <IconWarning className="text-warning-dark" />
+        case 'failed':
+            return <IconX className="text-danger" />
+        case 'skipped':
+            return <IconInfo className="text-secondary" />
+    }
+}
+
+function DiagnosticReportContent({ report }: { report: DiagnosticReport }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-3">
+            <div className="text-xs text-secondary">Ran {new Date(report.ran_at).toLocaleString()}</div>
+            <div className="flex flex-col gap-2">
+                {report.checks.map((check) => (
+                    <DiagnosticCheckRow key={check.id} check={check} />
+                ))}
+            </div>
+        </div>
+    )
+}
+
+function DiagnosticCheckRow({ check }: { check: DiagnosticCheckResult }): JSX.Element {
+    return (
+        <div className="border rounded p-3 flex flex-col gap-2 bg-surface-secondary">
+            <div className="flex items-center gap-2">
+                {checkStatusIcon(check.status)}
+                <span className="font-semibold">{check.name}</span>
+                <span className="text-xs text-secondary capitalize">({check.status})</span>
+            </div>
+            <LemonMarkdown className="text-sm">{check.detail}</LemonMarkdown>
+            {check.remediation && (
+                <div className="border-t pt-2 mt-1 flex flex-col gap-2">
+                    <LemonMarkdown className="text-sm font-semibold">{check.remediation.summary}</LemonMarkdown>
+                    {check.remediation.records.length > 0 && (
+                        <div className="flex flex-col gap-1">
+                            {check.remediation.records.map((dnsRecord, i) => (
+                                <CodeSnippet key={i} language={Language.HTTP}>
+                                    {`${dnsRecord.name}\t${dnsRecord.type}\t${dnsRecord.value}`}
+                                </CodeSnippet>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     )
 }

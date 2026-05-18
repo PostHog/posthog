@@ -1,4 +1,4 @@
-import { kea, path } from 'kea'
+import { afterMount, beforeUnmount, kea, key, path, props } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 
@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 
 import { mergePinnedTabs, sceneLogic } from './sceneLogic'
-import type { logicType } from './sceneLogic.testType'
+import type { testLogicType, tabAwareTestLogicType } from './sceneLogic.testType'
 
 jest.mock('lib/api', () => ({
     __esModule: true,
@@ -22,8 +22,21 @@ jest.mock('lib/api', () => ({
 }))
 
 const Component = (): JSX.Element => <div />
-const logic = kea<logicType>([path(['scenes', 'sceneLogic', 'test'])])
-const sceneImport = (): any => ({ scene: { component: Component, logic: logic } })
+const testLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'test'])])
+const sceneImport = (): any => ({ scene: { component: Component, logic: testLogic } })
+let mountedTabIds: (string | undefined)[] = []
+let unmountedTabIds: (string | undefined)[] = []
+const tabAwareTestLogic = kea<tabAwareTestLogicType>([
+    path(['scenes', 'sceneLogic', 'tabAwareTestLogic']),
+    props({} as { tabId?: string }),
+    key(({ tabId }) => tabId ?? 'missing'),
+    afterMount(({ props }) => {
+        mountedTabIds.push(props.tabId)
+    }),
+    beforeUnmount(({ props }) => {
+        unmountedTabIds.push(props.tabId)
+    }),
+])
 
 const testScenes: Record<string, () => any> = {
     [Scene.DataManagement]: sceneImport,
@@ -43,6 +56,8 @@ describe('sceneLogic', () => {
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         featureFlagLogic.mount()
         router.actions.push(urls.eventDefinitions())
+        mountedTabIds = []
+        unmountedTabIds = []
         logic = sceneLogic.build({ scenes: testScenes })
         // Simulate a fresh mount so that stored tabs are read from localStorage.
         logic.cache.tabsLoaded = false
@@ -93,6 +108,48 @@ describe('sceneLogic', () => {
             [Scene.DataManagement]: expectedAnnotation,
             [Scene.Settings]: expectedSettings,
         })
+    })
+
+    it('keeps tab scene logic mounted when switching away and back to the same tab', async () => {
+        const sceneParams = { params: {}, searchParams: {}, hashParams: {} }
+        const dataManagementScene = { component: Component, logic: tabAwareTestLogic }
+        const settingsScene = { component: Component, logic: testLogic }
+
+        logic.actions.setTabs([
+            {
+                id: 'tab-1',
+                active: true,
+                pathname: '/data-management/events',
+                search: '',
+                hash: '',
+                title: 'Data management',
+                iconType: 'blank',
+                sceneId: Scene.DataManagement,
+            },
+            {
+                id: 'tab-2',
+                active: false,
+                pathname: '/settings/user',
+                search: '',
+                hash: '',
+                title: 'Settings',
+                iconType: 'blank',
+                sceneId: Scene.Settings,
+            },
+        ])
+
+        logic.actions.setScene(Scene.DataManagement, undefined, 'tab-1', sceneParams, false, dataManagementScene)
+        expect(mountedTabIds.filter((tabId) => tabId === 'tab-1')).toHaveLength(1)
+
+        logic.actions.activateTab(logic.values.tabs[1])
+        logic.actions.setScene(Scene.Settings, undefined, 'tab-2', sceneParams, false, settingsScene)
+        expect(unmountedTabIds).not.toContain('tab-1')
+
+        logic.actions.activateTab(logic.values.tabs[0])
+        logic.actions.setScene(Scene.DataManagement, undefined, 'tab-1', sceneParams, false, dataManagementScene)
+
+        expect(mountedTabIds.filter((tabId) => tabId === 'tab-1')).toHaveLength(1)
+        expect(unmountedTabIds).not.toContain('tab-1')
     })
 
     it('can pin and unpin tabs, syncing storage', async () => {

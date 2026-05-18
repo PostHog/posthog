@@ -15,6 +15,7 @@ from posthog.temporal.data_imports.sources.mongodb.mongo import (
     _make_safe_server_selector,
     _process_doc_with_field_logging,
     _process_nested_value,
+    get_leading_index_keys,
 )
 
 
@@ -282,3 +283,36 @@ class TestProcessDocWithFieldLogging(SimpleTestCase):
 
         log_msg = logger.exception.call_args[0][0]
         assert "_id=<unavailable>" in log_msg
+
+
+class TestGetLeadingIndexKeys(SimpleTestCase):
+    """The MongoDB warning hinges on whether the user's chosen incremental
+    field is the *leading* key of any index — non-leading positions in compound
+    indexes don't speed up `WHERE field >= last_max` queries.
+    """
+
+    @staticmethod
+    def _collection_with_indexes(indexes):
+        coll = MagicMock()
+        coll.list_indexes.return_value = iter(indexes)
+        return coll
+
+    def test_collects_leading_keys_only(self):
+        coll = self._collection_with_indexes(
+            [
+                {"key": {"_id": 1}},
+                {"key": {"updated_at": -1}},
+                # `user_id` is the leading key here; `created_at` is not
+                {"key": {"user_id": 1, "created_at": 1}},
+            ]
+        )
+        assert get_leading_index_keys(coll) == {"_id", "updated_at", "user_id"}
+
+    def test_returns_none_on_failure(self):
+        coll = MagicMock()
+        coll.list_indexes.side_effect = RuntimeError("network down")
+        assert get_leading_index_keys(coll) is None
+
+    def test_returns_empty_set_for_collection_with_no_indexes(self):
+        coll = self._collection_with_indexes([])
+        assert get_leading_index_keys(coll) == set()

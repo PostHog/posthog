@@ -383,8 +383,8 @@ class TestEventDefinitionAPI(APIBaseTest):
         [
             (
                 "filters_to_configured_entries_when_names_given",
-                [("order_placed", "order_id"), ("no_promotion", None)],
-                "?names=order_placed&names=no_promotion&names=missing_event",
+                [("order_placed", "order_id"), ("event_without_primary", None)],
+                "?names=order_placed&names=event_without_primary&names=missing_event",
                 {"order_placed": "order_id"},
             ),
             (
@@ -394,66 +394,66 @@ class TestEventDefinitionAPI(APIBaseTest):
                 {"evt_a": "prop_a", "evt_b": "prop_b"},
             ),
             (
-                "omits_entries_with_empty_string_promoted_property",
+                "omits_entries_with_empty_string_primary_property",
                 [("evt_blank", ""), ("evt_real", "real_prop")],
                 "",
                 {"evt_real": "real_prop"},
             ),
         ]
     )
-    def test_promoted_properties_endpoint_demo_team_scope(self, _name, seed_rows, query_string, expected_body):
-        for name, promoted_property in seed_rows:
-            EventDefinition.objects.create(team=self.demo_team, name=name, promoted_property=promoted_property)
+    def test_primary_properties_endpoint_demo_team_scope(self, _name, seed_rows, query_string, expected_body):
+        for name, primary_property in seed_rows:
+            EventDefinition.objects.create(team=self.demo_team, name=name, primary_property=primary_property)
 
-        response = self.client.get(f"/api/projects/@current/event_definitions/promoted_properties/{query_string}")
+        response = self.client.get(f"/api/projects/@current/event_definitions/primary_properties/{query_string}")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"promoted_properties": expected_body}
+        assert response.json() == {"primary_properties": expected_body}
 
-    def test_promoted_properties_endpoint_is_team_scoped(self):
+    def test_primary_properties_endpoint_is_team_scoped(self):
         other_team = create_team(organization=self.organization)
-        EventDefinition.objects.create(team=other_team, name="other_team_event", promoted_property="leak")
+        EventDefinition.objects.create(team=other_team, name="other_team_event", primary_property="leak")
 
         response = self.client.get(
-            "/api/projects/@current/event_definitions/promoted_properties/?names=other_team_event"
+            "/api/projects/@current/event_definitions/primary_properties/?names=other_team_event"
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"promoted_properties": {}}
+        assert response.json() == {"primary_properties": {}}
 
     @patch("posthog.settings.EE_AVAILABLE", True)
     @patch("posthog.models.Organization.is_feature_available", return_value=True)
-    def test_update_event_definition_promoted_property(self, *mocks):
+    def test_update_event_definition_primary_property(self, *mocks):
         event_definition = EventDefinition.objects.create(team=self.demo_team, name="checkout_started")
 
         response = self.client.patch(
             f"/api/projects/@current/event_definitions/{event_definition.id}",
-            {"promoted_property": "checkout_id"},
+            {"primary_property": "checkout_id"},
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["promoted_property"] == "checkout_id"
+        assert response.json()["primary_property"] == "checkout_id"
 
         event_definition.refresh_from_db()
-        assert event_definition.promoted_property == "checkout_id"
+        assert event_definition.primary_property == "checkout_id"
 
     @patch("posthog.settings.EE_AVAILABLE", True)
     @patch("posthog.models.Organization.is_feature_available", return_value=True)
-    def test_clear_event_definition_promoted_property(self, *mocks):
+    def test_clear_event_definition_primary_property(self, *mocks):
         event_definition = EventDefinition.objects.create(
-            team=self.demo_team, name="checkout_started", promoted_property="checkout_id"
+            team=self.demo_team, name="checkout_started", primary_property="checkout_id"
         )
 
         response = self.client.patch(
             f"/api/projects/@current/event_definitions/{event_definition.id}",
-            {"promoted_property": None},
+            {"primary_property": None},
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["promoted_property"] is None
+        assert response.json()["primary_property"] is None
 
         event_definition.refresh_from_db()
-        assert event_definition.promoted_property is None
+        assert event_definition.primary_property is None
 
     def test_by_name_not_found(self):
         response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=nonexistent")

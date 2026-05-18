@@ -10,6 +10,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models.functions import Coalesce
 
+import posthoganalytics
 from natsort import natsorted, ns
 
 from posthog.schema import (
@@ -844,6 +845,34 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         self.modifiers.dataWarehouseEventsModifiers = datawarehouse_modifiers
 
+        self.modifiers.sessionPropertyPreAggregation = (
+            self._has_session_breakdown() and self._team_flag_session_property_pre_aggregation()
+        )
+
+    def _has_session_breakdown(self) -> bool:
+        filter = self.query.breakdownFilter
+        if filter is None:
+            return False
+        if filter.breakdown_type == "session":
+            return True
+        return any(breakdown.type == "session" for breakdown in (filter.breakdowns or []))
+
+    def _team_flag_session_property_pre_aggregation(self) -> bool:
+        return posthoganalytics.feature_enabled(
+            "trends-session-property-pre-aggregation",
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {"id": str(self.team.organization_id)},
+                "project": {"id": str(self.team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
     def setup_series(self) -> list[SeriesWithExtras]:
         series_with_extras = [
             SeriesWithExtras(
@@ -1100,11 +1129,16 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
             breakdown_key = breakdown_value[0] if isinstance(breakdown_value, list) else breakdown_value
 
-            columns = dict(table_or_view.columns)
+            columns = table_or_view.columns
+            if not isinstance(columns, dict):
+                return False
+
             if breakdown_key not in columns:
                 return False
 
-            field_type = columns[breakdown_key]["clickhouse"]
+            field_type = self._data_warehouse_column_clickhouse_type(columns[breakdown_key])
+            if field_type is None:
+                return False
 
             if field_type.startswith("Nullable("):
                 field_type = field_type.replace("Nullable(", "")[:-1]
@@ -1117,6 +1151,17 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             breakdown_type,
             breakdown_group_type_index,
         )
+
+    def _data_warehouse_column_clickhouse_type(self, column: object) -> str | None:
+        if isinstance(column, str):
+            return column
+
+        if isinstance(column, dict):
+            clickhouse_type = column.get("clickhouse")
+            if isinstance(clickhouse_type, str):
+                return clickhouse_type
+
+        return None
 
     def _is_breakdown_field_boolean(
         self,

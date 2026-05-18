@@ -755,11 +755,8 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
             cimd_metadata_url=CIMD_PROV_URL,
         )
         with patch(
-            "ee.api.agentic_provisioning.authentication.CIMD_PROVISIONING_DEFAULTS",
-            new_callable=lambda: MagicMock(
-                items=MagicMock(side_effect=RuntimeError("simulated DB error")),
-                keys=MagicMock(return_value=[]),
-            ),
+            "ee.api.agentic_provisioning.authentication.apply_provisioning_defaults",
+            side_effect=RuntimeError("simulated DB error"),
         ):
             _, challenge = _pkce_pair()
             res = self.client.post(

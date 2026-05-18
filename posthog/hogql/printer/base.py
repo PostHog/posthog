@@ -1275,10 +1275,20 @@ class BasePrinter(Visitor[str]):
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
+            # In non-HogQL contexts (legacy queries, data deletion predicates) the consumer splices
+            # this fragment into a query whose table scope is fixed and known (e.g. ``events e``,
+            # ``DELETE FROM sharded_events``). Mirror what visit_field_type already does for regular
+            # columns at line 1201: drop the table prefix. In particular, lightweight DELETE rewrites
+            # the predicate into a mutation, whose expression analyzer rejects table-qualified
+            # references like ``sharded_events.mat_$current_url`` even when the column exists.
+            table_prefix: str | None = (
+                None if self.context.within_non_hogql_query else self.visit(field_type.table_type)
+            )
+
             materialized_column = self._get_materialized_column(table_name, property_name, field_name)
             if materialized_column is not None:
                 yield PrintableMaterializedColumn(
-                    self.visit(field_type.table_type),
+                    table_prefix,
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
                     has_minmax_index=materialized_column.has_minmax_index,
@@ -1289,7 +1299,7 @@ class BasePrinter(Visitor[str]):
             # Check for dmat (dynamic materialized) columns
             if dmat_column := self._get_dmat_column(table_name, field_name, property_name):
                 yield PrintableMaterializedColumn(
-                    self.visit(field_type.table_type),
+                    table_prefix,
                     self._print_identifier(dmat_column),
                     is_nullable=True,
                     has_minmax_index=False,

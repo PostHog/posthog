@@ -15,6 +15,40 @@ pub enum Destination {
     Dlq,
     Custom(String),
     Drop,
+    ExceptionErrorTracking,
+    HeatmapMain,
+    ClientIngestionWarning,
+}
+
+impl Destination {
+    /// Returns true for destinations that flow through the analytics ingestion
+    /// pipeline (and are therefore subject to analytics-scoped restrictions,
+    /// overflow routing, etc). Mirrors legacy `DataType::is_analytics_pipeline`.
+    pub fn is_analytics_pipeline(&self) -> bool {
+        matches!(self, Self::AnalyticsMain | Self::AnalyticsHistorical)
+    }
+}
+
+#[cfg(test)]
+mod destination_tests {
+    use super::Destination;
+
+    #[test]
+    fn is_analytics_pipeline_true_for_main_and_historical() {
+        assert!(Destination::AnalyticsMain.is_analytics_pipeline());
+        assert!(Destination::AnalyticsHistorical.is_analytics_pipeline());
+    }
+
+    #[test]
+    fn is_analytics_pipeline_false_for_non_analytics() {
+        assert!(!Destination::ExceptionErrorTracking.is_analytics_pipeline());
+        assert!(!Destination::HeatmapMain.is_analytics_pipeline());
+        assert!(!Destination::ClientIngestionWarning.is_analytics_pipeline());
+        assert!(!Destination::Overflow.is_analytics_pipeline());
+        assert!(!Destination::Dlq.is_analytics_pipeline());
+        assert!(!Destination::Drop.is_analytics_pipeline());
+        assert!(!Destination::Custom("foo".into()).is_analytics_pipeline());
+    }
 }
 
 // ---------------------------------------------------------------------------

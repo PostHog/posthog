@@ -348,6 +348,8 @@
     --color-product-early-access-features-dark: rgb(53 213 189);
     --color-product-support-light: rgb(243 84 84);
     --color-product-support-dark: rgb(247 165 1);
+    --color-product-deployments-light: rgb(220 38 38);
+    --color-product-deployments-dark: rgb(248 113 113);
 
     // Insight colors
     --color-insight-funnel-light: rgb(47 128 250);
@@ -650,6 +652,7 @@
     --z-definition-popover: 1250;
     --z-popover: 1200;
     --z-graph-tooltip: 1150;
+    --z-chart-tooltip: calc(var(--z-modal) - 50);
 
     // 1161 and 1162 are reserved to be set from code
     // 1166 through 1169 are reserved to be set from code

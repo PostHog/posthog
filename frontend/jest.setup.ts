@@ -83,6 +83,14 @@ if (typeof Element.prototype.scrollIntoView !== 'function') {
     Element.prototype.scrollIntoView = () => {}
 }
 
+// maplibre-gl probes window.URL.createObjectURL at module-eval time, but jsdom
+// doesn't implement it. Provide a noop so importing modules that transitively
+// pull in maplibre-gl (e.g. NotebookNodeMap) doesn't throw.
+if (typeof window !== 'undefined' && typeof window.URL.createObjectURL !== 'function') {
+    window.URL.createObjectURL = () => ''
+    window.URL.revokeObjectURL = () => {}
+}
+
 // we use CSS.escape in the toolbar, but Jest/JSDom doesn't support it
 if (typeof (globalThis as any).CSS === 'undefined') {
     ;(globalThis as any).CSS = {}

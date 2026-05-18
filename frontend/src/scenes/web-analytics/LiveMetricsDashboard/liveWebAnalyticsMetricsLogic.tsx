@@ -12,7 +12,9 @@ import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { CATEGORY_LABELS } from 'lib/utils/botDetection'
 import { deduplicateEvents } from 'scenes/activity/live/deduplicateEvents'
 import { teamLogic } from 'scenes/teamLogic'
+import { ProductTab } from 'scenes/web-analytics/common'
 import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { performQuery } from '~/queries/query'
 import {
@@ -21,6 +23,7 @@ import {
     NodeKind,
     TrendsQuery,
     TrendsQueryResponse,
+    WebAnalyticsPropertyFilter,
 } from '~/queries/schema/schema-general'
 import { BaseMathType, LiveEvent, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -28,6 +31,8 @@ import { createStreamConnection } from './createStreamConnection'
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'
 import type { liveWebAnalyticsMetricsLogicType } from './liveWebAnalyticsMetricsLogicType'
 import {
+    BOT_ELIGIBLE_EVENTS,
+    BOT_KEY_SEPARATOR,
     BotBreakdownItem,
     BrowserBreakdownItem,
     ChartDataPoint,
@@ -37,6 +42,7 @@ import {
     DeviceBreakdownItem,
     DIRECT_REFERRER,
     LiveGeoEvent,
+    parseBotKey,
     PathItem,
     ReferrerItem,
     SlidingWindowBucket,
@@ -87,7 +93,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             featureFlagLogic,
             ['featureFlags'],
             webAnalyticsFilterLogic,
-            ['selectedHost as rawSelectedHost'],
+            ['selectedHost as rawSelectedHost', 'liveFilters as rawLiveFilters'],
+            webAnalyticsLogic,
+            ['productTab'],
         ],
     })),
     actions(() => ({
@@ -142,6 +150,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                             }
 
                             const isPageview = event.event === '$pageview'
+                            const isBotEligibleEvent = (BOT_ELIGIBLE_EVENTS as readonly string[]).includes(event.event)
                             const normalizedReferrer =
                                 isPageview &&
                                 referringDomain &&
@@ -170,6 +179,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
                             window.addDataPoint(eventTs, event.distinct_id, {
                                 pageviews: isPageview ? 1 : 0,
+                                botEligibleEvents: isBotEligibleEvent ? 1 : 0,
                                 device: deviceType ? { deviceId: deviceKey, deviceType } : undefined,
                                 browser: browser ? { deviceId: deviceKey, browserType: browser } : undefined,
                                 pathname: isPageview ? pathname : undefined,
@@ -348,14 +358,37 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (s) => [s.slidingWindow, s.eventsVersion],
             (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalBotEvents(),
         ],
+        totalBotEligibleEvents: [
+            (s) => [s.slidingWindow, s.eventsVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalBotEligibleEvents(),
+        ],
         liveUserCount: [
             (s) => [s.recentUsersByLastSeen],
             (recentUsersByLastSeen: Map<string, number>): number => recentUsersByLastSeen.size,
         ],
         selectedHost: [
-            (s) => [s.rawSelectedHost, s.featureFlags],
-            (rawSelectedHost: string | null, featureFlags: FeatureFlagsSet): string | null =>
-                featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER] ? rawSelectedHost : null,
+            (s) => [s.rawSelectedHost, s.featureFlags, s.productTab],
+            (rawSelectedHost: string | null, featureFlags: FeatureFlagsSet, productTab: ProductTab): string | null => {
+                // The bot tab streams traffic across all hosts, so ignore any host filter
+                // a sibling tab may have set on the shared filter logic.
+                if (productTab === ProductTab.BOT_ANALYTICS) {
+                    return null
+                }
+                return featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS] ? rawSelectedHost : null
+            },
+        ],
+        liveFilters: [
+            (s) => [s.rawLiveFilters, s.featureFlags],
+            (
+                rawLiveFilters: WebAnalyticsPropertyFilter[],
+                featureFlags: FeatureFlagsSet
+            ): WebAnalyticsPropertyFilter[] => {
+                return featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS] ? rawLiveFilters : []
+            },
+        ],
+        hasActiveFilters: [
+            (s) => [s.liveFilters],
+            (liveFilters: WebAnalyticsPropertyFilter[]): boolean => liveFilters.length > 0,
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -410,12 +443,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     recentUsersResponse,
                     botResponse,
                     cityResponse,
-                ] = await loadQueryData(
+                ] = await loadQueryData({
                     dateFrom,
-                    handoff,
-                    values.selectedHost,
-                    !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN]
-                )
+                    dateTo: handoff,
+                    filters: values.liveFilters,
+                    includeCity: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN],
+                    filtersEnabled: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS],
+                })
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()
 
@@ -460,9 +494,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 ? ',$geoip_city_name,$geoip_country_code'
                 : ''
             url.searchParams.append('columns', `${baseColumns}${cityColumns}`)
-            if (values.selectedHost) {
-                url.searchParams.append('property', `$host=${values.selectedHost}`)
-            }
+            appendFilterParams(url, values.liveFilters)
 
             cache.batch = cache.batch ?? ([] as LiveEvent[])
 
@@ -507,6 +539,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
             const url = new URL(`${host}/events`)
             url.searchParams.append('geo', 'true')
+            appendFilterParams(url, values.liveFilters)
 
             cache.geoBatch = cache.geoBatch ?? ([] as LiveGeoEvent[])
 
@@ -530,7 +563,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         },
     })),
     subscriptions(({ actions, cache }) => ({
-        selectedHost: () => {
+        liveFilters: () => {
             if (!cache.hasInitialized) {
                 return
             }
@@ -598,6 +631,24 @@ const stopFlushInterval = (cache: FlushCache): void => {
     }
 }
 
+// Translates the canonical filter list into repeated `?property=key=value` query params
+// understood by the livestream filter. Array values produce one param per entry, which the
+// livestream backend treats as IN (livestream/events/filter.go matchesPropertyFilters).
+export const appendFilterParams = (url: URL, filters: WebAnalyticsPropertyFilter[]): void => {
+    for (const f of filters) {
+        if (!f.key || f.type !== PropertyFilterType.Event || f.operator !== PropertyOperator.Exact) {
+            continue
+        }
+        const values = Array.isArray(f.value) ? f.value : [f.value]
+        for (const v of values) {
+            if (v == null) {
+                continue
+            }
+            url.searchParams.append('property', `${f.key}=${String(v)}`)
+        }
+    }
+}
+
 // Flush both event and geo batches on a fixed interval
 // to cap kea dispatches at a predictable rate regardless of event volume
 const startFlushInterval = (cache: FlushCache, actions: FlushActions): void => {
@@ -616,12 +667,19 @@ const startFlushInterval = (cache: FlushCache, actions: FlushActions): void => {
     }, FLUSH_INTERVAL_MS)
 }
 
-const loadQueryData = async (
-    dateFrom: Date,
-    dateTo: Date,
-    host: string | null,
+const loadQueryData = async ({
+    dateFrom,
+    dateTo,
+    filters,
+    includeCity,
+    filtersEnabled,
+}: {
+    dateFrom: Date
+    dateTo: Date
+    filters: WebAnalyticsPropertyFilter[]
     includeCity: boolean
-): Promise<
+    filtersEnabled: boolean
+}): Promise<
     [
         HogQLQueryResponse,
         HogQLQueryResponse,
@@ -634,29 +692,34 @@ const loadQueryData = async (
         HogQLQueryResponse | null,
     ]
 > => {
-    const hostFilterClause = host ? `AND properties.$host = {host}` : ''
-    const hostValues = host ? { host } : {}
+    const whereClause = filtersEnabled
+        ? '{filters}'
+        : 'timestamp >= toDateTime({dateFrom}) AND timestamp <= toDateTime({dateTo})'
+    const queryParams: Pick<HogQLQuery, 'values' | 'filters'> = filtersEnabled
+        ? {
+              filters: {
+                  properties: filters,
+                  dateRange: { date_from: dateFrom.toISOString(), date_to: dateTo.toISOString() },
+              },
+          }
+        : { values: { dateFrom: dateFrom.toISOString(), dateTo: dateTo.toISOString() } }
+
+    const botEligibleEventsTuple = `(${BOT_ELIGIBLE_EVENTS.map((e) => `'${e}'`).join(', ')})`
 
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `SELECT
                     toStartOfMinute(timestamp) AS minute_bucket,
                     arrayDistinct(groupArray(distinct_id)) AS distinct_ids,
-                    countIf(event = '$pageview') AS pageviews
+                    countIf(event = '$pageview') AS pageviews,
+                    countIf(event IN ${botEligibleEventsTuple}) AS bot_eligible_events
                 FROM events
-                WHERE
-                    timestamp >= toDateTime({dateFrom})
-                    AND timestamp <= toDateTime({dateTo})
-                    ${hostFilterClause}
+                WHERE ${whereClause}
                 GROUP BY
                     minute_bucket
                 ORDER BY
                     minute_bucket ASC`,
-        values: {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
-            ...hostValues,
-        },
+        ...queryParams,
     }
 
     const createBreakdownQuery = (property: string, alias: string): HogQLQuery => ({
@@ -685,10 +748,7 @@ const loadQueryData = async (
                             )
                         )) AS device_ids
                     FROM events
-                    WHERE
-                        timestamp >= toDateTime({dateFrom})
-                        AND timestamp <= toDateTime({dateTo})
-                        ${hostFilterClause}
+                    WHERE ${whereClause}
                     GROUP BY
                         minute_bucket,
                         ${alias}
@@ -697,11 +757,7 @@ const loadQueryData = async (
                     minute_bucket
                 ORDER BY
                     minute_bucket ASC`,
-        values: {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
-            ...hostValues,
-        },
+        ...queryParams,
     })
 
     const deviceQuery = createBreakdownQuery('$device_type', 'device_type')
@@ -721,18 +777,7 @@ const loadQueryData = async (
             date_from: dateFrom.toISOString(),
             date_to: dateTo.toISOString(),
         },
-        ...(host
-            ? {
-                  properties: [
-                      {
-                          key: '$host',
-                          value: host,
-                          operator: PropertyOperator.Exact,
-                          type: PropertyFilterType.Event,
-                      },
-                  ],
-              }
-            : {}),
+        properties: filtersEnabled ? filters : [],
     }
 
     const referrerQuery: HogQLQuery = {
@@ -742,18 +787,11 @@ const loadQueryData = async (
                     if(isNotNull(properties.$referring_domain) AND properties.$referring_domain != '', properties.$referring_domain, '$direct') AS referring_domain,
                     count() AS view_count
                 FROM events
-                WHERE
-                    timestamp >= toDateTime({dateFrom})
-                    AND timestamp <= toDateTime({dateTo})
+                WHERE ${whereClause}
                     AND event = '$pageview'
-                    ${hostFilterClause}
                 GROUP BY minute_bucket, referring_domain
                 ORDER BY minute_bucket ASC`,
-        values: {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
-            ...hostValues,
-        },
+        ...queryParams,
     }
 
     const geoQuery: HogQLQuery = {
@@ -771,47 +809,51 @@ const loadQueryData = async (
                         properties.$geoip_country_code AS country_code,
                         arrayDistinct(groupArray(distinct_id)) AS distinct_ids
                     FROM events
-                    WHERE
-                        timestamp >= toDateTime({dateFrom})
-                        AND timestamp <= toDateTime({dateTo})
+                    WHERE ${whereClause}
                         AND properties.$geoip_country_code IS NOT NULL
                         AND properties.$geoip_country_code != ''
-                        ${hostFilterClause}
                     GROUP BY
                         minute_bucket,
                         country_code
                 )
                 GROUP BY minute_bucket
                 ORDER BY minute_bucket ASC`,
-        values: {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
-            ...hostValues,
-        },
+        ...queryParams,
     }
 
+    // Aggregate per-minute first then re-group so the response is bounded by the
+    // number of minutes in the window (not by the bot-name cardinality). Without this
+    // the default HogQL row cap (100) silently truncates high-traffic projects.
     const botQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `SELECT
-                    toStartOfMinute(timestamp) AS minute_bucket,
-                    \`$virt_bot_name\` AS bot_name,
-                    \`$virt_traffic_category\` AS bot_category,
-                    count() AS event_count
-                FROM events
-                WHERE
-                    timestamp >= toDateTime({dateFrom})
-                    AND timestamp <= toDateTime({dateTo})
-                    AND \`$virt_is_bot\` = true
-                    AND \`$virt_bot_name\` != ''
-                    AND event IN ('$pageview', '$pageleave', '$screen', '$http_log', '$autocapture')
-                    ${hostFilterClause}
-                GROUP BY minute_bucket, bot_name, bot_category
+                    minute_bucket,
+                    mapFromArrays(
+                        groupArray(bot_key),
+                        groupArray(event_count)
+                    ) AS counts_by_bot
+                FROM
+                (
+                    SELECT
+                        toStartOfMinute(timestamp) AS minute_bucket,
+                        concat(
+                            \`$virt_bot_name\`,
+                            '${BOT_KEY_SEPARATOR}',
+                            ifNull(\`$virt_traffic_category\`, '')
+                        ) AS bot_key,
+                        count() AS event_count
+                    FROM events
+                    WHERE ${whereClause}
+                        AND \`$virt_is_bot\` = true
+                        AND \`$virt_bot_name\` != ''
+                        AND event IN ${botEligibleEventsTuple}
+                    GROUP BY
+                        minute_bucket,
+                        bot_key
+                )
+                GROUP BY minute_bucket
                 ORDER BY minute_bucket ASC`,
-        values: {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
-            ...hostValues,
-        },
+        ...queryParams,
     }
 
     const cityQuery: HogQLQuery | null = includeCity
@@ -829,50 +871,45 @@ const loadQueryData = async (
                         toStartOfMinute(timestamp) AS minute_bucket,
                         concat(
                             properties.$geoip_city_name,
-                            {citySeparator},
+                            '${CITY_KEY_SEPARATOR}',
                             ifNull(properties.$geoip_country_code, '')
                         ) AS city_key,
                         arrayDistinct(groupArray(distinct_id)) AS distinct_ids
                     FROM events
-                    WHERE
-                        timestamp >= toDateTime({dateFrom})
-                        AND timestamp <= toDateTime({dateTo})
+                    WHERE ${whereClause}
                         AND properties.$geoip_city_name IS NOT NULL
                         AND properties.$geoip_city_name != ''
-                        ${hostFilterClause}
                     GROUP BY
                         minute_bucket,
                         city_key
                 )
                 GROUP BY minute_bucket
                 ORDER BY minute_bucket ASC`,
-              values: {
-                  dateFrom: dateFrom.toISOString(),
-                  dateTo: dateTo.toISOString(),
-                  citySeparator: CITY_KEY_SEPARATOR,
-                  ...hostValues,
-              },
+              ...queryParams,
           }
         : null
 
-    const recentUsersQuery: HogQLQuery | null = host
-        ? {
-              kind: NodeKind.HogQLQuery,
-              query: `SELECT
+    const recentUsersQuery: HogQLQuery | null =
+        filtersEnabled && filters.length > 0
+            ? {
+                  kind: NodeKind.HogQLQuery,
+                  query: `SELECT
                           distinct_id,
                           toUnixTimestamp(max(timestamp)) AS last_seen
                       FROM events
-                      WHERE
-                          timestamp > toDateTime({dateTo}) - INTERVAL ${FILTERED_LIVE_USER_WINDOW_SECONDS} SECOND
-                          AND timestamp <= toDateTime({dateTo})
-                          ${hostFilterClause}
+                      WHERE {filters}
                       GROUP BY distinct_id`,
-              values: {
-                  dateTo: dateTo.toISOString(),
-                  ...hostValues,
-              },
-          }
-        : null
+                  filters: {
+                      properties: filters,
+                      dateRange: {
+                          date_from: new Date(
+                              dateTo.getTime() - FILTERED_LIVE_USER_WINDOW_SECONDS * 1000
+                          ).toISOString(),
+                          date_to: dateTo.toISOString(),
+                      },
+                  },
+              }
+            : null
 
     return await Promise.all([
         performQuery(usersPageviewsQuery),
@@ -899,13 +936,14 @@ const addUserDataToBuckets = (
     usersPageviewsResponse: HogQLQueryResponse,
     bucketMap: Map<number, SlidingWindowBucket>
 ): void => {
-    const usersResults = usersPageviewsResponse.results as [string, string[], number][]
+    const usersResults = usersPageviewsResponse.results as [string, string[], number, number][]
 
-    for (const [timestampStr, distinctIds, viewCount] of usersResults) {
+    for (const [timestampStr, distinctIds, viewCount, botEligibleCount] of usersResults) {
         const timestamp = Date.parse(timestampStr)
         const bucket = getOrCreateBucket(bucketMap, timestamp)
 
         bucket.pageviews = viewCount
+        bucket.botEligibleEvents = botEligibleCount ?? 0
         bucket.uniqueUsers = new Set<string>(distinctIds)
     }
 }
@@ -1017,24 +1055,29 @@ const addCityDataToBuckets = (
 }
 
 const addBotDataToBuckets = (botResponse: HogQLQueryResponse, bucketMap: Map<number, SlidingWindowBucket>): void => {
-    const results = botResponse.results as [string, string, string, number][]
+    // Response shape: [[minute_bucket_iso, { 'BotName|||category': eventCount, ... }], ...]
+    const results = botResponse.results as [string, Record<string, number>][]
 
-    for (const [timestampStr, botName, rawCategory, eventCount] of results) {
-        if (!botName) {
-            continue
-        }
+    for (const [timestampStr, countsByBotKey] of results) {
         const timestamp = Date.parse(timestampStr)
         const bucket = getOrCreateBucket(bucketMap, timestamp)
 
-        const categoryLabel = translateCategoryLabel(rawCategory)
         if (!bucket.bots) {
             bucket.bots = new Map<string, { count: number; category: string }>()
         }
-        const existing = bucket.bots.get(botName)
-        bucket.bots.set(botName, {
-            count: (existing?.count ?? 0) + eventCount,
-            category: categoryLabel,
-        })
+
+        for (const [botKey, eventCount] of Object.entries(countsByBotKey)) {
+            const { botName, category: rawCategory } = parseBotKey(botKey)
+            if (!botName) {
+                continue
+            }
+            const categoryLabel = translateCategoryLabel(rawCategory)
+            const existing = bucket.bots.get(botName)
+            bucket.bots.set(botName, {
+                count: (existing?.count ?? 0) + eventCount,
+                category: categoryLabel,
+            })
+        }
     }
 }
 
@@ -1057,6 +1100,7 @@ const getOrCreateBucket = (map: Map<number, SlidingWindowBucket>, timestamp: num
 const createEmptyBucket = (): SlidingWindowBucket => {
     return {
         pageviews: 0,
+        botEligibleEvents: 0,
         newUserCount: 0,
         returningUserCount: 0,
         devices: new Map<string, Set<string>>(),

@@ -22,6 +22,7 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
+    isKeyOnlyForGroup,
 } from 'lib/components/TaxonomicFilter/types'
 import { isOperatorMulti, isOperatorRegex, toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -72,7 +73,8 @@ export function TaxonomicPropertyFilter({
     excludedProperties,
     taxonomicFilterOptionsFromProp,
     allowRelativeDateOptions,
-    exactMatchFeatureFlagCohortOperators,
+    excludedOperators,
+    selectingKeyOnly,
     hideBehavioralCohorts,
     addFilterDocLink,
     editable = true,
@@ -117,14 +119,10 @@ export function TaxonomicPropertyFilter({
     const showInitialSearchInline =
         !disablePopover &&
         ((!filter?.type && (!filter || !(filter as any)?.key)) || filter?.type === PropertyFilterType.HogQL)
+    const filterTaxonomicGroupType = filter ? propertyFilterTypeToTaxonomicFilterType(filter) : undefined
+    const isKeyOnlyRow = isKeyOnlyForGroup(selectingKeyOnly, filterTaxonomicGroupType)
     const showOperatorValueSelect =
-        filter?.type &&
-        filter?.key &&
-        !(filter?.type === PropertyFilterType.HogQL) &&
-        // If we're in a feature flag, we don't want to show operators for cohorts because
-        // we don't support any cohort matching operators other than "in"
-        // See https://github.com/PostHog/posthog/pull/25149/
-        !(filter?.type === PropertyFilterType.Cohort && exactMatchFeatureFlagCohortOperators)
+        filter?.type && filter?.key && !(filter?.type === PropertyFilterType.HogQL) && !isKeyOnlyRow
     const placeOperatorValueSelectOnLeft = filter?.type && filter?.key && filter?.type === PropertyFilterType.Cohort
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
@@ -162,7 +160,7 @@ export function TaxonomicPropertyFilter({
 
     const taxonomicFilter = (
         <TaxonomicFilter
-            groupType={filter ? propertyFilterTypeToTaxonomicFilterType(filter) : undefined}
+            groupType={filterTaxonomicGroupType}
             value={cohortOrOtherValue}
             onChange={taxonomicOnChange}
             taxonomicGroupTypes={groupTypes}
@@ -176,6 +174,8 @@ export function TaxonomicPropertyFilter({
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
+            excludedOperators={excludedOperators}
+            selectingKeyOnly={selectingKeyOnly}
             enableKeywordShortcuts
         />
     )

@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
+from posthog.temporal.session_replay.session_summary.workflow import execute_summarize_session
 
 
 class Command(BaseCommand):

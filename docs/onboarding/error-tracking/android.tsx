@@ -55,7 +55,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 <CalloutBox type="fyi" title="Planned features">
                     <Markdown>
                         {dedent`
-                            We currently don't support [source code context](/docs/error-tracking/stack-traces.md) associated with an exception.
+                            We currently don't support [source code context](https://posthog.com/docs/error-tracking/stack-traces) associated with an exception.
 
                             These features will be added in a future release.
                         `}

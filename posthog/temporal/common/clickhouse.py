@@ -158,6 +158,13 @@ class ClickHouseClientTimeoutError(ClickHouseError):
         super().__init__(f"Timed-out waiting for response running query '{query_id}'", query, query_id)
 
 
+class ClickHouseQueryTimeoutError(ClickHouseError):
+    """Exception raised when a query exceeds the server-side max execution time."""
+
+    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
+        super().__init__(error_message, query, query_id)
+
+
 class ClickHouseQueryNotFound(ClickHouseError):
     """Exception raised when a query with a given ID is not found."""
 
@@ -167,6 +174,13 @@ class ClickHouseQueryNotFound(ClickHouseError):
 
 class ClickHouseMemoryLimitExceededError(ClickHouseError):
     """Exception raised when a query exceeds the memory limit."""
+
+    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
+        super().__init__(error_message, query, query_id)
+
+
+class ClickHouseTooManyBytesError(ClickHouseError):
+    """Exception raised when a query exceeds the limit on bytes read."""
 
     def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
         super().__init__(error_message, query, query_id)
@@ -363,7 +377,9 @@ class ClickHouseClient:
         ERROR_CODE_TO_EXCEPTION: dict[str, type[ClickHouseError]] = {
             "ALL_REPLICAS_ARE_STALE": ClickHouseAllReplicasAreStaleError,
             "MEMORY_LIMIT_EXCEEDED": ClickHouseMemoryLimitExceededError,
+            "TOO_MANY_BYTES": ClickHouseTooManyBytesError,
             "TOO_MANY_SIMULTANEOUS_QUERIES": ClickHouseTooManySimultaneousQueriesError,
+            "TIMEOUT_EXCEEDED": ClickHouseQueryTimeoutError,
         }
         for error_code, exc_class in ERROR_CODE_TO_EXCEPTION.items():
             if error_code in error_message:

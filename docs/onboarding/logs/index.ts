@@ -1,0 +1,6 @@
+export { GoInstallation } from './go'
+export { JavaInstallation } from './java'
+export { NextJSInstallation } from './nextjs'
+export { NodeJSInstallation } from './nodejs'
+export { OpenTelemetryInstallation } from './opentelemetry'
+export { PythonInstallation } from './python'

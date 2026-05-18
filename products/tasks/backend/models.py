@@ -62,6 +62,7 @@ class Task(DeletedMetaFields, models.Model):
         # signal report tasks originate indirectly via signals from other products.
         SIGNAL_REPORT = "signal_report", "Signal Report"
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
@@ -79,6 +80,18 @@ class Task(DeletedMetaFields, models.Model):
         blank=True,
         limit_choices_to={"kind": "github"},
         help_text="GitHub integration for this task",
+    )
+    # Keep the selected personal installation as a preference for deterministic
+    # authorship when a user has multiple GitHub installations. SET_NULL on
+    # disconnect lets future runs fall back to resolving the user's current link.
+    github_user_integration = models.ForeignKey(
+        "posthog.UserIntegration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
+        limit_choices_to={"kind": "github"},
+        help_text="User-scoped GitHub integration used for user-authored task runs",
     )
 
     repository = models.CharField(
@@ -270,17 +283,58 @@ class Task(DeletedMetaFields, models.Model):
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
+        model: str | None = None,
+        initial_permission_mode: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
         created_by = User.objects.get(id=user_id)
 
         from products.tasks.backend.services.sandbox import is_public_sandbox_repo
+        from products.tasks.backend.temporal.process_task.utils import (
+            PrAuthorshipMode,
+            RunSource,
+            get_pr_authorship_mode,
+            resolve_user_github_integration_for_task,
+            user_github_integration_is_usable,
+        )
 
-        github_integration = None
+        github_integration = Integration.objects.filter(team=team, kind="github").first()
+        github_user_integration = None
+        task_stub = Task(
+            team=team,
+            origin_product=origin_product,
+            created_by=created_by,
+            repository=repository,
+            github_integration=github_integration,
+        )
+        authorship_mode = get_pr_authorship_mode(
+            task_stub,
+            {"run_source": RunSource.SIGNAL_REPORT.value}
+            if origin_product == Task.OriginProduct.SIGNAL_REPORT
+            else None,
+        )
+        if authorship_mode == PrAuthorshipMode.USER:
+            user_github_integration = resolve_user_github_integration_for_task(
+                task_stub,
+                repository=repository,
+                allow_refresh=True,
+            )
+            if user_github_integration_is_usable(user_github_integration):
+                github_user_integration = user_github_integration.integration if user_github_integration else None
+        elif authorship_mode == PrAuthorshipMode.BOT and github_integration is None:
+            # If BOT starts a task, provides a repo, but there's no team GitHub Integration,
+            # then use the user_id BOT provided and get user's GitHub Integration instead
+            user_github_integration = resolve_user_github_integration_for_task(
+                task_stub,
+                repository=repository,
+                allow_refresh=True,
+            )
+            if user_github_integration is not None:
+                github_user_integration = user_github_integration.integration
+
         if repository:
-            github_integration = Integration.objects.filter(team=team, kind="github").first()
-            if not github_integration and not is_public_sandbox_repo(repository):
+            if not github_integration and github_user_integration is None and not is_public_sandbox_repo(repository):
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
         sandbox_env = None
@@ -300,6 +354,7 @@ class Task(DeletedMetaFields, models.Model):
             origin_product=origin_product,
             created_by=created_by,
             github_integration=github_integration,
+            github_user_integration=github_user_integration,
             repository=repository,
             internal=internal,
             json_schema=resolve_schema(output_schema) if output_schema else None,
@@ -313,9 +368,22 @@ class Task(DeletedMetaFields, models.Model):
             extra_state["interaction_origin"] = interaction_origin
         elif slack_thread_context:
             extra_state["interaction_origin"] = "slack"
+        if origin_product == Task.OriginProduct.SIGNAL_REPORT:
+            extra_state["run_source"] = RunSource.SIGNAL_REPORT.value
+            extra_state["pr_authorship_mode"] = PrAuthorshipMode.BOT.value
+        elif origin_product in (Task.OriginProduct.USER_CREATED, Task.OriginProduct.SLACK):
+            extra_state["pr_authorship_mode"] = (
+                PrAuthorshipMode.USER.value if github_user_integration is not None else PrAuthorshipMode.BOT.value
+            )
 
         if sandbox_env is not None:
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
+
+        if model:
+            extra_state["model"] = model
+
+        if initial_permission_mode:
+            extra_state["initial_permission_mode"] = initial_permission_mode
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 
@@ -343,6 +411,7 @@ class TaskAutomationManager(models.Manager):
                 "task__team",
                 "task__created_by",
                 "task__github_integration",
+                "task__github_user_integration",
                 "last_task_run",
                 "last_task_run__task",
             )
@@ -356,6 +425,7 @@ class TaskAutomationQuerySet(models.QuerySet):
             "task__team",
             "task__created_by",
             "task__github_integration",
+            "task__github_user_integration",
             "last_task_run",
             "last_task_run__task",
         )
@@ -367,6 +437,7 @@ class TaskAutomation(models.Model):
         FAILED = "failed", "Failed"
         RUNNING = "running", "Running"
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     cron_expression = models.CharField(max_length=100)
     timezone = models.CharField(max_length=128, default="UTC")
@@ -455,6 +526,7 @@ class TaskRun(models.Model):
         LOCAL = "local", "Local"
         CLOUD = "cloud", "Cloud"
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -548,11 +620,25 @@ class TaskRun(models.Model):
         self.error_message = None
 
         state = self.state or {}
+        prior_snapshot_external_id = state.get("snapshot_external_id")
         state["handoff_resumed"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
         state.pop("pending_user_message_ts", None)
+        if not settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS:
+            state.pop("snapshot_external_id", None)
         self.state = state
+
+        logger.info(
+            "prepare_for_cloud_handoff",
+            run_id=str(self.id),
+            task_id=str(self.task_id),
+            use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
+            prior_snapshot_external_id=prior_snapshot_external_id,
+            stripped_snapshot_external_id=(
+                prior_snapshot_external_id is not None and not settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS
+            ),
+        )
 
         self.save(
             update_fields=[
@@ -649,6 +735,56 @@ class TaskRun(models.Model):
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
         return f"{tasks_folder}/artifacts/team_{self.team_id}/task_{self.task_id}/run_{self.id}"
 
+    def get_resume_chain(self, max_depth: int = 10) -> list["TaskRun"]:
+        """Walk `state.resume_from_run_id` from this run upward.
+
+        Returns runs ordered oldest-ancestor → ... → parent → this. Bounded
+        depth and a seen-set guard against cycles. The walk is scoped to this
+        task — a stale cross-task `resume_from_run_id` is silently dropped.
+
+        Loads sibling runs in a single query and walks in-memory so chain depth
+        doesn't translate to per-hop database round trips.
+        """
+        chain: list[TaskRun] = [self]
+        if max_depth <= 0:
+            return chain
+
+        # Walking the chain only needs id/state/artifacts and the bits that
+        # `log_url` derives from (team_id, task_id). Fetching the full row would
+        # pull every column for every historical run on the task.
+        siblings_qs = self.task.runs.only("id", "team_id", "task_id", "state", "artifacts")
+        siblings_by_id: dict[str, TaskRun] = {str(run.id): run for run in siblings_qs}
+        seen: set[str] = {str(self.id)}
+        current: TaskRun | None = self
+        depth = 0
+        while current is not None and depth < max_depth:
+            prior_id_raw = (current.state or {}).get("resume_from_run_id")
+            if not prior_id_raw:
+                break
+            try:
+                prior_id = str(uuid.UUID(str(prior_id_raw)))
+            except (ValueError, TypeError):
+                break
+            if prior_id in seen:
+                break
+            seen.add(prior_id)
+            current = siblings_by_id.get(prior_id)
+            if current is None:
+                break
+            chain.append(current)
+            depth += 1
+        chain.reverse()
+        return chain
+
+    def find_artifact_in_resume_chain(self, storage_path: str) -> dict | None:
+        """Find an artifact by storage_path on this run or any ancestor in the resume chain."""
+        # Iterate newest-first since artifact is more likely to be on this run.
+        for run in reversed(self.get_resume_chain()):
+            for entry in run.artifacts or []:
+                if entry.get("storage_path") == storage_path:
+                    return entry
+        return None
+
     @staticmethod
     def _is_agent_message_chunk(entry: dict) -> bool:
         """Check if an entry is an agent_message_chunk event."""
@@ -739,6 +875,9 @@ class TaskRun(models.Model):
             "task_run_completed",
             {"duration_seconds": self._duration_seconds()},
         )
+        from products.tasks.backend.push_dispatcher import notify_task_run_completed
+
+        notify_task_run_completed(self)
 
     def track_structured_result(self):
         """Track a structured result event with properties from the run output."""
@@ -768,6 +907,9 @@ class TaskRun(models.Model):
                 "duration_seconds": self._duration_seconds(),
             },
         )
+        from products.tasks.backend.push_dispatcher import notify_task_run_failed
+
+        notify_task_run_failed(self)
 
     def build_stream_state_event(self) -> dict[str, Any]:
         return {

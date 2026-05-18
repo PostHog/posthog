@@ -38,6 +38,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             "can't be found": None,
             "SpreadsheetNotFound": None,
             "must be real number, not str": "Import failed: all cells in a numerical column must have a value and not be blank",
+            "Spreadsheet access denied": "Import failed: PostHog does not have access to this spreadsheet. Please share it with our service account as described at https://posthog.com/docs/cdp/sources/google-sheets",
         }
 
     def get_schemas(
@@ -46,6 +47,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         sheets = get_google_sheets_schemas(config)
 

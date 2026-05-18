@@ -8,7 +8,6 @@ import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import type { CdpConfig } from './cdp/config'
 import type {
-    KafkaMskProducerEnvConfig,
     KafkaWarehouseProducerEnvConfig,
     KafkaWarpstreamCalculatedEventsProducerEnvConfig,
     KafkaWarpstreamCyclotronProducerEnvConfig,
@@ -22,6 +21,7 @@ import type { CookielessManager } from './ingestion/cookieless/cookieless-manage
 import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
 import type { LlmAnalyticsConfig } from './llm-analytics/config'
 import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
+import type { MetricsIngestionConsumerConfig } from './metrics-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
@@ -47,6 +47,7 @@ export {
 } from './ingestion/config'
 export { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
 export { LogsIngestionConsumerConfig } from './logs-ingestion/config'
+export { MetricsIngestionConsumerConfig } from './metrics-ingestion/config'
 export { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 
 interface HealthCheckResultResponse {
@@ -118,10 +119,10 @@ export interface PluginsServerConfig
         LogsIngestionConsumerConfig,
         TracesIngestionConsumerConfig,
         ErrorTrackingConsumerConfig,
+        MetricsIngestionConsumerConfig,
         SessionRecordingConfig,
         SessionRecordingApiConfig,
         // Producer envs needed by the CDP producer registry the legacy big server builds.
-        KafkaMskProducerEnvConfig,
         KafkaWarpstreamIngestionProducerEnvConfig,
         KafkaWarpstreamCalculatedEventsProducerEnvConfig,
         KafkaWarpstreamCyclotronProducerEnvConfig,
@@ -152,6 +153,8 @@ export interface PluginServerCapabilities {
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
     errorTrackingIngestion?: boolean
+    logsIngestion?: boolean
+    metricsIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
