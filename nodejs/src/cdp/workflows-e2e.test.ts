@@ -45,7 +45,10 @@ jest.mock('@posthog/cyclotron', () => ({
 }))
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
-const CYCLOTRON_NODE_DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
+
+// Use the same env var as config.ts (line 210-211) so the cleanup pool and hub always target the same DB
+const CYCLOTRON_NODE_DB_URL =
+    process.env.CYCLOTRON_NODE_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 
 describe('Workflows E2E (postgres-v2)', () => {
     jest.setTimeout(30000)
