@@ -3422,6 +3422,17 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "ExprStatement",
             ]
 
+        def test_named_argument_in_call_not_treated_as_assignment(self):
+            # `name := value` inside a call is a named argument. The exprStmt
+            # assignment fold must not reach into call arguments: only a
+            # statement-level named argument is promoted to a VariableAssignment.
+            call = self._expr("f(x := 1)")
+            assert isinstance(call, ast.Call)
+            assert isinstance(call.args[0], ast.NamedArgument)
+            assert call.args[0].name == "x"
+            declaration = self._program("f(x := 1);").declarations[0]
+            assert type(declaration).__name__ == "ExprStatement"
+
         def test_program_variable_declarations_with_sql_expr(self):
             code = """
                 let query := (select id, properties.email from events where timestamp > now() - interval 1 day);
