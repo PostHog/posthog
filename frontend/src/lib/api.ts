@@ -6563,6 +6563,7 @@ const api = {
             message: string
             recipient_email: string
             email_config_id: string
+            recipient_distinct_id?: string
             email_subject?: string
             rich_content?: Record<string, unknown> | null
         }): Promise<{ id: string; ticket_number: number }> {
