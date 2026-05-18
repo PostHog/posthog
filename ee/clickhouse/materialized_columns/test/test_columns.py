@@ -9,6 +9,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, get_
 from unittest import TestCase
 from unittest.mock import patch
 
+from parameterized import parameterized
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.clickhouse.client import sync_execute
@@ -489,7 +490,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         index_info = get_index_from_explain(query, index_name)
         assert index_info is not None, f"N-gram index {index_name} should appear in EXPLAIN output"
 
-    def test_bloom_filter_lower_index_usage_non_nullable(self):
+    @parameterized.expand([("non_nullable", False), ("nullable", True)])
+    def test_bloom_filter_lower_index_usage(self, _name, is_nullable):
         property_name = "ci_category_prop"
         _create_event(
             team=self.team,
@@ -498,28 +500,12 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             properties={property_name: "Category_A"},
         )
 
-        column = materialize("events", property_name, create_bloom_filter_lower_index=True, is_nullable=False)
+        column = materialize("events", property_name, create_bloom_filter_lower_index=True, is_nullable=is_nullable)
         index_name = get_bloom_filter_lower_index_name(column.name)
 
-        # Verify index appears in EXPLAIN for case-insensitive equality query
-        query = f"SELECT count() FROM {EVENTS_DATA_TABLE()} WHERE lower({column.name}) = 'category_a'"
-        index_info = get_index_from_explain(query, index_name)
-        assert index_info is not None, f"Bloom filter lower index {index_name} should appear in EXPLAIN output"
-
-    def test_bloom_filter_lower_index_usage_nullable(self):
-        property_name = "ci_category_prop"
-        _create_event(
-            team=self.team,
-            event="test_event",
-            distinct_id="user1",
-            properties={property_name: "Category_A"},
-        )
-
-        column = materialize("events", property_name, create_bloom_filter_lower_index=True, is_nullable=True)
-        index_name = get_bloom_filter_lower_index_name(column.name)
-
-        # Verify index appears in EXPLAIN for case-insensitive equality query
-        query = f"SELECT count() FROM {EVENTS_DATA_TABLE()} WHERE lower(coalesce({column.name}, '')) = 'category_a'"
+        # The index expression is lower(coalesce(col, '')) for nullable columns, lower(col) otherwise
+        indexed_expr = f"lower(coalesce({column.name}, ''))" if is_nullable else f"lower({column.name})"
+        query = f"SELECT count() FROM {EVENTS_DATA_TABLE()} WHERE {indexed_expr} = 'category_a'"
         index_info = get_index_from_explain(query, index_name)
         assert index_info is not None, f"Bloom filter lower index {index_name} should appear in EXPLAIN output"
 

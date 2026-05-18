@@ -4542,10 +4542,20 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             assert mat_col.name in printed
 
     def test_materialized_column_lower_in_bails_out_for_sentinel_value(self) -> None:
-        # '' and 'null' are NULL sentinels in materialized columns - bail so the generic path keeps correct semantics
+        # '' and 'null' are NULL sentinels for non-nullable columns - bail so the generic path stays correct
         with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_lower_index=True):
-            printed = self._expr("lower(properties.test_prop) in ('null', 'value2')")
-            assert "has(" not in printed, printed
+            assert "has(" not in self._expr("lower(properties.test_prop) in ('null', 'value2')")
+            assert "has(" not in self._expr("lower(properties.test_prop) in ('', 'value2')")
+
+    def test_materialized_column_lower_in_sentinels_for_nullable(self) -> None:
+        # Nullable columns only alias NULL to '' (via coalesce); 'null' is a real value, so it still optimizes
+        with materialized("events", "test_prop", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "lower(properties.test_prop) in ('null', 'value2')",
+                f"has([%(hogql_val_0)s, %(hogql_val_1)s], lower(coalesce(events.{mat_col.name}, '')))",
+                {"hogql_val_0": "null", "hogql_val_1": "value2"},
+            )
+            assert "has(" not in self._expr("lower(properties.test_prop) in ('', 'value2')")
 
     def test_force_data_skipping_indices_works_with_simple_equality(self) -> None:
         with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_index=True) as mat_col:

@@ -930,8 +930,10 @@ class ClickHousePrinter(BasePrinter):
         if len(string_values) == 0:
             return None
 
-        # non-nullable materialized columns store NULL as 'null' or '', so bail out if the values contain this
-        if any(value in MAT_COL_NULL_SENTINELS for value in string_values):
+        # Bail if an IN value could collide with a stored NULL sentinel: nullable columns alias NULL to ''
+        # (via coalesce); non-nullable columns store NULL as '' or 'null'. 'null' is a real value when nullable.
+        null_sentinels = [""] if property_source.is_nullable else MAT_COL_NULL_SENTINELS
+        if any(value in null_sentinels for value in string_values):
             return None
 
         materialized_column_sql = str(property_source)
