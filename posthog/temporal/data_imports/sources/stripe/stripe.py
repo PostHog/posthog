@@ -2,7 +2,7 @@ import os
 import re
 import dataclasses
 from collections.abc import Callable
-from typing import Any, Optional, Union, cast, get_args, get_type_hints
+from typing import Any, Literal, Optional, Union, cast, get_args, get_type_hints
 
 import orjson
 import stripe as stripe_lib
@@ -398,7 +398,9 @@ class StripeValidationError(Exception):
         super().__init__(message)
 
 
-def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool:
+def validate_credentials(
+    api_key: str, table_name: Optional[str] = None, auth_method: Literal["api_key", "oauth"] = "api_key"
+) -> bool:
     """
     Validates Stripe API credentials and checks permissions for all required resources.
     Returns True if the API key is valid and has all required permissions.
@@ -429,6 +431,12 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
             return f"{name} ({entry.parent_name})", parent_entry
         return name, entry
 
+    # accounts.list requires Connect platform access — OAuth connected-account tokens can't call it.
+    # If a per-table check is requested for Account under OAuth, skip it cleanly: Account is also
+    # absent from ENDPOINTS so it can never be synced via OAuth anyway.
+    if auth_method == "oauth" and table_name == ACCOUNT_RESOURCE_NAME:
+        return True
+
     missing_permissions: dict[str, str] = {}
     errors: dict[str, str] = {}
 
@@ -445,6 +453,11 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
         resources_to_check = [
             (name, resource) for name, resource in all_resources.items() if isinstance(resource, StripeResource)
         ]
+        if auth_method == "oauth":
+            # accounts.list requires Connect platform access — OAuth connected-account tokens can't call it.
+            resources_to_check = [
+                (name, resource) for name, resource in resources_to_check if name != ACCOUNT_RESOURCE_NAME
+            ]
 
     for display_name, resource in resources_to_check:
         try:
