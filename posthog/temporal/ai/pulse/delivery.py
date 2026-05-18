@@ -21,6 +21,7 @@ from posthog.models.pulse import (
     PULSE_ACTIVITY_SCOPE,
     PULSE_ACTIVITY_VERB,
     PULSE_DIGEST_READY_EVENT,
+    PulseChannel,
     PulseDigestStatus,
     PulseFindingFeedback,
 )
@@ -103,10 +104,10 @@ def _persist_findings_sync(
     # Always mark in-app as delivered (the bell entry is written below), then add the team's
     # other configured channels — actual Slack/email routing happens through HogFunction destinations.
     subscription = PulseSubscription.objects.filter(team_id=team_id).first()
-    delivered_to = {"in_app": True}
+    delivered_to = {PulseChannel.IN_APP.value: True}
     if subscription:
         for channel in subscription.enabled_channels:
-            if channel != "in_app":
+            if channel != PulseChannel.IN_APP.value:
                 delivered_to[channel] = True
 
     digest.status = PulseDigestStatus.DELIVERED

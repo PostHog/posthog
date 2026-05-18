@@ -4,10 +4,8 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import structlog
-import temporalio.common
-import temporalio.activity
-import temporalio.workflow
 from pydantic import BaseModel
+from temporalio import activity, common, workflow
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.pulse.delivery import deliver_digest
@@ -37,12 +35,12 @@ class PulseScanInputs(BaseModel):
     max_findings: int = 5
 
 
-@temporalio.activity.defn
+@activity.defn
 async def select_candidate_metrics_activity(inputs: SelectCandidatesInputs) -> list[CandidateMetric]:
     return await select_candidates(team_id=inputs.team_id, max_candidates=inputs.max_candidates)
 
 
-@temporalio.activity.defn
+@activity.defn
 async def detect_changes_activity(inputs: DetectChangesInputs) -> list[Finding]:
     return await detect_changes(
         team_id=inputs.team_id,
@@ -52,7 +50,7 @@ async def detect_changes_activity(inputs: DetectChangesInputs) -> list[Finding]:
     )
 
 
-@temporalio.activity.defn
+@activity.defn
 async def enrich_findings_activity(inputs: EnrichFindingsInputs) -> list[EnrichedFinding]:
     return await enrich_findings(
         team_id=inputs.team_id,
@@ -61,7 +59,7 @@ async def enrich_findings_activity(inputs: EnrichFindingsInputs) -> list[Enriche
     )
 
 
-@temporalio.activity.defn
+@activity.defn
 async def deliver_digest_activity(inputs: DeliverDigestInputs) -> list[str]:
     return await deliver_digest(
         team_id=inputs.team_id,
@@ -70,7 +68,7 @@ async def deliver_digest_activity(inputs: DeliverDigestInputs) -> list[str]:
     )
 
 
-@temporalio.activity.defn
+@activity.defn
 async def create_or_get_digest_activity(team_id: int, digest_id: str | None) -> str:
     """Create a new PulseDigest row for this scan, or reuse the provided one."""
     from posthog.models import PulseDigest
@@ -94,7 +92,7 @@ async def create_or_get_digest_activity(team_id: int, digest_id: str | None) -> 
     return await _create()
 
 
-@temporalio.activity.defn
+@activity.defn
 async def set_digest_status_activity(digest_id: str, status: str, error: str | None = None) -> None:
     from posthog.models import PulseDigest
 
@@ -113,23 +111,23 @@ async def set_digest_status_activity(digest_id: str, status: str, error: str | N
     await _set()
 
 
-@temporalio.workflow.defn(name="pulse-scan")
+@workflow.defn(name="pulse-scan")
 class PulseScanWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> PulseScanInputs:
         loaded = json.loads(inputs[0]) if inputs else {}
         return PulseScanInputs.model_validate(loaded)
 
-    @temporalio.workflow.run
+    @workflow.run
     async def run(self, inputs: PulseScanInputs) -> dict:
         from posthog.models.pulse import PulseDigestStatus
 
-        retry_policy = temporalio.common.RetryPolicy(
+        retry_policy = common.RetryPolicy(
             initial_interval=timedelta(seconds=10),
             maximum_attempts=2,
         )
 
-        digest_id = await temporalio.workflow.execute_activity(
+        digest_id = await workflow.execute_activity(
             create_or_get_digest_activity,
             args=[inputs.team_id, inputs.digest_id],
             start_to_close_timeout=timedelta(seconds=30),
@@ -137,7 +135,7 @@ class PulseScanWorkflow(PostHogWorkflow):
         )
 
         try:
-            candidates = await temporalio.workflow.execute_activity(
+            candidates = await workflow.execute_activity(
                 select_candidate_metrics_activity,
                 SelectCandidatesInputs(
                     team_id=inputs.team_id,
@@ -147,7 +145,7 @@ class PulseScanWorkflow(PostHogWorkflow):
                 retry_policy=retry_policy,
             )
 
-            findings = await temporalio.workflow.execute_activity(
+            findings = await workflow.execute_activity(
                 detect_changes_activity,
                 DetectChangesInputs(
                     team_id=inputs.team_id,
@@ -161,7 +159,7 @@ class PulseScanWorkflow(PostHogWorkflow):
             )
 
             if not findings:
-                await temporalio.workflow.execute_activity(
+                await workflow.execute_activity(
                     set_digest_status_activity,
                     args=[digest_id, PulseDigestStatus.DELIVERED.value],
                     start_to_close_timeout=timedelta(seconds=30),
@@ -169,7 +167,7 @@ class PulseScanWorkflow(PostHogWorkflow):
                 )
                 return {"digest_id": digest_id, "finding_count": 0}
 
-            enriched = await temporalio.workflow.execute_activity(
+            enriched = await workflow.execute_activity(
                 enrich_findings_activity,
                 EnrichFindingsInputs(
                     team_id=inputs.team_id,
@@ -181,7 +179,7 @@ class PulseScanWorkflow(PostHogWorkflow):
                 retry_policy=retry_policy,
             )
 
-            await temporalio.workflow.execute_activity(
+            await workflow.execute_activity(
                 deliver_digest_activity,
                 DeliverDigestInputs(
                     team_id=inputs.team_id,
@@ -194,10 +192,10 @@ class PulseScanWorkflow(PostHogWorkflow):
 
             return {"digest_id": digest_id, "finding_count": len(enriched)}
         except Exception as exc:
-            await temporalio.workflow.execute_activity(
+            await workflow.execute_activity(
                 set_digest_status_activity,
                 args=[digest_id, PulseDigestStatus.FAILED.value, str(exc)],
                 start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                retry_policy=common.RetryPolicy(maximum_attempts=1),
             )
             raise

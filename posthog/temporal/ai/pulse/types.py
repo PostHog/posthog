@@ -2,6 +2,26 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import Team
+from posthog.sync import database_sync_to_async
+
+
+@database_sync_to_async
+def run_trends_query_sync(team: Team, query_json: dict) -> Any:
+    """Execute an opaque TrendsQuery against ClickHouse and return the result dict.
+
+    Shared by detection (headline metric) and narrative (breakdown attribution).
+    """
+    from posthog.api.services.query import process_query_dict
+
+    response = process_query_dict(
+        team=team,
+        query_json=query_json,
+        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    )
+    return response.model_dump() if hasattr(response, "model_dump") else response
+
 
 class MetricDescriptor(BaseModel):
     """Opaque descriptor of a metric Pulse can re-evaluate.

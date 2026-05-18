@@ -12,9 +12,9 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import PulseDigest, PulseFinding, PulseSubscription
-from posthog.models.pulse import PulseFindingFeedback
+from posthog.models.pulse import PulseChannel, PulseFindingFeedback
 
-ALLOWED_CHANNELS = {"in_app", "slack", "email"}
+ALLOWED_CHANNELS = {c.value for c in PulseChannel}
 
 
 class PulseFindingSerializer(serializers.ModelSerializer):
