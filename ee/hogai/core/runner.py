@@ -1,3 +1,4 @@
+import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
@@ -403,6 +404,25 @@ class BaseAgentRunner(ABC):
                     ),
                 )
                 return  # Don't run interrupt handling after LLM errors
+            except asyncio.CancelledError:
+                # The activity hosting this runner was cancelled (for example by a
+                # Temporal heartbeat timeout). asyncio.CancelledError is a BaseException,
+                # so it bypasses the generic `except Exception` below; without this
+                # branch no FailureMessage is yielded and the user sees nothing.
+                if self._use_checkpointer:
+                    try:
+                        await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
+                    except Exception:
+                        logger.exception("Failed to reset state on cancellation")
+                logger.warning("Assistant stream cancelled before completion")
+                yield (
+                    AssistantEventType.MESSAGE,
+                    FailureMessage(
+                        content="I wasn't able to respond in time. Try simplifying your question, or removing attached context like dashboards, and send it again.",
+                        id=str(uuid4()),
+                    ),
+                )
+                raise
             except Exception as e:
                 if self._use_checkpointer:
                     # Reset the state, so that the next generation starts from the beginning.

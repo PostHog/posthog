@@ -345,6 +345,45 @@ class TestRedisStream(BaseTest):
             self.assertEqual(mock_client.xadd.call_count, 2)
 
     @pytest.mark.asyncio
+    async def test_write_to_stream_cancelled_emits_complete_status_and_reraises(self):
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.expire = AsyncMock()
+            mock_client.xadd = AsyncMock()
+
+            async def test_generator():
+                yield (AssistantEventType.MESSAGE, AssistantMessage(content="failure"))
+                raise asyncio.CancelledError()
+
+            with self.assertRaises(asyncio.CancelledError):
+                await self.redis_stream.write_to_stream(test_generator())
+
+            # xadd called twice: once for the FailureMessage, once for the "complete" status
+            self.assertEqual(mock_client.xadd.call_count, 2)
+
+            serializer = ConversationStreamSerializer()
+            last_payload = mock_client.xadd.call_args_list[-1][0][1]
+            decoded = serializer.deserialize(last_payload)
+            self.assertIsInstance(decoded.event, StreamStatusEvent)
+            self.assertEqual(cast(StatusPayload, decoded.event.payload).status, "complete")
+
+    @pytest.mark.asyncio
+    async def test_write_to_stream_cancelled_swallows_status_write_failure(self):
+        # The final status write may itself fail (Redis down, etc). The cancellation
+        # must still propagate so Temporal sees the activity as cancelled.
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.expire = AsyncMock()
+            mock_client.xadd = AsyncMock(side_effect=[None, Exception("Redis went away")])
+
+            async def test_generator():
+                yield (AssistantEventType.MESSAGE, AssistantMessage(content="failure"))
+                raise asyncio.CancelledError()
+
+            with self.assertRaises(asyncio.CancelledError):
+                await self.redis_stream.write_to_stream(test_generator())
+
+            self.assertEqual(mock_client.xadd.call_count, 2)
+
+    @pytest.mark.asyncio
     async def test_write_to_stream_empty_generator(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
             mock_client.xadd = AsyncMock()

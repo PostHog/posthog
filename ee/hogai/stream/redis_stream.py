@@ -400,6 +400,17 @@ class ConversationRedisStream:
             if emit_completion:
                 await self._write_status(StatusPayload(status="complete"))
 
+        except asyncio.CancelledError:
+            # asyncio.CancelledError is a BaseException, so it bypasses the generic
+            # handler below. Without a terminal status the reader stays blocked until
+            # CONVERSATION_STREAM_TIMEOUT fires. Mark the stream complete so any
+            # FailureMessage the producer already yielded is shown and the client
+            # ends cleanly. Re-raise so Temporal still sees the activity as cancelled.
+            try:
+                await self._write_status(StatusPayload(status="complete"))
+            except Exception:
+                logger.exception("Failed to write cancellation status to stream", stream_key=self._stream_key)
+            raise
         except Exception as e:
             await self._write_status(StatusPayload(status="error", error=str(e)))
             raise StreamError("Failed to write to stream")

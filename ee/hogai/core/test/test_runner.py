@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import cast
@@ -22,7 +23,7 @@ async def mock_lock_conversation():
     yield
 
 
-async def _async_generator_that_raises(exception: Exception) -> AsyncIterator[None]:
+async def _async_generator_that_raises(exception: BaseException) -> AsyncIterator[None]:
     raise exception
     yield  # type: ignore[unreachable]
 
@@ -358,6 +359,91 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             capture_call_args = mock_posthog.capture_exception.call_args
             self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_api_error")
             self.assertEqual(capture_call_args[1]["properties"]["provider"], expected_provider)
+
+
+class TestRunnerCancellation(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.conversation = Conversation.objects.create(team=self.team, user=self.user)
+
+    def _create_mock_runner(self, exception_to_raise):
+        from ee.hogai.core.runner import BaseAgentRunner
+
+        mock_graph = MagicMock()
+        mock_graph.astream = MagicMock(return_value=_async_generator_that_raises(exception_to_raise))
+        mock_graph.aget_state = AsyncMock(return_value=MagicMock(values={}, next=None))
+        mock_graph.aupdate_state = AsyncMock()
+
+        mock_stream_processor = MagicMock()
+        mock_stream_processor.mark_id_as_streamed = MagicMock()
+
+        mock_graph_class = MagicMock()
+        mock_graph_instance = MagicMock()
+        mock_graph_instance.compile_full_graph = MagicMock(return_value=mock_graph)
+        mock_graph_class.return_value = mock_graph_instance
+
+        class TestRunner(BaseAgentRunner):
+            def get_initial_state(self):
+                return AssistantState(messages=[])
+
+            def get_resumed_state(self):
+                return PartialAssistantState(messages=[])
+
+        runner = TestRunner(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+            graph_class=cast(type[BaseAssistantGraph], mock_graph_class),
+            state_type=AssistantState,
+            partial_state_type=PartialAssistantState,
+            stream_processor=mock_stream_processor,
+        )
+        runner._graph = mock_graph
+        return runner, mock_graph
+
+    async def test_cancellation_yields_failure_message_and_reraises(self):
+        runner, mock_graph = self._create_mock_runner(asyncio.CancelledError())
+
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+            patch("ee.hogai.core.runner.logger") as mock_logger,
+        ):
+            results = []
+            with self.assertRaises(asyncio.CancelledError):
+                async for event_type, message in runner.astream(
+                    stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
+                ):
+                    results.append((event_type, message))
+
+            self.assertEqual(len(results), 1)
+            event_type, message = results[0]
+            self.assertEqual(event_type, AssistantEventType.MESSAGE)
+            self.assertIsInstance(message, FailureMessage)
+            self.assertIn("respond in time", message.content)
+
+            mock_graph.aupdate_state.assert_called()
+            mock_logger.warning.assert_called_with("Assistant stream cancelled before completion")
+
+    async def test_cancellation_propagates_when_state_reset_fails(self):
+        runner, mock_graph = self._create_mock_runner(asyncio.CancelledError())
+        mock_graph.aupdate_state = AsyncMock(side_effect=RuntimeError("reset blew up"))
+
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+            patch("ee.hogai.core.runner.logger") as mock_logger,
+        ):
+            results = []
+            with self.assertRaises(asyncio.CancelledError):
+                async for event_type, message in runner.astream(
+                    stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
+                ):
+                    results.append((event_type, message))
+
+            self.assertEqual(len(results), 1)
+            self.assertIsInstance(results[0][1], FailureMessage)
+            mock_logger.exception.assert_called_with("Failed to reset state on cancellation")
 
 
 class TestRunnerSubagentBehavior(BaseTest):
