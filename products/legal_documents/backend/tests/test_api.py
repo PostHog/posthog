@@ -397,14 +397,15 @@ class TestLegalDocumentDeleteEndpoint(APIBaseTest):
         self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
         mock_pandadoc_cls.return_value.void_document.assert_not_called()
 
-    def test_unknown_document_returns_404(self) -> None:
-        bogus_url = f"/api/organizations/{self.organization.id}/legal_documents/00000000-0000-0000-0000-000000000000/"
-        response = self.client.delete(bogus_url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_invalid_uuid_returns_404(self) -> None:
-        bad_url = f"/api/organizations/{self.organization.id}/legal_documents/not-a-uuid/"
-        response = self.client.delete(bad_url)
+    @parameterized.expand(
+        [
+            ("unknown_uuid", "00000000-0000-0000-0000-000000000000"),
+            ("invalid_uuid", "not-a-uuid"),
+        ]
+    )
+    def test_nonexistent_or_invalid_pk_returns_404(self, _name: str, pk: str) -> None:
+        url = f"/api/organizations/{self.organization.id}/legal_documents/{pk}/"
+        response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")

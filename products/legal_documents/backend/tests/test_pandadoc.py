@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
+from parameterized import parameterized
+
 from products.legal_documents.backend.logic import pandadoc
 
 
@@ -182,23 +184,25 @@ class TestPandaDocClient(TestCase):
 
         self.assertEqual(mock_patch.call_args.kwargs["json"]["notify_recipients"], False)
 
+    @parameterized.expand(
+        [
+            # 404 = envelope already gone on PandaDoc's side; that's the state
+            # we wanted, so the helper treats it as success.
+            ("404_not_found_treated_as_success", 404, "not found", False),
+            # 423 = PandaDoc has the document locked for editing; surface to
+            # the caller so it can decide whether to retry or log + move on.
+            ("423_locked_raises", 423, "Document is locked for editing", True),
+        ]
+    )
     @override_settings(PANDADOC_API_KEY="key")
-    def test_void_document_treats_404_as_success(self) -> None:
-        # The envelope is already gone on PandaDoc's side — that's the state
-        # we wanted, so the helper must not raise.
+    def test_void_document_status_handling(self, _name: str, status_code: int, text: str, should_raise: bool) -> None:
         fake_response = MagicMock()
-        fake_response.status_code = 404
-        fake_response.text = "not found"
+        fake_response.status_code = status_code
+        fake_response.text = text
 
         with patch("products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=fake_response):
-            pandadoc.PandaDocClient().void_document(document_id="doc_123")
-
-    @override_settings(PANDADOC_API_KEY="key")
-    def test_void_document_raises_on_other_errors(self) -> None:
-        fake_response = MagicMock()
-        fake_response.status_code = 423
-        fake_response.text = "Document is locked for editing"
-
-        with patch("products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=fake_response):
-            with self.assertRaises(pandadoc.PandaDocError):
+            if should_raise:
+                with self.assertRaises(pandadoc.PandaDocError):
+                    pandadoc.PandaDocClient().void_document(document_id="doc_123")
+            else:
                 pandadoc.PandaDocClient().void_document(document_id="doc_123")

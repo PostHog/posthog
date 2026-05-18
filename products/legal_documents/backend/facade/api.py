@@ -143,6 +143,12 @@ def delete_document(document_id: UUID, organization_id: UUID) -> None:
                 raise LegalDocumentAlreadySigned(
                     f"Legal document {document_id} is already signed and can't be deleted from the self-serve UI"
                 )
+            # The PandaDoc void runs inside the row lock on purpose: if it
+            # ran after commit, a void failure would leave the row deleted
+            # but the envelope still signable. Holding the lock through a
+            # (rare, slow-path) HTTP call is the deliberate trade for
+            # making the row delete and the void atomic from the user's
+            # perspective.
             logic.delete_document(document, strict_pandadoc=True)
     except PandaDocError as exc:
         raise LegalDocumentVoidFailed(
