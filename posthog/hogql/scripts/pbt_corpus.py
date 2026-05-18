@@ -51,8 +51,13 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
 
-from posthog.hogql.scripts._diagnostic_common import DivergenceShape, _ast_mismatch_shape, _probe_backend, _shape_for
-from posthog.hogql.test.test_parser_grammar_pbt import _try_parse
+from posthog.hogql.scripts._diagnostic_common import (
+    DivergenceShape,
+    _ast_mismatch_shape,
+    _probe_backend,
+    _shape_for,
+    corpus_try_parse,
+)
 
 
 def _shape_from_divergence(rec: dict) -> DivergenceShape:
@@ -141,7 +146,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     counts: Counter[str] = Counter()
     sample: dict[str, list[str]] = {"fixed": [], "regressed": [], "still_diverges": [], "oracle_rejects": []}
     # Sanity-probe each (oracle, candidate, rule) tuple we'll use the
-    # first time we see it. `_shape_for` -> `_try_parse` swallows the
+    # first time we see it. `_shape_for` -> `_safe_parse` swallows the
     # `KeyError` raised by an invalid backend name silently, which
     # would classify every corpus entry as "fixed" with no error.
     # Probing lazily inside the loop catches both `--oracle` /
@@ -166,17 +171,17 @@ def cmd_check(args: argparse.Namespace) -> int:
                         return 2
                 probed.add((oracle, candidate, rule))
             # `_shape_for` returns None for TWO distinct cases: oracle
-            # and candidate agree (genuinely fixed), OR the oracle now
-            # rejects the query. Every corpus entry was recorded
-            # *because* the oracle accepted it, so an oracle rejection
-            # is a behaviour change in the oracle itself — classifying
-            # it as "fixed" would let a regressed oracle masquerade as
-            # a clean run. Check the oracle independently first and
-            # bucket those separately. (The startup probe only checks
-            # the oracle is reachable via a trivial `"1"` parse — it
-            # can't catch a per-query behaviour change.)
-            o_ok, _ = _try_parse(entry["query"], rule, oracle)
-            if not o_ok:
+            # and candidate agree (genuinely fixed), OR the oracle no
+            # longer cleanly accepts the query. Every corpus entry was
+            # recorded *because* the oracle accepted it, so an oracle
+            # reject/crash is a behaviour change in the oracle itself —
+            # classifying it as "fixed" would let a regressed oracle
+            # masquerade as a clean run. Check the oracle independently
+            # first and bucket those separately. (The startup probe
+            # only checks the oracle is reachable via a trivial `"1"`
+            # parse — it can't catch a per-query behaviour change.)
+            o_status, _, _ = corpus_try_parse(entry["query"], rule, oracle)
+            if o_status != "ok":
                 counts["oracle_rejects"] += 1
                 if len(sample["oracle_rejects"]) < args.max_samples:
                     sample["oracle_rejects"].append(entry["query"])

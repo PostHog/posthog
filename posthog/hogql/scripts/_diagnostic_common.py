@@ -604,7 +604,7 @@ def run_corpus_parity(
                 break
             if (i + 1) % 50 == 0:
                 sys.stderr.write(
-                    f"\r  {i + 1}/{len(rows)} processed (pass={counts['pass']} "
+                    f"\r  [{noun}] {i + 1}/{len(rows)} processed (pass={counts['pass']} "
                     f"reject={counts['candidate_reject']} mismatch={counts['ast_mismatch']} "
                     f"crash={counts['candidate_crash'] + counts['oracle_crash']} "
                     f"skip={counts['oracle_reject']})"
@@ -644,7 +644,6 @@ def run_corpus_parity(
     finally:
         signal.signal(signal.SIGINT, prev_sigint)
         sys.stderr.write("\r" + " " * 110 + "\r")
-    _ = noun  # reserved for future per-noun progress wording
     return ParityResult(
         counts=counts,
         failures=failures,
