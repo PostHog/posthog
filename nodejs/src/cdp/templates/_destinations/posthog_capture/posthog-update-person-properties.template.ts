@@ -34,7 +34,7 @@ postHogCapture({
             hidden: false,
             default: '{event.distinct_id}',
             description:
-                'The distinct ID or persisted person UUID to target. Use `{event.distinct_id}` for event-triggered workflows, or `{person.id}` for batch workflows (where no event distinct ID is resolved).',
+                'Which person to update. Use `{event.distinct_id}` for event-triggered workflows, or `{person.id}` for batch workflows.',
         },
         {
             type: 'dictionary',
