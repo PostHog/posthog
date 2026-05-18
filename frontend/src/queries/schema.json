@@ -38339,6 +38339,11 @@
             ],
             "type": "string"
         },
+        "WebAnalyticsOverviewPrecomputationMode": {
+            "description": "Lazy-precomputation mode for the WebOverview tile. \"off\" disables; \"lazy\" enables the lazy-computation cache (filter-in-hash).",
+            "enum": ["off", "lazy"],
+            "type": "string"
+        },
         "WebAnalyticsPropertyFilter": {
             "anyOf": [
                 {
@@ -38933,6 +38938,10 @@
                 },
                 "orderBy": {
                     "$ref": "#/definitions/WebAnalyticsOrderBy"
+                },
+                "overviewPrecomputationMode": {
+                    "$ref": "#/definitions/WebAnalyticsOverviewPrecomputationMode",
+                    "description": "Per-query override for the WebOverview lazy-precomputation mode. When unset, the runner consults the PostHog feature flag `web-analytics-overview-precomputation-mode`."
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"

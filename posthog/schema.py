@@ -4972,6 +4972,11 @@ class WebAnalyticsOrderByFields(StrEnum):
     ERRORS = "Errors"
 
 
+class WebAnalyticsOverviewPrecomputationMode(StrEnum):
+    OFF = "off"
+    LAZY = "lazy"
+
+
 class WebAnalyticsSampling(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -18111,6 +18116,14 @@ class WebOverviewQuery(BaseModel):
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
+    overviewPrecomputationMode: WebAnalyticsOverviewPrecomputationMode | None = Field(
+        default=None,
+        description=(
+            "Per-query override for the WebOverview lazy-precomputation mode. When"
+            " unset, the runner consults the PostHog feature flag"
+            " `web-analytics-overview-precomputation-mode`."
+        ),
+    )
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebOverviewQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None

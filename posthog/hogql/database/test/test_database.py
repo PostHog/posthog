@@ -2354,6 +2354,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "preaggregation_results",
             "experiment_exposures_preaggregated",
             "experiment_metric_events_preaggregated",
+            "web_analytics_overview_lazy",
             "persons_revenue_analytics",
             "groups_revenue_analytics",
             "raw_session_replay_events",

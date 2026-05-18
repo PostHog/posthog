@@ -128,6 +128,7 @@ from posthog.hogql.database.schema.sessions_v3 import (
 from posthog.hogql.database.schema.spans import TraceAttributesTable, TraceSpansTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.database.schema.web_analytics_overview_lazy import WebAnalyticsOverviewLazyTable
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebPreAggregatedBouncesTable,
     WebPreAggregatedStatsTable,
@@ -225,6 +226,8 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "experiment_metric_events_preaggregated": TableNode(
         name="experiment_metric_events_preaggregated", table=ExperimentMetricEventsPreaggregatedTable()
     ),
+    # Lazy-computation cache for the web analytics overview tile (internal use only)
+    "web_analytics_overview_lazy": TableNode(name="web_analytics_overview_lazy", table=WebAnalyticsOverviewLazyTable()),
     # Revenue analytics tables
     "persons_revenue_analytics": TableNode(name="persons_revenue_analytics", table=PersonsRevenueAnalyticsTable()),
     "groups_revenue_analytics": TableNode(name="groups_revenue_analytics", table=GroupsRevenueAnalyticsTable()),

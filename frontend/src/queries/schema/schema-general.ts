@@ -2248,8 +2248,13 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     useSessionsTable?: boolean
 }
 
+/** Lazy-precomputation mode for the WebOverview tile. "off" disables; "lazy" enables the lazy-computation cache (filter-in-hash). */
+export type WebAnalyticsOverviewPrecomputationMode = 'off' | 'lazy'
+
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
+    /** Per-query override for the WebOverview lazy-precomputation mode. When unset, the runner consults the PostHog feature flag `web-analytics-overview-precomputation-mode`. */
+    overviewPrecomputationMode?: WebAnalyticsOverviewPrecomputationMode
 }
 
 export type WebAnalyticsItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'

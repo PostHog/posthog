@@ -2,6 +2,7 @@ import math
 from typing import Optional, Union
 
 import structlog
+from clickhouse_driver.errors import ServerException
 
 from posthog.schema import (
     CachedWebOverviewQueryResponse,
@@ -15,6 +16,11 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.hogql_queries.web_analytics.overview_lazy_strategy import (
+    LazyPrecomputationNotReady,
+    get_lazy_overview_strategy,
+    resolve_lazy_overview_mode,
+)
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
 from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
 from posthog.models.filters.mixins.utils import cached_property
@@ -33,9 +39,64 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
         team_version = getattr(self.team, "web_analytics_pre_aggregated_tables_version", "v2")
         self.use_v2_tables = team_version == "v2" if team_version else use_v2_tables
         self.preaggregated_query_builder = WebOverviewPreAggregatedQueryBuilder(self)
+        # Set when the lazy precomputation strategy supplied the query. Plumbed
+        # into `_calculate` to disable `convertToProjectTimezone` (lazy tables
+        # store UTC `time_window_start` buckets, mirroring Dagster preagg).
+        self.used_lazy_precomputation = False
 
     def to_query(self) -> ast.SelectQuery:
         return self.outer_select
+
+    def get_lazy_precomputed_response(self):
+        """Try the lazy precomputation path. Returns response or None.
+
+        Dispatch order in `_calculate`: lazy → Dagster preagg → live. Failures
+        (LazyPrecomputationNotReady, ServerException) fall through to the next
+        path so degraded modes don't break the tile. Other exceptions
+        propagate so programming errors surface instead of being masked as
+        silent fallback.
+        """
+        lazy_mode = resolve_lazy_overview_mode(self)
+        if lazy_mode is None:
+            return None
+
+        try:
+            lazy_query = get_lazy_overview_strategy(self, lazy_mode).build_query()
+        except LazyPrecomputationNotReady:
+            logger.info(
+                "web_analytics.overview_lazy_not_ready",
+                team_id=self.team.id,
+                mode=lazy_mode.value,
+            )
+            return None
+        except ServerException:
+            logger.exception(
+                "web_analytics.overview_lazy_ch_error",
+                team_id=self.team.id,
+                mode=lazy_mode.value,
+            )
+            return None
+
+        # Lazy tables store UTC time_window_start buckets. Disable timezone
+        # conversion to match the Dagster preagg semantics.
+        lazy_modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
+        lazy_modifiers.convertToProjectTimezone = False
+
+        try:
+            response = execute_hogql_query(
+                query_type="web_overview_lazy_query",
+                query=lazy_query,
+                team=self.team,
+                timings=self.timings,
+                modifiers=lazy_modifiers,
+                limit_context=self.limit_context,
+            )
+            assert response.results
+            self.used_lazy_precomputation = True
+            return response
+        except Exception as e:
+            logger.exception("web_analytics.overview_lazy_readback_failed", error=e, team_id=self.team.id)
+            return None
 
     def get_pre_aggregated_response(self):
         should_use_preaggregated = (
@@ -76,10 +137,15 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
             return None
 
     def _calculate(self) -> WebOverviewQueryResponse:
-        pre_aggregated_response = self.get_pre_aggregated_response()
+        lazy_response = self.get_lazy_precomputed_response()
+        pre_aggregated_response = None if lazy_response else self.get_pre_aggregated_response()
 
-        response = (
-            execute_hogql_query(
+        if lazy_response:
+            response = lazy_response
+        elif pre_aggregated_response:
+            response = pre_aggregated_response
+        else:
+            response = execute_hogql_query(
                 query_type="web_overview_query",
                 query=self.to_query(),
                 team=self.team,
@@ -87,9 +153,6 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
             )
-            if not pre_aggregated_response
-            else pre_aggregated_response
-        )
 
         assert response.results
 
@@ -123,7 +186,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
-            usedPreAggregatedTables=response == pre_aggregated_response,
+            usedPreAggregatedTables=bool(pre_aggregated_response or lazy_response),
         )
 
     def all_properties(self) -> ast.Expr:
