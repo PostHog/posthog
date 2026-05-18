@@ -23,7 +23,18 @@ import { connectToNotificationsSSE } from '~/layout/navigation-3000/sidepanel/pa
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
 import { InAppNotification, InsightShortId } from '~/types'
 
-import { NotificationEventSourceTypeEnumApi } from 'products/notifications/frontend/generated/api.schemas'
+import {
+    notificationsList,
+    notificationsMarkAllReadCreate,
+    notificationsMarkReadBulkCreate,
+    notificationsMarkReadCreate,
+    notificationsMarkUnreadBulkCreate,
+    notificationsMarkUnreadCreate,
+} from 'products/notifications/frontend/generated/api'
+import {
+    NotificationEventSourceTypeEnumApi,
+    NotificationsListParams,
+} from 'products/notifications/frontend/generated/api.schemas'
 
 import { sidePanelContextLogic } from '../../sidePanelContextLogic'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
@@ -116,6 +127,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         toggleRead: (id: string) => ({ id }),
         navigateToNotification: (notification: InAppNotification) => ({ notification }),
         loadMoreNotifications: true,
+        loadMoreNotificationsSuccess: (count: number) => ({ count }),
         loadGroupChildren: (group: NotificationGroup) => ({ group }),
         markGroupChildrenLoaded: (groupKey: string) => ({ groupKey }),
         setGroupLoading: (groupKey: string, loading: boolean) => ({ groupKey, loading }),
@@ -167,11 +179,15 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     ),
             },
         ],
-        loadedFromApiCount: [
+        // Tracks how many items the main list has consumed from the server, used as the
+        // offset for `loadMoreNotifications`. Kept distinct from `inAppNotifications.length`
+        // because expanding a group adds children via `appendInAppNotifications` and those
+        // must not advance the main-list cursor (or `loadMoreNotifications` would skip a page).
+        mainListOffset: [
             0,
             {
                 setInAppNotifications: (_, { notifications }) => notifications.length,
-                appendInAppNotifications: (state, { notifications }) => state + notifications.length,
+                loadMoreNotificationsSuccess: (state, { count }) => state + count,
             },
         ],
         hasMoreNotifications: [
@@ -268,7 +284,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 },
                 markAllAsRead: async () => {
                     if (values.realTimeNotificationsEnabled) {
-                        await api.create(`api/environments/${values.currentProjectId}/notifications/mark_all_read/`, {})
+                        await notificationsMarkAllReadCreate((values.currentProjectId ?? '').toString())
                         return values.importantChanges
                     }
 
@@ -308,26 +324,23 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             }
             actions.setGroupLoading(group.group_key, true)
             const day = dayjs(group.last_seen).startOf('day')
-            const params = new URLSearchParams({
+            const params: NotificationsListParams = {
                 notification_type: group.representative.notification_type,
                 target_type: group.representative.target_type,
                 target_id: group.representative.target_id,
                 created_after: day.toISOString(),
                 created_before: day.add(1, 'day').toISOString(),
-                limit: '100',
-            })
+                limit: 100,
+            }
             if (group.representative.resource_type) {
-                params.set('resource_type', group.representative.resource_type)
+                params.resource_type = group.representative.resource_type
             }
             if (group.representative.resource_id) {
-                params.set('resource_id', group.representative.resource_id)
+                params.resource_id = group.representative.resource_id
             }
             try {
-                const resp = await api.get<{
-                    results: InAppNotification[]
-                    next: string | null
-                }>(`api/environments/${values.currentProjectId}/notifications/?${params.toString()}`)
-                actions.appendInAppNotifications(resp.results, values.hasMoreNotifications)
+                const resp = await notificationsList((values.currentProjectId ?? '').toString(), params)
+                actions.appendInAppNotifications(resp.results as InAppNotification[], values.hasMoreNotifications)
                 actions.markGroupChildrenLoaded(group.group_key)
             } catch {
                 // Swallow
@@ -540,7 +553,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
             markAsRead: async ({ id }) => {
                 try {
-                    await api.create(`api/environments/${values.currentProjectId}/notifications/${id}/mark_read/`, {})
+                    await notificationsMarkReadCreate((values.currentProjectId ?? '').toString(), id)
                 } catch {
                     // Swallow
                 }
@@ -550,9 +563,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 if (!notification) {
                     return
                 }
-                const endpoint = notification.read ? 'mark_read' : 'mark_unread'
+                const projectId = (values.currentProjectId ?? '').toString()
                 try {
-                    await api.create(`api/environments/${values.currentProjectId}/notifications/${id}/${endpoint}/`, {})
+                    if (notification.read) {
+                        await notificationsMarkReadCreate(projectId, id)
+                    } else {
+                        await notificationsMarkUnreadCreate(projectId, id)
+                    }
                 } catch {
                     // Swallow
                 }
@@ -568,13 +585,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     return
                 }
                 try {
-                    const resp = await api.get<{
-                        results: InAppNotification[]
-                        next: string | null
-                    }>(
-                        `api/environments/${values.currentProjectId}/notifications/?limit=20&offset=${values.loadedFromApiCount}`
-                    )
-                    actions.appendInAppNotifications(resp.results, !!resp.next)
+                    const resp = await notificationsList((values.currentProjectId ?? '').toString(), {
+                        limit: 20,
+                        offset: values.mainListOffset,
+                    })
+                    const results = resp.results as InAppNotification[]
+                    actions.appendInAppNotifications(results, !!resp.next)
+                    actions.loadMoreNotificationsSuccess(results.length)
                 } catch {
                     // Swallow
                 }
@@ -599,11 +616,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 if (unreadDelta !== 0) {
                     actions.setInAppUnreadCount(Math.max(0, values.inAppUnreadCount + unreadDelta))
                 }
-                const endpoint = targetRead ? 'mark_read_bulk' : 'mark_unread_bulk'
+                const projectId = (values.currentProjectId ?? '').toString()
                 try {
-                    await api.create(`api/environments/${values.currentProjectId}/notifications/${endpoint}/`, {
-                        notification_ids: ids,
-                    })
+                    if (targetRead) {
+                        await notificationsMarkReadBulkCreate(projectId, { notification_ids: ids })
+                    } else {
+                        await notificationsMarkUnreadBulkCreate(projectId, { notification_ids: ids })
+                    }
                 } catch {
                     // Swallow; selector reflects optimistic state
                 }
@@ -750,11 +769,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         if (values.realTimeNotificationsEnabled) {
             void (async () => {
                 try {
-                    const resp = await api.get<{
-                        results: InAppNotification[]
-                        next: string | null
-                    }>(`api/environments/${values.currentProjectId}/notifications/?limit=20`)
-                    actions.setInAppNotifications(resp.results, !!resp.next)
+                    const resp = await notificationsList((values.currentProjectId ?? '').toString(), { limit: 20 })
+                    actions.setInAppNotifications(resp.results as InAppNotification[], !!resp.next)
                 } catch {
                     // Swallow
                 }

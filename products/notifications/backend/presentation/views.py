@@ -4,7 +4,7 @@ from django.db.models import Exists, OuterRef, QuerySet, Subquery
 from django.utils.dateparse import parse_datetime
 
 import posthoganalytics
-from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers as drf_serializers
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -12,6 +12,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
@@ -22,10 +23,18 @@ from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES
 from products.notifications.backend.models import NotificationEvent, NotificationReadState
 from products.notifications.backend.presentation.serializers import NotificationEventSerializer
 
-_BULK_NOTIFICATION_IDS_SCHEMA = inline_serializer(
-    name="BulkNotificationIdsRequest",
-    fields={"notification_ids": drf_serializers.ListField(child=drf_serializers.UUIDField())},
-)
+_BULK_NOTIFICATION_IDS_MAX = 500
+
+
+class BulkNotificationIdsRequestSerializer(drf_serializers.Serializer):
+    notification_ids = drf_serializers.ListField(
+        child=drf_serializers.UUIDField(),
+        max_length=_BULK_NOTIFICATION_IDS_MAX,
+        help_text=(
+            f"UUIDs of notification events to mark in bulk (max {_BULK_NOTIFICATION_IDS_MAX}). "
+            "Events the user is not a recipient of are silently skipped."
+        ),
+    )
 
 
 class NotificationPagination(LimitOffsetPagination):
@@ -139,10 +148,34 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 required=False,
                 description="Filter by notification type",
             ),
-            OpenApiParameter(name="target_type", type=str, location=OpenApiParameter.QUERY, required=False),
-            OpenApiParameter(name="target_id", type=str, location=OpenApiParameter.QUERY, required=False),
-            OpenApiParameter(name="resource_type", type=str, location=OpenApiParameter.QUERY, required=False),
-            OpenApiParameter(name="resource_id", type=str, location=OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(
+                name="target_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by recipient target type (e.g. `user`, `team`)",
+            ),
+            OpenApiParameter(
+                name="target_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by recipient target ID (e.g. a user ID)",
+            ),
+            OpenApiParameter(
+                name="resource_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by the type of the resource the notification refers to (e.g. `insight`, `dashboard`)",
+            ),
+            OpenApiParameter(
+                name="resource_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by the ID of the resource the notification refers to",
+            ),
             OpenApiParameter(
                 name="created_after",
                 type=str,
@@ -229,16 +262,14 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"status": "ok"})
 
-    @extend_schema(request=_BULK_NOTIFICATION_IDS_SCHEMA)
+    @validated_request(request_serializer=BulkNotificationIdsRequestSerializer)
     @action(methods=["POST"], detail=False, url_path="mark_read_bulk")
-    def mark_read_bulk(self, request: Request, **kwargs) -> Response:
+    def mark_read_bulk(self, request: ValidatedRequest, **kwargs) -> Response:
         if not self._is_feature_enabled():
             return Response({"updated": 0})
 
         user = self._get_user()
-        ids = request.data.get("notification_ids", [])
-        if not isinstance(ids, list):
-            raise ValidationError({"notification_ids": "Expected a list of UUIDs."})
+        ids = request.validated_data["notification_ids"]
         if not ids:
             return Response({"updated": 0})
 
@@ -255,16 +286,14 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"updated": len(eligible_ids)})
 
-    @extend_schema(request=_BULK_NOTIFICATION_IDS_SCHEMA)
+    @validated_request(request_serializer=BulkNotificationIdsRequestSerializer)
     @action(methods=["POST"], detail=False, url_path="mark_unread_bulk")
-    def mark_unread_bulk(self, request: Request, **kwargs) -> Response:
+    def mark_unread_bulk(self, request: ValidatedRequest, **kwargs) -> Response:
         if not self._is_feature_enabled():
             return Response({"updated": 0})
 
         user = self._get_user()
-        ids = request.data.get("notification_ids", [])
-        if not isinstance(ids, list):
-            raise ValidationError({"notification_ids": "Expected a list of UUIDs."})
+        ids = request.validated_data["notification_ids"]
         if not ids:
             return Response({"updated": 0})
 

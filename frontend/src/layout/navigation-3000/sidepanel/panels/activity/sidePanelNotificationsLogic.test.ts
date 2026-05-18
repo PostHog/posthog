@@ -193,3 +193,36 @@ describe('sidePanelNotificationsLogic.toggleGroupRead', () => {
         expect(logic.values.groups[0].has_unread).toBe(true)
     })
 })
+
+describe('sidePanelNotificationsLogic.mainListOffset', () => {
+    let logic: ReturnType<typeof sidePanelNotificationsLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = sidePanelNotificationsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => logic.unmount())
+
+    it('resets to notifications.length on setInAppNotifications', () => {
+        const seed = Array.from({ length: 20 }, (_, i) => makeNotification({ id: `n${i}` }))
+        logic.actions.setInAppNotifications(seed, true)
+        expect(logic.values.mainListOffset).toBe(20)
+    })
+
+    it('is not bumped by appendInAppNotifications (group-children path)', () => {
+        const seed = Array.from({ length: 20 }, (_, i) => makeNotification({ id: `n${i}` }))
+        logic.actions.setInAppNotifications(seed, true)
+        const children = [makeNotification({ id: 'child-1' }), makeNotification({ id: 'child-2' })]
+        logic.actions.appendInAppNotifications(children, true)
+        expect(logic.values.mainListOffset).toBe(20)
+    })
+
+    it('bumps by the returned page size on loadMoreNotificationsSuccess', () => {
+        const seed = Array.from({ length: 20 }, (_, i) => makeNotification({ id: `n${i}` }))
+        logic.actions.setInAppNotifications(seed, true)
+        logic.actions.loadMoreNotificationsSuccess(20)
+        expect(logic.values.mainListOffset).toBe(40)
+    })
+})

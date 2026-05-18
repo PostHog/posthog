@@ -1,3 +1,4 @@
+import uuid
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
@@ -351,6 +352,24 @@ class TestNotificationsAPI(BaseTest):
         resp = self.client.post(
             f"/api/environments/{self.team.id}/notifications/mark_read_bulk/",
             {"notification_ids": "not-a-list"},
+            format="json",
+        )
+        assert resp.status_code == 400
+
+    def test_mark_read_bulk_too_many_ids_returns_400(self):
+        ids = [str(uuid.uuid4()) for _ in range(501)]
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/notifications/mark_read_bulk/",
+            {"notification_ids": ids},
+            format="json",
+        )
+        assert resp.status_code == 400
+
+    def test_mark_unread_bulk_too_many_ids_returns_400(self):
+        ids = [str(uuid.uuid4()) for _ in range(501)]
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/notifications/mark_unread_bulk/",
+            {"notification_ids": ids},
             format="json",
         )
         assert resp.status_code == 400
