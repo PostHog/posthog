@@ -82,6 +82,9 @@ class TestWarmRemoteConfigsCache(BaseTest):
         )
         RemoteConfig.objects.filter(team=other_team).delete()
         RemoteConfig.objects.create(team=other_team, config={"token": other_team.api_token})
+        # Make "other_team has no cache entry" an explicit precondition rather than
+        # relying on TestCase swallowing the post_save on_commit hook.
+        self.hypercache.cache_client.delete(self.hypercache.get_cache_key(other_team.api_token))
 
         call_command("warm_remote_configs_cache", team_ids=[self.team.id], stdout=StringIO())
 

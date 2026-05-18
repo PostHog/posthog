@@ -15,6 +15,13 @@ sync() path, and the goal here is specifically to populate the Redis tier the
 Rust service reads first. A per-row S3 PUT would turn a fast Redis backfill
 into hours of synchronous boto3 round-trips for tens of thousands of teams.
 
+Race note: this reads `RemoteConfig.config` via a cursored snapshot and writes
+it to Redis. If an organic `sync()` for the same team writes a newer config to
+Redis between the row-read and Redis-write here, this backfill will overwrite
+that newer value with the snapshot. The team self-heals on its next signal-
+triggered sync, so the worst case is one sync-cycle of staleness — tolerable
+for a one-shot backfill. Avoid running this during a fleet-wide config push.
+
 Usage:
     # Warm all teams (sequential, with batching)
     python manage.py warm_remote_configs_cache
