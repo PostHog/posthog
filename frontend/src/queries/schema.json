@@ -37986,6 +37986,10 @@
                 "response": {
                     "$ref": "#/definitions/TraceSpansTreeQueryResponse"
                 },
+                "serviceName": {
+                    "description": "Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services.",
+                    "type": "string"
+                },
                 "serviceNames": {
                     "items": {
                         "type": "string"
@@ -38004,7 +38008,7 @@
                     "type": "number"
                 }
             },
-            "required": ["dateRange", "kind", "spanName"],
+            "required": ["dateRange", "kind", "serviceName", "spanName"],
             "type": "object"
         },
         "TraceSpansTreeQueryResponse": {
