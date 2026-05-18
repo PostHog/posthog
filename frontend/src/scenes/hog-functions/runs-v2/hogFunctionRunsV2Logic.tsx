@@ -4,6 +4,8 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils'
 
 import { hogql } from '~/queries/utils'
 
@@ -143,14 +145,15 @@ export const hogFunctionRunsV2Logic = kea<hogFunctionRunsV2LogicType>([
                     await breakpoint(100)
 
                     const { filters } = values
+                    // HAVING clauses reference the SELECT aliases — wrapping the column
+                    // again as `argMax(status, version)` makes HogQL substitute `status` for
+                    // its alias (also `argMax(status, version)`) and produce a nested aggregate.
                     const optionalStatusClause = filters.status?.length
-                        ? hogql.raw(
-                              `AND argMax(status, version) IN (${filters.status.map((s) => `'${s}'`).join(', ')})`
-                          )
+                        ? hogql.raw(`AND status IN (${filters.status.map((s) => `'${s}'`).join(', ')})`)
                         : hogql.raw('')
                     const optionalErrorKindClause = filters.error_kind?.length
                         ? hogql.raw(
-                              `AND argMax(error_kind, version) IN (${filters.error_kind
+                              `AND error_kind IN (${filters.error_kind
                                   .map((s) => `'${s.replace(/'/g, "\\'")}'`)
                                   .join(', ')})`
                           )
@@ -158,9 +161,9 @@ export const hogFunctionRunsV2Logic = kea<hogFunctionRunsV2LogicType>([
                     // is_retry is stored as 0/1 — convert the UI tristate.
                     const optionalRetryClause =
                         filters.is_retry === 'only_retries'
-                            ? hogql.raw('AND argMax(is_retry, version) = 1')
+                            ? hogql.raw('AND is_retry = 1')
                             : filters.is_retry === 'only_originals'
-                              ? hogql.raw('AND argMax(is_retry, version) = 0')
+                              ? hogql.raw('AND is_retry = 0')
                               : hogql.raw('')
                     // Free-text search hits invocation_id / event_uuid / distinct_id /
                     // person_id. Bloom-filter indexes on event_uuid + function_id
@@ -170,9 +173,9 @@ export const hogFunctionRunsV2Logic = kea<hogFunctionRunsV2LogicType>([
                         ? hogql.raw(
                               `AND (
                                   invocation_id = '${trimmedSearch.replace(/'/g, "\\'")}'
-                                  OR argMax(event_uuid, version) = '${trimmedSearch.replace(/'/g, "\\'")}'
-                                  OR argMax(distinct_id, version) = '${trimmedSearch.replace(/'/g, "\\'")}'
-                                  OR argMax(person_id, version) = '${trimmedSearch.replace(/'/g, "\\'")}'
+                                  OR event_uuid = '${trimmedSearch.replace(/'/g, "\\'")}'
+                                  OR distinct_id = '${trimmedSearch.replace(/'/g, "\\'")}'
+                                  OR person_id = '${trimmedSearch.replace(/'/g, "\\'")}'
                               )`
                           )
                         : hogql.raw('')
@@ -330,10 +333,13 @@ export const hogFunctionRunsV2Logic = kea<hogFunctionRunsV2LogicType>([
             const { filters } = values
             // The server requires a window. Use the same window the list is
             // viewing — that way "replay all visible failures" doesn't pull in
-            // rows the user isn't looking at.
+            // rows the user isn't looking at. `filters.date_from` is the same
+            // relative-or-absolute string format the date picker emits (e.g.
+            // `-24h`), but the replay endpoint expects ISO 8601, so resolve
+            // it through the shared helper first.
             const teamId = ApiConfig.getCurrentTeamId()
-            const windowStart = filters.date_from
-            const windowEnd = filters.date_to ?? new Date().toISOString()
+            const windowStart = (dateStringToDayJs(filters.date_from) ?? dayjs().subtract(24, 'hour')).toISOString()
+            const windowEnd = ((filters.date_to ? dateStringToDayJs(filters.date_to) : null) ?? dayjs()).toISOString()
 
             const requestBody = {
                 filter: {
