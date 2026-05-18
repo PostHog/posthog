@@ -227,20 +227,15 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
-_BOOLEAN_TRUE_REPRESENTATIONS = frozenset({"true", "t", "yes", "y", "on", "enable", "enabled", "1"})
-_BOOLEAN_FALSE_REPRESENTATIONS = frozenset({"false", "f", "no", "n", "off", "disable", "disabled", "0"})
-
-
 def _resolve_boolean_value(value: ValueT) -> bool | None:
-    """Resolve a filter value for a Boolean-typed property. A value that is not a
-    recognized boolean returns None so the comparison matches nothing rather than
-    failing in ClickHouse, which cannot parse e.g. 'foo' as a bool."""
+    """Resolve a filter value for a Boolean-typed property. Anything other than the
+    'true'/'false' the UI sends returns None, so the comparison matches nothing rather
+    than failing in ClickHouse, which cannot parse e.g. 'foo' as a bool."""
     if isinstance(value, bool):
         return value
-    normalized = str(value).strip().lower()
-    if normalized in _BOOLEAN_TRUE_REPRESENTATIONS:
+    if value == "true":
         return True
-    if normalized in _BOOLEAN_FALSE_REPRESENTATIONS:
+    if value == "false":
         return False
     return None
 

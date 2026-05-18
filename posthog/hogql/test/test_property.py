@@ -1965,11 +1965,10 @@ class TestBooleanPropertyComparisonWithData(APIBaseTest):
         [
             ("true", "true", True),
             ("false", "false", False),
-            ("one_is_true", "1", True),
-            ("zero_is_false", "0", False),
-            ("yes_is_true", "yes", True),
-            ("no_is_false", "no", False),
             ("bool_passthrough", True, True),
+            # only the UI's "true"/"false" resolve — anything else matches nothing
+            ("one_is_none", "1", None),
+            ("yes_is_none", "yes", None),
             ("non_boolean_is_none", "not-a-boolean", None),
         ]
     )
