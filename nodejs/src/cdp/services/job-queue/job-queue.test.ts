@@ -403,6 +403,34 @@ describe('CyclotronJobQueue', () => {
             expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([], { overwriteExisting: true })
         })
 
+        it('preserves the invocation_id through the kafka replay path', async () => {
+            const queue = buildQueueWithMocks('*:kafka,hogflow:postgres-v2')
+            const inv = hogInvocation()
+            const originalId = inv.id
+
+            await queue.queueInvocations([inv], { overwriteExisting: true })
+
+            // The replay paginator sets `id: row.invocation_id` on the rehydrated
+            // invocation; this asserts the routing path doesn't generate a new
+            // UUID before producing to kafka, so lifecycle rows for the replayed
+            // run collapse onto the same key in CH.
+            const enqueued = (queue['jobQueueKafka'].queueInvocations as jest.Mock).mock.calls[0][0]
+            expect(enqueued).toHaveLength(1)
+            expect(enqueued[0].id).toBe(originalId)
+        })
+
+        it('preserves the invocation_id through the postgres-v2 replay path', async () => {
+            const queue = buildQueueWithMocks('*:kafka,hogflow:postgres-v2')
+            const inv = hogflowInvocation()
+            const originalId = inv.id
+
+            await queue.queueInvocations([inv], { overwriteExisting: true })
+
+            const enqueued = (queue['jobQueuePostgresV2']!.queueInvocations as jest.Mock).mock.calls[0][0]
+            expect(enqueued).toHaveLength(1)
+            expect(enqueued[0].id).toBe(originalId)
+        })
+
         it('routes hogflow → postgres-v2 with overwriteExisting forwarded', async () => {
             const queue = buildQueueWithMocks('*:kafka,hogflow:postgres-v2')
             const inv = hogflowInvocation()
