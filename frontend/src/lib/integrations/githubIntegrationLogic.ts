@@ -16,9 +16,10 @@ export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
     actions({
         loadRepositories: true,
         loadRepositoriesPage: (offset: number) => ({ offset }),
-        loadRepositoriesPageSuccess: (repositories: GitHubRepoApi[], hasMore: boolean) => ({
+        loadRepositoriesPageSuccess: (repositories: GitHubRepoApi[], hasMore: boolean, offset: number) => ({
             repositories,
             hasMore,
+            offset,
         }),
         loadRepositoriesPageFailure: true,
     }),
@@ -26,9 +27,13 @@ export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
     reducers({
         repositories: [
             [] as GitHubRepoApi[],
+            { persist: true },
             {
-                loadRepositories: () => [],
-                loadRepositoriesPageSuccess: (state, { repositories }) => {
+                loadRepositoriesPageSuccess: (state, { repositories, offset }) => {
+                    // First page of a fresh fetch replaces the cached list so removed repos disappear.
+                    if (offset === 0) {
+                        return repositories
+                    }
                     const seenIds = new Set(state.map((r) => r.id))
                     const newRepos = repositories.filter((r) => !seenIds.has(r.id))
                     return [...state, ...newRepos]
@@ -68,7 +73,7 @@ export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
                     offset,
                 })
                 await breakpoint()
-                actions.loadRepositoriesPageSuccess(response.repositories, response.has_more)
+                actions.loadRepositoriesPageSuccess(response.repositories, response.has_more, offset)
             } catch (e: any) {
                 if (isBreakpoint(e)) {
                     throw e
