@@ -57,6 +57,13 @@ describe('TrendsBarChart (ActionsBar)', () => {
         expect(tooltip.row('Pageview')).toContain('134')
     })
 
+    it('shows a date header in the tooltip', async () => {
+        renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
+
+        const tooltip = await chart.hoverTooltip(2)
+        expect(tooltip.title()).toMatch(/Jun/)
+    })
+
     it('opens the persons modal on click for a single series', async () => {
         renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
 
@@ -141,6 +148,13 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         await waitFor(() => {
             expect(screen.getByRole('img', { name: /chart with 5 data series/i })).toBeInTheDocument()
         })
+    })
+
+    it('omits the header from the tooltip', async () => {
+        renderInsight({ query: aggregatedBar(), featureFlags: HOG_CHARTS_FLAG })
+
+        const tooltip = await chart.hoverTooltip(0)
+        expect(tooltip.title()).toBe('')
     })
 
     it('opens the persons modal on click without resolving a day', async () => {
