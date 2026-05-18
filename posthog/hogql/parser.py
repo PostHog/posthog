@@ -480,7 +480,24 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
     def visitExprStmt(self, ctx: HogQLParser.ExprStmtContext):
-        return ast.ExprStatement(expr=self.visit(ctx.expression()))
+        if ctx.COLONEQUALS():
+            return ast.VariableAssignment(
+                left=self.visit(ctx.expression(0)),
+                right=self.visit(ctx.expression(1)),
+            )
+        column_expr = ctx.expression(0).columnExpr()
+        # `columnExpr` matches `name := value` as a NamedArgument; a directly named-arg-shaped
+        # statement is a variable assignment. Checked on the parse tree, not the visited node,
+        # so parens are not unwrapped: `(x := 1)` stays an expression statement, matching C++.
+        if isinstance(column_expr, HogQLParser.ColumnExprNamedArgContext):
+            named_arg = self.visit(column_expr)
+            left = ast.Field(chain=[named_arg.name])
+            identifier = column_expr.identifier()
+            if self.start is not None and identifier.start and identifier.stop:
+                left.start = identifier.start.start
+                left.end = identifier.stop.stop + 1
+            return ast.VariableAssignment(left=left, right=named_arg.value)
+        return ast.ExprStatement(expr=self.visit(ctx.expression(0)))
 
     def visitReturnStmt(self, ctx: HogQLParser.ReturnStmtContext):
         return ast.ReturnStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
