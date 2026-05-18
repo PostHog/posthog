@@ -27,6 +27,23 @@ export interface TestFormData {
 
 const EMPTY_FORM: TestFormData = { person_id: '', timestamp: '', groups: '' }
 
+function validateAndParseGroups(groups: string): string {
+    const trimmed = groups.trim()
+    if (!trimmed) {
+        return '{}'
+    }
+
+    try {
+        const parsed = JSON.parse(trimmed)
+        if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+            throw new Error('groups must be a JSON object')
+        }
+        return trimmed
+    } catch (e) {
+        throw e instanceof SyntaxError ? new Error('Invalid JSON format for groups') : e
+    }
+}
+
 export interface FeatureFlagTestingLogicProps {
     flagId: number
 }
@@ -58,22 +75,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                         data.person_id = formData.person_id.trim()
                     }
 
-                    if (formData.groups?.trim()) {
-                        try {
-                            const parsed = JSON.parse(formData.groups.trim())
-                            if (typeof parsed !== 'object' || Array.isArray(parsed)) {
-                                throw new Error('groups must be a JSON object')
-                            }
-                            data.groups = formData.groups.trim()
-                        } catch (e) {
-                            if (e instanceof SyntaxError) {
-                                throw new Error('Invalid JSON format for groups')
-                            }
-                            throw e
-                        }
-                    } else {
-                        data.groups = '{}'
-                    }
+                    data.groups = validateAndParseGroups(formData.groups || '')
 
                     if (formData.timestamp?.trim()) {
                         data.timestamp = formData.timestamp.trim()
