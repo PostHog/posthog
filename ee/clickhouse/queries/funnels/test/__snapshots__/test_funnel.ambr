@@ -5,13 +5,6 @@
   SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -102,7 +95,7 @@
                        FROM
                          (SELECT e.timestamp as timestamp,
                                  e."$group_0" as aggregation_target,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                                 e.person_id as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -110,16 +103,9 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop_attribution,
-                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop,
+                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
-                          LEFT OUTER JOIN
-                            (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                    person_distinct_id_overrides.distinct_id AS distinct_id
-                             FROM person_distinct_id_overrides
-                             WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                             GROUP BY person_distinct_id_overrides.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -300,16 +286,9 @@
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -321,7 +300,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -398,8 +376,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -407,16 +385,23 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop_attribution,
-                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop,
+                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
-                            (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                    person_distinct_id_overrides.distinct_id AS distinct_id
-                             FROM person_distinct_id_overrides
-                             WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                             GROUP BY person_distinct_id_overrides.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                            (SELECT distinct_id,
+                                    argMax(person_id, version) as person_id
+                             FROM person_distinct_id2
+                             WHERE team_id = 99999
+                               AND distinct_id IN
+                                 (SELECT distinct_id
+                                  FROM events
+                                  WHERE team_id = 99999
+                                    AND event IN ['buy', 'play movie', 'sign up']
+                                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                             GROUP BY distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -428,7 +413,6 @@
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                            AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1))))))
@@ -447,16 +431,9 @@
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.2
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -468,7 +445,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -538,8 +514,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -547,16 +523,23 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop_attribution,
-                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop,
+                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
-                            (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                    person_distinct_id_overrides.distinct_id AS distinct_id
-                             FROM person_distinct_id_overrides
-                             WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                             GROUP BY person_distinct_id_overrides.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                            (SELECT distinct_id,
+                                    argMax(person_id, version) as person_id
+                             FROM person_distinct_id2
+                             WHERE team_id = 99999
+                               AND distinct_id IN
+                                 (SELECT distinct_id
+                                  FROM events
+                                  WHERE team_id = 99999
+                                    AND event IN ['buy', 'play movie', 'sign up']
+                                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                             GROUP BY distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -568,7 +551,6 @@
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                            AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1))))))
@@ -588,16 +570,9 @@
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.4
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -609,7 +584,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -679,8 +653,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -688,16 +662,23 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop_attribution,
-                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop,
+                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
-                            (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                    person_distinct_id_overrides.distinct_id AS distinct_id
-                             FROM person_distinct_id_overrides
-                             WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                             GROUP BY person_distinct_id_overrides.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                            (SELECT distinct_id,
+                                    argMax(person_id, version) as person_id
+                             FROM person_distinct_id2
+                             WHERE team_id = 99999
+                               AND distinct_id IN
+                                 (SELECT distinct_id
+                                  FROM events
+                                  WHERE team_id = 99999
+                                    AND event IN ['buy', 'play movie', 'sign up']
+                                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                             GROUP BY distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -709,7 +690,6 @@
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                            AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1))))))
@@ -729,16 +709,9 @@
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.6
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -750,7 +723,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -820,8 +792,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -829,16 +801,23 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop_attribution,
-                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop,
+                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
-                            (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                    person_distinct_id_overrides.distinct_id AS distinct_id
-                             FROM person_distinct_id_overrides
-                             WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                             GROUP BY person_distinct_id_overrides.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                            (SELECT distinct_id,
+                                    argMax(person_id, version) as person_id
+                             FROM person_distinct_id2
+                             WHERE team_id = 99999
+                               AND distinct_id IN
+                                 (SELECT distinct_id
+                                  FROM events
+                                  WHERE team_id = 99999
+                                    AND event IN ['buy', 'play movie', 'sign up']
+                                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                             GROUP BY distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -850,7 +829,6 @@
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                            AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1))))))
@@ -870,16 +848,9 @@
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.8
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -891,7 +862,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -961,8 +931,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -970,16 +940,23 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop_attribution,
-                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop,
+                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
-                            (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                    person_distinct_id_overrides.distinct_id AS distinct_id
-                             FROM person_distinct_id_overrides
-                             WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                             GROUP BY person_distinct_id_overrides.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                            (SELECT distinct_id,
+                                    argMax(person_id, version) as person_id
+                             FROM person_distinct_id2
+                             WHERE team_id = 99999
+                               AND distinct_id IN
+                                 (SELECT distinct_id
+                                  FROM events
+                                  WHERE team_id = 99999
+                                    AND event IN ['buy', 'play movie', 'sign up']
+                                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                             GROUP BY distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -991,7 +968,6 @@
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                            AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1))))))
@@ -1014,13 +990,6 @@
   SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -1111,7 +1080,7 @@
                        FROM
                          (SELECT e.timestamp as timestamp,
                                  e."$group_0" as aggregation_target,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                                 e.person_id as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -1119,16 +1088,9 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop_attribution,
-                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop,
+                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
-                          LEFT OUTER JOIN
-                            (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                    person_distinct_id_overrides.distinct_id AS distinct_id
-                             FROM person_distinct_id_overrides
-                             WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                             GROUP BY person_distinct_id_overrides.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -1309,16 +1271,9 @@
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -1330,7 +1285,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1407,8 +1361,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -1416,16 +1370,23 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop_attribution,
-                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop,
+                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
-                            (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                    person_distinct_id_overrides.distinct_id AS distinct_id
-                             FROM person_distinct_id_overrides
-                             WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                             GROUP BY person_distinct_id_overrides.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                            (SELECT distinct_id,
+                                    argMax(person_id, version) as person_id
+                             FROM person_distinct_id2
+                             WHERE team_id = 99999
+                               AND distinct_id IN
+                                 (SELECT distinct_id
+                                  FROM events
+                                  WHERE team_id = 99999
+                                    AND event IN ['buy', 'play movie', 'sign up']
+                                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                             GROUP BY distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -1437,7 +1398,6 @@
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                            AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1))))))
@@ -1456,16 +1416,9 @@
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.2
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -1477,7 +1430,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1529,8 +1481,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -1538,16 +1490,22 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -1558,7 +1516,6 @@
                     WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (1=1))))
            WHERE step_0 = 1))
      GROUP BY aggregation_target,
@@ -1576,16 +1533,9 @@
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.4
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -1597,7 +1547,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1649,8 +1598,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -1658,16 +1607,22 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -1678,7 +1633,6 @@
                     WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (1=1))))
            WHERE step_0 = 1))
      GROUP BY aggregation_target,
@@ -1696,16 +1650,9 @@
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.6
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -1717,7 +1664,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1769,8 +1715,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -1778,16 +1724,22 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -1798,7 +1750,6 @@
                     WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (1=1))))
            WHERE step_0 = 1))
      GROUP BY aggregation_target,
@@ -1816,16 +1767,9 @@
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.8
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -1837,7 +1781,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1889,8 +1832,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -1898,16 +1841,22 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -1918,7 +1867,6 @@
                     WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (1=1))))
            WHERE step_0 = 1))
      GROUP BY aggregation_target,
@@ -1939,13 +1887,6 @@
   SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -2036,7 +1977,7 @@
                        FROM
                          (SELECT e.timestamp as timestamp,
                                  e."$group_0" as aggregation_target,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                                 e.person_id as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -2044,16 +1985,9 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop_attribution,
-                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop,
+                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
-                          LEFT OUTER JOIN
-                            (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                    person_distinct_id_overrides.distinct_id AS distinct_id
-                             FROM person_distinct_id_overrides
-                             WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                             GROUP BY person_distinct_id_overrides.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -2234,16 +2168,9 @@
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -2255,7 +2182,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -2332,8 +2258,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                                 if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -2341,16 +2267,23 @@
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
                                  replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                 prop_basic as prop_attribution,
-                                 argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                                 prop_basic as prop,
+                                 argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
                           LEFT OUTER JOIN
-                            (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                    person_distinct_id_overrides.distinct_id AS distinct_id
-                             FROM person_distinct_id_overrides
-                             WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                             GROUP BY person_distinct_id_overrides.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                            (SELECT distinct_id,
+                                    argMax(person_id, version) as person_id
+                             FROM person_distinct_id2
+                             WHERE team_id = 99999
+                               AND distinct_id IN
+                                 (SELECT distinct_id
+                                  FROM events
+                                  WHERE team_id = 99999
+                                    AND event IN ['buy', 'play movie', 'sign up']
+                                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                             GROUP BY distinct_id
+                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
@@ -2362,7 +2295,6 @@
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                            AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1))))))
@@ -2381,16 +2313,9 @@
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.10
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -2402,7 +2327,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -2412,16 +2336,9 @@
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.11
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -2433,7 +2350,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -2443,16 +2359,9 @@
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.12
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -2464,7 +2373,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -2514,8 +2422,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -2523,16 +2431,23 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND event IN ['buy', 'play movie', 'sign up']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -2544,7 +2459,6 @@
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1))))
@@ -2572,8 +2486,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'play movie', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy', 1, 0) as step_1,
@@ -2581,16 +2495,23 @@
                            if(event = 'sign up', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND event IN ['buy', 'play movie', 'sign up']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -2602,7 +2523,6 @@
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1))))
@@ -2630,8 +2550,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'buy', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'sign up', 1, 0) as step_1,
@@ -2639,16 +2559,23 @@
                            if(event = 'play movie', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND event IN ['buy', 'play movie', 'sign up']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -2660,7 +2587,6 @@
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1))))
@@ -2680,16 +2606,9 @@
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.14
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -2701,7 +2620,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -2711,16 +2629,9 @@
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.15
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -2732,7 +2643,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -2742,16 +2652,9 @@
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.16
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -2763,7 +2666,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -2813,8 +2715,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -2822,16 +2724,23 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND event IN ['buy', 'play movie', 'sign up']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -2843,7 +2752,6 @@
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1))))
@@ -2871,8 +2779,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'play movie', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy', 1, 0) as step_1,
@@ -2880,16 +2788,23 @@
                            if(event = 'sign up', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND event IN ['buy', 'play movie', 'sign up']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -2901,7 +2816,6 @@
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1))))
@@ -2929,8 +2843,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'buy', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'sign up', 1, 0) as step_1,
@@ -2938,16 +2852,23 @@
                            if(event = 'play movie', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND event IN ['buy', 'play movie', 'sign up']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -2959,7 +2880,6 @@
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1))))
@@ -2979,16 +2899,9 @@
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.2
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -3000,7 +2913,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -3010,16 +2922,9 @@
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.3
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -3031,7 +2936,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -3041,16 +2945,9 @@
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.4
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -3062,7 +2959,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -3112,8 +3008,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -3121,16 +3017,23 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND event IN ['buy', 'play movie', 'sign up']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -3142,7 +3045,6 @@
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1))))
@@ -3170,8 +3072,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'play movie', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy', 1, 0) as step_1,
@@ -3179,16 +3081,23 @@
                            if(event = 'sign up', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND event IN ['buy', 'play movie', 'sign up']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -3200,7 +3109,6 @@
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1))))
@@ -3228,8 +3136,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'buy', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'sign up', 1, 0) as step_1,
@@ -3237,16 +3145,23 @@
                            if(event = 'play movie', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND event IN ['buy', 'play movie', 'sign up']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -3258,7 +3173,6 @@
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1))))
@@ -3278,16 +3192,9 @@
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.6
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -3299,7 +3206,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -3309,16 +3215,9 @@
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.7
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -3330,7 +3229,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -3340,16 +3238,9 @@
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.8
   '''
   
-  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -3361,7 +3252,6 @@
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -3411,8 +3301,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -3420,16 +3310,23 @@
                            if(event = 'buy', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND event IN ['buy', 'play movie', 'sign up']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -3441,7 +3338,6 @@
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1))))
@@ -3469,8 +3365,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'play movie', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy', 1, 0) as step_1,
@@ -3478,16 +3374,23 @@
                            if(event = 'sign up', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND event IN ['buy', 'play movie', 'sign up']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -3499,7 +3402,6 @@
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1))))
@@ -3527,8 +3429,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'buy', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'sign up', 1, 0) as step_1,
@@ -3536,16 +3438,23 @@
                            if(event = 'play movie', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2,
                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                           prop_basic as prop_attribution,
-                           argMinIf(prop_attribution, timestamp, isNotNull(prop_attribution)) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND event IN ['buy', 'play movie', 'sign up']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -3557,7 +3466,6 @@
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1))))

@@ -1,5 +1,4 @@
 import { S3Client } from '@aws-sdk/client-s3'
-import { createClient as createClickHouseClient } from '@clickhouse/client'
 import { Server } from 'http'
 import supertest from 'supertest'
 import express from 'ultimate-express'
@@ -135,13 +134,6 @@ describe('RecordingApi', () => {
                 dynamoDBEndpoint: undefined,
             })
             expect(getBlockDecryptor).toHaveBeenCalledWith(mockKeyStore)
-            expect(createClickHouseClient).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    clickhouse_settings: expect.objectContaining({
-                        enable_analyzer: 1,
-                    }),
-                })
-            )
             expect(RecordingService).toHaveBeenCalled()
         })
 

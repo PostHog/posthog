@@ -64,9 +64,7 @@ def test_connection_pool_creation_with_team_id(settings):
     assert get_pool(Workload.DEFAULT, team_id=3) is online_pool
 
     assert online_pool.connection_args["host"] == settings.CLICKHOUSE_HOST
-    assert online_pool.connection_args["settings"]["enable_analyzer"] == "1"
     assert team_pool.connection_args["host"] == "clicky"
-    assert team_pool.connection_args["settings"]["enable_analyzer"] == "1"
 
 
 @pytest.fixture(autouse=True)

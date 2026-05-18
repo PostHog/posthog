@@ -125,9 +125,6 @@ export class RecordingApi {
             username: this.config.CLICKHOUSE_USER,
             password: this.config.CLICKHOUSE_PASSWORD || undefined,
             database: this.config.CLICKHOUSE_DATABASE,
-            clickhouse_settings: {
-                enable_analyzer: 1,
-            },
             request_timeout: 30_000,
             max_open_connections: 10,
             // Internal ClickHouse uses self-signed certs with a hostname mismatch

@@ -302,7 +302,6 @@ class ClickHouseClient:
             self.params["database"] = database
 
         self.params.update(kwargs)
-        self.params["enable_analyzer"] = 1
 
     @classmethod
     def from_posthog_settings(cls, settings, **kwargs):

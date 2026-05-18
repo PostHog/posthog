@@ -207,7 +207,6 @@ def default_settings() -> dict:
     return {
         "join_algorithm": "direct,parallel_hash,hash",
         "distributed_replica_max_ignored_errors": 1000,
-        "enable_analyzer": 1,
         # max_query_size can't be set in a query, because it determines the size of the buffer used to parse the query
         # https://clickhouse.com/docs/en/operations/settings/settings#max_query_size
         "max_query_size": 1048576,
@@ -338,7 +337,6 @@ def sync_execute(
         **default_settings(),
         **CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}),
         **(settings or {}),
-        "enable_analyzer": 1,
     }
 
     kill_switch_level = KillSwitchLevel.OFF if TEST else resolve_kill_switch_level(team_id)

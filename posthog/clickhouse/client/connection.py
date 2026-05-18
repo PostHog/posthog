@@ -177,18 +177,13 @@ _clickhouse_http_pool_mgr = httputil.get_pool_manager(
 
 @contextmanager
 def get_http_client(**overrides):
-    settings_overrides = overrides.pop("settings", {}) or {}
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
         "secure": settings.CLICKHOUSE_SECURE,
         "user": settings.CLICKHOUSE_USER,  # kwargs have user not username
         "password": settings.CLICKHOUSE_PASSWORD,
-        "settings": {
-            **({"mutations_sync": "1"} if settings.TEST else {}),
-            **settings_overrides,
-            "enable_analyzer": "1",
-        },
+        "settings": {"mutations_sync": "1"} if settings.TEST else {},
         # Without this, OPTIMIZE table and other queries will regularly run into timeouts
         "send_receive_timeout": 30 if settings.TEST else 999_999_999,
         "autogenerate_session_id": True,
@@ -294,12 +289,10 @@ def default_client(host=settings.CLICKHOUSE_HOST):
         password=settings.CLICKHOUSE_PASSWORD,
         ca_certs=settings.CLICKHOUSE_CA,
         verify=settings.CLICKHOUSE_VERIFY,
-        settings={"enable_analyzer": 1},
     )
 
 
 def _make_ch_pool(*, client_settings: Mapping[str, str] | None = None, **overrides) -> ChPool:
-    settings_overrides = overrides.pop("settings", {}) or {}
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
@@ -313,8 +306,6 @@ def _make_ch_pool(*, client_settings: Mapping[str, str] | None = None, **overrid
         "settings": {
             **({"mutations_sync": "1"} if settings.TEST else {}),
             **(client_settings or {}),
-            **settings_overrides,
-            "enable_analyzer": "1",
         },
         # Without this, OPTIMIZE table and other queries will regularly run into timeouts
         "send_receive_timeout": 30 if settings.TEST else 999_999_999,

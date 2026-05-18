@@ -51,8 +51,8 @@
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
-                              if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                              if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -61,17 +61,23 @@
                               if(step_2 = 1, timestamp, null) as latest_2
                        FROM events e
                        LEFT OUTER JOIN
-                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                 person_distinct_id_overrides.distinct_id AS distinct_id
-                          FROM person_distinct_id_overrides
-                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                          GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 99999
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 99999
+                                 AND event IN ['step one', 'step three', 'step two']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-04-30 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 99999
                          AND event IN ['step one', 'step three', 'step two']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-04-30 00:00:00', 'UTC')
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                         AND notEmpty(e.person_id)
                          AND (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1)))))
@@ -137,8 +143,8 @@
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
-                              if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                              if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -147,17 +153,23 @@
                               if(step_2 = 1, timestamp, null) as latest_2
                        FROM events e
                        LEFT OUTER JOIN
-                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                 person_distinct_id_overrides.distinct_id AS distinct_id
-                          FROM person_distinct_id_overrides
-                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                          GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 99999
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 99999
+                                 AND event IN ['step one', 'step three', 'step two']
+                                 AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2021-04-30 00:00:00', 'US/Pacific')
+                                 AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2021-05-07 23:59:59', 'US/Pacific'))
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 99999
                          AND event IN ['step one', 'step three', 'step two']
                          AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2021-04-30 00:00:00', 'US/Pacific')
                          AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2021-05-07 23:59:59', 'US/Pacific')
-                         AND notEmpty(e.person_id)
                          AND (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1)))))
@@ -223,8 +235,8 @@
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
-                              if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                              if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -233,17 +245,23 @@
                               if(step_2 = 1, timestamp, null) as latest_2
                        FROM events e
                        LEFT OUTER JOIN
-                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                 person_distinct_id_overrides.distinct_id AS distinct_id
-                          FROM person_distinct_id_overrides
-                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                          GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 99999
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 99999
+                                 AND event IN ['step one', 'step three', 'step two']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 99999
                          AND event IN ['step one', 'step three', 'step two']
                          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                         AND notEmpty(e.person_id)
                          AND (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1)))))
@@ -302,8 +320,8 @@
                                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
-                           if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'step one', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'step two', 1, 0) as step_1,
@@ -312,17 +330,23 @@
                            if(step_2 = 1, timestamp, null) as latest_2
                     FROM events e
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                              person_distinct_id_overrides.distinct_id AS distinct_id
-                       FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                       GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND event IN ['step one', 'step three', 'step two']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 99999
                       AND event IN ['step one', 'step three', 'step two']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1)))))

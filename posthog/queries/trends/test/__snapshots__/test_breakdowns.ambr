@@ -7,18 +7,10 @@
     (SELECT toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) AS value,
             count(DISTINCT e."$session_id") as count
      FROM events e
-     LEFT OUTER JOIN
-       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-               person_distinct_id_overrides.distinct_id AS distinct_id
-        FROM person_distinct_id_overrides
-        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-        GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND notEmpty(e.person_id)
      GROUP BY value)
   '''
 # ---
@@ -58,20 +50,11 @@
                                     AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 98.37, '[66.25,98.37]', toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 98.37
                                     AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 1000.01, '[98.37,1000.01]', '["",""]') as breakdown_value
            FROM events e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) is not null
-             AND notEmpty(e.person_id)
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -90,18 +73,10 @@
     (SELECT toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) AS value,
             count(*) as count
      FROM events e
-     LEFT OUTER JOIN
-       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-               person_distinct_id_overrides.distinct_id AS distinct_id
-        FROM person_distinct_id_overrides
-        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-        GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND notEmpty(e.person_id)
      GROUP BY value)
   '''
 # ---
@@ -141,20 +116,11 @@
                                     AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 98.37, '[66.25,98.37]', toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 98.37
                                     AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 1000.01, '[98.37,1000.01]', '["",""]') as breakdown_value
            FROM events e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) is not null
-             AND notEmpty(e.person_id)
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -171,13 +137,6 @@
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   INNER JOIN
     (SELECT "$session_id",
             dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -192,7 +151,6 @@
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
     AND (sessions.session_duration > 30.0)
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -230,13 +188,6 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com/', 'https://example.com']), (['$$_posthog_breakdown_null_$$', 'https://example.com/', 'https://example.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            INNER JOIN
              (SELECT "$session_id",
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -251,8 +202,6 @@
              AND (sessions.session_duration > 30.0)
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND notEmpty(e.person_id)
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -269,13 +218,6 @@
   SELECT sessions.session_duration AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   INNER JOIN
     (SELECT "$session_id",
             dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -290,7 +232,6 @@
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
     AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -328,13 +269,6 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             sessions.session_duration as breakdown_value
            FROM events e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            INNER JOIN
              (SELECT "$session_id",
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -349,8 +283,6 @@
              AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND notEmpty(e.person_id)
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -369,13 +301,6 @@
     (SELECT toFloat64OrNull(toString(sessions.session_duration)) AS value,
             count(*) as count
      FROM events e
-     LEFT OUTER JOIN
-       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-               person_distinct_id_overrides.distinct_id AS distinct_id
-        FROM person_distinct_id_overrides
-        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-        GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      INNER JOIN
        (SELECT "$session_id",
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -389,7 +314,6 @@
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND notEmpty(e.person_id)
      GROUP BY value)
   '''
 # ---
@@ -402,13 +326,6 @@
                  AND toFloat64OrNull(toString(sessions.session_duration)) < 110.72, '[69.92,110.72]', toFloat64OrNull(toString(sessions.session_duration)) >= 110.72
                  AND toFloat64OrNull(toString(sessions.session_duration)) < 180.01, '[110.72,180.01]', '["",""]') AS breakdown_value
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   INNER JOIN
     (SELECT "$session_id",
             dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -423,7 +340,6 @@
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
     AND toFloat64OrNull(toString(sessions.session_duration)) is not null
-    AND notEmpty(e.person_id)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
   '''
@@ -436,13 +352,6 @@
     (SELECT toFloat64OrNull(toString(sessions.session_duration)) AS value,
             count(*) as count
      FROM events e
-     LEFT OUTER JOIN
-       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-               person_distinct_id_overrides.distinct_id AS distinct_id
-        FROM person_distinct_id_overrides
-        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-        GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      INNER JOIN
        (SELECT "$session_id",
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -457,7 +366,6 @@
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
-       AND notEmpty(e.person_id)
      GROUP BY value)
   '''
 # ---
@@ -497,13 +405,6 @@
                                     AND toFloat64OrNull(toString(sessions.session_duration)) < 110.72, '[69.92,110.72]', toFloat64OrNull(toString(sessions.session_duration)) >= 110.72
                                     AND toFloat64OrNull(toString(sessions.session_duration)) < 180.01, '[110.72,180.01]', '["",""]') as breakdown_value
            FROM events e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            INNER JOIN
              (SELECT "$session_id",
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -519,8 +420,6 @@
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND toFloat64OrNull(toString(sessions.session_duration)) is not null
-             AND notEmpty(e.person_id)
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -537,13 +436,6 @@
   SELECT sessions.session_duration AS value,
          count(DISTINCT e."$session_id") as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   INNER JOIN
     (SELECT "$session_id",
             dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -557,7 +449,6 @@
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -595,13 +486,6 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             sessions.session_duration as breakdown_value
            FROM events e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            INNER JOIN
              (SELECT "$session_id",
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -615,8 +499,6 @@
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND notEmpty(e.person_id)
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -635,13 +517,6 @@
     (SELECT toFloat64OrNull(toString(sessions.session_duration)) AS value,
             count(DISTINCT e."$session_id") as count
      FROM events e
-     LEFT OUTER JOIN
-       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-               person_distinct_id_overrides.distinct_id AS distinct_id
-        FROM person_distinct_id_overrides
-        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-        GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      INNER JOIN
        (SELECT "$session_id",
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -655,7 +530,6 @@
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND notEmpty(e.person_id)
      GROUP BY value)
   '''
 # ---
@@ -695,13 +569,6 @@
                                     AND toFloat64OrNull(toString(sessions.session_duration)) < 110.72, '[69.92,110.72]', toFloat64OrNull(toString(sessions.session_duration)) >= 110.72
                                     AND toFloat64OrNull(toString(sessions.session_duration)) < 180.01, '[110.72,180.01]', '["",""]') as breakdown_value
            FROM events e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            INNER JOIN
              (SELECT "$session_id",
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -716,8 +583,6 @@
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND toFloat64OrNull(toString(sessions.session_duration)) is not null
-             AND notEmpty(e.person_id)
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -736,18 +601,10 @@
     (SELECT toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'this_property_does_not_exist'), '^"|"$', ''))) AS value,
             count(*) as count
      FROM events e
-     LEFT OUTER JOIN
-       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-               person_distinct_id_overrides.distinct_id AS distinct_id
-        FROM person_distinct_id_overrides
-        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-        GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND notEmpty(e.person_id)
      GROUP BY value)
   '''
 # ---
@@ -783,20 +640,11 @@
                             multiIf(toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'this_property_does_not_exist'), '^"|"$', ''))) >= nan
                                     AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'this_property_does_not_exist'), '^"|"$', ''))) < nan, '[nan,nan]', '["",""]') as breakdown_value
            FROM events e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'this_property_does_not_exist'), '^"|"$', ''))) is not null
-             AND notEmpty(e.person_id)
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -813,18 +661,10 @@
   SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   WHERE team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 3
@@ -862,19 +702,10 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19, 9007199254740991]), ([9007199254740990, 19, 9007199254740991]), 9007199254740991) as breakdown_value
            FROM events e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND notEmpty(e.person_id)
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -891,18 +722,10 @@
   SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   WHERE team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 3
@@ -940,20 +763,11 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19]), ([9007199254740990, 19]), 9007199254740991) as breakdown_value
            FROM events e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND notEmpty(e.person_id)
              AND transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19]), ([9007199254740990, 19]), 9007199254740991) in ([9007199254740990, 19])
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -970,18 +784,10 @@
   SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   WHERE team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 4
@@ -1019,20 +825,11 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19, 20]), ([9007199254740990, 19, 20]), 9007199254740991) as breakdown_value
            FROM events e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND notEmpty(e.person_id)
              AND transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19, 20]), ([9007199254740990, 19, 20]), 9007199254740991) in ([9007199254740990, 19, 20])
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -1049,18 +846,10 @@
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   WHERE team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 3
@@ -1098,19 +887,10 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com', '$$_posthog_breakdown_other_$$']), (['$$_posthog_breakdown_null_$$', 'https://example.com', '$$_posthog_breakdown_other_$$']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND notEmpty(e.person_id)
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -1127,18 +907,10 @@
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   WHERE team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 3
@@ -1176,20 +948,11 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com']), (['$$_posthog_breakdown_null_$$', 'https://example.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND notEmpty(e.person_id)
              AND transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com']), (['$$_posthog_breakdown_null_$$', 'https://example.com']), '$$_posthog_breakdown_other_$$') in (['$$_posthog_breakdown_null_$$', 'https://example.com'])
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -1206,18 +969,10 @@
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 99999)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   WHERE team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 4
@@ -1255,20 +1010,11 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND notEmpty(e.person_id)
              AND transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), '$$_posthog_breakdown_other_$$') in (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/'])
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
