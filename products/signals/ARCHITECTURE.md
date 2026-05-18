@@ -814,7 +814,7 @@ python manage.py enable_signals_autonomy <team_id> <priority> <emails>
 
 ### Auto-Start Flow
 
-Runs inside `_maybe_autostart_task_for_report()` in `temporal/agentic/report.py`, called after artefact persistence in `run_agentic_report_activity`.
+Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, called after artefact persistence in both `run_agentic_report_activity` (the signals pipeline) and `run_custom_signal_agent_activity` (custom agents).
 
 **Guard clause** — all must pass:
 
@@ -823,7 +823,7 @@ Runs inside `_maybe_autostart_task_for_report()` in `temporal/agentic/report.py`
 - Report has suggested reviewers
 - No existing `SignalReportTask` with `relationship=implementation` for this report
 
-**User selection** via `_resolve_autostart_assignee()`:
+**User selection** via `_resolve_autostart_assignee()` in `backend/auto_start.py`:
 
 1. Map reviewer GitHub logins to PostHog user IDs via social auth (preserving reviewer relevance order)
 2. Single query: fetch `User` objects whose ID is in that list **and** who have a `SignalUserAutonomyConfig` row (joined via `select_related`)
@@ -847,11 +847,11 @@ Runs inside `_maybe_autostart_task_for_report()` in `temporal/agentic/report.py`
 
 All report ↔ task relationships are tracked via `SignalReportTask`:
 
-| Relationship     | Created when                                          | Created where                                                        |
-| ---------------- | ----------------------------------------------------- | -------------------------------------------------------------------- |
-| `research`       | Immediately after the research sandbox session starts | `run_multi_turn_research()` in `report_generation/research.py`       |
-| `implementation` | After auto-starting a coding task                     | `_maybe_autostart_task_for_report()` in `temporal/agentic/report.py` |
-| `repo_selection` | Reserved for future use                               | Not yet created anywhere                                             |
+| Relationship     | Created when                                          | Created where                                                      |
+| ---------------- | ----------------------------------------------------- | ------------------------------------------------------------------ |
+| `research`       | Immediately after the research sandbox session starts | `run_multi_turn_research()` in `report_generation/research.py`     |
+| `implementation` | After auto-starting a coding task                     | `maybe_autostart_implementation_task()` in `backend/auto_start.py` |
+| `repo_selection` | Reserved for future use                               | Not yet created anywhere                                           |
 
 Both `report` and `task` FKs cascade on delete — deleting a report or task cleans up the relationship rows automatically.
 

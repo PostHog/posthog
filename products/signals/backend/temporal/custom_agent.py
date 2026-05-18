@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 import structlog
+import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -11,6 +12,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 
+from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.custom_agent.loader import import_agent_class, validate_agent_class_identity
 from products.signals.backend.custom_agent.persistence import create_custom_agent_ready_report
 from products.signals.backend.custom_agent.repo_selection import (
@@ -156,6 +158,36 @@ async def run_custom_signal_agent_activity(inputs: CustomAgentWorkflowInput) -> 
                 repository=resolved_repo.selected_repository,
                 task_id=task_id,
             )
+
+            if resolved_repo.selected_repository is not None:
+                reviewers_content: list[ReviewerContent] = [
+                    ReviewerContent(
+                        github_login=assignee.github_login,
+                        github_name=assignee.github_name,
+                        relevant_commits=list(assignee.relevant_commits),
+                    )
+                    for assignee in final_report.assignees
+                ]
+                try:
+                    await maybe_autostart_implementation_task(
+                        team_id=inputs.team_id,
+                        report_id=persisted.report_id,
+                        repository=resolved_repo.selected_repository,
+                        title=final_report.title,
+                        summary=final_report.description,
+                        actionability=final_report.actionability,
+                        priority=final_report.priority,
+                        reviewers_content=reviewers_content,
+                    )
+                except Exception as error:
+                    posthoganalytics.capture_exception(error)
+                    log.exception(
+                        "custom signal agent auto-start task failed",
+                        report_id=persisted.report_id,
+                        repository=resolved_repo.selected_repository,
+                        error=str(error),
+                    )
+
             return CustomAgentWorkflowOutput(
                 report_id=persisted.report_id,
                 status=SignalReport.Status.READY,
