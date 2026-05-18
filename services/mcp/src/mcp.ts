@@ -19,15 +19,16 @@ import {
 import { handleToolError, wrapError } from '@/lib/errors'
 import { type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
+import { getPostHogClient } from '@/lib/posthog'
 import {
     AnalyticsEvent,
     buildMCPAnalyticsGroups,
     buildMCPContextProperties,
-    getPostHogClient,
     initMcpAnalytics,
     McpAnalyticsInitResult,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
+import { evaluateFeatureFlags, isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
@@ -38,8 +39,6 @@ import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import { createExecInnerToolCallResolver, createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
-
-import { evaluateFeatureFlags, isFeatureFlagEnabled } from './lib/posthog/flags'
 
 const instructionsFormatter = new InstructionsFormatter()
 

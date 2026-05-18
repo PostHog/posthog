@@ -1,4 +1,4 @@
-import { getPostHogClient } from './analytics'
+import { getPostHogClient } from './client'
 
 export async function isFeatureFlagEnabled(flagKey: string, distinctId: string): Promise<boolean> {
     try {

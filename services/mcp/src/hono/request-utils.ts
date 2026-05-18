@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { mapErrorToAuthResponse, mapKnownErrorMessage, validateBearerToken } from '@/lib/auth-errors'
-import { getPostHogClient } from '@/lib/posthog/analytics'
+import { getPostHogClient } from '@/lib/posthog'
 import {
     type ClientInfo,
     parseRequestProperties,

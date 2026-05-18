@@ -9,11 +9,11 @@ import { MCPClientProfile } from '@/lib/client-detection'
 import { handleToolError, wrapError } from '@/lib/errors'
 import { type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
+import { getPostHogClient } from '@/lib/posthog'
 import {
     AnalyticsEvent,
     buildMCPAnalyticsGroups,
     buildMCPContextProperties,
-    getPostHogClient,
     initMcpAnalytics,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
@@ -219,8 +219,6 @@ export class HonoMcpServer {
         try {
             const distinctId = await this.getDistinctId()
 
-            const client = getPostHogClient()
-
             await this.resolveClientInfo()
 
             const clientName = await this.cache.get('clientName')
@@ -231,6 +229,7 @@ export class HonoMcpServer {
                 : {}
             const groups = options?.context ? buildMCPAnalyticsGroups(options.context) : {}
 
+            const client = getPostHogClient()
             client.capture({
                 distinctId,
                 event,

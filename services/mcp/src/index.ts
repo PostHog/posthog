@@ -7,7 +7,7 @@ import {
 } from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
-import { getPostHogClient } from '@/lib/posthog/analytics'
+import { getPostHogClient } from '@/lib/posthog'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
