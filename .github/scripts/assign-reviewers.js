@@ -41,7 +41,10 @@ function parseOwnersFromProductYaml(content) {
     for (const rawLine of content.split('\n')) {
         const line = rawLine.replace(/\s+#.*$/, '').trimEnd()
 
-        if (!line.trim()) {
+        // Skip blank lines and full-line comments — neither should terminate the
+        // owners block. Inline comments are already stripped above; the regex
+        // requires preceding whitespace, so we handle column-0 comments here.
+        if (!line.trim() || /^\s*#/.test(rawLine)) {
             continue
         }
 
@@ -93,7 +96,10 @@ function loadProductYamlRules(productsDir = 'products') {
 
         const owners = []
         for (const slug of slugs) {
-            if (!slug || slug === 'team-CHANGEME') {
+            // Guard against slugs that already include an `@` prefix — otherwise
+            // we'd build `@PostHog/@PostHog/team-foo`, which GitHub silently
+            // refuses to resolve and reviewer assignment is dropped.
+            if (!slug || slug === 'team-CHANGEME' || slug.startsWith('@')) {
                 continue
             }
             owners.push(`@PostHog/${slug}`)
