@@ -593,6 +593,35 @@ class TestVapiWebhook(APIBaseTest):
             HTTP_X_VAPI_SIGNATURE=signature,
         )
 
+    def _end_of_call_payload_with_nested_metadata(self, access_token: str | None, call_id: str = "call_abc") -> dict:
+        # Vapi sometimes surfaces our start_call `assistant_overrides.metadata` under
+        # `call.assistantOverrides.metadata` rather than `call.metadata`. The webhook
+        # handler has to find it in either location.
+        return {
+            "message": {
+                "type": "end-of-call-report",
+                "call": {
+                    "id": call_id,
+                    "assistantOverrides": {"metadata": {"sharing_access_token": access_token}},
+                    "duration": 120,
+                },
+                "transcript": "Hi! ...",
+                "summary": "User talked about replay.",
+                "recording": {"url": "https://vapi.example/recording.mp3"},
+            }
+        }
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    def test_webhook_creates_user_interview_with_nested_overrides_metadata(self):
+        share = self._create_share()
+        self.client.logout()
+        response = self._signed_post("topsecret", self._end_of_call_payload_with_nested_metadata(share.access_token))
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        interview = UserInterview.objects.get(team=self.team)
+        assert share.interviewee_context is not None
+        self.assertEqual(interview.topic, share.interviewee_context.topic)
+        self.assertEqual(interview.transcript, "Hi! ...")
+
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     def test_webhook_creates_user_interview(self):
         share = self._create_share()
