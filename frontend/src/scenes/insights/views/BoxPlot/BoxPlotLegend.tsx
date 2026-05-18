@@ -28,7 +28,7 @@ export function BoxPlotLegend({ horizontal, inCardView }: BoxPlotLegendProps): J
                 'InsightLegendMenu--in-card-view': inCardView,
             })}
         >
-            <div className="grid grid-cols-1">
+            <div className={clsx('w-full', horizontal ? 'flex flex-wrap' : 'grid grid-cols-1')}>
                 {seriesGroups.map((group) => (
                     <div
                         key={group.seriesIndex}

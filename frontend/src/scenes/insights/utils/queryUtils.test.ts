@@ -224,15 +224,16 @@ describe('compareQuery with ignoreVisualizationOnlyChanges', () => {
         series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
     }
 
-    it('treats two queries that differ only by legendPosition as semantically equal', () => {
-        const right: TrendsQuery = {
-            ...baseTrends,
-            trendsFilter: { showLegend: true, legendPosition: LegendPosition.Right },
-        }
-        const bottom: TrendsQuery = {
-            ...baseTrends,
-            trendsFilter: { showLegend: true, legendPosition: LegendPosition.Bottom },
-        }
-        expect(compareQuery(right, bottom, { ignoreVisualizationOnlyChanges: true })).toBe(true)
+    it.each([
+        [LegendPosition.Right, LegendPosition.Bottom],
+        [LegendPosition.Right, LegendPosition.Top],
+        [LegendPosition.Right, LegendPosition.Left],
+        [LegendPosition.Top, LegendPosition.Bottom],
+        [LegendPosition.Top, LegendPosition.Left],
+        [LegendPosition.Bottom, LegendPosition.Left],
+    ])('treats two queries differing only by legendPosition (%s vs %s) as semantically equal', (a, b) => {
+        const queryA: TrendsQuery = { ...baseTrends, trendsFilter: { showLegend: true, legendPosition: a } }
+        const queryB: TrendsQuery = { ...baseTrends, trendsFilter: { showLegend: true, legendPosition: b } }
+        expect(compareQuery(queryA, queryB, { ignoreVisualizationOnlyChanges: true })).toBe(true)
     })
 })

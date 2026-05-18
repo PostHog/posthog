@@ -45,6 +45,7 @@ function setLegendFilter(
 
 interface InsightStoryOptions {
     openSidePanel?: boolean
+    legendPosition?: LegendPosition
 }
 
 let shortCounter = 0
@@ -52,8 +53,7 @@ export function createInsightStory(
     insight: Partial<QueryBasedInsightModel>,
     mode: 'view' | 'edit' = 'view',
     showLegend: boolean = false,
-    options: InsightStoryOptions = {},
-    legendPosition?: LegendPosition
+    options: InsightStoryOptions = {}
 ): StoryFn<typeof App> {
     const count = shortCounter++
     return function InsightStory() {
@@ -71,7 +71,7 @@ export function createInsightStory(
                                 ...insight,
                                 short_id: `${insight.short_id}${count}`,
                                 id: (insight.id ?? 0) + 1 + count,
-                                query: setLegendFilter(insight.query, showLegend, legendPosition),
+                                query: setLegendFilter(insight.query, showLegend, options.legendPosition),
                             },
                         ],
                     }),

@@ -10,13 +10,8 @@
     &.InsightLegendMenu--horizontal {
         max-width: 100%;
 
-        .InsightLegendMenu-scroll {
-            display: flex;
-            flex-wrap: wrap;
-
-            .InsightLegendMenu-item {
-                width: auto;
-            }
+        .InsightLegendMenu-item {
+            width: auto;
         }
     }
 }

@@ -15,15 +15,18 @@ export function LegendPositionFilter(): JSX.Element {
 
     return (
         <div className="flex items-center justify-between gap-2 p-1 px-2">
-            <span className="font-normal">Legend position</span>
+            <span id="legend-position-label" className="font-normal">
+                Legend position
+            </span>
             <LemonSelect
                 size="small"
-                value={legendPosition ?? LegendPosition.Right}
+                aria-labelledby="legend-position-label"
+                value={legendPosition}
                 onChange={(value) => updateInsightFilter({ legendPosition: value })}
                 options={[
+                    { label: 'Top', value: LegendPosition.Top },
                     { label: 'Right', value: LegendPosition.Right },
                     { label: 'Bottom', value: LegendPosition.Bottom },
-                    { label: 'Top', value: LegendPosition.Top },
                     { label: 'Left', value: LegendPosition.Left },
                 ]}
             />

@@ -83,6 +83,64 @@ function DashboardInsightRefreshHintOrLoading({
     return <InsightRefreshDataHint onRetry={onRetry} />
 }
 
+function InsightVizContent({
+    display,
+    legendPosition,
+    supportsDisplay,
+    showLegend,
+    blockingEmptyState,
+    renderActiveView,
+}: {
+    display: ChartDisplayType | undefined
+    legendPosition: LegendPosition
+    supportsDisplay: boolean
+    showLegend: boolean
+    blockingEmptyState: JSX.Element | null
+    renderActiveView: () => JSX.Element | null
+}): JSX.Element {
+    const isHorizontalLegend = legendPosition === LegendPosition.Top || legendPosition === LegendPosition.Bottom
+    const legendFirst = legendPosition === LegendPosition.Top || legendPosition === LegendPosition.Left
+    const contentClassName = clsx(
+        'InsightVizDisplay__content',
+        supportsDisplay && showLegend && `InsightVizDisplay__content--with-legend-${legendPosition}`
+    )
+
+    if (blockingEmptyState) {
+        return <div className={contentClassName}>{blockingEmptyState}</div>
+    }
+
+    if (!supportsDisplay || !showLegend) {
+        return <div className={contentClassName}>{renderActiveView()}</div>
+    }
+
+    const chartSlot = <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
+    const legendSlot = (
+        <div className="InsightVizDisplay__content__right empty:hidden">
+            {display === ChartDisplayType.BoxPlot ? (
+                <BoxPlotLegend horizontal={isHorizontalLegend} />
+            ) : (
+                <InsightLegend horizontal={isHorizontalLegend} />
+            )}
+        </div>
+    )
+
+    return (
+        <div className={contentClassName}>
+            {legendFirst ? (
+                <>
+                    {legendSlot}
+                    {chartSlot}
+                </>
+            ) : (
+                <>
+                    {chartSlot}
+                    {legendSlot}
+                </>
+            )}
+        </div>
+    )
+}
+
 /** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
 export function shouldShowDashboardInsightRefreshHint({
     isInDashboardContext,
@@ -439,53 +497,14 @@ export function InsightVizDisplay({
                                 </div>
                             )}
 
-                        {(() => {
-                            const position = legendPosition ?? LegendPosition.Right
-                            const isHorizontalLegend =
-                                position === LegendPosition.Top || position === LegendPosition.Bottom
-                            const legendFirst =
-                                position === LegendPosition.Top || position === LegendPosition.Left
-                            const chartSlot = (
-                                <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
-                            )
-                            const legendSlot = (
-                                <div className="InsightVizDisplay__content__right empty:hidden">
-                                    {display === ChartDisplayType.BoxPlot ? (
-                                        <BoxPlotLegend />
-                                    ) : (
-                                        <InsightLegend horizontal={isHorizontalLegend} />
-                                    )}
-                                </div>
-                            )
-                            return (
-                                <div
-                                    className={clsx(
-                                        'InsightVizDisplay__content',
-                                        supportsDisplay &&
-                                            showLegend &&
-                                            `InsightVizDisplay__content--with-legend-${position}`
-                                    )}
-                                >
-                                    {BlockingEmptyState ? (
-                                        BlockingEmptyState
-                                    ) : supportsDisplay && showLegend ? (
-                                        legendFirst ? (
-                                            <>
-                                                {legendSlot}
-                                                {chartSlot}
-                                            </>
-                                        ) : (
-                                            <>
-                                                {chartSlot}
-                                                {legendSlot}
-                                            </>
-                                        )
-                                    ) : (
-                                        <>{renderActiveView()}</>
-                                    )}
-                                </div>
-                            )
-                        })()}
+                        <InsightVizContent
+                            display={display}
+                            legendPosition={legendPosition}
+                            supportsDisplay={supportsDisplay}
+                            showLegend={showLegend}
+                            blockingEmptyState={BlockingEmptyState}
+                            renderActiveView={renderActiveView}
+                        />
                     </>
                 )}
             </div>

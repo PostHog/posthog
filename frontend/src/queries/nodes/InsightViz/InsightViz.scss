@@ -140,6 +140,11 @@
             margin: 1rem;
         }
 
+        &--with-legend-bottom .InsightVizDisplay__content__left,
+        &--with-legend-top .InsightVizDisplay__content__left {
+            min-height: 65%;
+        }
+
         &--with-legend-bottom .InsightVizDisplay__content__right,
         &--with-legend-top .InsightVizDisplay__content__right {
             align-items: flex-start;

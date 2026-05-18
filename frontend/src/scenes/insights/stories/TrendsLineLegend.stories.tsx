@@ -49,16 +49,16 @@ const waitForCanvas = {
     },
 }
 
-export const LegendRight: Story = createInsightStory(fixture, 'view', true, {}, LegendPosition.Right)
+export const LegendRight: Story = createInsightStory(fixture, 'view', true, { legendPosition: LegendPosition.Right })
 LegendRight.parameters = waitForCanvas
 
-export const LegendBottom: Story = createInsightStory(fixture, 'view', true, {}, LegendPosition.Bottom)
+export const LegendBottom: Story = createInsightStory(fixture, 'view', true, { legendPosition: LegendPosition.Bottom })
 LegendBottom.parameters = waitForCanvas
 
-export const LegendTop: Story = createInsightStory(fixture, 'view', true, {}, LegendPosition.Top)
+export const LegendTop: Story = createInsightStory(fixture, 'view', true, { legendPosition: LegendPosition.Top })
 LegendTop.parameters = waitForCanvas
 
-export const LegendLeft: Story = createInsightStory(fixture, 'view', true, {}, LegendPosition.Left)
+export const LegendLeft: Story = createInsightStory(fixture, 'view', true, { legendPosition: LegendPosition.Left })
 LegendLeft.parameters = waitForCanvas
 
 /* eslint-enable @typescript-eslint/no-var-requires */
