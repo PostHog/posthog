@@ -983,6 +983,7 @@ def cleanup_materialized_columns():
     try:
         from ee.clickhouse.materialized_columns.columns import (
             get_bloom_filter_index_name,
+            get_bloom_filter_lower_index_name,
             get_materialized_columns,
             get_minmax_index_name,
             get_ngram_lower_index_name,
@@ -1011,6 +1012,8 @@ def cleanup_materialized_columns():
                 indexes_to_drop.append(get_bloom_filter_index_name(column.name))
             if column.has_ngram_lower_index:
                 indexes_to_drop.append(get_ngram_lower_index_name(column.name))
+            if column.has_bloom_filter_lower_index:
+                indexes_to_drop.append(get_bloom_filter_lower_index_name(column.name))
             for index_name in indexes_to_drop:
                 sync_execute(f"ALTER TABLE {data_table} DROP INDEX IF EXISTS {index_name} SETTINGS mutations_sync = 2")
 
@@ -1112,11 +1115,13 @@ def materialized(
     is_nullable: bool = False,
     create_bloom_filter_index: bool = False,
     create_ngram_lower_index: bool = False,
+    create_bloom_filter_lower_index: bool = False,
 ) -> Iterator[MaterializedColumn]:
     """Materialize a property within the managed block, removing it on exit."""
     try:
         from ee.clickhouse.materialized_columns.columns import (
             get_bloom_filter_index_name,
+            get_bloom_filter_lower_index_name,
             get_minmax_index_name,
             get_ngram_lower_index_name,
             materialize,
@@ -1133,6 +1138,7 @@ def materialized(
             is_nullable=is_nullable,
             create_bloom_filter_index=create_bloom_filter_index,
             create_ngram_lower_index=create_ngram_lower_index,
+            create_bloom_filter_lower_index=create_bloom_filter_lower_index,
         )
         yield column
     finally:
@@ -1145,6 +1151,8 @@ def materialized(
                 indexes_to_drop.append(get_bloom_filter_index_name(column.name))
             if create_ngram_lower_index:
                 indexes_to_drop.append(get_ngram_lower_index_name(column.name))
+            if create_bloom_filter_lower_index:
+                indexes_to_drop.append(get_bloom_filter_lower_index_name(column.name))
             for index_name in indexes_to_drop:
                 sync_execute(f"ALTER TABLE {data_table} DROP INDEX IF EXISTS {index_name} SETTINGS mutations_sync = 2")
         cleanup_materialized_columns()
