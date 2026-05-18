@@ -172,9 +172,12 @@ describe('Notebook history revert flow', () => {
             logic.actions.setPreviewContent(HISTORICAL_DOC)
             editorSetContent.mockClear()
 
-            // user clicks Revert
+            // user clicks Revert — mirror the full action sequence in NotebookHistoryWarning.onRevert.
+            // setShowHistory(false)'s listener fires a second clearPreviewContent, so leaving it out
+            // would skip part of the sequence that runs in production.
             logic.actions.clearPreviewContent()
             logic.actions.setLocalContent(HISTORICAL_DOC, true)
+            logic.actions.setShowHistory(false)
             // wait past debounce
             await expectLogic(logic)
                 .delay(SYNC_DELAY + 100)
