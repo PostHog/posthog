@@ -473,10 +473,16 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
 
         from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 
+        # When cache_alias is set, HyperCache.__init__ calls get_cache_writer_url which
+        # reads CACHES[alias]["LOCATION"]. Provide a stub URL to satisfy that lookup;
+        # the in-memory backend ignores it.
         with override_settings(
             CACHES={
                 "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
-                FLAGS_DEDICATED_CACHE_ALIAS: {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+                FLAGS_DEDICATED_CACHE_ALIAS: {
+                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                    "LOCATION": "redis://stub:6379/",
+                },
             }
         ):
             assert RemoteConfig.get_hypercache().cache_client is caches[FLAGS_DEDICATED_CACHE_ALIAS]
