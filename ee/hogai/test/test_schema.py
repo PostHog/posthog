@@ -128,6 +128,7 @@ class TestSchema(BaseTest):
                 },
             }
         )
+        assert query.breakdownFilter is not None
         breakdown = query.breakdownFilter.breakdowns[0]
         assert breakdown.type == "person"
         assert breakdown.property == "latest_utm_source"
