@@ -156,6 +156,7 @@ describe('ErrorTrackingConsumer', () => {
             statefulOverflowEnabled: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
             statefulOverflowRedisTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
             statefulOverflowLocalCacheTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+            preservePartitionLocality: hub.ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             pipeline: hub.INGESTION_PIPELINE ?? 'errortracking',
             rateLimiterEnabled: hub.ERROR_TRACKING_RATE_LIMITER_ENABLED,
             rateLimiterReportingMode: hub.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE,
