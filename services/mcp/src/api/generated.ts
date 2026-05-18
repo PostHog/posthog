@@ -40582,6 +40582,7 @@ export namespace Schemas {
     * `AlertSubscription` - AlertSubscription
     * `ExternalDataSource` - ExternalDataSource
     * `ExternalDataSchema` - ExternalDataSchema
+    * `Evaluation` - Evaluation
     * `LLMTrace` - LLMTrace
     * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
     * `CustomerProfileConfig` - CustomerProfileConfig
@@ -40657,6 +40658,7 @@ export namespace Schemas {
       AlertSubscription: 'AlertSubscription',
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
+      Evaluation: 'Evaluation',
       LLMTrace: 'LLMTrace',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',
@@ -40718,6 +40720,7 @@ export namespace Schemas {
     * `AlertSubscription` - AlertSubscription
     * `ExternalDataSource` - ExternalDataSource
     * `ExternalDataSchema` - ExternalDataSchema
+    * `Evaluation` - Evaluation
     * `LLMTrace` - LLMTrace
     * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
     * `CustomerProfileConfig` - CustomerProfileConfig
@@ -40781,6 +40784,7 @@ export namespace Schemas {
       AlertSubscription: 'AlertSubscription',
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
+      Evaluation: 'Evaluation',
       LLMTrace: 'LLMTrace',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',

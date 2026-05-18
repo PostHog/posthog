@@ -879,6 +879,7 @@ export type ActivityLogListParams = {
 * `AlertSubscription` - AlertSubscription
 * `ExternalDataSource` - ExternalDataSource
 * `ExternalDataSchema` - ExternalDataSchema
+* `Evaluation` - Evaluation
 * `LLMTrace` - LLMTrace
 * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
 * `CustomerProfileConfig` - CustomerProfileConfig
@@ -953,6 +954,7 @@ export const ActivityLogListScope = {
     AlertSubscription: 'AlertSubscription',
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
+    Evaluation: 'Evaluation',
     LLMTrace: 'LLMTrace',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
@@ -1014,6 +1016,7 @@ export const ActivityLogListScope = {
  * `AlertSubscription` - AlertSubscription
  * `ExternalDataSource` - ExternalDataSource
  * `ExternalDataSchema` - ExternalDataSchema
+ * `Evaluation` - Evaluation
  * `LLMTrace` - LLMTrace
  * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
  * `CustomerProfileConfig` - CustomerProfileConfig
@@ -1076,6 +1079,7 @@ export const ActivityLogListScopesItem = {
     AlertSubscription: 'AlertSubscription',
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
+    Evaluation: 'Evaluation',
     LLMTrace: 'LLMTrace',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
