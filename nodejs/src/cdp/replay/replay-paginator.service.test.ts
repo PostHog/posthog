@@ -552,6 +552,47 @@ describe('ReplayPaginatorService integration', () => {
             expect(REPLAY_PAGE_SIZE).toBeGreaterThan(10)
         })
 
+        it('carries first_scheduled_at from the stored row onto the rehydrated invocation state', async () => {
+            // The producer writes `first_scheduled_at` verbatim on every retry's
+            // lifecycle row so ReplacingMergeTree doesn't collapse it away. The
+            // paginator's contract here: read it from the stored row, stamp it
+            // onto the rehydrated state so the next retry's producer sees the
+            // same original time. Without this, every kafka retry would
+            // overwrite first_scheduled_at with the latest scheduled_at.
+            const id = 'inv-first-' + new UUIDT().toString()
+            const originalScheduledAt = new Date('2026-05-01T09:00:00Z')
+            await seedRows([
+                {
+                    invocation_id: id,
+                    status: 'failed',
+                    error: new Error('5xx'),
+                    scheduledAt: originalScheduledAt,
+                },
+            ])
+
+            const state = buildState({
+                request: {
+                    filter: {
+                        window_start: '2026-01-01T00:00:00Z',
+                        window_end: '2027-01-01T00:00:00Z',
+                        invocation_ids: [id],
+                    },
+                },
+            })
+
+            await paginator.processPage(team.id, state, {
+                jobId: 'test-replay-job',
+                createdAt: DateTime.now(),
+            })
+
+            const enqueued = cyclotronJobQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
+            expect(enqueued).toHaveLength(1)
+            // CH returns DateTime64 as 'YYYY-MM-DD HH:MM:SS.ffffff' — just check
+            // the date portion matches the original scheduled time. The exact
+            // serialization differs between paths but the day/time is preserved.
+            expect(enqueued[0].state.firstScheduledAt).toMatch(/^2026-05-01[T ]09:00:00/)
+        })
+
         it('reads the latest row per invocation via argMax(_, version) collapse', async () => {
             // Same invocation_id, multiple lifecycle rows simulating: original
             // failed → user clicked replay → replay running → replay succeeded.
