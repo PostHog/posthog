@@ -122,6 +122,20 @@ export function Settings({
         return () => vv.removeEventListener('resize', update)
     }, [])
 
+    // Scroll the active item into view in the nav, on load and whenever the selected
+    // section changes. Delayed so any auto-expanded collapsible has finished animating.
+    React.useEffect(() => {
+        if (isSearching || !selectedSectionId) {
+            return
+        }
+        const timer = setTimeout(() => {
+            document
+                .querySelector(`[data-attr="settings-menu-item-${selectedSectionId}"]`)
+                ?.scrollIntoView({ block: 'nearest' })
+        }, 250)
+        return () => clearTimeout(timer)
+    }, [selectedSectionId, isSearching])
+
     // Currently environment and project settings do not require periodic re-authentication,
     // though this is likely to change (see https://github.com/posthog/posthog/pull/22421).
     // In the meantime, we don't want a needless re-authentication modal:
