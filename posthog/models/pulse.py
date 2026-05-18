@@ -28,6 +28,12 @@ class PulseSubscriptionFrequency(models.TextChoices):
     DAILY = "daily"
 
 
+class PulseChannel(models.TextChoices):
+    IN_APP = "in_app"
+    SLACK = "slack"
+    EMAIL = "email"
+
+
 class PulseDigest(CreatedMetaFields, UUIDTModel):
     """One run of the Pulse scan workflow for a team. Holds 0..N findings."""
 

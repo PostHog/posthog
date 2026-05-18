@@ -6,10 +6,9 @@ from typing import Any
 
 import structlog
 
-from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.pulse.types import EnrichedFinding, Finding
+from posthog.temporal.ai.pulse.types import EnrichedFinding, Finding, run_trends_query_sync
 
 logger = structlog.get_logger(__name__)
 
@@ -69,25 +68,13 @@ def _pick_top_contributor(result: Any) -> tuple[str, float, float] | None:
     return best
 
 
-@database_sync_to_async
-def _run_query_sync(team: Team, query_json: dict) -> Any:
-    from posthog.api.services.query import process_query_dict
-
-    response = process_query_dict(
-        team=team,
-        query_json=query_json,
-        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    )
-    return response.model_dump() if hasattr(response, "model_dump") else response
-
-
-async def _attribute_finding(team: Team, finding: Finding) -> dict[str, Any] | None:
-    semaphore = asyncio.Semaphore(ATTRIBUTION_CONCURRENCY)
-
+async def _attribute_finding(
+    team: Team, finding: Finding, attribution_semaphore: asyncio.Semaphore
+) -> dict[str, Any] | None:
     async def _try_property(prop: str) -> tuple[str, dict[str, Any]] | None:
-        async with semaphore:
+        async with attribution_semaphore:
             try:
-                result = await _run_query_sync(team, _build_breakdown_query(finding.descriptor.query, prop))
+                result = await run_trends_query_sync(team, _build_breakdown_query(finding.descriptor.query, prop))
             except Exception as exc:
                 logger.exception(
                     "pulse_attribution_breakdown_failed",
@@ -160,11 +147,14 @@ def _fallback_narrative(finding: Finding) -> str:
 
 
 async def _enrich_one(
-    team: Team, finding: Finding, semaphore: asyncio.Semaphore
+    team: Team,
+    finding: Finding,
+    enrichment_semaphore: asyncio.Semaphore,
+    attribution_semaphore: asyncio.Semaphore,
 ) -> EnrichedFinding:
-    async with semaphore:
+    async with enrichment_semaphore:
         try:
-            attribution = await _attribute_finding(team, finding)
+            attribution = await _attribute_finding(team, finding, attribution_semaphore)
             narrative = await _generate_narrative(team.id, finding, attribution)
             return EnrichedFinding(
                 descriptor=finding.descriptor,
@@ -201,5 +191,10 @@ async def enrich_findings(team_id: int, findings: list[Finding], max_findings: i
         return Team.objects.get(id=team_id)
 
     team = await _get_team()
-    semaphore = asyncio.Semaphore(ENRICHMENT_CONCURRENCY)
-    return list(await asyncio.gather(*[_enrich_one(team, f, semaphore) for f in ranked]))
+    enrichment_semaphore = asyncio.Semaphore(ENRICHMENT_CONCURRENCY)
+    attribution_semaphore = asyncio.Semaphore(ATTRIBUTION_CONCURRENCY)
+    return list(
+        await asyncio.gather(
+            *[_enrich_one(team, f, enrichment_semaphore, attribution_semaphore) for f in ranked]
+        )
+    )

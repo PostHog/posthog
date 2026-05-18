@@ -21,6 +21,7 @@ from temporalio.client import (
 )
 
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
+from posthog.models.pulse import PulseSubscriptionFrequency
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.pulse.dispatcher import PulseScanDispatcherInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
@@ -85,17 +86,17 @@ from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 logger = structlog.get_logger(__name__)
 
 
-async def _create_pulse_schedule(client: Client, frequency: str) -> None:
+async def _create_pulse_schedule(client: Client, frequency: PulseSubscriptionFrequency) -> None:
     """Create or update a Pulse scan dispatcher schedule (8 AM UTC).
 
-    For "weekly", runs Monday only. For "daily", runs every day.
+    Weekly runs Monday only; daily runs every day.
     """
-    schedule_id = f"pulse-{frequency}-schedule"
+    schedule_id = f"pulse-{frequency.value}-schedule"
     calendar_kwargs: dict = {
-        "comment": f"Pulse {frequency} at 8 AM UTC",
+        "comment": f"Pulse {frequency.value} at 8 AM UTC",
         "hour": [ScheduleRange(start=8, end=8)],
     }
-    if frequency == "weekly":
+    if frequency == PulseSubscriptionFrequency.WEEKLY:
         calendar_kwargs["day_of_week"] = [ScheduleRange(start=1, end=1)]
 
     schedule = Schedule(
@@ -116,11 +117,11 @@ async def _create_pulse_schedule(client: Client, frequency: str) -> None:
 
 
 async def create_pulse_weekly_schedule(client: Client) -> None:
-    await _create_pulse_schedule(client, "weekly")
+    await _create_pulse_schedule(client, PulseSubscriptionFrequency.WEEKLY)
 
 
 async def create_pulse_daily_schedule(client: Client) -> None:
-    await _create_pulse_schedule(client, "daily")
+    await _create_pulse_schedule(client, PulseSubscriptionFrequency.DAILY)
 
 
 async def create_sync_vectors_schedule(client: Client):

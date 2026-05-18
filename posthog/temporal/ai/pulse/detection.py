@@ -6,10 +6,9 @@ from typing import Any
 
 import structlog
 
-from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.pulse.types import CandidateMetric, Finding
+from posthog.temporal.ai.pulse.types import CandidateMetric, Finding, run_trends_query_sync
 
 logger = structlog.get_logger(__name__)
 
@@ -86,18 +85,6 @@ def _evaluate_candidate(
     )
 
 
-@database_sync_to_async
-def _run_query_sync(team: Team, query_json: dict) -> Any:
-    from posthog.api.services.query import process_query_dict
-
-    response = process_query_dict(
-        team=team,
-        query_json=query_json,
-        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    )
-    return response.model_dump() if hasattr(response, "model_dump") else response
-
-
 async def _evaluate_one(
     team: Team,
     candidate: CandidateMetric,
@@ -108,7 +95,7 @@ async def _evaluate_one(
     async with semaphore:
         try:
             query = _build_detection_query(candidate.descriptor.query)
-            result = await _run_query_sync(team, query)
+            result = await run_trends_query_sync(team, query)
             series = _extract_weekly_series(result)
             return _evaluate_candidate(candidate, series, z_threshold, min_change_pct)
         except Exception as exc:

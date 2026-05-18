@@ -5,11 +5,10 @@ import asyncio
 from datetime import timedelta
 
 import structlog
-import temporalio.common
-import temporalio.activity
-import temporalio.workflow
 from pydantic import BaseModel
+from temporalio import activity, common, workflow
 
+from posthog.models.pulse import PulseSubscriptionFrequency
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.pulse.workflow import PulseScanInputs, PulseScanWorkflow
 from posthog.temporal.common.base import PostHogWorkflow
@@ -21,12 +20,12 @@ DISPATCHER_CONCURRENCY = 10
 
 
 class PulseScanDispatcherInputs(BaseModel):
-    frequency: str = "weekly"  # "weekly" or "daily"
+    frequency: PulseSubscriptionFrequency = PulseSubscriptionFrequency.WEEKLY
     # Restrict to specific team IDs (debugging / testing). Empty means all opted-in teams.
     team_ids: list[int] | None = None
 
 
-@temporalio.activity.defn
+@activity.defn
 async def list_eligible_team_ids_activity(frequency: str, team_ids: list[int] | None) -> list[int]:
     from posthog.models.pulse import PulseSubscription
 
@@ -40,20 +39,20 @@ async def list_eligible_team_ids_activity(frequency: str, team_ids: list[int] | 
     return await _list()
 
 
-@temporalio.workflow.defn(name="pulse-scan-dispatcher")
+@workflow.defn(name="pulse-scan-dispatcher")
 class PulseScanDispatcherWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> PulseScanDispatcherInputs:
         loaded = json.loads(inputs[0]) if inputs else {}
         return PulseScanDispatcherInputs.model_validate(loaded)
 
-    @temporalio.workflow.run
+    @workflow.run
     async def run(self, inputs: PulseScanDispatcherInputs) -> dict:
-        team_ids = await temporalio.workflow.execute_activity(
+        team_ids = await workflow.execute_activity(
             list_eligible_team_ids_activity,
             args=[inputs.frequency, inputs.team_ids],
             start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            retry_policy=common.RetryPolicy(maximum_attempts=3),
         )
 
         if not team_ids:
@@ -64,19 +63,17 @@ class PulseScanDispatcherWorkflow(PostHogWorkflow):
         async def _dispatch_one(team_id: int) -> bool:
             async with semaphore:
                 try:
-                    await temporalio.workflow.execute_child_workflow(
+                    await workflow.execute_child_workflow(
                         PulseScanWorkflow.run,
                         PulseScanInputs(team_id=team_id),
-                        id=f"pulse-scan-{team_id}-{temporalio.workflow.now().isoformat()}",
-                        task_queue=temporalio.workflow.info().task_queue,
-                        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                        id=f"pulse-scan-{team_id}-{workflow.now().isoformat()}",
+                        task_queue=workflow.info().task_queue,
+                        retry_policy=common.RetryPolicy(maximum_attempts=1),
                         execution_timeout=timedelta(minutes=45),
                     )
                     return True
                 except Exception as exc:
-                    temporalio.workflow.logger.exception(
-                        "pulse_dispatch_child_failed", team_id=team_id, error=str(exc)
-                    )
+                    workflow.logger.exception("pulse_dispatch_child_failed", team_id=team_id, error=str(exc))
                     return False
 
         results = await asyncio.gather(*[_dispatch_one(tid) for tid in team_ids], return_exceptions=False)

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.db.models import Q
@@ -225,7 +225,12 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         | Q(Q(scope="Cohort") & Q(item_id__in=my_cohorts))
                         | Q(Q(scope="HogFunction") & Q(item_id__in=my_hog_functions))
                         # Pulse findings are system-generated and surface to every team member.
-                        | Q(scope=PULSE_ACTIVITY_SCOPE)
+                        # Bounded to a recent window since system-scoped entries are excluded by
+                        # the partial `idx_alog_team_scope_created` index.
+                        | Q(
+                            scope=PULSE_ACTIVITY_SCOPE,
+                            created_at__gte=datetime.now(UTC) - timedelta(days=30),
+                        )
                     )
                     | Q(
                         # don't want to see creation of these things since that was before the user edited these things
