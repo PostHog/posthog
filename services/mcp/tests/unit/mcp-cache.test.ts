@@ -6,13 +6,12 @@ import type { State } from '@/tools/types'
 
 const mockCaptureException = vi.fn()
 
-vi.mock('@/lib/analytics', () => ({
+vi.mock('@/lib/posthog/analytics', () => ({
     getPostHogClient: () => ({
         captureException: mockCaptureException,
         capture: vi.fn(),
     }),
     AnalyticsEvent: {},
-    generateId: () => 'test-id',
 }))
 
 // Extracted getOrFetchCached logic matching MCP.getOrFetchCached exactly,
@@ -28,7 +27,7 @@ async function getOrFetchCached<D extends keyof State, T extends keyof State>(de
         fetcher: () => Promise<State[D]>
     }
 }): Promise<State[D] | undefined> {
-    const { getPostHogClient } = await import('@/lib/analytics')
+    const { getPostHogClient } = await import('@/lib/posthog/analytics')
     const { cache, waitUntil, cacheTtlMs, opts } = deps
 
     try {

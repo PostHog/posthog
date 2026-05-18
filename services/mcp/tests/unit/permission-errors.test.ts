@@ -17,11 +17,12 @@ vi.mock('@/api/rate-limiter', () => ({
 }))
 
 const captureException = vi.fn()
-vi.mock('@/lib/analytics', () => ({
-    getPostHogClient: () => ({
-        captureException,
-    }),
+vi.mock('@/lib/posthog/analytics', () => ({
+    getPostHogClient: () => ({ captureException }),
     AnalyticsEvent: { MCP_INIT: 'mcp init' },
+}))
+
+vi.mock('@/lib/posthog/flags', () => ({
     isFeatureFlagEnabled: vi.fn().mockResolvedValue(false),
 }))
 

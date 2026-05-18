@@ -3519,8 +3519,8 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       '@posthog/mcp-analytics':
-        specifier: npm:@posthog/mcp@0.0.7
-        version: '@posthog/mcp@0.0.7(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(rxjs@7.8.1)'
+        specifier: npm:@posthog/mcp@0.0.9
+        version: '@posthog/mcp@0.0.9(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(rxjs@7.8.1)'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -3551,9 +3551,6 @@ importers:
       lucide-react:
         specifier: ^0.577.0
         version: 0.577.0(react@18.3.1)
-      mcpcat:
-        specifier: 0.1.15
-        version: 0.1.15(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))
       posthog-js-lite:
         specifier: 4.2.2
         version: 4.2.2
@@ -8991,8 +8988,8 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  '@posthog/mcp@0.0.7':
-    resolution: {integrity: sha512-pB5oyt6WrhYJVauIwZbQSmsoVNAPxYRulKVfpRCNJNCN6tUycDYtdvox8jqqfwHoJHOmYUjRVJPCmyTVNQYlNg==}
+  '@posthog/mcp@0.0.9':
+    resolution: {integrity: sha512-Tcz5fGpG0ZCtA94jDhmQigHA49K4UVhkbBGgn+w7pZXiXPkDCPO0ZXtuRXdPgyO/l1WW9RB27D9pR2fvLmT+Mg==}
     engines: {node: '>=22.22.0'}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.29.0
@@ -18392,14 +18389,6 @@ packages:
   maxmind@4.3.11:
     resolution: {integrity: sha512-tJDrKbUzN6PSA88tWgg0L2R4Ln00XwecYQJPFI+RvlF2k1sx6VQYtuQ1SVxm8+bw5tF7GWV4xyb+3/KyzEpPUw==}
     engines: {node: '>=12', npm: '>=6'}
-
-  mcpcat-api@0.1.8:
-    resolution: {integrity: sha512-HhKa4HidN5swb6k+YOKNfv3MyVfTxxvhR7VPnQBxy/lBw3arVOfWzX9FTt0uYc4NrMjWJeTUtpbS8ENR0F44iQ==}
-
-  mcpcat@0.1.15:
-    resolution: {integrity: sha512-rc5a/sWhrJvnU9k1a9xjVNC6apQykUQvlJ60h/6IHgCSsHGHS9kFsTmC7aMufitcPbDo9Kq2cy8vUbHtveEj5Q==}
-    peerDependencies:
-      '@modelcontextprotocol/sdk': ^1.29.0
 
   md5.js@1.3.5:
     resolution: {integrity: sha512-xitP+WxNPcTTOgnTJcrhM0xvdPepipPSf3I8EIpGKeFLjt3PlJLIDG3u8EX53ZIubkb+5U2+3rELYpEhHhzdkg==}
@@ -32008,7 +31997,7 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.0.7(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(rxjs@7.8.1)':
+  '@posthog/mcp@0.0.9(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(rxjs@7.8.1)':
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       posthog-node: 5.33.3(rxjs@7.8.1)
@@ -44076,13 +44065,6 @@ snapshots:
     dependencies:
       mmdb-lib: 2.0.2
       tiny-lru: 11.0.1
-
-  mcpcat-api@0.1.8: {}
-
-  mcpcat@0.1.15(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)):
-    dependencies:
-      '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
-      mcpcat-api: 0.1.8
 
   md5.js@1.3.5:
     dependencies:

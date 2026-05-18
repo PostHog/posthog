@@ -5,11 +5,6 @@ import { vi } from 'vitest'
 // Load .env.test file
 config({ path: resolve(process.cwd(), '.env.test') })
 
-// Mock mcpcat module to not do anything in tests
-vi.mock('mcpcat', () => ({
-    track: vi.fn(),
-}))
-
 // Mock PostHog MCP analytics module to avoid networked analytics in tests
 vi.mock('@posthog/mcp-analytics', () => ({
     track: vi.fn(),

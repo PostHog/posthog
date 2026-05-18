@@ -27,7 +27,7 @@ vi.mock('@/resources/ui-apps.generated', () => ({
     UI_APP_REGISTRY: {},
 }))
 
-vi.mock('mcpcat', () => ({
+vi.mock('@posthog/mcp-analytics', () => ({
     track: vi.fn(),
 }))
 
@@ -40,7 +40,12 @@ vi.mock('@/lib/build-tool-result', async () => {
     } catch {
         return {
             buildToolResultPayload: vi.fn(({ handlerResult }: any) => ({
-                content: [{ type: 'text', text: typeof handlerResult === 'string' ? handlerResult : JSON.stringify(handlerResult) }],
+                content: [
+                    {
+                        type: 'text',
+                        text: typeof handlerResult === 'string' ? handlerResult : JSON.stringify(handlerResult),
+                    },
+                ],
             })),
             isToolCallPayload: vi.fn(() => false),
         }
@@ -54,10 +59,18 @@ vi.mock('@/lib/client-detection', async () => {
         return {
             MCPClientProfile: class MCPClientProfile {
                 constructor() {}
-                isCodingAgent(): boolean { return false }
-                isPostHogCodeConsumer(): boolean { return false }
-                isVibeCodingClient(): boolean { return false }
-                get capabilities(): { supportsInstructions: boolean } { return { supportsInstructions: true } }
+                isCodingAgent(): boolean {
+                    return false
+                }
+                isPostHogCodeConsumer(): boolean {
+                    return false
+                }
+                isVibeCodingClient(): boolean {
+                    return false
+                }
+                get capabilities(): { supportsInstructions: boolean } {
+                    return { supportsInstructions: true }
+                }
             },
             isCodingAgentClient: vi.fn(() => false),
             CODING_AGENT_CLIENT_NAME_FRAGMENTS: [],
@@ -90,45 +103,72 @@ vi.mock('@/lib/errors', async () => {
     const actual = await vi.importActual<Record<string, unknown>>('@/lib/errors')
     return {
         ...actual,
-        wrapError: actual.wrapError ?? vi.fn((msg: string, cause: unknown) => {
-            const err = new Error(msg) as Error & { cause?: unknown }
-            err.cause = cause
-            return err
-        }),
+        wrapError:
+            actual.wrapError ??
+            vi.fn((msg: string, cause: unknown) => {
+                const err = new Error(msg) as Error & { cause?: unknown }
+                err.cause = cause
+                return err
+            }),
         findPostHogPermissionError: actual.findPostHogPermissionError ?? vi.fn(() => undefined),
         formatPermissionErrorMessage: actual.formatPermissionErrorMessage ?? vi.fn((e: any) => e.message),
         buildInsufficientScopeChallenge: actual.buildInsufficientScopeChallenge ?? vi.fn(() => 'Bearer'),
     }
 })
 
-// Mock @/lib/analytics additions not present on all branches
-vi.mock('@/lib/analytics', async () => {
-    const actual = await vi.importActual<Record<string, unknown>>('@/lib/analytics')
+// Mock @/lib/posthog/analytics and @/lib/posthog/flags additions not present on all branches
+vi.mock('@/lib/posthog/analytics', async () => {
+    const actual = await vi.importActual<Record<string, unknown>>('@/lib/posthog/analytics')
     return {
         ...actual,
         buildMCPAnalyticsGroups: actual.buildMCPAnalyticsGroups ?? vi.fn(() => ({})),
         buildMCPContextProperties: actual.buildMCPContextProperties ?? vi.fn(() => ({})),
+    }
+})
+
+vi.mock('@/lib/posthog/flags', async () => {
+    const actual = await vi.importActual<Record<string, unknown>>('@/lib/posthog/flags')
+    return {
+        ...actual,
         evaluateFeatureFlags: actual.evaluateFeatureFlags ?? vi.fn(async () => ({})),
     }
 })
 
 // Mock template imports that may not exist
 vi.mock('@/templates/cli-proxy-command.md', async () => {
-    try { return await vi.importActual('@/templates/cli-proxy-command.md') } catch { return { default: '' } }
+    try {
+        return await vi.importActual('@/templates/cli-proxy-command.md')
+    } catch {
+        return { default: '' }
+    }
 })
 vi.mock('@/templates/cli-proxy-tool.md', async () => {
-    try { return await vi.importActual('@/templates/cli-proxy-tool.md') } catch { return { default: '' } }
+    try {
+        return await vi.importActual('@/templates/cli-proxy-tool.md')
+    } catch {
+        return { default: '' }
+    }
 })
 vi.mock('@/templates/execute-sql-prompt.md', async () => {
-    try { return await vi.importActual('@/templates/execute-sql-prompt.md') } catch { return { default: '' } }
+    try {
+        return await vi.importActual('@/templates/execute-sql-prompt.md')
+    } catch {
+        return { default: '' }
+    }
 })
 vi.mock('@/templates/single-exec-instructions.md', async () => {
-    try { return await vi.importActual('@/templates/single-exec-instructions.md') } catch { return { default: '' } }
+    try {
+        return await vi.importActual('@/templates/single-exec-instructions.md')
+    } catch {
+        return { default: '' }
+    }
 })
 
 // Mock @/tools/exec that may not exist
 vi.mock('@/tools/exec', async () => {
-    try { return await vi.importActual('@/tools/exec') } catch {
+    try {
+        return await vi.importActual('@/tools/exec')
+    } catch {
         return {
             createExecTool: vi.fn(() => ({ name: 'posthog', handler: vi.fn() })),
             createExecInnerToolCallResolver: vi.fn(() => () => undefined),
@@ -136,9 +176,11 @@ vi.mock('@/tools/exec', async () => {
     }
 })
 
-// Mock @/lib/mcpcat
-vi.mock('@/lib/mcpcat', async () => {
-    try { return await vi.importActual('@/lib/mcpcat') } catch {
-        return { initMcpCatObservability: vi.fn() }
+// Mock @/lib/posthog/analytics
+vi.mock('@/lib/posthog/analytics', async () => {
+    try {
+        return await vi.importActual('@/lib/posthog/analytics')
+    } catch {
+        return { initMcpAnalytics: vi.fn() }
     }
 })
