@@ -2,5 +2,6 @@
 # name: TestAPIDocsSchema.test_api_docs_generation_warnings_snapshot
   list([
     '',
+    'Warning: encountered multiple names for the same choice set (SlackNotificationMinPriorityEnum). This may be unwanted even though the generated schema is technically correct. Add an entry to ENUM_NAME_OVERRIDES to fix the naming.',
   ])
 # ---
