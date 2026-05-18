@@ -1,0 +1,28 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+    <p>
+        Here's what changed in <strong>{{ team_name }}</strong> this {{ period_label|default:"week" }}.
+    </p>
+    {% if findings %}
+        <ul>
+            {% for finding in findings %}
+                <li style="margin-bottom: 12px;">
+                    <strong>{{ finding.metric_label }}</strong>
+                    <span style="color: {% if finding.change_pct >= 0 %}#2ecc71{% else %}#e74c3c{% endif %};">
+                        ({{ finding.change_pct|stringformat:"+.0%" }})
+                    </span>
+                    <br>
+                    <span style="color: #555;">{{ finding.narrative }}</span>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>No significant changes detected this period.</p>
+    {% endif %}
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri pulse_url %}">Open Pulse</a>
+    </div>
+    <p style="color: #777; font-size: 0.85em;">
+        Pulse scans your team's key metrics and surfaces changes that look unusual.
+        You can manage subscription settings at <a href="{% absolute_uri pulse_settings_url %}">/pulse</a>.
+    </p>
+{% endblock %}{% load posthog_filters %}

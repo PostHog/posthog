@@ -372,6 +372,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'persons',
     },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true },
+    [Scene.Pulse]: {
+        projectBased: true,
+        name: 'Pulse',
+        description: 'Proactive insights surfaced by Max from your team\'s key metrics.',
+    },
     [Scene.Products]: { projectBased: true, name: 'Products', layout: 'plain' },
     [Scene.UseCaseSelection]: { projectBased: true, name: 'Use case selection', layout: 'plain' },
     [Scene.ProjectCreateFirst]: {
@@ -762,6 +767,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
     [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],
     [urls.preflight()]: [Scene.PreflightCheck, 'preflight'],
+    [urls.pulse()]: [Scene.Pulse, 'pulse'],
     [urls.signup()]: [Scene.Signup, 'signup'],
     [urls.inviteSignup(':id')]: [Scene.InviteSignup, 'inviteSignup'],
     [urls.passwordReset()]: [Scene.PasswordReset, 'passwordReset'],

@@ -4,6 +4,19 @@ from posthog.temporal.ai.chat_agent import (
     process_chat_agent_activity,
     process_conversation_activity,
 )
+from posthog.temporal.ai.pulse import (
+    PulseScanDispatcherInputs,
+    PulseScanDispatcherWorkflow,
+    PulseScanInputs,
+    PulseScanWorkflow,
+    create_or_get_digest_activity,
+    deliver_digest_activity,
+    detect_changes_activity,
+    enrich_findings_activity,
+    list_eligible_team_ids_activity,
+    select_candidate_metrics_activity,
+    set_digest_status_activity,
+)
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
     combine_patterns_from_chunks_activity,
@@ -55,6 +68,8 @@ WORKFLOWS = [
     ChatAgentWorkflow,
     SummarizeLLMTracesWorkflow,
     SlackConversationRunnerWorkflow,
+    PulseScanWorkflow,
+    PulseScanDispatcherWorkflow,
 ]
 
 ACTIVITIES = [
@@ -74,6 +89,13 @@ ACTIVITIES = [
     validate_llm_single_session_summary_with_videos_activity,
     summarize_llm_traces_activity,
     process_slack_conversation_activity,
+    select_candidate_metrics_activity,
+    detect_changes_activity,
+    enrich_findings_activity,
+    deliver_digest_activity,
+    create_or_get_digest_activity,
+    set_digest_status_activity,
+    list_eligible_team_ids_activity,
 ]
 
 __all__ = [
@@ -83,4 +105,6 @@ __all__ = [
     "SessionGroupSummaryOfSummariesInputs",
     "SummarizeLLMTracesInputs",
     "SlackConversationRunnerWorkflowInputs",
+    "PulseScanInputs",
+    "PulseScanDispatcherInputs",
 ]

@@ -73,6 +73,7 @@ from .product_intent import ProductIntent
 from .project import Project
 from .property import Property
 from .property_definition import PropertyDefinition
+from .pulse import PulseDigest, PulseFinding, PulseSubscription
 from .proxy_record import ProxyRecord
 from .quick_filter import QuickFilter
 from .remote_config import RemoteConfig
@@ -190,6 +191,9 @@ __all__ = [
     "Project",
     "Property",
     "PropertyDefinition",
+    "PulseDigest",
+    "PulseFinding",
+    "PulseSubscription",
     "ProxyRecord",
     "QuickFilter",
     "RetentionFilter",

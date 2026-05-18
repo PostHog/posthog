@@ -20,6 +20,7 @@ from temporalio.client import (
 
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
+from posthog.temporal.ai.pulse.dispatcher import PulseScanDispatcherInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
@@ -37,6 +38,44 @@ from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
 logger = structlog.get_logger(__name__)
+
+
+async def _create_pulse_schedule(client: Client, frequency: str) -> None:
+    """Create or update a Pulse scan dispatcher schedule (8 AM UTC).
+
+    For "weekly", runs Monday only. For "daily", runs every day.
+    """
+    schedule_id = f"pulse-{frequency}-schedule"
+    calendar_kwargs: dict = {
+        "comment": f"Pulse {frequency} at 8 AM UTC",
+        "hour": [ScheduleRange(start=8, end=8)],
+    }
+    if frequency == "weekly":
+        calendar_kwargs["day_of_week"] = [ScheduleRange(start=1, end=1)]
+
+    schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "pulse-scan-dispatcher",
+            PulseScanDispatcherInputs(frequency=frequency).model_dump(),
+            id=schedule_id,
+            task_queue=settings.MAX_AI_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(calendars=[ScheduleCalendarSpec(**calendar_kwargs)]),
+    )
+
+    if await a_schedule_exists(client, schedule_id):
+        await a_update_schedule(client, schedule_id, schedule)
+    else:
+        await a_create_schedule(client, schedule_id, schedule, trigger_immediately=False)
+
+
+async def create_pulse_weekly_schedule(client: Client) -> None:
+    await _create_pulse_schedule(client, "weekly")
+
+
+async def create_pulse_daily_schedule(client: Client) -> None:
+    await _create_pulse_schedule(client, "daily")
 
 
 async def create_sync_vectors_schedule(client: Client):
@@ -306,6 +345,8 @@ schedules = [
     create_trace_clustering_coordinator_schedule,
     create_ducklake_compaction_schedule,
     create_delete_recording_metadata_schedule,
+    create_pulse_weekly_schedule,
+    create_pulse_daily_schedule,
 ]
 
 if settings.EE_AVAILABLE:
