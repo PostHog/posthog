@@ -115,12 +115,33 @@ function SnapshotRow({
     )
 }
 
+// Bound the rendered list so a broken run with thousands of snapshots
+// doesn't melt the host. Snapshots are sorted so the actionable ones
+// (changed > new > removed > unchanged) come first.
+const MAX_VISIBLE_SNAPSHOTS = 100
+
+const resultOrder: Record<string, number> = { changed: 0, new: 1, removed: 2, unchanged: 3 }
+
+function sortForReview(snapshots: VisualReviewSnapshot[]): VisualReviewSnapshot[] {
+    return [...snapshots].sort((a, b) => {
+        const ra = resultOrder[a.result] ?? 99
+        const rb = resultOrder[b.result] ?? 99
+        if (ra !== rb) {
+            return ra - rb
+        }
+        return a.identifier.localeCompare(b.identifier)
+    })
+}
+
 export function VisualReviewSnapshotsView({
     data,
     onAction,
     actionStates,
 }: VisualReviewSnapshotsViewProps): ReactElement {
-    const snapshots = data.results
+    const sortedSnapshots = useMemo(() => sortForReview(data.results), [data.results])
+    const totalSnapshots = data.count ?? data.results.length
+    const snapshots = useMemo(() => sortedSnapshots.slice(0, MAX_VISIBLE_SNAPSHOTS), [sortedSnapshots])
+    const truncated = sortedSnapshots.length > MAX_VISIBLE_SNAPSHOTS || totalSnapshots > snapshots.length
     const initialId = useMemo(() => {
         const first = snapshots.find((s) => s.result === 'changed') ?? snapshots[0]
         return first?.id
@@ -161,8 +182,15 @@ export function VisualReviewSnapshotsView({
         <div className="flex flex-col gap-3 p-4">
             <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-sm text-muted-foreground">
-                    {snapshots.length} snapshot{snapshots.length === 1 ? '' : 's'}
+                    {truncated
+                        ? `Showing ${snapshots.length} of ${totalSnapshots} snapshots (most actionable first)`
+                        : `${snapshots.length} snapshot${snapshots.length === 1 ? '' : 's'}`}
                 </span>
+                {truncated && (
+                    <span className="text-xs text-muted-foreground">
+                        Ask the agent to filter (e.g. only `result=changed`) to drill in further.
+                    </span>
+                )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-3">
