@@ -2414,7 +2414,7 @@ class BulkDeleteResponseSerializer(serializers.Serializer):
     deleted = BulkDeleteDeletedItemSerializer(many=True, help_text="Flags successfully soft-deleted.")
     # Shadows the inherited Serializer.errors ReturnDict property; explicit ListSerializer
     # avoids the many=True descriptor magic that confuses type checkers.
-    errors: serializers.ListSerializer = serializers.ListSerializer(
+    errors: serializers.ListSerializer = serializers.ListSerializer(  # type: ignore[assignment]
         child=BulkDeleteErrorItemSerializer(),
         help_text="Flags that could not be deleted, with reasons.",
     )
