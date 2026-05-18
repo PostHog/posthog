@@ -6,7 +6,7 @@ import pytest
 
 from dateutil import parser as dateutil_parser
 
-from posthog.temporal.tests.data_imports.github.data import COMMITS, ISSUES, PULL_REQUESTS, STARGAZERS
+from posthog.temporal.tests.data_imports.github.data import COMMITS, ISSUES, PULL_REQUESTS, STARGAZERS, WORKFLOW_RUNS
 
 
 class MockGithubAPI:
@@ -26,7 +26,13 @@ class MockGithubAPI:
         "pulls": PULL_REQUESTS,
         "commits": COMMITS,
         "stargazers": STARGAZERS,
+        # /repos/{owner}/{repo}/actions/runs — last path segment is "runs"
+        "runs": WORKFLOW_RUNS,
     }
+
+    # Resources whose API responses wrap the list in an envelope rather than
+    # returning a top-level array.
+    ENVELOPE_KEYS: dict[str, str] = {"runs": "workflow_runs"}
 
     def __init__(self, requests_mock):
         self.requests_mock = requests_mock
@@ -47,7 +53,7 @@ class MockGithubAPI:
             date_str = item.get("commit", {}).get("author", {}).get("date")
         return date_str
 
-    def get_resources(self, request: Any, context: Any) -> list[dict[str, Any]]:
+    def get_resources(self, request: Any, context: Any) -> Any:
         path = urlparse(request.url).path
         resource = path.split("/")[-1]
 
@@ -75,6 +81,17 @@ class MockGithubAPI:
                 if (date_str := self._get_item_date(item)) and dateutil_parser.parse(date_str) > since_dt
             ]
 
+        # workflow_runs uses GitHub search syntax: ?created=>={iso} (or <=, ..)
+        if "created" in query:
+            raw = query["created"][0]
+            if raw.startswith(">="):
+                cutoff = dateutil_parser.parse(raw[2:])
+                data = [
+                    item
+                    for item in data
+                    if (created := item.get("created_at")) and dateutil_parser.parse(created) >= cutoff
+                ]
+
         sort_field = query.get("sort", [None])[0]
         direction = query.get("direction", ["asc"])[0]
         if sort_field:
@@ -84,6 +101,9 @@ class MockGithubAPI:
                 key=lambda x: x.get(sort_key) or self._get_item_date(x) or "",
                 reverse=(direction == "desc"),
             )
+        elif resource == "runs":
+            # Workflow runs API always returns newest-first by created_at.
+            data = sorted(data, key=lambda x: x.get("created_at") or "", reverse=True)
 
         per_page = int(query.get("per_page", ["100"])[0])
         page = int(query.get("page", ["1"])[0])
@@ -98,6 +118,9 @@ class MockGithubAPI:
             next_page = page + 1
             context.headers["Link"] = f'<{base_url}?page={next_page}&per_page={per_page}>; rel="next"'
 
+        envelope_key = self.ENVELOPE_KEYS.get(resource)
+        if envelope_key:
+            return {"total_count": len(data), envelope_key: data}
         return data
 
     def get_all_api_calls(self) -> list:

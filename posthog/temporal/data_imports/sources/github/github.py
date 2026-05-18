@@ -44,7 +44,16 @@ def _build_initial_params(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {
+    # workflow_runs has a different param surface: no state/sort/direction,
+    # and its server-side time filter uses ?created=>={iso} (search syntax),
+    # not ?since=. The endpoint already returns newest-first by created_at.
+    if endpoint == "workflow_runs":
+        params: dict[str, Any] = {"per_page": config.page_size}
+        if should_use_incremental_field and db_incremental_field_last_value:
+            params["created"] = f">={_format_incremental_value(db_incremental_field_last_value)}"
+        return params
+
+    params = {
         "per_page": config.page_size,
         "state": "all",
         # Default to created asc — created is immutable, so new items append
@@ -292,7 +301,10 @@ def get_rows(
         response = fetch_page(url)
 
         data = response.json()
-        # GitHub list endpoints return a JSON array at the top level.
+        # Most GitHub list endpoints return a JSON array at the top level,
+        # but some (e.g. /actions/runs) wrap results in {"<resource>": [...]}.
+        if config.response_data_path and isinstance(data, dict):
+            data = data.get(config.response_data_path, [])
         if not isinstance(data, list) or not data:
             break
 

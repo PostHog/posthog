@@ -14,6 +14,10 @@ class GithubEndpointConfig:
     page_size: int = 100  # GitHub default, max is 100
     sort_mode: Literal["asc", "desc"] = "asc"
     primary_key: str = "id"  # Primary key for upsert operations
+    # Body key to drill into when the API wraps results in an envelope
+    # (e.g. /actions/runs returns {"total_count": N, "workflow_runs": [...]}).
+    # None means the response body is itself the list.
+    response_data_path: Optional[str] = None
 
 
 GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
@@ -85,6 +89,25 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         path="/repos/{repository}/releases",
         partition_key="created_at",
         incremental_fields=[],  # No incremental support
+    ),
+    "workflow_runs": GithubEndpointConfig(
+        name="workflow_runs",
+        path="/repos/{repository}/actions/runs",
+        partition_key="created_at",
+        incremental_fields=[
+            # GitHub's workflow_runs API only filters by `created` server-side
+            # and returns newest-first by created_at. updated_at is not
+            # filterable or sortable, so we don't expose it as a cursor.
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="created_at",
+        sort_mode="desc",  # Workflow runs API always returns newest-first
+        response_data_path="workflow_runs",
     ),
 }
 

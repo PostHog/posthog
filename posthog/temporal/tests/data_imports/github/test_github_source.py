@@ -152,6 +152,34 @@ class TestBuildInitialParams:
         assert params["sort"] == "created"
         assert params["direction"] == "asc"
 
+    def test_workflow_runs_full_refresh_minimal_params(self) -> None:
+        params = _build_initial_params(
+            GITHUB_ENDPOINTS["workflow_runs"],
+            "workflow_runs",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+
+        # workflow_runs accepts neither sort/direction nor state — only per_page
+        # (plus optional `created` filter when incremental).
+        assert params == {"per_page": 100}
+
+    def test_workflow_runs_incremental_uses_created_range_filter(self) -> None:
+        last_value = datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC)
+        params = _build_initial_params(
+            GITHUB_ENDPOINTS["workflow_runs"],
+            "workflow_runs",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
+            incremental_field="created_at",
+        )
+
+        assert params["created"] == ">=2026-01-15T10:00:00+00:00"
+        assert "since" not in params
+        assert "sort" not in params
+        assert "direction" not in params
+
 
 class TestBuildInitialUrl:
     def test_with_params(self) -> None:
@@ -439,6 +467,14 @@ class TestGithubSourceSortMode:
                 "desc",
             ),
             ("issues_always_asc", "issues", True, datetime(2026, 1, 15, tzinfo=UTC), "asc"),
+            ("workflow_runs_first_sync_no_cutoff", "workflow_runs", True, None, "asc"),
+            (
+                "workflow_runs_incremental_with_cutoff",
+                "workflow_runs",
+                True,
+                datetime(2026, 1, 15, tzinfo=UTC),
+                "desc",
+            ),
         ]
     )
     def test_sort_mode(
@@ -578,6 +614,59 @@ class TestGetRowsResume:
         assert manager.save_state.call_count == 1
         saved = manager.save_state.call_args.args[0]
         assert saved.next_url == mock_get.return_value.get.call_args_list[0].args[0]
+
+    def test_workflow_runs_envelope_is_unwrapped(self) -> None:
+        """workflow_runs returns {"total_count": N, "workflow_runs": [...]}, not
+        a top-level array. The source must drill into response_data_path."""
+        manager = _make_manager(can_resume=False)
+        envelope = {"total_count": 1, "workflow_runs": [{"id": 1001, "created_at": "2026-01-20T10:00:00Z"}]}
+
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            ) as mock_get,
+        ):
+            mock_get.return_value.get.side_effect = [_make_response(body=envelope, link="")]
+            rows = list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="workflow_runs",
+                    logger=mock.Mock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=False,
+                )
+            )
+
+        # The single envelope row is yielded as a chunk by the immediate batcher.
+        assert len(rows) == 1
+        assert rows[0]["id"] == 1001
+
+    def test_workflow_runs_empty_envelope_ends_loop(self) -> None:
+        manager = _make_manager(can_resume=False)
+        envelope = {"total_count": 0, "workflow_runs": []}
+
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            ) as mock_get,
+        ):
+            mock_get.return_value.get.side_effect = [_make_response(body=envelope, link="")]
+            rows = list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="workflow_runs",
+                    logger=mock.Mock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=False,
+                )
+            )
+
+        assert rows == []
+        manager.save_state.assert_not_called()
 
     def test_mid_page_chunk_boundary_checkpoints_current_page(self) -> None:
         """If the chunk boundary lands mid-page, the checkpoint must point at

@@ -5,7 +5,7 @@ import pytest
 from unittest import mock
 
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-from posthog.temporal.tests.data_imports.github.data import COMMITS, ISSUES, PULL_REQUESTS
+from posthog.temporal.tests.data_imports.github.data import COMMITS, ISSUES, PULL_REQUESTS, WORKFLOW_RUNS
 
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 
@@ -69,6 +69,28 @@ def external_data_schema_pull_requests_incremental(external_data_source, team):
         source_id=external_data_source.pk,
         sync_type="incremental",
         sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "datetime"},
+    )
+
+
+@pytest.fixture
+def external_data_schema_workflow_runs_full_refresh(external_data_source, team):
+    return ExternalDataSchema.objects.create(
+        name="workflow_runs",
+        team_id=team.pk,
+        source_id=external_data_source.pk,
+        sync_type="full_refresh",
+        sync_type_config={},
+    )
+
+
+@pytest.fixture
+def external_data_schema_workflow_runs_incremental(external_data_source, team):
+    return ExternalDataSchema.objects.create(
+        name="workflow_runs",
+        team_id=team.pk,
+        source_id=external_data_source.pk,
+        sync_type="incremental",
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "datetime"},
     )
 
 
@@ -196,3 +218,79 @@ async def test_github_pull_requests_incremental(
     assert first_call_params.get("sort") == ["created"]
     assert first_call_params.get("direction") == ["asc"]
     assert "since" not in first_call_params
+
+
+@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_github_workflow_runs_full_refresh(
+    team, mock_github_api, external_data_source, external_data_schema_workflow_runs_full_refresh
+):
+    expected_num_rows = len(WORKFLOW_RUNS)
+
+    await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_workflow_runs_full_refresh,
+        table_name="github_workflow_runs",
+        expected_rows_synced=expected_num_rows,
+        expected_total_rows=expected_num_rows,
+    )
+
+    api_calls = mock_github_api.get_all_api_calls()
+    assert len(api_calls) == 1
+    assert "/repos/owner/repo/actions/runs" in api_calls[0].url
+    # workflow_runs is a minimal-params endpoint: no sort/direction/state.
+    first_call_params = parse_qs(urlparse(api_calls[0].url).query)
+    assert "sort" not in first_call_params
+    assert "direction" not in first_call_params
+    assert "state" not in first_call_params
+    assert "created" not in first_call_params
+
+
+@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_github_workflow_runs_incremental(
+    team, mock_github_api, external_data_source, external_data_schema_workflow_runs_incremental
+):
+    # First sync: limit data to runs created on or before Jan 22
+    mock_github_api.set_max_updated("2026-01-22T23:59:59Z")
+
+    # 2 of 3 fixture runs have created_at <= Jan 22 (id 1001, 1002)
+    await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_workflow_runs_incremental,
+        table_name="github_workflow_runs",
+        expected_rows_synced=2,
+        expected_total_rows=2,
+    )
+
+    api_calls = mock_github_api.get_all_api_calls()
+    assert len(api_calls) == 1
+    first_call_params = parse_qs(urlparse(api_calls[0].url).query)
+    # First sync has no `created` filter (no cutoff yet).
+    assert "created" not in first_call_params
+
+    # Second sync: make all data visible. The cursor sits at created_at of the
+    # newest row from the first sync (Jan 22), so ?created=>=Jan22 returns runs
+    # 1002 (boundary inclusive) and 1003. 1002 dedupes via the `id` merge key.
+    mock_github_api.reset_max_updated()
+
+    await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_workflow_runs_incremental,
+        table_name="github_workflow_runs",
+        expected_rows_synced=2,
+        expected_total_rows=3,
+    )
+
+    api_calls = mock_github_api.get_all_api_calls()
+    assert len(api_calls) == 2
+    # Second sync should use the ?created=>= filter, not ?since=.
+    second_call_params = parse_qs(urlparse(api_calls[1].url).query)
+    assert "created" in second_call_params
+    assert second_call_params["created"][0].startswith(">=")
+    assert "since" not in second_call_params
