@@ -6,9 +6,7 @@ import { toolbarConfigLogic } from './toolbarConfigLogic'
 type OAuthTokens = { access_token: string; refresh_token: string; expires_in: number }
 
 class RefreshError extends Error {
-    /** HTTP status of the refresh response, or 0 for network / transport errors. */
     httpStatus: number
-    /** Error code from the OAuth response body, if present (e.g. invalid_grant). */
     oauthError?: string
 
     constructor(message: string, httpStatus: number, oauthError?: string) {
@@ -18,14 +16,6 @@ class RefreshError extends Error {
     }
 }
 
-/**
- * Classify a refresh failure as terminal (the refresh token is gone — user must
- * re-authenticate) vs transient (network blip, server hiccup, throttling — safe
- * to retry without nuking the session).
- *
- * Treats `invalid_grant` / `invalid_token` (per RFC 6749) and 4xx other than 408
- * and 429 as terminal. Everything else (5xx, 408, 429, network errors) is transient.
- */
 function isTerminalRefreshError(err: unknown): boolean {
     if (!(err instanceof RefreshError)) {
         return false
@@ -57,10 +47,7 @@ async function attemptRefresh(uiHost: string, clientId: string, currentRefreshTo
             status: 'network_error',
             duration_ms: Math.round(performance.now() - startTime),
         })
-        throw new RefreshError(
-            networkErr instanceof Error ? networkErr.message : 'network error',
-            0 // 0 marks transport-level failure (no HTTP response received)
-        )
+        throw new RefreshError(networkErr instanceof Error ? networkErr.message : 'network error', 0)
     }
 
     if (!response.ok) {
@@ -71,7 +58,7 @@ async function attemptRefresh(uiHost: string, clientId: string, currentRefreshTo
                 oauthError = body.error
             }
         } catch {
-            // body is not JSON — ignore
+            // not JSON
         }
         toolbarPosthogJS.capture('toolbar token refresh', {
             status: 'error',
@@ -104,11 +91,6 @@ export async function refreshOAuthTokens(
             try {
                 return await attemptRefresh(uiHost, clientId, currentRefreshToken)
             } catch (err) {
-                // Retry once on transient failures (5xx, 408, 429, network errors).
-                // Previously every refresh failure — including a single 502 from a
-                // proxy hiccup — destroyed the session and forced a full OAuth
-                // round-trip, which was a major driver of the 58:1 expired-vs-refresh
-                // ratio in production.
                 if (isTerminalRefreshError(err)) {
                     throw err
                 }
@@ -156,10 +138,6 @@ export async function withTokenRefresh(
             terminal,
         })
         captureToolbarException(e, 'token_refresh_retry', { terminal })
-        // Only clear the session for genuine "this refresh token will never work
-        // again" responses (invalid_grant / 4xx). Transient failures — 5xx, 408,
-        // 429, network errors — must NOT deauth the user; one bad proxy round-trip
-        // shouldn't cost them their toolbar session.
         if (terminal) {
             toolbarConfigLogic.actions.tokenExpired()
         }

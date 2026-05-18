@@ -83,11 +83,6 @@ export class InsecureContextError extends Error {
 }
 
 export async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
-    // crypto.subtle is only exposed in secure contexts (HTTPS or http://localhost).
-    // Accessing .digest on a non-secure HTTP page throws an opaque
-    // "Cannot read properties of undefined (reading 'digest')" — turn that into a
-    // typed error so confirmAuthenticate can surface an actionable message instead
-    // of leaking the implementation detail to the user.
     if (typeof crypto === 'undefined' || !crypto.subtle || typeof crypto.subtle.digest !== 'function') {
         throw new InsecureContextError()
     }

@@ -855,13 +855,6 @@ export async function toolbarFetch(
     })
 
     if (response.status === 403) {
-        // 403 means the token authenticated but doesn't have the scope/permission
-        // for the action — re-issuing the same OAuth token will not help (same scopes).
-        // Treating every 403 as a session-kill produced a feedback loop in production:
-        // a missing scope (e.g. user:write for hedgehog_config) deauthed the user on
-        // every interaction, looping them through OAuth dozens of times per minute.
-        // Surface telemetry but leave the session intact; callers can show context-
-        // appropriate messaging.
         toolbarLogger.warn('auth', 'Toolbar API request returned 403', {
             pathname,
             method,

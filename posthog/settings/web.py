@@ -758,10 +758,6 @@ TOOLBAR_OAUTH_APPLICATION_NAME = "PostHog Toolbar"
 TOOLBAR_OAUTH_SCOPES = [
     "openid",
     "user:read",
-    # Required so the toolbar can PATCH /api/users/@me/hedgehog_config from
-    # the hedgehog mode toggle. Without it every toggle returns 403 and the
-    # 403→tokenExpired handler in toolbarConfigLogic drops the session, looping
-    # the user back through OAuth on every click.
     "user:write",
     "action:read",
     "action:write",
