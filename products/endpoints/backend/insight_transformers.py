@@ -116,10 +116,13 @@ def _extract_type_str(entry: Any) -> str | None:
 
 def _parse_temporal_value(value: str, team_tz: "ZoneInfo | None") -> datetime:
     """Parquet drops the timezone metadata from ClickHouse `DateTime('Europe/...')` columns,
-    so naive parsed values are treated as UTC and converted to team_tz before strftime."""
+    so naive parsed values are treated as UTC and converted to team_tz before strftime.
+    Already-aware values are converted directly so the function is correct either way."""
     parsed = datetime.fromisoformat(value)
-    if team_tz is not None and parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC).astimezone(team_tz)
+    if team_tz is not None:
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        parsed = parsed.astimezone(team_tz)
     return parsed
 
 

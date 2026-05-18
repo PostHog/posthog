@@ -13,6 +13,7 @@ from unittest import mock
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import (
@@ -226,8 +227,27 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         )
         assert len(first["data"]) == 10, f"Expected 10 data points, got {len(first['data'])}"
 
-    def test_transform_trends_formats_dates_in_team_timezone_at_day_boundary(self):
-        self.team.timezone = "Europe/Bucharest"
+    # Each case picks parquet wall-clock UTC values that map to May 4/5/6 midnight in the
+    # team timezone — covers both UTC-ahead (Bucharest, prior day 21:00) and UTC-behind
+    # (New York, same day 04:00) offsets so the conversion direction is exercised both ways.
+    @parameterized.expand(
+        [
+            (
+                "europe_bucharest",
+                "Europe/Bucharest",
+                ["2026-05-03 21:00:00.000", "2026-05-04 21:00:00.000", "2026-05-05 21:00:00.000"],
+            ),
+            (
+                "america_new_york",
+                "America/New_York",
+                ["2026-05-04 04:00:00.000", "2026-05-05 04:00:00.000", "2026-05-06 04:00:00.000"],
+            ),
+        ]
+    )
+    def test_transform_trends_formats_dates_in_team_timezone_at_day_boundary(
+        self, _name: str, team_timezone: str, parquet_date_strings: list[str]
+    ) -> None:
+        self.team.timezone = team_timezone
         self.team.save()
 
         original_query = TrendsQuery(
@@ -236,15 +256,9 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         ).model_dump()
 
         # Shape matches what S3/parquet returns after round-trip: tz-stripped DateTime64
-        # values with millisecond precision. 21:00 UTC = 00:00 Bucharest the next day.
+        # values with millisecond precision.
         result: dict[str, Any] = {
-            "results": [
-                (
-                    0,
-                    ["2026-05-03 21:00:00.000", "2026-05-04 21:00:00.000", "2026-05-05 21:00:00.000"],
-                    [1, 0, 2],
-                ),
-            ],
+            "results": [(0, parquet_date_strings, [1, 0, 2])],
             "columns": ["__series_index", "date", "total"],
             "types": [
                 ["__series_index", "Int64"],
