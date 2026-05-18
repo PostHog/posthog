@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
@@ -62,6 +62,25 @@ import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFla
 import { flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
+
+function FlagDescription({ name }: { name: string }): JSX.Element {
+    const ref = useRef<HTMLDivElement | null>(null)
+    const [isTruncated, setIsTruncated] = useState(false)
+
+    useEffect(() => {
+        if (ref.current) {
+            setIsTruncated(ref.current.scrollHeight > ref.current.clientHeight)
+        }
+    }, [name])
+
+    return (
+        <Tooltip title={isTruncated ? name : undefined} delayMs={500}>
+            <div ref={ref} className="line-clamp-2 max-w-[30rem]">
+                {name}
+            </div>
+        </Tooltip>
+    )
+}
 
 // Component for rendering status cell with loading state
 function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
@@ -375,16 +394,7 @@ export function OverviewTab({
                                 )}
                             </>
                         }
-                        description={
-                            featureFlag.name ? (
-                                <Tooltip
-                                    title={featureFlag.name.length > 80 ? featureFlag.name : undefined}
-                                    delayMs={500}
-                                >
-                                    <div className="line-clamp-2 max-w-[30rem]">{featureFlag.name}</div>
-                                </Tooltip>
-                            ) : undefined
-                        }
+                        description={featureFlag.name ? <FlagDescription name={featureFlag.name} /> : undefined}
                     />
                 )
             },
