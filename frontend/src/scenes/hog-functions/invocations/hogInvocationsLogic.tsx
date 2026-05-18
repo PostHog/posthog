@@ -199,12 +199,11 @@ const parseRelativeHours = (value: string | undefined): number | null => {
     return n * (hoursPerUnit[match[2]] ?? 0)
 }
 
-const pickSparklineBucketFn = (
-    filters: HogInvocationsFilters
-): 'toStartOfMinute' | 'toStartOfHour' | 'toStartOfDay' => {
-    // Relative `-Nh / -Nd` strings have a known duration without needing to
-    // anchor them; use that directly. Falls back to parsing both endpoints
-    // when the filter uses absolute ISO timestamps.
+/**
+ * Returns a HogQL expression that buckets `first_scheduled_at` for the
+ * sparkline. Tiers: minute (<24h), 15-min (≤4d), hour (≤7d), day (above).
+ */
+const pickSparklineBucketExpr = (filters: HogInvocationsFilters): string => {
     let hours = parseRelativeHours(filters.date_from)
     if (hours === null) {
         const from = dateStringToDayJs(filters.date_from) ?? dayjs().subtract(24, 'hour')
@@ -212,12 +211,15 @@ const pickSparklineBucketFn = (
         hours = to.diff(from, 'hour')
     }
     if (hours < 24) {
-        return 'toStartOfMinute'
+        return 'toStartOfMinute(first_scheduled_at)'
+    }
+    if (hours <= 4 * 24) {
+        return 'toStartOfInterval(first_scheduled_at, INTERVAL 15 MINUTE)'
     }
     if (hours <= 7 * 24) {
-        return 'toStartOfHour'
+        return 'toStartOfHour(first_scheduled_at)'
     }
-    return 'toStartOfDay'
+    return 'toStartOfDay(first_scheduled_at)'
 }
 
 const SPARKLINE_STATUS_COLORS: Record<RunStatus, string> = {
@@ -228,10 +230,10 @@ const SPARKLINE_STATUS_COLORS: Record<RunStatus, string> = {
 
 async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvocationsFilters): Promise<SparklineData> {
     const replayWrapperKind = replayWrapperKindFor(props.functionKind)
-    const bucketFn = pickSparklineBucketFn(filters)
+    const bucketExpr = pickSparklineBucketExpr(filters)
     const query = hogql`
         SELECT
-            ${hogql.raw(bucketFn)}(first_scheduled_at) AS bucket,
+            ${hogql.raw(bucketExpr)} AS bucket,
             status,
             count() AS n
         FROM (
