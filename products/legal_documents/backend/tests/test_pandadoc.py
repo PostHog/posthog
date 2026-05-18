@@ -147,3 +147,39 @@ class TestPandaDocClient(TestCase):
         self.assertEqual(pandadoc._serialize_recipient(client), {"email": "ada@acme.example", "role": "Client"})
         posthog = pandadoc.PandaDocRecipient(email="privacy@posthog.com", role=pandadoc.PandaDocRole.POSTHOG)
         self.assertEqual(pandadoc._serialize_recipient(posthog), {"email": "privacy@posthog.com", "role": "PostHog"})
+
+    @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
+    def test_delete_document_issues_delete_to_expected_path(self) -> None:
+        fake_response = MagicMock()
+        fake_response.status_code = 204
+
+        with patch(
+            "products.legal_documents.backend.logic.pandadoc.requests.delete", return_value=fake_response
+        ) as mock_delete:
+            pandadoc.PandaDocClient().delete_document(document_id="doc_123")
+
+        mock_delete.assert_called_once()
+        args, kwargs = mock_delete.call_args
+        self.assertEqual(args[0], "https://api.pandadoc.com/public/v1/documents/doc_123")
+        self.assertEqual(kwargs["headers"]["Authorization"], "API-Key key")
+
+    @override_settings(PANDADOC_API_KEY="key")
+    def test_delete_document_treats_404_as_success(self) -> None:
+        # The envelope is already gone on PandaDoc's side — that's the state
+        # we wanted, so the helper must not raise.
+        fake_response = MagicMock()
+        fake_response.status_code = 404
+        fake_response.text = "not found"
+
+        with patch("products.legal_documents.backend.logic.pandadoc.requests.delete", return_value=fake_response):
+            pandadoc.PandaDocClient().delete_document(document_id="doc_123")
+
+    @override_settings(PANDADOC_API_KEY="key")
+    def test_delete_document_raises_on_other_errors(self) -> None:
+        fake_response = MagicMock()
+        fake_response.status_code = 423
+        fake_response.text = "Document is locked for editing"
+
+        with patch("products.legal_documents.backend.logic.pandadoc.requests.delete", return_value=fake_response):
+            with self.assertRaises(pandadoc.PandaDocError):
+                pandadoc.PandaDocClient().delete_document(document_id="doc_123")

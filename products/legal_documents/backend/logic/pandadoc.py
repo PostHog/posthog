@@ -1,9 +1,10 @@
 """
 Thin client for the PandaDoc public API.
 
-We only hit two endpoints:
-    POST /public/v1/documents         -> create a document from a template
-    POST /public/v1/documents/{id}/send -> email the signing envelope
+We hit three endpoints:
+    POST   /public/v1/documents              -> create a document from a template
+    POST   /public/v1/documents/{id}/send    -> email the signing envelope
+    DELETE /public/v1/documents/{id}         -> remove an envelope (drafts, sent, etc.)
 
 Plus one helper for verifying the HMAC signature on inbound webhooks. Keeping
 this file free of Django/DRF imports so it's straightforward to unit test.
@@ -96,6 +97,23 @@ class PandaDocClient:
         except ValueError as exc:
             raise PandaDocError(f"PandaDoc {path} returned non-JSON body: {exc}") from exc
 
+    def _delete(self, path: str) -> int:
+        """
+        DELETE the given path. Returns the HTTP status code so callers can
+        distinguish a successful delete (204) from a "no-op, already gone"
+        (404) without inspecting an exception.
+        """
+        url = f"{self._base_url}{path}"
+        try:
+            response = requests.delete(url, headers=self._headers(), timeout=self._timeout)
+        except requests.RequestException as exc:
+            raise PandaDocError(f"Network error calling PandaDoc {path}: {exc}") from exc
+        if response.status_code == 404:
+            return response.status_code
+        if response.status_code >= 400:
+            raise PandaDocError(f"PandaDoc {path} returned {response.status_code}: {response.text[:500]}")
+        return response.status_code
+
     @contextmanager
     def _get_stream(self, path: str) -> Iterator[IO[bytes]]:
         """
@@ -165,6 +183,16 @@ class PandaDocClient:
             f"/public/v1/documents/{document_id}/send",
             {"subject": subject, "message": message, "silent": False},
         )
+
+    def delete_document(self, *, document_id: str) -> None:
+        """
+        Remove the envelope on PandaDoc's side so the recipient can no longer
+        complete it. 404 is treated as success — the envelope was already
+        gone, which is the state we wanted anyway. Any other non-2xx surfaces
+        as PandaDocError so the caller can decide whether to retry or just
+        log + move on.
+        """
+        self._delete(f"/public/v1/documents/{document_id}")
 
     @contextmanager
     def stream_document(self, *, document_id: str) -> Iterator[IO[bytes]]:
