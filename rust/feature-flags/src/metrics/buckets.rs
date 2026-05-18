@@ -106,5 +106,13 @@ pub fn bucket_overrides() -> Vec<(Matcher, &'static [f64])> {
             Matcher::Full("flags_definitions_inmem_load_ms".into()),
             INMEM_LOAD_BUCKETS_MS,
         ),
+        (
+            Matcher::Full("posthog_hypercache_redis_op_ms".into()),
+            INMEM_LOAD_BUCKETS_MS,
+        ),
+        (
+            Matcher::Full("posthog_hypercache_s3_op_ms".into()),
+            INMEM_LOAD_BUCKETS_MS,
+        ),
     ]
 }
