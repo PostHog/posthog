@@ -77,7 +77,8 @@ export class MaterializedColumnSlotManager {
             })
         }
 
-        // null = "team not loaded yet"; [] = "team has zero slots". LazyLoader needs both.
+        // Map every requested team to `null` when it has no slots, so LazyLoader negatively
+        // caches it instead of re-querying for slot-less teams (the common case) on every event.
         const result: Record<string, MaterializedColumnSlot[] | null> = {}
         for (const id of teamIds) {
             result[id] = slotsByTeam[id] ?? null

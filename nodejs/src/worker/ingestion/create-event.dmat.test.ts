@@ -138,7 +138,5 @@ describe('createEvent dmat coercion parity vs SQL', () => {
         }
     }
 
-    fixtures.string_cases.forEach((fc) => {
-        it(`String: ${fc.name}`, () => runCase(fc))
-    })
+    it.each(fixtures.string_cases)('String: $name', (fc) => runCase(fc))
 })

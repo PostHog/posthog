@@ -279,11 +279,11 @@ jobs:
                   # Diff against master rather than the PR's base ref so stacked PRs
                   # (Graphite, etc.) where the base is itself a feature branch correctly
                   # detect migrations introduced lower in the stack.
-                  if git fetch --no-tags --depth=1 origin master 2>/dev/null && \
-                     git diff --name-only "origin/master..HEAD" | grep -E '(migrations/|rust/.*migrate)'; then
-                    echo "has_migrations=true" >> $GITHUB_OUTPUT
+                  git fetch --no-tags --depth=1 origin master
+                  if git diff --name-only "origin/master..HEAD" | grep -qE '(migrations/|rust/.*migrate)'; then
+                    echo "has_migrations=true" >> "$GITHUB_OUTPUT"
                   else
-                    echo "has_migrations=false" >> $GITHUB_OUTPUT
+                    echo "has_migrations=false" >> "$GITHUB_OUTPUT"
                   fi
 
             - name: Set up databases (fast path - restore schema)
