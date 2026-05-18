@@ -2523,9 +2523,7 @@ class TestExternalDataSource(APIBaseTest):
         assert legacy_metadata.get("source_table_name") == "example_table"
 
         # The newly-discovered `poblic.example_table` is a brand-new row pointing at the right place.
-        new_row = ExternalDataSchema.objects.get(
-            team_id=self.team.pk, source_id=source.pk, name="poblic.example_table"
-        )
+        new_row = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="poblic.example_table")
         new_metadata = new_row.sync_type_config.get("schema_metadata") or {}
         assert new_metadata.get("source_schema") == "poblic", (
             f"source_for_pipeline would emit SELECT FROM public.poblic.example_table "
