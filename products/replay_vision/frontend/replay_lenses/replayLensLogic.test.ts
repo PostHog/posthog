@@ -63,34 +63,41 @@ describe('replayLensLogic', () => {
     })
 
     describe('validation errors', () => {
-        it('flags missing name', () => {
-            expect(logic.values.lensValidationErrors).toMatchObject({ name: 'Name is required' })
-        })
-
-        it('flags missing prompt', () => {
-            expect(logic.values.lensValidationErrors).toMatchObject({
-                lens_config: expect.objectContaining({ prompt: 'Prompt is required' }),
-            })
-        })
-
-        it('flags sampling rate outside (0, 1]', async () => {
-            logic.actions.setLensValues({ sampling_rate: 0 })
-            await expectLogic(logic).toMatchValues({
-                lensValidationErrors: expect.objectContaining({
-                    sampling_rate: expect.any(String),
-                }),
-            })
-        })
-
-        it('flags scorer scale when min >= max', async () => {
-            logic.actions.setLensType('scorer')
-            logic.actions.setLensValues({
-                lens_config: { prompt: 'rate this', scale: { min: 10, max: 5 } } as ScorerLens['lens_config'],
-            })
-            await expectLogic(logic).toMatchValues({
-                lensValidationErrors: expect.objectContaining({
+        it.each([
+            {
+                name: 'flags missing name',
+                setup: () => undefined,
+                expectedErrors: { name: 'Name is required' },
+            },
+            {
+                name: 'flags missing prompt',
+                setup: () => undefined,
+                expectedErrors: { lens_config: expect.objectContaining({ prompt: 'Prompt is required' }) },
+            },
+            {
+                name: 'flags sampling rate outside (0, 1]',
+                setup: () => logic.actions.setLensValues({ sampling_rate: 0 }),
+                expectedErrors: { sampling_rate: expect.any(String) },
+            },
+            {
+                name: 'flags scorer scale when min >= max',
+                setup: () => {
+                    logic.actions.setLensType('scorer')
+                    logic.actions.setLensValues({
+                        lens_config: {
+                            prompt: 'rate this',
+                            scale: { min: 10, max: 5 },
+                        } as ScorerLens['lens_config'],
+                    })
+                },
+                expectedErrors: {
                     lens_config: expect.objectContaining({ scale: expect.stringContaining('greater than') }),
-                }),
+                },
+            },
+        ])('$name', async ({ setup, expectedErrors }) => {
+            setup()
+            await expectLogic(logic).toMatchValues({
+                lensValidationErrors: expect.objectContaining(expectedErrors),
             })
         })
 

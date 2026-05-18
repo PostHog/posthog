@@ -4,10 +4,24 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { replayLensesLogic } from './replayLensesLogic'
-import { LensType, ReplayLens } from './types'
+import { LensConfig, LensType, ReplayLens } from './types'
+
+function defaultConfigForType(lensType: LensType): LensConfig {
+    if (lensType === 'summarizer') {
+        return { prompt: 'Summarize this session.', length: 'medium' }
+    }
+    if (lensType === 'classifier') {
+        return { prompt: 'Tag this session.', tags: [], multi_label: true }
+    }
+    if (lensType === 'scorer') {
+        return { prompt: 'Score this session.', scale: { min: 0, max: 10 } }
+    }
+    return { prompt: 'Did the user struggle?' }
+}
 
 function makeLens(overrides: Partial<ReplayLens> = {}): ReplayLens {
-    return {
+    const lensType: LensType = overrides.lens_type ?? 'monitor'
+    const base = {
         id: 'lens-1',
         name: 'Confused checkout',
         description: '',
@@ -22,10 +36,10 @@ function makeLens(overrides: Partial<ReplayLens> = {}): ReplayLens {
         created_at: '2026-05-12T00:00:00Z',
         updated_at: '2026-05-12T00:00:00Z',
         created_by: null,
-        lens_type: 'monitor' as LensType,
-        lens_config: { prompt: 'Did the user struggle?' },
-        ...overrides,
-    } as ReplayLens
+        lens_type: lensType,
+        lens_config: defaultConfigForType(lensType),
+    }
+    return { ...base, ...overrides } as ReplayLens
 }
 
 describe('replayLensesLogic', () => {
@@ -56,7 +70,7 @@ describe('replayLensesLogic', () => {
     it.each([
         { name: 'no filters returns all', search: '', enabled: [], types: [], expected: ['a', 'b', 'c'] },
         { name: 'search by name', search: 'checkout', enabled: [], types: [], expected: ['a'] },
-        { name: 'search by prompt fragment', search: 'struggle', enabled: [], types: [], expected: ['a', 'b', 'c'] },
+        { name: 'search by prompt fragment', search: 'struggle', enabled: [], types: [], expected: ['a'] },
         { name: 'enabled filter', search: '', enabled: ['enabled' as const], types: [], expected: ['a', 'c'] },
         { name: 'disabled filter', search: '', enabled: ['disabled' as const], types: [], expected: ['b'] },
         {
