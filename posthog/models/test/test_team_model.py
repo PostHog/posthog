@@ -112,6 +112,15 @@ class TestCoreEvent(BaseTest):
 
 
 class TestTeam(BaseTest):
+    def _enable_access_control(self, role_based: bool = False) -> None:
+        from posthog.constants import AvailableFeature
+
+        features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}]
+        if role_based:
+            features.append({"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS})
+        self.organization.available_product_features = features
+        self.organization.save()
+
     def test_all_users_with_access_simple_org_membership(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
@@ -153,6 +162,7 @@ class TestTeam(BaseTest):
 
     def test_all_users_with_access_new_access_control_private_team(self):
         """Test that only users with specific access have access to a private team with the new access control system"""
+        self._enable_access_control()
 
         # Make the team private
         AccessControl.objects.create(
@@ -185,6 +195,7 @@ class TestTeam(BaseTest):
 
     def test_all_users_with_access_new_access_control_private_team_with_member_access(self):
         """Test that users with specific member access have access to a private team with the new access control system"""
+        self._enable_access_control()
 
         # Make the team private
         AccessControl.objects.create(
@@ -227,6 +238,7 @@ class TestTeam(BaseTest):
 
     def test_all_users_with_access_new_access_control_private_team_with_role_access(self):
         """Test that users with role-based access have access to a private team with the new access control system"""
+        self._enable_access_control(role_based=True)
 
         # Make the team private
         AccessControl.objects.create(

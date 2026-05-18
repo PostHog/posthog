@@ -134,6 +134,11 @@ class AccessControlSerializer(serializers.ModelSerializer):
         team = context["view"].team
         the_object = context["view"].get_object()
 
+        # Role-backed access controls require the ROLE_BASED_ACCESS feature — same gate
+        # as the UI's "Roles" blocks and the runtime enforcement in UserTeamPermissions.
+        if data.get("role") and not team.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+            raise exceptions.PermissionDenied("Role-based access controls require the Role-based access feature.")
+
         if resource_id:
             if str(the_object.pk) != str(resource_id):
                 raise exceptions.PermissionDenied(

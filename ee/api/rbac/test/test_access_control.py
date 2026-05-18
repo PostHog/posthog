@@ -125,6 +125,26 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         assert "organization member id" in res.json()["detail"]
         assert "/api/organizations/" in res.json()["detail"]
 
+    def test_role_based_access_control_rejected_without_role_based_access_feature(self):
+        # Drop ROLE_BASED_ACCESS, keep ACCESS_CONTROL — same shape as the UI gate
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        role = Role.objects.create(name="Engineering", organization=self.organization)
+
+        res = self._put_project_access_control({"role": str(role.id), "access_level": "admin"})
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+        assert "Role-based access" in res.json()["detail"]
+
+        # Member-level writes still work — only the role-backed write is blocked
+        res = self._put_project_access_control(
+            {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
 
 class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
     def test_action_access_level_cannot_be_below_viewer(self):
