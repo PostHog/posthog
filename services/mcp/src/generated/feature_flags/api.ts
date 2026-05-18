@@ -783,11 +783,6 @@ export const FeatureFlagsTestEvaluationCreateParams = /* @__PURE__ */ zod.object
         ),
 })
 
-<<<<<<< HEAD
-export const featureFlagsTestEvaluationCreateBodyGroupsDefault = `{}`
-
-=======
->>>>>>> origin/master
 export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
     distinct_id: zod
         .string()
@@ -795,17 +790,6 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
         .describe('User distinct ID to test against (mutually exclusive with person_id)'),
     person_id: zod.string().optional().describe('Person ID to test against (mutually exclusive with distinct_id)'),
     timestamp: zod.iso
-<<<<<<< HEAD
-        .datetime({})
-        .nullish()
-        .describe(
-            'Optional timestamp to evaluate flag using both flag conditions and person properties as they existed at that time (ISO format)'
-        ),
-    groups: zod
-        .string()
-        .default(featureFlagsTestEvaluationCreateBodyGroupsDefault)
-        .describe('Groups for feature flag evaluation (JSON object string)'),
-=======
         .datetime({ offset: true })
         .nullish()
         .describe(
@@ -815,7 +799,6 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe('Groups for feature flag evaluation (JSON object, defaults to empty dict)'),
->>>>>>> origin/master
 })
 
 /**

@@ -416,31 +416,6 @@ export const getFeatureFlagsVersionsRetrieveUrl = (projectId: string, id: number
 }
 
 /**
- * Test feature flag evaluation against a specific user at an optional point in time.
-
-This endpoint allows testing how a feature flag would evaluate for a specific user,
-optionally at a historical timestamp. When a timestamp is provided, both the flag
-conditions and person properties are evaluated as they existed at that time.
- */
-export const getFeatureFlagsTestEvaluationCreateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/feature_flags/${id}/test_evaluation/`
-}
-
-export const featureFlagsTestEvaluationCreate = async (
-    projectId: string,
-    id: number,
-    featureFlagTestEvaluationRequestApi: FeatureFlagTestEvaluationRequestApi,
-    options?: RequestInit
-): Promise<FeatureFlagTestEvaluationResponseApi> => {
-    return apiMutator<FeatureFlagTestEvaluationResponseApi>(getFeatureFlagsTestEvaluationCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagTestEvaluationRequestApi),
-    })
-}
-
-/**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.

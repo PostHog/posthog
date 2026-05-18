@@ -237,52 +237,6 @@ pub async fn fetch_and_filter(
         None => &prepared.flags,
     };
 
-    // Apply override flag definitions if provided
-    if let Some(override_defs) = override_flags_definitions {
-        let mut overridden_keys = Vec::new();
-        tracing::debug!("Processing {} override definitions", override_defs.len());
-        for (flag_key, override_def) in override_defs {
-            tracing::debug!("Processing override for flag: {}", flag_key);
-            // Find the flag to override
-            if let Some(flag) = flags.iter_mut().find(|f| &f.key == flag_key) {
-                tracing::trace!(
-                    "Found flag to override: {}, current filters: {:?}",
-                    flag_key,
-                    flag.filters
-                );
-                // Parse and apply the override definition
-                match serde_json::from_value::<FeatureFlag>(override_def.clone()) {
-                    Ok(override_flag) => {
-                        tracing::trace!(
-                            "Successfully parsed override flag: {}, new filters: {:?}",
-                            flag_key,
-                            override_flag.filters
-                        );
-                        *flag = override_flag;
-                        overridden_keys.push(flag_key.clone());
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to parse override definition for flag {}: {}",
-                            flag_key,
-                            e
-                        );
-                        tracing::debug!("Override definition: {:?}", override_def);
-                    }
-                }
-            } else {
-                tracing::warn!("Flag not found for override: {}", flag_key);
-            }
-        }
-
-        // Record override usage in canonical log
-        if !overridden_keys.is_empty() {
-            with_canonical_log(|log| {
-                log.flags_overridden = Some(overridden_keys);
-            });
-        }
-    }
-
     // Build the filtered-out set: user-disabled, deleted, survey filter, runtime/tag mismatches.
     // This is the single source of truth for "should this flag be skipped during evaluation."
     let mut filtered_out_flag_ids: HashSet<i32> = flags
