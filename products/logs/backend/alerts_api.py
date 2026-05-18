@@ -107,7 +107,7 @@ def _state_timeline_window_bounds() -> tuple[datetime, datetime]:
     return end - dt.timedelta(hours=STATE_TIMELINE_LOOKBACK_HOURS), end
 
 
-@extend_schema_field(LogsAlertFilters)
+@extend_schema_field(LogsAlertFilters)  # type: ignore[arg-type]
 class LogsAlertFiltersField(serializers.JSONField):
     """JSONField typed against the `LogsAlertFilters` Pydantic schema.
 
@@ -119,7 +119,7 @@ class LogsAlertFiltersField(serializers.JSONField):
     alerting worker never sees a structurally invalid `filterGroup`.
     """
 
-    def to_internal_value(self, data: object) -> dict:
+    def to_internal_value(self, data: dict | list) -> dict:
         value = super().to_internal_value(data)
         if not isinstance(value, dict):
             raise serializers.ValidationError("Must be a JSON object.")
