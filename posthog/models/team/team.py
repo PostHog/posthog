@@ -877,6 +877,8 @@ class Team(UUIDTClassicModel):
             raise ValueError("New API token exceeds 200 characters.")
         if new_token == self.api_token:
             raise ValueError("New API token is identical to the current token.")
+        if Team.objects.filter(api_token=new_token).exclude(pk=self.pk).exists():
+            raise ValueError("New API token is already in use by another team.")
 
         old_token = self.api_token
         self.api_token = new_token

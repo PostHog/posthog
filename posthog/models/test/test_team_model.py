@@ -2,7 +2,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
 
 from parameterized import parameterized
 
@@ -327,12 +326,13 @@ class TestTeamSetTokenAndSave(BaseTest):
     def test_set_token_and_save_rejects_token_already_taken_by_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, api_token="phc_already_taken")
 
-        with self.assertRaises(IntegrityError), transaction.atomic():
+        with self.assertRaises(ValueError) as ctx:
             self.team.set_token_and_save(
                 new_token="phc_already_taken",
                 user=self.user,
                 is_impersonated_session=False,
             )
+        assert "already in use" in str(ctx.exception)
 
         other_team.refresh_from_db()
         assert other_team.api_token == "phc_already_taken"
