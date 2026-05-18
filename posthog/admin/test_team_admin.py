@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory
 
 from parameterized import parameterized
@@ -85,5 +86,21 @@ class TestTeamAdminSetApiTokenView(BaseTest):
 
         assert response.status_code == 302
         assert response["Location"] == self.set_api_token_url
+        self.team.refresh_from_db()
+        assert self.team.api_token == "phc_admin_test_old"
+
+    @parameterized.expand([("get",), ("post",)])
+    def test_returns_403_when_user_lacks_change_permission(self, method: str) -> None:
+        if method == "post":
+            http_request = self.factory.post(self.set_api_token_url, {"new_token": "phc_admin_test_new"})
+        else:
+            http_request = self.factory.get(self.set_api_token_url)
+        http_request.user = self.user
+        _attach_messages(http_request)
+
+        with patch.object(self.admin, "has_change_permission", return_value=False):
+            with self.assertRaises(PermissionDenied):
+                self.admin.set_api_token_view(http_request, str(self.team.pk))
+
         self.team.refresh_from_db()
         assert self.team.api_token == "phc_admin_test_old"

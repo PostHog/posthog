@@ -10,6 +10,7 @@ from urllib import parse
 
 from django.conf import settings
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import UploadedFile
 from django.db import IntegrityError, transaction
 from django.forms import ModelForm, ValidationError
@@ -398,6 +399,8 @@ class TeamAdmin(admin.ModelAdmin):
 
     def set_api_token_view(self, request, object_id):
         team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
 
         if request.method == "GET":
             context = {
