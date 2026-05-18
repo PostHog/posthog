@@ -101,6 +101,11 @@ export function Settings({
 
     const isCompact = !inStorybookTestRunner() && size === 'small'
 
+    // The full settings scene fills the scene area, so its nav can be viewport-fixed.
+    // Embeds (replay settings, error tracking config, side panel, modal) place the nav
+    // in normal flow instead, so it sits beside the content rather than overlapping.
+    const isFullScene = props.logicKey === 'settingsScene'
+
     const settingsInSidebar = props.sectionId && !!selectedSetting
 
     const searchItems: SearchResult[] = React.useMemo(
@@ -110,17 +115,18 @@ export function Settings({
 
     // Track the visual viewport so the mobile drawer shrinks above the on-screen
     // keyboard (`dvh` units don't account for the keyboard) — keeps the list scrollable.
+    // Only needed in compact mode, where the Drawer is used.
     const [visualViewportHeight, setVisualViewportHeight] = React.useState<number | null>(null)
     React.useEffect(() => {
         const vv = window.visualViewport
-        if (!vv) {
+        if (!isCompact || !vv) {
             return
         }
         const update = (): void => setVisualViewportHeight(vv.height)
         update()
         vv.addEventListener('resize', update)
         return () => vv.removeEventListener('resize', update)
-    }, [])
+    }, [isCompact])
 
     // Scroll the active item into view in the nav, on load and whenever the selected
     // section changes. Delayed so any auto-expanded collapsible has finished animating.
@@ -352,7 +358,12 @@ export function Settings({
             ) : (
                 <div
                     data-quill
-                    className="bg-muted border rounded fixed top-[calc(var(--scene-layout-header-height)+var(--scene-padding))] bottom-[var(--scene-padding)] w-[var(--settings-nav-width)] flex flex-col"
+                    className={clsx(
+                        'bg-muted border rounded w-[var(--settings-nav-width)] flex flex-col',
+                        isFullScene
+                            ? 'fixed top-[calc(var(--scene-layout-header-height)+var(--scene-padding))] bottom-[var(--scene-padding)]'
+                            : 'sticky top-[var(--scene-layout-header-height)] self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
+                    )}
                 >
                     {navContent}
                 </div>
@@ -362,7 +373,7 @@ export function Settings({
                 <div
                     className={clsx(
                         'flex-1 w-full min-w-0 space-y-2 self-start pb-32',
-                        !hideSections && !isCompact && 'pl-[calc(var(--settings-nav-width)+2rem)]'
+                        isFullScene && !hideSections && !isCompact && 'pl-[calc(var(--settings-nav-width)+2rem)]'
                     )}
                 >
                     {headerSlot}
