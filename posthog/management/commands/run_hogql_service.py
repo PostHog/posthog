@@ -45,4 +45,4 @@ class Command(BaseCommand):
             )
 
         self.stdout.write(f"Starting HogQL service on {config.host}:{config.port}")
-        asyncio.run(HogQLPostgresServer(config).serve_forever())
+        asyncio.run(HogQLPostgresServer(config, on_listening=self.stdout.write).serve_forever())
