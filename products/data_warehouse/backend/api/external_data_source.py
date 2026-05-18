@@ -66,13 +66,7 @@ from products.data_warehouse.backend.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
-from products.data_warehouse.backend.direct_postgres import (
-    filter_dwh_columns_by_enabled_columns,
-    get_direct_postgres_location,
-    postgres_schema_metadata,
-    reconcile_postgres_schemas,
-    upsert_direct_postgres_table,
-)
+from products.data_warehouse.backend.direct_postgres import upsert_direct_postgres_table
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     delete_webhook_and_hog_function,
@@ -89,6 +83,12 @@ from products.data_warehouse.backend.models import (
 from products.data_warehouse.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_columns, validate_source_prefix
+from products.data_warehouse.backend.postgres_helpers import (
+    filter_dwh_columns_by_enabled_columns,
+    get_postgres_source_location,
+    postgres_schema_metadata,
+    reconcile_postgres_schemas,
+)
 from products.data_warehouse.backend.postgres_warehouse_migration import (
     apply_on_schema_clear as apply_postgres_warehouse_schema_clear_migration,
     detect_schema_clear_transition as detect_postgres_schema_clear_transition,
@@ -227,7 +227,7 @@ def get_postgres_source_table_location(
     source_schema: SourceSchema | None,
     default_schema: str | None,
 ) -> tuple[str | None, str, str]:
-    return get_direct_postgres_location(
+    return get_postgres_source_location(
         schema_name=schema_name,
         schema_metadata={
             "source_catalog": source_schema.source_catalog if source_schema else None,
@@ -1094,7 +1094,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     default_schema=default_source_schema,
                 )
             )
-            resolved_source_catalog, resolved_source_schema, resolved_source_table_name = get_direct_postgres_location(
+            resolved_source_catalog, resolved_source_schema, resolved_source_table_name = get_postgres_source_location(
                 schema_name=schema_name,
                 schema_metadata={
                     "source_catalog": source_schema.source_catalog if source_schema else None,

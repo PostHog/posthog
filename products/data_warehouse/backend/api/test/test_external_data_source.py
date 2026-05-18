@@ -2618,7 +2618,7 @@ class TestExternalDataSource(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.content
 
-        # `rename_direct_postgres_schemas_to_match_source_schemas` matches the legacy unqualified
+        # `rename_postgres_schemas_to_match_source_schemas` matches the legacy unqualified
         # row by location to the discovered `public.example_table` (legacy falls back to "public"
         # when no default schema is set), then `consolidate_postgres_legacy_rows` qualifies the
         # legacy row in place using the pinned `source_schema`. `dwh_storage_key="example_table"`

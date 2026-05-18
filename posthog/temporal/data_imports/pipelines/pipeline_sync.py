@@ -23,10 +23,10 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
-from products.data_warehouse.backend.direct_postgres import filter_dwh_columns_by_enabled_columns
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.data_warehouse.backend.postgres_helpers import filter_dwh_columns_by_enabled_columns
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)

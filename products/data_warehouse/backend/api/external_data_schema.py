@@ -33,13 +33,7 @@ from products.data_warehouse.backend.data_load.service import (
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
-from products.data_warehouse.backend.direct_postgres import (
-    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
-    get_direct_postgres_location,
-    hide_direct_postgres_table,
-    postgres_schema_metadata_to_dwh_columns,
-    upsert_direct_postgres_table,
-)
+from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table, upsert_direct_postgres_table
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,
@@ -50,6 +44,11 @@ from products.data_warehouse.backend.models.external_data_schema import (
     sync_frequency_to_sync_frequency_interval,
 )
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.postgres_helpers import (
+    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+    get_postgres_source_location,
+    postgres_schema_metadata_to_dwh_columns,
+)
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
@@ -405,7 +404,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if source.is_direct_postgres:
             # We use "should_sync" to determine if the table should be exposed or hidden.
             if should_sync is True and instance.should_sync is False:
-                source_catalog, source_schema, source_table_name = get_direct_postgres_location(
+                source_catalog, source_schema, source_table_name = get_postgres_source_location(
                     schema_name=instance.name,
                     schema_metadata=instance.schema_metadata,
                     default_schema=(source.job_inputs or {}).get("schema"),
@@ -428,7 +427,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             elif enabled_columns_changed and instance.table is not None and instance.should_sync:
                 # Re-project the live-query DataWarehouseTable so HogQL sees the new column subset
                 # immediately (no re-sync needed for direct mode).
-                source_catalog, source_schema, source_table_name = get_direct_postgres_location(
+                source_catalog, source_schema, source_table_name = get_postgres_source_location(
                     schema_name=instance.name,
                     schema_metadata=instance.schema_metadata,
                     default_schema=(source.job_inputs or {}).get("schema"),
@@ -583,7 +582,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             return
 
         pub_name = cdc_config.publication_name
-        _, db_schema, source_table_name = get_direct_postgres_location(
+        _, db_schema, source_table_name = get_postgres_source_location(
             schema_name=instance.name,
             schema_metadata=instance.schema_metadata,
             default_schema=(source.job_inputs or {}).get("schema"),

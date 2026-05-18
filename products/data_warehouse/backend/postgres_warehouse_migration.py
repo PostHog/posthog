@@ -13,11 +13,11 @@ from typing import Any
 
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 
-from products.data_warehouse.backend.direct_postgres import (
-    _normalize_default_schema,
-    rename_direct_postgres_schemas_to_match_source_schemas,
-)
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.postgres_helpers import (
+    _normalize_default_schema,
+    rename_postgres_schemas_to_match_source_schemas,
+)
 
 
 def _qualify_legacy_row(
@@ -146,7 +146,7 @@ def reconcile_refresh_name_substitutions(
     consolidate helper (drops legacy/qualified duplicates, qualifies legacy in place) and chains
     them so callers feed a single dict into `sync_old_schemas_with_new_schemas`.
     """
-    name_substitutions = rename_direct_postgres_schemas_to_match_source_schemas(
+    name_substitutions = rename_postgres_schemas_to_match_source_schemas(
         source=source,
         source_schemas=source_schemas,
         team_id=team_id,

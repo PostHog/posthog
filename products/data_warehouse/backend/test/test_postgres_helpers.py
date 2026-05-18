@@ -1,13 +1,13 @@
 from parameterized import parameterized
 
-from products.data_warehouse.backend.direct_postgres import (
+from products.data_warehouse.backend.postgres_helpers import (
     filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns,
-    get_direct_postgres_location,
+    get_postgres_source_location,
 )
 
 
-class TestGetDirectPostgresLocation:
+class TestGetPostgresSourceLocation:
     @parameterized.expand(
         [
             ("whitespace_only_schema", "public.accounts", "   ", (None, "public", "accounts")),
@@ -17,7 +17,7 @@ class TestGetDirectPostgresLocation:
     def test_normalizes_default_schema_before_inference(
         self, _name: str, schema_name: str, default_schema: str, expected: tuple[str | None, str, str]
     ) -> None:
-        assert get_direct_postgres_location(schema_name=schema_name, default_schema=default_schema) == expected
+        assert get_postgres_source_location(schema_name=schema_name, default_schema=default_schema) == expected
 
 
 class TestFilterColumnsByEnabledColumns:
