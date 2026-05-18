@@ -384,6 +384,10 @@ class TestLegalDocumentDeleteEndpoint(APIBaseTest):
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
     def test_signed_document_cannot_be_deleted_via_api(self, mock_pandadoc_cls) -> None:
+        # The facade re-reads the row under select_for_update inside the
+        # delete transaction, so a webhook that flips status to signed
+        # between request start and lock acquisition lands here too — the
+        # gate is enforced on the locked row, not on a stale read.
         self.document.status = LegalDocument.Status.SIGNED
         self.document.save()
 
@@ -430,18 +434,21 @@ class TestLegalDocumentDeleteEndpoint(APIBaseTest):
         self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
-    def test_pandadoc_void_failure_does_not_block_row_delete(self, mock_pandadoc_cls) -> None:
-        # The row must come out even if PandaDoc is unreachable — otherwise a
-        # transient outage on a third-party leaves the customer with an
-        # undeletable record.
+    def test_pandadoc_void_failure_returns_503_and_keeps_row(self, mock_pandadoc_cls) -> None:
+        # Self-serve delete runs PandaDoc void in strict mode: if void fails,
+        # the facade's transaction rolls back and the row stays. The
+        # alternative (deleting the row anyway) would mean telling the user
+        # the envelope was cancelled when it wasn't, leaving the original
+        # signer with a still-completable document.
         from products.legal_documents.backend.logic import pandadoc as pandadoc_module
 
         mock_pandadoc_cls.return_value.delete_document.side_effect = pandadoc_module.PandaDocError("boom")
 
         response = self.client.delete(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(LegalDocument.objects.filter(id=self.document.id).exists())
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.json()["code"], "legal_document_void_failed")
+        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
     def test_activity_log_row_is_written_on_delete(self, _mock_pandadoc_cls) -> None:
