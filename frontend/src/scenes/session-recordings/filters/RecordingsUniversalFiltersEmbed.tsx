@@ -52,6 +52,7 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -138,6 +139,8 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const noEventsIngested = currentTeam ? !currentTeam.ingested_event : false
 
     return (
         <>
@@ -185,6 +188,11 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     loading={sessionRecordingsResponseLoading}
                     size="small"
                     tooltip="Refresh list"
+                    disabledReason={
+                        noEventsIngested
+                            ? 'No events ingested yet — set up tracking to see recordings'
+                            : undefined
+                    }
                     data-attr="refresh-recordings-list"
                 />
             </div>
