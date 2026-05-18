@@ -403,13 +403,14 @@ def _mark_alert_broken_for_bad_config(alert_id: str, reason: str) -> None:
             alert = LogsAlertConfiguration.objects.select_for_update().get(pk=alert_id)
             if alert.state == LogsAlertConfiguration.State.BROKEN:
                 return
+            state_before = alert.state
             outcome = apply_broken_config(alert.to_snapshot(recent_events_breached=()))
             update_fields = apply_outcome(alert, outcome)
             LogsAlertEvent.objects.create(
                 alert=alert,
                 kind=LogsAlertEvent.Kind.BROKEN_CONFIG,
                 threshold_breached=False,
-                state_before=alert.state,
+                state_before=state_before,
                 state_after=outcome.new_state.value,
                 error_message=reason,
             )
